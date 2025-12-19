@@ -89,13 +89,75 @@ fn test_mixed_language_identifiers() {
 - Test files: `*_tests.rs` or `test_*.rs`
 - Documentation: `*.md` in English
 
-## Git Workflow
+## Git Workflow - Gitflow Strategy
 
-### Branch Naming
+This project uses **Gitflow** as the branching strategy. Claude must follow these rules strictly.
 
-- Features: `feature/description` or `feature/وصف`
-- Bugfixes: `fix/description`
-- Refactoring: `refactor/description`
+### Main Branches
+
+| Branch | Purpose | Protected |
+|--------|---------|-----------|
+| `main` | Production-ready code. Only receives merges from `release/*` or `hotfix/*` branches. | Yes |
+| `develop` | Integration branch for features. All feature branches merge here. | Yes |
+
+### Supporting Branches
+
+| Branch Type | Naming Convention | Created From | Merges Into |
+|-------------|-------------------|--------------|-------------|
+| Feature | `feature/<description>` | `develop` | `develop` |
+| Release | `release/<version>` | `develop` | `main` and `develop` |
+| Hotfix | `hotfix/<description>` | `main` | `main` and `develop` |
+| Bugfix | `bugfix/<description>` | `develop` | `develop` |
+
+### Branch Naming Examples
+
+- Features: `feature/lexer-arabic-support` or `feature/دعم-العربية`
+- Releases: `release/v0.1.0`
+- Hotfixes: `hotfix/critical-parser-bug`
+- Bugfixes: `bugfix/unicode-normalization`
+
+### Claude-Specific Git Rules
+
+**IMPORTANT**: When Claude works on this repository, it MUST follow these rules:
+
+1. **Never push directly to `main` or `develop`**
+   - Always create a feature/bugfix branch first
+   - Submit changes via Pull Request
+
+2. **Branch Creation Workflow**:
+   ```bash
+   # For new features
+   git checkout develop
+   git pull origin develop
+   git checkout -b feature/my-feature
+
+   # For bugfixes
+   git checkout develop
+   git pull origin develop
+   git checkout -b bugfix/my-fix
+
+   # For hotfixes (critical production bugs only)
+   git checkout main
+   git pull origin main
+   git checkout -b hotfix/critical-fix
+   ```
+
+3. **Before Starting Work**:
+   - Always `git fetch` to get the latest state
+   - Ensure you're branching from the correct base (`develop` for features, `main` for hotfixes)
+
+4. **Pull Request Requirements**:
+   - Feature branches → PR to `develop`
+   - Release branches → PR to `main` (and back-merge to `develop`)
+   - Hotfix branches → PR to `main` (and back-merge to `develop`)
+
+5. **Merge Strategy**:
+   - Use squash merges for features to keep history clean
+   - Use regular merges for releases and hotfixes to preserve history
+
+6. **Version Tagging**:
+   - Tags are created only on `main` after release merges
+   - Format: `v<major>.<minor>.<patch>` (e.g., `v0.1.0`)
 
 ### Commit Messages
 
@@ -108,12 +170,31 @@ Types:
 - `docs`: Documentation
 - `test`: Tests
 - `chore`: Maintenance
+- `perf`: Performance improvement
+- `ci`: CI/CD changes
 
 Examples:
 ```
 feat(lexer): add Arabic keyword tokenization
 fix(parser): handle RTL text in string literals
 docs(readme): add syntax examples
+refactor(ast): simplify node structure
+```
+
+### Gitflow Visual Summary
+
+```
+main:     ─────●─────────────────●─────────────●───→
+               ↑                 ↑             ↑
+release:       │    ─────●───────┘             │
+               │         ↑                     │
+hotfix:        │         │              ●──────┘
+               │         │              ↑
+develop: ──────┴─●───●───●───●───●──────┴───●───→
+                 ↑   ↑       ↑
+feature:    ─────┘   │   ────┘
+                     │
+bugfix:         ─────┘
 ```
 
 ## Common Tasks
