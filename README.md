@@ -208,7 +208,7 @@ print("Hello, World!")
 
 ```tarqeem
 // Import (استورد)
-استورد { قائمة، خريطة } من "مجموعات"
+استورد { قائمة، قاموس } من "مجموعات"
 استورد * كـ رياضيات من "رياضيات"
 استورد ملف_محلي من "./مساعدات"
 
@@ -289,7 +289,7 @@ print("Hello, World!")
 | نص | string | String |
 | منطقي | bool | Boolean |
 | مصفوفة | array | Array |
-| خريطة | map/dict | Dictionary |
+| قاموس | map/dict | Dictionary |
 | فراغ | void | No return |
 | أي | any | Any type |
 

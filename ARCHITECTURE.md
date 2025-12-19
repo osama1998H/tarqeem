@@ -90,7 +90,7 @@ tarqeem/
 │       └── formatter.rs      # Code formatter
 │
 ├── stdlib_trq/               # Standard library (Tarqeem source)
-│   ├── مجموعات.trq          # Collections (قائمة، خريطة، مجموعة)
+│   ├── مجموعات.trq          # Collections (قائمة، قاموس، مجموعة)
 │   ├── رياضيات.trq          # Math functions
 │   ├── نص.trq               # String utilities
 │   ├── ملفات.trq            # File operations
@@ -297,7 +297,7 @@ pub enum Type {
 
     // Compound types
     Array(Box<Type>),               // مصفوفة<ن>
-    Map(Box<Type>, Box<Type>),      // خريطة<م، ق>
+    Map(Box<Type>, Box<Type>),      // قاموس<م، ق>
     Function { params: Vec<Type>, ret: Box<Type> },
 
     // User-defined
