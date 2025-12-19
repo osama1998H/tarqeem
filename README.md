@@ -343,15 +343,26 @@ RTL support depends on the editor. Recommended editors with RTL configuration:
 
 ## Roadmap
 
+### Phase 1: Core Language (Complete)
 - [x] Language specification
-- [ ] Lexer and tokenizer
-- [ ] Parser and AST
-- [ ] Semantic analyzer
-- [ ] Type checker
+- [x] Lexer and tokenizer (Arabic/English keywords, Unicode support)
+- [x] Parser and AST (recursive descent + Pratt parsing)
+- [x] Semantic analyzer (scope management, name resolution)
+- [x] Type checker (static typing with inference)
+- [x] CLI (compile, run, check, repl commands)
+- [x] Bilingual error messages (Arabic/English)
+
+### Phase 2: Code Generation (In Progress)
 - [ ] IR generation
 - [ ] Code optimizer
 - [ ] Native code generation (LLVM)
-- [ ] Standard library
+
+### Phase 3: Standard Library
+- [ ] Core types and collections
+- [ ] I/O and file system
+- [ ] Networking
+
+### Phase 4: Tooling
 - [ ] Package manager
 - [ ] LSP server
 - [ ] VS Code extension

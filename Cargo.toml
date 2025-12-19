@@ -1,0 +1,43 @@
+[package]
+name = "tarqeem"
+version = "0.1.0"
+edition = "2021"
+authors = ["Tarqeem Contributors"]
+description = "أول لغة برمجة عربية مُترجَمة للأغراض العامة - The first compiled Arabic programming language"
+license = "MIT"
+repository = "https://github.com/osama1998H/tarqeem"
+keywords = ["compiler", "programming-language", "arabic", "compiler-design"]
+categories = ["compilers", "development-tools"]
+
+[dependencies]
+# CLI
+clap = { version = "4.4", features = ["derive"] }
+colored = "2.1"
+
+# Unicode handling
+unicode-segmentation = "1.10"
+unicode-normalization = "0.1"
+
+# Error handling
+thiserror = "1.0"
+miette = { version = "7.0", features = ["fancy"] }
+
+# Utilities
+once_cell = "1.19"
+indexmap = "2.1"
+phf = { version = "0.11", features = ["macros"] }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+
+[[bin]]
+name = "tarqeem"
+path = "src/main.rs"
+
+[lib]
+name = "tarqeem"
+path = "src/lib.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
