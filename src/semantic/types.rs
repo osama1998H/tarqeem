@@ -1,0 +1,253 @@
+//! Type system for Tarqeem
+
+use std::fmt;
+
+/// Represents a type in Tarqeem
+#[derive(Debug, Clone, PartialEq)]
+pub enum Type {
+    /// Integer type (عدد)
+    Int,
+    /// Float type (عدد_عشري)
+    Float,
+    /// String type (نص)
+    String,
+    /// Boolean type (منطقي)
+    Bool,
+    /// Void type (فراغ)
+    Void,
+    /// Null type (عدم)
+    Null,
+
+    /// Array type (مصفوفة)
+    Array(Box<Type>),
+
+    /// Map type (قاموس)
+    Map(Box<Type>, Box<Type>),
+
+    /// Function type
+    Function {
+        params: Vec<Type>,
+        return_type: Box<Type>,
+    },
+
+    /// Class type
+    Class(String),
+
+    /// Interface type
+    Interface(String),
+
+    /// Generic type parameter
+    Generic(String),
+
+    /// Optional type (?)
+    Optional(Box<Type>),
+
+    /// Any type (أي)
+    Any,
+
+    /// Never type (for functions that never return)
+    Never,
+
+    /// Unknown type (for type inference)
+    Unknown,
+
+    /// Error type (for error recovery)
+    Error,
+}
+
+impl Type {
+    /// Check if this type is numeric
+    pub fn is_numeric(&self) -> bool {
+        matches!(self, Type::Int | Type::Float)
+    }
+
+    /// Check if this type is a primitive
+    pub fn is_primitive(&self) -> bool {
+        matches!(
+            self,
+            Type::Int | Type::Float | Type::String | Type::Bool | Type::Null | Type::Void
+        )
+    }
+
+    /// Check if this type is compatible with another type
+    pub fn is_compatible_with(&self, other: &Type) -> bool {
+        match (self, other) {
+            // Same types are compatible
+            (a, b) if a == b => true,
+
+            // Any is compatible with everything
+            (Type::Any, _) | (_, Type::Any) => true,
+
+            // Unknown can be anything
+            (Type::Unknown, _) | (_, Type::Unknown) => true,
+
+            // Int can be widened to Float
+            (Type::Int, Type::Float) => true,
+
+            // Null is compatible with optionals
+            (Type::Null, Type::Optional(_)) => true,
+
+            // Type is compatible with its optional version
+            (t, Type::Optional(inner)) | (Type::Optional(inner), t) => t.is_compatible_with(inner),
+
+            // Arrays are compatible if elements are compatible
+            (Type::Array(a), Type::Array(b)) => a.is_compatible_with(b),
+
+            // Maps are compatible if keys and values are compatible
+            (Type::Map(ak, av), Type::Map(bk, bv)) => {
+                ak.is_compatible_with(bk) && av.is_compatible_with(bv)
+            }
+
+            // Functions are compatible if signatures match
+            (
+                Type::Function {
+                    params: p1,
+                    return_type: r1,
+                },
+                Type::Function {
+                    params: p2,
+                    return_type: r2,
+                },
+            ) => {
+                p1.len() == p2.len()
+                    && p1.iter().zip(p2.iter()).all(|(a, b)| a.is_compatible_with(b))
+                    && r1.is_compatible_with(r2)
+            }
+
+            _ => false,
+        }
+    }
+
+    /// Get the result type of a binary operation
+    pub fn binary_result_type(&self, op: &str, other: &Type) -> Option<Type> {
+        match (self, op, other) {
+            // Arithmetic with numbers
+            (Type::Int, "+", Type::Int)
+            | (Type::Int, "-", Type::Int)
+            | (Type::Int, "*", Type::Int)
+            | (Type::Int, "/", Type::Int)
+            | (Type::Int, "%", Type::Int) => Some(Type::Int),
+
+            (Type::Float, "+", Type::Float)
+            | (Type::Float, "-", Type::Float)
+            | (Type::Float, "*", Type::Float)
+            | (Type::Float, "/", Type::Float) => Some(Type::Float),
+
+            (Type::Int, "+", Type::Float)
+            | (Type::Float, "+", Type::Int)
+            | (Type::Int, "-", Type::Float)
+            | (Type::Float, "-", Type::Int)
+            | (Type::Int, "*", Type::Float)
+            | (Type::Float, "*", Type::Int)
+            | (Type::Int, "/", Type::Float)
+            | (Type::Float, "/", Type::Int) => Some(Type::Float),
+
+            // Power operator
+            (Type::Int, "**", Type::Int) => Some(Type::Int),
+            (Type::Float, "**", _) | (_, "**", Type::Float) => Some(Type::Float),
+
+            // String concatenation
+            (Type::String, "+", Type::String) => Some(Type::String),
+
+            // Comparisons
+            (Type::Int, "<", Type::Int)
+            | (Type::Int, "<=", Type::Int)
+            | (Type::Int, ">", Type::Int)
+            | (Type::Int, ">=", Type::Int)
+            | (Type::Float, "<", Type::Float)
+            | (Type::Float, "<=", Type::Float)
+            | (Type::Float, ">", Type::Float)
+            | (Type::Float, ">=", Type::Float)
+            | (Type::String, "<", Type::String)
+            | (Type::String, "<=", Type::String)
+            | (Type::String, ">", Type::String)
+            | (Type::String, ">=", Type::String) => Some(Type::Bool),
+
+            // Equality
+            (a, "==", b) | (a, "!=", b) if a.is_compatible_with(b) => Some(Type::Bool),
+
+            // Logical operators
+            (Type::Bool, "&&", Type::Bool) | (Type::Bool, "||", Type::Bool) => Some(Type::Bool),
+
+            _ => None,
+        }
+    }
+
+    /// Get the result type of a unary operation
+    pub fn unary_result_type(&self, op: &str) -> Option<Type> {
+        match (self, op) {
+            (Type::Int, "-") => Some(Type::Int),
+            (Type::Float, "-") => Some(Type::Float),
+            (Type::Bool, "!") => Some(Type::Bool),
+            (Type::Int, "++") | (Type::Int, "--") => Some(Type::Int),
+            _ => None,
+        }
+    }
+
+    /// Get the Arabic name for this type
+    pub fn arabic_name(&self) -> String {
+        match self {
+            Type::Int => "عدد".to_string(),
+            Type::Float => "عدد_عشري".to_string(),
+            Type::String => "نص".to_string(),
+            Type::Bool => "منطقي".to_string(),
+            Type::Void => "فراغ".to_string(),
+            Type::Null => "عدم".to_string(),
+            Type::Array(inner) => format!("مصفوفة<{}>", inner.arabic_name()),
+            Type::Map(k, v) => format!("قاموس<{}، {}>", k.arabic_name(), v.arabic_name()),
+            Type::Function { params, return_type } => {
+                let params_str: Vec<_> = params.iter().map(|p| p.arabic_name()).collect();
+                format!("({}) -> {}", params_str.join("، "), return_type.arabic_name())
+            }
+            Type::Class(name) => name.clone(),
+            Type::Interface(name) => name.clone(),
+            Type::Generic(name) => name.clone(),
+            Type::Optional(inner) => format!("{}?", inner.arabic_name()),
+            Type::Any => "أي".to_string(),
+            Type::Never => "أبداً".to_string(),
+            Type::Unknown => "مجهول".to_string(),
+            Type::Error => "خطأ".to_string(),
+        }
+    }
+}
+
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Type::Int => write!(f, "int"),
+            Type::Float => write!(f, "float"),
+            Type::String => write!(f, "string"),
+            Type::Bool => write!(f, "bool"),
+            Type::Void => write!(f, "void"),
+            Type::Null => write!(f, "null"),
+            Type::Array(inner) => write!(f, "array<{}>", inner),
+            Type::Map(k, v) => write!(f, "map<{}, {}>", k, v),
+            Type::Function { params, return_type } => {
+                let params_str: Vec<_> = params.iter().map(|p| p.to_string()).collect();
+                write!(f, "({}) -> {}", params_str.join(", "), return_type)
+            }
+            Type::Class(name) => write!(f, "{}", name),
+            Type::Interface(name) => write!(f, "{}", name),
+            Type::Generic(name) => write!(f, "{}", name),
+            Type::Optional(inner) => write!(f, "{}?", inner),
+            Type::Any => write!(f, "any"),
+            Type::Never => write!(f, "never"),
+            Type::Unknown => write!(f, "unknown"),
+            Type::Error => write!(f, "error"),
+        }
+    }
+}
+
+/// Parse a type name into a Type
+pub fn parse_type_name(name: &str) -> Type {
+    match name {
+        "عدد" | "int" => Type::Int,
+        "عدد_عشري" | "float" => Type::Float,
+        "نص" | "string" => Type::String,
+        "منطقي" | "bool" => Type::Bool,
+        "فراغ" | "void" => Type::Void,
+        "عدم" | "null" | "none" => Type::Null,
+        "أي" | "اي" | "any" => Type::Any,
+        _ => Type::Class(name.to_string()),
+    }
+}
