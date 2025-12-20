@@ -1,0 +1,11 @@
+// شبكة - Networking Module
+// شبكة - وحدة الشبكة
+//
+// Provides TCP/UDP networking and HTTP client functionality
+// يوفر اتصالات TCP/UDP ووظائف عميل HTTP
+
+استورد * من "./اتصال"
+استورد * من "./خادم"
+استورد * من "./http"
+
+صدّر *
