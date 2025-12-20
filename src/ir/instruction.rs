@@ -160,6 +160,7 @@ pub enum BinaryOp {
     Mul,
     Div,
     Mod,
+    Pow,
 
     // Comparison
     Eq,
@@ -189,6 +190,7 @@ impl fmt::Display for BinaryOp {
             BinaryOp::Mul => write!(f, "mul"),
             BinaryOp::Div => write!(f, "div"),
             BinaryOp::Mod => write!(f, "mod"),
+            BinaryOp::Pow => write!(f, "pow"),
             BinaryOp::Eq => write!(f, "eq"),
             BinaryOp::Ne => write!(f, "ne"),
             BinaryOp::Lt => write!(f, "lt"),

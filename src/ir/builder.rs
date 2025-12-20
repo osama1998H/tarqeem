@@ -13,7 +13,7 @@ use super::{
     Instruction, IrType, MethodId, Module, Parameter, UnaryOp, VarId,
 };
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Error type for IR building
 #[derive(Debug, Clone)]
@@ -69,6 +69,9 @@ pub struct IrBuilder {
 
     /// Class field information
     class_fields: HashMap<String, Vec<(String, IrType)>>,
+
+    /// Known function names for identifier resolution
+    function_names: HashSet<String>,
 }
 
 impl IrBuilder {
@@ -84,6 +87,7 @@ impl IrBuilder {
             scope_stack: Vec::new(),
             loop_stack: Vec::new(),
             class_fields: HashMap::new(),
+            function_names: HashSet::new(),
         }
     }
 
@@ -169,11 +173,12 @@ impl IrBuilder {
     /// Collect function signature
     fn collect_function_signature(
         &mut self,
-        _name: &str,
+        name: &str,
         _params: &[Param],
         _return_type: &Option<TypeAnnotation>,
     ) -> Result<()> {
-        // For now, just a placeholder - full implementation would register the function
+        // Register the function name for identifier resolution
+        self.function_names.insert(name.to_string());
         Ok(())
     }
 
@@ -198,7 +203,9 @@ impl IrBuilder {
         self.block_counter = 1;
 
         // Add parameters to variable scope
+        // Clear variables to prevent leakage from previous scopes into function
         self.push_scope();
+        self.variables.clear();
         for param in &params {
             self.variables.insert(param.name.clone(), param.id);
         }
@@ -986,10 +993,12 @@ impl IrBuilder {
             .map(|(i, _)| self.new_block(Some(format!("match.arm{}", i))))
             .collect();
 
-        // Build condition chain
+        // Build condition chain with proper handling for multi-pattern arms
+        // Each pattern gets its own check block to ensure proper control flow
         for (i, arm) in arms.iter().enumerate() {
-            // For each pattern in the arm
-            for pattern in &arm.patterns {
+            let patterns = &arm.patterns;
+
+            for (p_idx, pattern) in patterns.iter().enumerate() {
                 let pattern_val = self.build_expr(pattern)?;
                 let cmp = self.new_var();
                 self.emit(Instruction::Binary {
@@ -1000,21 +1009,26 @@ impl IrBuilder {
                     ty: IrType::Bool,
                 });
 
-                let next_check = if i + 1 < arms.len() {
+                // Determine the else block (what to do if pattern doesn't match)
+                let else_block = if p_idx + 1 < patterns.len() {
+                    // More patterns in this arm - create block for next pattern check
+                    self.new_block(Some(format!("match.arm{}.pat{}", i, p_idx + 1)))
+                } else if i + 1 < arms.len() {
+                    // No more patterns in this arm - go to next arm's first pattern
                     self.new_block(Some(format!("match.check{}", i + 1)))
                 } else {
+                    // Last pattern of last arm - go to exit
                     exit_block
                 };
 
                 self.emit(Instruction::Branch {
                     cond: cmp,
                     then_block: arm_blocks[i],
-                    else_block: next_check,
+                    else_block,
                 });
 
-                if i + 1 < arms.len() {
-                    self.switch_to_block(next_check);
-                }
+                // Switch to the else block for the next iteration
+                self.switch_to_block(else_block);
             }
         }
 
@@ -1233,16 +1247,21 @@ impl IrBuilder {
                 ty: IrType::Ptr(Box::new(IrType::Void)), // Will be refined by type info
             });
             Ok(dest)
-        } else {
-            // Could be a function reference
-            // For now, return a placeholder
+        } else if self.function_names.contains(name) {
+            // Function reference - emit a function pointer constant
             let dest = self.new_var();
             self.emit(Instruction::Const {
                 dest,
-                value: Constant::Null,
+                value: Constant::Null, // Will be replaced with actual function pointer in codegen
                 ty: IrType::Ptr(Box::new(IrType::Void)),
             });
             Ok(dest)
+        } else {
+            // Undefined identifier - report error
+            Err(IrError::new(
+                format!("Undefined identifier: '{}'", name),
+                format!("معرّف غير معرّف: '{}'", name),
+            ))
         }
     }
 
@@ -1257,10 +1276,7 @@ impl IrBuilder {
             AstBinaryOp::Mul => BinaryOp::Mul,
             AstBinaryOp::Div => BinaryOp::Div,
             AstBinaryOp::Mod => BinaryOp::Mod,
-            AstBinaryOp::Pow => {
-                // Power needs special handling - for now treat as mul
-                BinaryOp::Mul
-            }
+            AstBinaryOp::Pow => BinaryOp::Pow,
             AstBinaryOp::Eq => BinaryOp::Eq,
             AstBinaryOp::NotEq => BinaryOp::Ne,
             AstBinaryOp::Lt => BinaryOp::Lt,
@@ -1469,6 +1485,11 @@ impl IrBuilder {
                         ptr,
                         value: value_var,
                     });
+                } else {
+                    return Err(IrError::new(
+                        format!("Cannot assign to undefined variable: '{}'", name),
+                        format!("لا يمكن التعيين لمتغير غير معرّف: '{}'", name),
+                    ));
                 }
             }
             ExprKind::Member { object, property } => {
@@ -1492,7 +1513,12 @@ impl IrBuilder {
                     value: value_var,
                 });
             }
-            _ => {}
+            _ => {
+                return Err(IrError::new(
+                    "Unsupported assignment target",
+                    "هدف التعيين غير مدعوم",
+                ));
+            }
         }
 
         Ok(value_var)

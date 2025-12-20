@@ -67,14 +67,30 @@ impl ClassInfo {
 
     /// Get a field by name, including inherited fields
     pub fn get_field<'a>(&'a self, name: &str, resolver: &'a ClassResolver) -> Option<&'a FieldInfo> {
+        let mut visited = HashSet::new();
+        self.get_field_with_cycle_check(name, resolver, &mut visited)
+    }
+
+    /// Internal helper to get field with cycle detection
+    fn get_field_with_cycle_check<'a>(
+        &'a self,
+        name: &str,
+        resolver: &'a ClassResolver,
+        visited: &mut HashSet<String>,
+    ) -> Option<&'a FieldInfo> {
         if let Some(field) = self.fields.get(name) {
             return Some(field);
         }
 
-        // Check parent class
+        // Check parent class with cycle detection
         if let Some(parent_name) = &self.parent {
+            if visited.contains(parent_name) {
+                // Cycle detected - prevent infinite recursion
+                return None;
+            }
+            visited.insert(parent_name.clone());
             if let Some(parent) = resolver.get_class(parent_name) {
-                return parent.get_field(name, resolver);
+                return parent.get_field_with_cycle_check(name, resolver, visited);
             }
         }
 
@@ -83,14 +99,30 @@ impl ClassInfo {
 
     /// Get a method by name, including inherited methods
     pub fn get_method<'a>(&'a self, name: &str, resolver: &'a ClassResolver) -> Option<&'a MethodInfo> {
+        let mut visited = HashSet::new();
+        self.get_method_with_cycle_check(name, resolver, &mut visited)
+    }
+
+    /// Internal helper to get method with cycle detection
+    fn get_method_with_cycle_check<'a>(
+        &'a self,
+        name: &str,
+        resolver: &'a ClassResolver,
+        visited: &mut HashSet<String>,
+    ) -> Option<&'a MethodInfo> {
         if let Some(method) = self.methods.get(name) {
             return Some(method);
         }
 
-        // Check parent class
+        // Check parent class with cycle detection
         if let Some(parent_name) = &self.parent {
+            if visited.contains(parent_name) {
+                // Cycle detected - prevent infinite recursion
+                return None;
+            }
+            visited.insert(parent_name.clone());
             if let Some(parent) = resolver.get_class(parent_name) {
-                return parent.get_method(name, resolver);
+                return parent.get_method_with_cycle_check(name, resolver, visited);
             }
         }
 
@@ -104,12 +136,25 @@ impl ClassInfo {
 
     /// Get all fields including inherited ones
     pub fn all_fields<'a>(&'a self, resolver: &'a ClassResolver) -> Vec<(&'a str, &'a FieldInfo)> {
+        let mut visited = HashSet::new();
+        self.all_fields_with_cycle_check(resolver, &mut visited)
+    }
+
+    /// Internal helper to get all fields with cycle detection
+    fn all_fields_with_cycle_check<'a>(
+        &'a self,
+        resolver: &'a ClassResolver,
+        visited: &mut HashSet<String>,
+    ) -> Vec<(&'a str, &'a FieldInfo)> {
         let mut fields = Vec::new();
 
-        // First add parent fields
+        // First add parent fields with cycle detection
         if let Some(parent_name) = &self.parent {
-            if let Some(parent) = resolver.get_class(parent_name) {
-                fields.extend(parent.all_fields(resolver));
+            if !visited.contains(parent_name) {
+                visited.insert(parent_name.clone());
+                if let Some(parent) = resolver.get_class(parent_name) {
+                    fields.extend(parent.all_fields_with_cycle_check(resolver, visited));
+                }
             }
         }
 
@@ -123,13 +168,26 @@ impl ClassInfo {
 
     /// Get all methods including inherited ones
     pub fn all_methods<'a>(&'a self, resolver: &'a ClassResolver) -> Vec<(&'a str, &'a MethodInfo)> {
+        let mut visited = HashSet::new();
+        self.all_methods_with_cycle_check(resolver, &mut visited)
+    }
+
+    /// Internal helper to get all methods with cycle detection
+    fn all_methods_with_cycle_check<'a>(
+        &'a self,
+        resolver: &'a ClassResolver,
+        visited: &mut HashSet<String>,
+    ) -> Vec<(&'a str, &'a MethodInfo)> {
         let mut methods: IndexMap<&str, &MethodInfo> = IndexMap::new();
 
-        // First add parent methods
+        // First add parent methods with cycle detection
         if let Some(parent_name) = &self.parent {
-            if let Some(parent) = resolver.get_class(parent_name) {
-                for (name, method) in parent.all_methods(resolver) {
-                    methods.insert(name, method);
+            if !visited.contains(parent_name) {
+                visited.insert(parent_name.clone());
+                if let Some(parent) = resolver.get_class(parent_name) {
+                    for (name, method) in parent.all_methods_with_cycle_check(resolver, visited) {
+                        methods.insert(name, method);
+                    }
                 }
             }
         }
