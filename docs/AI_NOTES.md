@@ -791,9 +791,11 @@ Track follow-up items here:
 - [x] Console I/O API defined (stdlib_trq/طرفية/)
 - [x] C runtime functions implemented (builtins.c, string.c, io.c)
 
+**Completed (2025-12-20 P0 Implementation)**:
+- [x] Register intrinsic functions in semantic analyzer (~100 bilingual functions)
+- [x] Add stdlib_trq to module search path (Compile, Run, Check, REPL commands)
+
 **Pending**:
-- [ ] Register intrinsic functions in semantic analyzer (required for stdlib to work)
-- [ ] Add stdlib_trq to module search path
 - [ ] Add integration tests for stdlib
 - [ ] Add more path-scoped rules as patterns emerge
 - [ ] Create integration tests for the compiler pipeline
