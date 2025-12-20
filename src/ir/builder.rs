@@ -79,9 +79,17 @@ pub struct IrBuilder {
     /// Known function names for identifier resolution
     function_names: HashSet<String>,
 
+    /// Function return types: name -> IrType
+    /// Used to properly type recursive calls and cross-function calls
+    function_return_types: HashMap<String, IrType>,
+
     /// Track which VarIds are function parameters (not allocas)
     /// Parameters are passed by value and don't need Load instructions
     parameters: HashSet<u32>,
+
+    /// Global constants: name -> (value, type)
+    /// These are constants declared at module level that are visible in all functions
+    global_constants: HashMap<String, (Constant, IrType)>,
 }
 
 impl IrBuilder {
@@ -100,27 +108,45 @@ impl IrBuilder {
             class_fields: HashMap::new(),
             method_return_types: HashMap::new(),
             function_names: HashSet::new(),
+            function_return_types: HashMap::new(),
             parameters: HashSet::new(),
+            global_constants: HashMap::new(),
         }
     }
 
     /// Build IR from an AST
     pub fn build(mut self, ast: &Ast) -> Result<Module> {
-        // First pass: collect class definitions
+        // First pass: collect global constants (immutable VarDecls at module level)
+        for stmt in &ast.statements {
+            if let StmtKind::VarDecl { name, mutable: false, ty, init } = &stmt.kind {
+                if let Some(init_expr) = init {
+                    if let Some(const_val) = self.try_evaluate_const(init_expr) {
+                        let ir_type = if let Some(t) = ty {
+                            self.convert_type(t)
+                        } else {
+                            self.const_to_type(&const_val)
+                        };
+                        self.global_constants.insert(name.clone(), (const_val, ir_type));
+                    }
+                }
+            }
+        }
+
+        // Second pass: collect class definitions
         for stmt in &ast.statements {
             if let StmtKind::ClassDecl { name, members, .. } = &stmt.kind {
                 self.collect_class(name, members)?;
             }
         }
 
-        // Second pass: collect function signatures
+        // Third pass: collect function signatures
         for stmt in &ast.statements {
             if let StmtKind::FuncDecl { name, params, return_type, .. } = &stmt.kind {
                 self.collect_function_signature(name, params, return_type)?;
             }
         }
 
-        // Third pass: generate IR for all statements
+        // Fourth pass: generate IR for all statements
         // Create a main function to hold top-level code
         let mut has_top_level_code = false;
         for stmt in &ast.statements {
@@ -200,10 +226,18 @@ impl IrBuilder {
         &mut self,
         name: &str,
         _params: &[Param],
-        _return_type: &Option<TypeAnnotation>,
+        return_type: &Option<TypeAnnotation>,
     ) -> Result<()> {
         // Register the function name for identifier resolution
         self.function_names.insert(name.to_string());
+
+        // Store the return type for proper typing of recursive and cross-function calls
+        let ret_ty = return_type
+            .as_ref()
+            .map(|t| self.convert_type(t))
+            .unwrap_or(IrType::Void);
+        self.function_return_types.insert(name.to_string(), ret_ty);
+
         Ok(())
     }
 
@@ -371,6 +405,60 @@ impl IrBuilder {
                 ret: Box::new(self.semantic_to_ir_type(return_type)),
             },
             _ => IrType::Ptr(Box::new(IrType::Void)),
+        }
+    }
+
+    /// Try to evaluate an expression as a compile-time constant
+    fn try_evaluate_const(&self, expr: &Expr) -> Option<Constant> {
+        match &expr.kind {
+            ExprKind::Literal(lit) => match lit {
+                Literal::Int(i) => Some(Constant::Int(*i)),
+                Literal::Float(f) => Some(Constant::Float(*f)),
+                Literal::String(_s) => {
+                    // For strings, we need to handle them specially
+                    // For now, return None and handle strings as runtime values
+                    // In the future, we could add string constants to the module
+                    None // Strings are not supported as global constants yet
+                }
+                Literal::Bool(b) => Some(Constant::Bool(*b)),
+                Literal::Null => Some(Constant::Null),
+            },
+            ExprKind::Unary { op, operand } => {
+                let val = self.try_evaluate_const(operand)?;
+                match (op, val) {
+                    (AstUnaryOp::Neg, Constant::Int(i)) => Some(Constant::Int(-i)),
+                    (AstUnaryOp::Neg, Constant::Float(f)) => Some(Constant::Float(-f)),
+                    (AstUnaryOp::Not, Constant::Bool(b)) => Some(Constant::Bool(!b)),
+                    _ => None,
+                }
+            }
+            ExprKind::Binary { left, op, right } => {
+                let left_val = self.try_evaluate_const(left)?;
+                let right_val = self.try_evaluate_const(right)?;
+                match (left_val, op, right_val) {
+                    (Constant::Int(a), AstBinaryOp::Add, Constant::Int(b)) => Some(Constant::Int(a + b)),
+                    (Constant::Int(a), AstBinaryOp::Sub, Constant::Int(b)) => Some(Constant::Int(a - b)),
+                    (Constant::Int(a), AstBinaryOp::Mul, Constant::Int(b)) => Some(Constant::Int(a * b)),
+                    (Constant::Int(a), AstBinaryOp::Div, Constant::Int(b)) if b != 0 => Some(Constant::Int(a / b)),
+                    (Constant::Float(a), AstBinaryOp::Add, Constant::Float(b)) => Some(Constant::Float(a + b)),
+                    (Constant::Float(a), AstBinaryOp::Sub, Constant::Float(b)) => Some(Constant::Float(a - b)),
+                    (Constant::Float(a), AstBinaryOp::Mul, Constant::Float(b)) => Some(Constant::Float(a * b)),
+                    (Constant::Float(a), AstBinaryOp::Div, Constant::Float(b)) if b != 0.0 => Some(Constant::Float(a / b)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Get the IR type for a constant value
+    fn const_to_type(&self, constant: &Constant) -> IrType {
+        match constant {
+            Constant::Int(_) => IrType::Int,
+            Constant::Float(_) => IrType::Float,
+            Constant::Bool(_) => IrType::Bool,
+            Constant::String(_) => IrType::String,
+            Constant::Null => IrType::Ptr(Box::new(IrType::Void)),
         }
     }
 
@@ -625,6 +713,7 @@ impl IrBuilder {
         let ret_type = return_type
             .map(|t| self.convert_type(t))
             .unwrap_or(IrType::Void);
+        let is_void_function = ret_type == IrType::Void;
 
         // Save current function state
         let saved_function = self.current_function.take();
@@ -645,13 +734,25 @@ impl IrBuilder {
             self.build_stmt(stmt)?;
         }
 
-        // Add implicit return if needed
-        if let Some(ref func) = self.current_function {
-            if let Some(block) = func.blocks.last() {
-                if !block.has_terminator() {
-                    self.emit(Instruction::Return { value: None });
-                }
+        // Add implicit return if needed - check CURRENT block, not last block
+        // After if-else, current block is the merge block which may need a return
+        // Only add implicit return for void functions - non-void functions must have explicit returns
+        let needs_return = if is_void_function {
+            if let Some(ref func) = self.current_function {
+                let current_block_id = self.current_block;
+                func.blocks
+                    .iter()
+                    .find(|b| b.id == current_block_id)
+                    .map(|b| !b.has_terminator())
+                    .unwrap_or(false)
+            } else {
+                false
             }
+        } else {
+            false
+        };
+        if needs_return {
+            self.emit(Instruction::Return { value: None });
         }
 
         // End this function
@@ -828,17 +929,19 @@ impl IrBuilder {
         let cond_var = self.build_expr(condition)?;
 
         let then_block = self.new_block(Some("then".to_string()));
-        let else_block = self.new_block(Some("else".to_string()));
         let merge_block = self.new_block(Some("merge".to_string()));
+
+        // Only create else block if there's an else branch
+        let else_target = if else_branch.is_some() {
+            self.new_block(Some("else".to_string()))
+        } else {
+            merge_block
+        };
 
         self.emit(Instruction::Branch {
             cond: cond_var,
             then_block,
-            else_block: if else_branch.is_some() {
-                else_block
-            } else {
-                merge_block
-            },
+            else_block: else_target,
         });
 
         // Build then branch
@@ -862,7 +965,7 @@ impl IrBuilder {
 
         // Build else branch if present
         if let Some(else_body) = else_branch {
-            self.switch_to_block(else_block);
+            self.switch_to_block(else_target);
             self.push_scope();
             for stmt in &else_body.statements {
                 self.build_stmt(stmt)?;
@@ -1430,6 +1533,16 @@ impl IrBuilder {
                 ty: IrType::Ptr(Box::new(IrType::Void)),
             });
             Ok(dest)
+        } else if let Some((const_val, const_ty)) = self.global_constants.get(name).cloned() {
+            // Global constant - emit the constant value directly
+            let dest = self.new_var();
+            self.emit(Instruction::Const {
+                dest,
+                value: const_val,
+                ty: const_ty.clone(),
+            });
+            self.var_types.insert(dest.0, const_ty);
+            Ok(dest)
         } else {
             // Undefined identifier - report error
             Err(IrError::new(
@@ -1753,12 +1866,18 @@ impl IrBuilder {
 
     /// Get the return type of a function by name
     fn get_function_return_type(&self, name: &str) -> IrType {
-        // Look up in module functions if available
+        // First check the pre-collected function signatures (for recursive/forward calls)
+        if let Some(ret_ty) = self.function_return_types.get(name) {
+            return ret_ty.clone();
+        }
+
+        // Then check module functions (for already-built functions)
         for func in &self.module.functions {
             if func.name == name || func.id.0 == name {
                 return func.return_type.clone();
             }
         }
+
         // Default to void pointer for unknown functions
         IrType::Ptr(Box::new(IrType::Void))
     }
