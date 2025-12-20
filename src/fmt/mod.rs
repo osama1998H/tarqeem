@@ -1,0 +1,145 @@
+//! Code Formatter (trqfmt) for Tarqeem
+//!
+//! Provides AST-based code formatting with configurable style options.
+//!
+//! ## Usage
+//!
+//! ```bash
+//! # Format a file to stdout
+//! tarqeem fmt file.trq
+//!
+//! # Format and write back to file
+//! tarqeem fmt -w file.trq
+//!
+//! # Check if file is formatted (without changing)
+//! tarqeem fmt --check file.trq
+//! ```
+
+mod config;
+mod formatter;
+mod printer;
+
+pub use config::{BraceStyle, FormatConfig};
+pub use formatter::Formatter;
+pub use printer::Printer;
+
+use crate::parser::Parser;
+
+/// Format Tarqeem source code
+///
+/// Returns the formatted source code string.
+pub fn format_source(source: &str, config: &FormatConfig) -> Result<String, FormatError> {
+    // Parse the source
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().map_err(|e| FormatError::ParseError {
+        message: format!("{:?}", e),
+    })?;
+
+    // Format the AST
+    let formatter = Formatter::new(config.clone());
+    Ok(formatter.format(&ast))
+}
+
+/// Check if source is already formatted
+///
+/// Returns true if the source matches the formatted output.
+pub fn check_formatted(source: &str, config: &FormatConfig) -> Result<bool, FormatError> {
+    let formatted = format_source(source, config)?;
+    Ok(source == formatted)
+}
+
+/// Show diff between original and formatted source
+pub fn show_diff(source: &str, config: &FormatConfig) -> Result<String, FormatError> {
+    let formatted = format_source(source, config)?;
+
+    if source == formatted {
+        return Ok(String::new());
+    }
+
+    let mut diff = String::new();
+    let original_lines: Vec<&str> = source.lines().collect();
+    let formatted_lines: Vec<&str> = formatted.lines().collect();
+
+    diff.push_str("--- original / الأصل\n");
+    diff.push_str("+++ formatted / المنسق\n");
+
+    let max_len = original_lines.len().max(formatted_lines.len());
+    for i in 0..max_len {
+        let orig = original_lines.get(i);
+        let form = formatted_lines.get(i);
+
+        match (orig, form) {
+            (Some(o), Some(f)) if o != f => {
+                diff.push_str(&format!("-{}\n", o));
+                diff.push_str(&format!("+{}\n", f));
+            }
+            (Some(o), None) => {
+                diff.push_str(&format!("-{}\n", o));
+            }
+            (None, Some(f)) => {
+                diff.push_str(&format!("+{}\n", f));
+            }
+            _ => {}
+        }
+    }
+
+    Ok(diff)
+}
+
+/// Format error
+#[derive(Debug, Clone)]
+pub enum FormatError {
+    /// Error parsing the source code
+    ParseError { message: String },
+    /// Error reading/writing files
+    IoError { message: String },
+    /// Error parsing config file
+    ConfigError { message: String },
+}
+
+impl std::fmt::Display for FormatError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FormatError::ParseError { message } => {
+                write!(f, "Parse error / خطأ في التحليل: {}", message)
+            }
+            FormatError::IoError { message } => {
+                write!(f, "I/O error / خطأ في القراءة/الكتابة: {}", message)
+            }
+            FormatError::ConfigError { message } => {
+                write!(f, "Config error / خطأ في الإعدادات: {}", message)
+            }
+        }
+    }
+}
+
+impl std::error::Error for FormatError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_simple_variable() {
+        let source = "متغير س=5";
+        let config = FormatConfig::default();
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "متغير س = 5\n");
+    }
+
+    #[test]
+    fn test_format_function() {
+        let source = "دالة اختبار(أ:عدد)->عدد{أرجع أ}";
+        let config = FormatConfig::default();
+        let result = format_source(source, &config).unwrap();
+        assert!(result.contains("دالة اختبار(أ: عدد) -> عدد"));
+        assert!(result.contains("    أرجع أ"));
+    }
+
+    #[test]
+    fn test_check_formatted() {
+        let formatted = "متغير س = 5\n";
+        let config = FormatConfig::default();
+        assert!(check_formatted(formatted, &config).unwrap());
+    }
+}

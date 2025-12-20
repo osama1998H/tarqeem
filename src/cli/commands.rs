@@ -584,27 +584,160 @@ pub fn run(cli: Cli) -> Result<(), String> {
             Ok(())
         }
 
-        Commands::Fmt { file, write } => {
-            // Warn if file extension is not recognized
-            warn_invalid_extension(&file);
+        Commands::Fmt {
+            path,
+            write,
+            check,
+            diff,
+            config,
+            sample_config,
+        } => {
+            use crate::fmt::{self, FormatConfig};
 
-            let source = fs::read_to_string(&file)
-                .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
-
-            // TODO: Implement formatter
-            // For now, just output the source as-is
-            if write {
-                println!(
-                    "{}",
-                    "Note: Formatter not yet implemented / ملاحظة: المُنسق غير مُنفذ بعد"
-                        .yellow()
-                        .bold()
-                );
-            } else {
-                println!("{}", source);
+            // Handle sample config generation
+            if sample_config {
+                println!("{}", FormatConfig::sample_config());
+                return Ok(());
             }
 
-            Ok(())
+            // Path is required unless sample_config is set
+            let path = path.ok_or_else(|| {
+                "Path is required. Use 'tarqeem fmt <file>' or 'tarqeem fmt --sample-config' / المسار مطلوب".to_string()
+            })?;
+
+            // Load configuration
+            let format_config = if let Some(config_path) = config {
+                FormatConfig::from_file(&config_path).map_err(|e| {
+                    format!(
+                        "Could not load config: {} / لا يمكن تحميل الإعدادات: {}",
+                        e, e
+                    )
+                })?
+            } else {
+                FormatConfig::find_and_load().unwrap_or_default()
+            };
+
+            // Collect files to format
+            let files: Vec<PathBuf> = if path.is_dir() {
+                collect_source_files(&path)?
+            } else {
+                warn_invalid_extension(&path);
+                vec![path.clone()]
+            };
+
+            if files.is_empty() {
+                return Err("No source files found / لم يتم العثور على ملفات مصدر".to_string());
+            }
+
+            let mut all_formatted = true;
+            let mut files_changed = 0;
+
+            for file in &files {
+                let source = fs::read_to_string(file).map_err(|e| {
+                    format!(
+                        "Could not read file {}: {} / لا يمكن قراءة الملف {}: {}",
+                        file.display(),
+                        e,
+                        file.display(),
+                        e
+                    )
+                })?;
+
+                // Format the source
+                let formatted = fmt::format_source(&source, &format_config).map_err(|e| {
+                    format!(
+                        "Format error in {}: {} / خطأ التنسيق في {}: {}",
+                        file.display(),
+                        e,
+                        file.display(),
+                        e
+                    )
+                })?;
+
+                let is_changed = source != formatted;
+
+                if check {
+                    // Check mode: report if file would change
+                    if is_changed {
+                        all_formatted = false;
+                        eprintln!(
+                            "{}",
+                            format!(
+                                "Would reformat: {} / سيتم إعادة تنسيق: {}",
+                                file.display(),
+                                file.display()
+                            )
+                            .yellow()
+                        );
+                    }
+                } else if diff {
+                    // Diff mode: show differences
+                    if is_changed {
+                        println!("{}", format!("--- {} (original)", file.display()).red());
+                        println!("{}", format!("+++ {} (formatted)", file.display()).green());
+
+                        let diff_output = fmt::show_diff(&source, &format_config)
+                            .map_err(|e| format!("{}", e))?;
+                        println!("{}", diff_output);
+                    }
+                } else if write {
+                    // Write mode: update file in place
+                    if is_changed {
+                        fs::write(file, &formatted).map_err(|e| {
+                            format!(
+                                "Could not write file {}: {} / لا يمكن كتابة الملف {}: {}",
+                                file.display(),
+                                e,
+                                file.display(),
+                                e
+                            )
+                        })?;
+                        files_changed += 1;
+                        if cli.verbose {
+                            println!(
+                                "{}",
+                                format!(
+                                    "Formatted: {} / تم تنسيق: {}",
+                                    file.display(),
+                                    file.display()
+                                )
+                                .green()
+                            );
+                        }
+                    }
+                } else {
+                    // Default: output to stdout
+                    print!("{}", formatted);
+                }
+            }
+
+            // Final summary
+            if check {
+                if all_formatted {
+                    println!(
+                        "{}",
+                        "All files are formatted correctly / جميع الملفات منسقة بشكل صحيح"
+                            .green()
+                            .bold()
+                    );
+                    Ok(())
+                } else {
+                    Err("Some files need formatting / بعض الملفات تحتاج تنسيق".to_string())
+                }
+            } else if write && cli.verbose {
+                println!(
+                    "{}",
+                    format!(
+                        "{} file(s) formatted / تم تنسيق {} ملف(ات)",
+                        files_changed, files_changed
+                    )
+                    .green()
+                    .bold()
+                );
+                Ok(())
+            } else {
+                Ok(())
+            }
         }
 
         Commands::Lex { file } => {
@@ -683,16 +816,17 @@ pub fn run(cli: Cli) -> Result<(), String> {
             }
 
             // Create and run the async runtime
-            let runtime = tokio::runtime::Runtime::new()
-                .map_err(|e| format!("Failed to create runtime: {} / فشل إنشاء وقت التشغيل: {}", e, e))?;
+            let runtime = tokio::runtime::Runtime::new().map_err(|e| {
+                format!(
+                    "Failed to create runtime: {} / فشل إنشاء وقت التشغيل: {}",
+                    e, e
+                )
+            })?;
 
             runtime.block_on(async {
-                crate::lsp::run_server().await.map_err(|e| {
-                    format!(
-                        "LSP server error: {} / خطأ خادم LSP: {}",
-                        e, e
-                    )
-                })
+                crate::lsp::run_server()
+                    .await
+                    .map_err(|e| format!("LSP server error: {} / خطأ خادم LSP: {}", e, e))
             })
         }
 
@@ -725,9 +859,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             };
 
             if source_files.is_empty() {
-                return Err(
-                    "No source files found / لم يتم العثور على ملفات مصدر".to_string()
-                );
+                return Err("No source files found / لم يتم العثور على ملفات مصدر".to_string());
             }
 
             // Determine output directory
@@ -802,9 +934,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     let item_count = doc.items.len();
                     println!(
                         "  {} - {} items / {} عنصر",
-                        module_name,
-                        item_count,
-                        item_count
+                        module_name, item_count, item_count
                     );
                 }
 
@@ -861,10 +991,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     }
 
                     fs::write(&output_file, output_buffer).map_err(|e| {
-                        format!(
-                            "Could not write output: {} / لا يمكن كتابة الإخراج: {}",
-                            e, e
-                        )
+                        format!("Could not write output: {} / لا يمكن كتابة الإخراج: {}", e, e)
                     })?;
 
                     println!(
@@ -911,10 +1038,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     })?;
 
                     fs::write(&output_file, output_buffer).map_err(|e| {
-                        format!(
-                            "Could not write output: {} / لا يمكن كتابة الإخراج: {}",
-                            e, e
-                        )
+                        format!("Could not write output: {} / لا يمكن كتابة الإخراج: {}", e, e)
                     })?;
                 }
 
@@ -923,10 +1047,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     let index_content = generate_html_index(&all_docs);
                     let index_file = output_dir.join("index.html");
                     fs::write(&index_file, index_content).map_err(|e| {
-                        format!(
-                            "Could not write index: {} / لا يمكن كتابة الفهرس: {}",
-                            e, e
-                        )
+                        format!("Could not write index: {} / لا يمكن كتابة الفهرس: {}", e, e)
                     })?;
                 }
 
@@ -967,12 +1088,8 @@ fn collect_source_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
     })?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| {
-            format!(
-                "Could not read entry: {} / لا يمكن قراءة المدخل: {}",
-                e, e
-            )
-        })?;
+        let entry = entry
+            .map_err(|e| format!("Could not read entry: {} / لا يمكن قراءة المدخل: {}", e, e))?;
         let path = entry.path();
 
         if path.is_file() && is_valid_source_extension(&path) {
@@ -1089,9 +1206,21 @@ fn generate_html_index(docs: &[(String, crate::doc::model::Documentation)]) -> S
     );
 
     for (name, doc) in docs {
-        let func_count = doc.items.iter().filter(|i| matches!(i, crate::doc::model::DocItem::Function(_))).count();
-        let class_count = doc.items.iter().filter(|i| matches!(i, crate::doc::model::DocItem::Class(_))).count();
-        let interface_count = doc.items.iter().filter(|i| matches!(i, crate::doc::model::DocItem::Interface(_))).count();
+        let func_count = doc
+            .items
+            .iter()
+            .filter(|i| matches!(i, crate::doc::model::DocItem::Function(_)))
+            .count();
+        let class_count = doc
+            .items
+            .iter()
+            .filter(|i| matches!(i, crate::doc::model::DocItem::Class(_)))
+            .count();
+        let interface_count = doc
+            .items
+            .iter()
+            .filter(|i| matches!(i, crate::doc::model::DocItem::Interface(_)))
+            .count();
 
         html.push_str(&format!(
             r#"            <div class="module-card">
@@ -1104,7 +1233,10 @@ fn generate_html_index(docs: &[(String, crate::doc::model::Documentation)]) -> S
 "#,
             name,
             name,
-            doc.description.as_ref().map(|d| format!("<p>{}</p>", d)).unwrap_or_default(),
+            doc.description
+                .as_ref()
+                .map(|d| format!("<p>{}</p>", d))
+                .unwrap_or_default(),
             func_count,
             class_count,
             interface_count
