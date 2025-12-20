@@ -1,74 +1,68 @@
-<div dir="rtl">
+<div dir="rtl" align="right">
 
-# ترقيم - Tarqeem
+# ترقيم
 
 **أول لغة برمجة عربية مُترجَمة للأغراض العامة**
 
-</div>
+## نظرة عامة
 
-## Overview
+ترقيم هي لغة برمجة مُترجَمة للأغراض العامة مع دعم كامل للصياغة العربية. تجمع أفضل الميزات من سهولة قراءة بايثون، ومرونة PHP، وإمكانيات جافاسكربت الحديثة.
 
-Tarqeem (ترقيم) is a compiled, general-purpose programming language with full Arabic syntax support. It combines the best features from Python's readability, PHP's flexibility, and JavaScript's modern capabilities.
+### لماذا ترقيم؟
 
-### Why Tarqeem?
+- **دعم عربي أصيل**: اكتب الكود بالكامل بالعربية مع اتجاه النص من اليمين لليسار
+- **أداء مُترجَم**: تُترجَم إلى كود آلة أصلي للحصول على أفضل أداء
+- **صياغة حديثة**: تجمع أفضل ما في بايثون وPHP وجافاسكربت
+- **برمجة كائنية كاملة**: أصناف، واجهات، سمات، أنماط معممة، والمزيد
+- **أمان الأنماط**: كتابة ثابتة قوية مع استنتاج الأنماط
 
-- **Native Arabic Support**: Write code entirely in Arabic with RTL text direction
-- **Compiled Performance**: Compiles to native machine code for optimal performance
-- **Modern Syntax**: Combines the best of Python, PHP, and JavaScript
-- **Full OOP**: Classes, interfaces, traits, generics, and more
-- **Type Safety**: Strong static typing with type inference
+## أمثلة على الصياغة
 
-## Syntax Examples
-
-### Hello World
+### مرحباً بالعالم
 
 ```tarqeem
-// English mode
-print("Hello, World!")
-
-// Arabic mode
 اطبع("مرحباً بالعالم!")
 ```
 
-### Variables and Types
+### المتغيرات والأنماط
 
 ```tarqeem
-// Variable declaration (inspired by JavaScript's let/const)
-متغير اسم = "أحمد"          // mutable variable (let)
-ثابت عمر = 25              // constant (const)
+// تعريف المتغيرات
+متغير اسم = "أحمد"          // متغير قابل للتعديل
+ثابت عمر = 25              // ثابت غير قابل للتعديل
 
-// Type annotations (inspired by TypeScript)
+// تحديد الأنماط
 متغير راتب: عدد_عشري = 5000.50
 متغير متزوج: منطقي = صحيح
 
-// Arabic type names
-// عدد = integer
-// عدد_عشري = float
-// نص = string
-// منطقي = boolean
-// صحيح/خطأ = true/false
+// أسماء الأنماط العربية
+// عدد = عدد صحيح
+// عدد_عشري = عدد عشري
+// نص = سلسلة نصية
+// منطقي = قيمة منطقية
+// صحيح/خطأ = صواب/خطأ
 ```
 
-### Functions
+### الدوال
 
 ```tarqeem
-// Function definition (inspired by Python's def + JavaScript's arrow)
+// تعريف دالة
 دالة جمع(أ: عدد، ب: عدد) -> عدد {
     أرجع أ + ب
 }
 
-// Arrow function style
+// دالة سهمية
 ثابت مربع = (س: عدد) => س * س
 
-// Function call
+// استدعاء الدالة
 متغير نتيجة = جمع(5، 3)
 اطبع(نتيجة)  // 8
 ```
 
-### Control Flow
+### التحكم في التدفق
 
 ```tarqeem
-// If-else (إذا-وإلا)
+// إذا-وإلا
 إذا (عمر >= 18) {
     اطبع("بالغ")
 } وإلا إذا (عمر >= 13) {
@@ -77,7 +71,7 @@ print("Hello, World!")
     اطبع("طفل")
 }
 
-// Match/Switch (تطابق)
+// تطابق
 تطابق (يوم) {
     حالة "السبت"، "الأحد" => اطبع("عطلة")
     حالة "الجمعة" => اطبع("نهاية الأسبوع")
@@ -85,65 +79,65 @@ print("Hello, World!")
 }
 ```
 
-### Loops
+### الحلقات
 
 ```tarqeem
-// For loop (لكل)
+// حلقة لكل
 لكل (متغير ع = 0؛ ع < 10؛ ع++) {
     اطبع(ع)
 }
 
-// For-in loop (لكل-في)
+// حلقة لكل-في
 ثابت أرقام = [1، 2، 3، 4، 5]
 لكل رقم في أرقام {
     اطبع(رقم)
 }
 
-// While loop (طالما)
+// حلقة طالما
 متغير عداد = 0
 طالما (عداد < 5) {
     اطبع(عداد)
     عداد++
 }
 
-// Do-while (افعل-طالما)
+// افعل-طالما
 افعل {
     اطبع("مرة واحدة على الأقل")
 } طالما (شرط)
 ```
 
-### Classes and OOP
+### الأصناف والبرمجة الكائنية
 
 ```tarqeem
-// Interface (واجهة)
+// واجهة
 واجهة قابل_للطباعة {
     دالة اطبع_معلومات()
 }
 
-// Class (صنف)
+// صنف
 صنف شخص يطبق قابل_للطباعة {
-    // Properties
+    // الخصائص
     خاص اسم: نص
     خاص عمر: عدد
 
-    // Constructor (منشئ)
+    // المنشئ
     منشئ(اسم: نص، عمر: عدد) {
         هذا.اسم = اسم
         هذا.عمر = عمر
     }
 
-    // Method
+    // دالة
     عام دالة اطبع_معلومات() {
         اطبع("الاسم: " + هذا.اسم + "، العمر: " + هذا.عمر)
     }
 
-    // Getter
+    // دالة الحصول
     عام دالة احصل_اسم() -> نص {
         أرجع هذا.اسم
     }
 }
 
-// Inheritance (يرث)
+// الوراثة
 صنف موظف يرث شخص {
     خاص راتب: عدد_عشري
 
@@ -153,15 +147,15 @@ print("Hello, World!")
     }
 }
 
-// Usage
+// الاستخدام
 متغير شخص١ = جديد شخص("أحمد"، 30)
 شخص١.اطبع_معلومات()
 ```
 
-### Generics
+### الأنماط المعممة
 
 ```tarqeem
-// Generic class (صنف معمم)
+// صنف معمم
 صنف قائمة<ن> {
     خاص عناصر: مصفوفة<ن>
 
@@ -183,10 +177,10 @@ print("Hello, World!")
 أرقام.أضف(2)
 ```
 
-### Error Handling
+### معالجة الأخطاء
 
 ```tarqeem
-// Try-catch (حاول-التقط)
+// حاول-التقط
 حاول {
     متغير نتيجة = قسمة(10، 0)
 } التقط (خطأ) {
@@ -195,7 +189,7 @@ print("Hello, World!")
     اطبع("تم الانتهاء")
 }
 
-// Throw (ارمِ)
+// ارمِ
 دالة قسمة(أ: عدد، ب: عدد) -> عدد {
     إذا (ب == 0) {
         ارمِ خطأ_جديد("لا يمكن القسمة على صفر")
@@ -204,15 +198,15 @@ print("Hello, World!")
 }
 ```
 
-### Modules and Imports
+### الوحدات والاستيراد
 
 ```tarqeem
-// Import (استورد)
+// استيراد
 استورد { قائمة، قاموس } من "مجموعات"
 استورد * كـ رياضيات من "رياضيات"
 استورد ملف_محلي من "./مساعدات"
 
-// Export (صدّر)
+// تصدير
 صدّر دالة مساعدة() {
     // ...
 }
@@ -222,165 +216,163 @@ print("Hello, World!")
 }
 ```
 
-### Async/Await
+### التزامن
 
 ```tarqeem
-// Async function (دالة_متزامنة)
+// دالة غير متزامنة
 غير_متزامن دالة احضر_بيانات(رابط: نص) -> نص {
     متغير استجابة = انتظر طلب_شبكة(رابط)
     أرجع استجابة.نص()
 }
 
-// Usage
+// الاستخدام
 غير_متزامن دالة رئيسية() {
     متغير بيانات = انتظر احضر_بيانات("https://api.example.com")
     اطبع(بيانات)
 }
 ```
 
-## Language Keywords Reference
+## مرجع الكلمات المفتاحية
 
-| Arabic | English | Description |
-|--------|---------|-------------|
-| متغير | let/var | Mutable variable |
-| ثابت | const | Immutable constant |
-| دالة | function | Function definition |
-| أرجع | return | Return statement |
-| إذا | if | Conditional |
-| وإلا | else | Else clause |
-| طالما | while | While loop |
-| لكل | for | For loop |
-| في | in | In operator |
-| صنف | class | Class definition |
-| واجهة | interface | Interface definition |
-| يرث | extends | Inheritance |
-| يطبق | implements | Interface implementation |
-| عام | public | Public access |
-| خاص | private | Private access |
-| محمي | protected | Protected access |
-| ثابت_صنف | static | Static member |
-| منشئ | constructor | Constructor |
-| هذا | this | This reference |
-| أساس | super | Parent reference |
-| جديد | new | Object instantiation |
-| حاول | try | Try block |
-| التقط | catch | Catch block |
-| أخيراً | finally | Finally block |
-| ارمِ | throw | Throw exception |
-| استورد | import | Import module |
-| صدّر | export | Export module |
-| من | from | From clause |
-| كـ | as | Alias |
-| صحيح | true | Boolean true |
-| خطأ | false | Boolean false |
-| عدم | null/none | Null value |
-| غير_متزامن | async | Async function |
-| انتظر | await | Await expression |
-| تطابق | match/switch | Pattern matching |
-| حالة | case | Case clause |
-| غير_ذلك | default | Default clause |
+| العربية | الإنجليزية | الوصف |
+|---------|------------|-------|
+| متغير | let/var | متغير قابل للتعديل |
+| ثابت | const | ثابت غير قابل للتعديل |
+| دالة | function | تعريف دالة |
+| أرجع | return | جملة الإرجاع |
+| إذا | if | شرط |
+| وإلا | else | فرع وإلا |
+| طالما | while | حلقة طالما |
+| لكل | for | حلقة لكل |
+| في | in | عامل في |
+| صنف | class | تعريف صنف |
+| واجهة | interface | تعريف واجهة |
+| يرث | extends | الوراثة |
+| يطبق | implements | تطبيق الواجهة |
+| عام | public | وصول عام |
+| خاص | private | وصول خاص |
+| محمي | protected | وصول محمي |
+| ثابت_صنف | static | عضو ثابت |
+| منشئ | constructor | المنشئ |
+| هذا | this | مرجع هذا |
+| أساس | super | مرجع الأب |
+| جديد | new | إنشاء كائن |
+| حاول | try | كتلة المحاولة |
+| التقط | catch | كتلة الالتقاط |
+| أخيراً | finally | كتلة أخيراً |
+| ارمِ | throw | رمي استثناء |
+| استورد | import | استيراد وحدة |
+| صدّر | export | تصدير وحدة |
+| من | from | من |
+| كـ | as | اسم مستعار |
+| صحيح | true | صواب منطقي |
+| خطأ | false | خطأ منطقي |
+| عدم | null/none | قيمة فارغة |
+| غير_متزامن | async | دالة غير متزامنة |
+| انتظر | await | تعبير الانتظار |
+| تطابق | match/switch | مطابقة الأنماط |
+| حالة | case | فرع الحالة |
+| غير_ذلك | default | الفرع الافتراضي |
 
-## Type System
+## نظام الأنماط
 
-| Arabic | English | Description |
-|--------|---------|-------------|
-| عدد | int | Integer |
-| عدد_عشري | float | Floating point |
-| نص | string | String |
-| منطقي | bool | Boolean |
-| مصفوفة | array | Array |
-| قاموس | map/dict | Dictionary |
-| فراغ | void | No return |
-| أي | any | Any type |
+| العربية | الإنجليزية | الوصف |
+|---------|------------|-------|
+| عدد | int | عدد صحيح |
+| عدد_عشري | float | عدد عشري |
+| نص | string | سلسلة نصية |
+| منطقي | bool | قيمة منطقية |
+| مصفوفة | array | مصفوفة |
+| قاموس | map/dict | قاموس |
+| فراغ | void | بدون إرجاع |
+| أي | any | أي نمط |
 
-## Installation
+## التثبيت
 
 ```bash
-# Clone the repository
+# استنساخ المستودع
 git clone https://github.com/osama1998H/tarqeem.git
 cd tarqeem
 
-# Build from source (requires Rust)
+# البناء من المصدر (يتطلب Rust)
 cargo build --release
 
-# Install globally
+# التثبيت بشكل عام
 cargo install --path .
 
-# Verify installation
+# التحقق من التثبيت
 tarqeem --version
 ```
 
-## Usage
+## الاستخدام
 
 ```bash
-# Compile a Tarqeem file
+# ترجمة ملف ترقيم
 tarqeem compile برنامج.trq -o برنامج
 
-# Run directly (compile and execute)
+# التشغيل مباشرة (ترجمة وتنفيذ)
 tarqeem run برنامج.trq
 
-# Check syntax without compiling
+# فحص الصياغة بدون ترجمة
 tarqeem check برنامج.trq
 
-# Format code
+# تنسيق الكود
 tarqeem fmt برنامج.trq
 
-# Start REPL
+# بدء الوضع التفاعلي
 tarqeem repl
 ```
 
-## File Extensions
+## امتدادات الملفات
 
-- `.trq` - Tarqeem source files
-- `.trqh` - Tarqeem header/interface files
+- `.trq` - ملفات مصدر ترقيم
+- `.trqh` - ملفات الرؤوس والواجهات
 
-## Editor Support
+## دعم المحررات
 
-RTL support depends on the editor. Recommended editors with RTL configuration:
-- VS Code with Arabic support extensions
-- Sublime Text with RTL plugins
-- Custom Tarqeem IDE (planned)
+دعم RTL يعتمد على المحرر. المحررات الموصى بها مع إعدادات RTL:
+- VS Code مع إضافات دعم العربية
+- Sublime Text مع إضافات RTL
+- بيئة تطوير ترقيم المخصصة (مخطط لها)
 
-## Roadmap
+## خارطة الطريق
 
-### Phase 1: Core Language (Complete)
-- [x] Language specification
-- [x] Lexer and tokenizer (Arabic/English keywords, Unicode support)
-- [x] Parser and AST (recursive descent + Pratt parsing)
-- [x] Semantic analyzer (scope management, name resolution)
-- [x] Type checker (static typing with inference)
-- [x] CLI (compile, run, check, repl commands)
-- [x] Bilingual error messages (Arabic/English)
+### المرحلة الأولى: اللغة الأساسية (مكتملة)
+- [x] مواصفات اللغة
+- [x] المحلل اللغوي والرموز (كلمات مفتاحية عربية/إنجليزية، دعم يونيكود)
+- [x] المحلل النحوي وشجرة الصياغة المجردة (تحليل تنازلي + تحليل برات)
+- [x] المحلل الدلالي (إدارة النطاق، حل الأسماء)
+- [x] مدقق الأنماط (كتابة ثابتة مع استنتاج)
+- [x] واجهة سطر الأوامر (أوامر compile، run، check، repl)
+- [x] رسائل خطأ ثنائية اللغة (عربي/إنجليزي)
 
-### Phase 2: Code Generation (In Progress)
-- [x] IR infrastructure (three-address code, SSA form)
-- [x] Type system completion (generics, class hierarchies, vtables)
-- [x] Code optimizer (constant folding, DCE, CSE, inlining)
-- [x] Native code generation (LLVM)
+### المرحلة الثانية: توليد الكود (قيد التنفيذ)
+- [x] بنية التمثيل الوسيط (كود ثلاثي العناوين، صيغة SSA)
+- [x] إكمال نظام الأنماط (أنماط معممة، تسلسل الأصناف، جداول الدوال الافتراضية)
+- [x] محسن الكود (طي الثوابت، حذف الكود الميت، حذف التعبيرات المتكررة، التضمين)
+- [x] توليد الكود الأصلي (LLVM)
 
-### Phase 3: Standard Library
-- [ ] Core types and collections
-- [ ] I/O and file system
-- [ ] Networking
+### المرحلة الثالثة: المكتبة القياسية
+- [ ] الأنماط الأساسية والمجموعات
+- [ ] الإدخال/الإخراج ونظام الملفات
+- [ ] الشبكات
 
-### Phase 4: Tooling
-- [ ] Package manager
-- [ ] LSP server
-- [ ] VS Code extension
-- [ ] Documentation generator
+### المرحلة الرابعة: الأدوات
+- [ ] مدير الحزم
+- [ ] خادم LSP
+- [ ] إضافة VS Code
+- [ ] مولد التوثيق
 
-## Contributing
+## المساهمة
 
-Contributions are welcome! Please read the ARCHITECTURE.md for technical details and CLAUDE.md for development guidelines.
+المساهمات مرحب بها! يرجى قراءة ARCHITECTURE.md للتفاصيل التقنية وCLAUDE.md لإرشادات التطوير.
 
-## License
+## الرخصة
 
-MIT License - See LICENSE file for details.
+رخصة MIT - راجع ملف LICENSE للتفاصيل.
 
 ---
 
-<div dir="rtl">
-
-**ترقيم** - لغة البرمجة العربية 🇸🇦
+**ترقيم** - لغة البرمجة العربية
 
 </div>
