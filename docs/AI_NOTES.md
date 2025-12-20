@@ -801,6 +801,292 @@ Track follow-up items here:
 
 ---
 
+## Implementation Plan for Pending Items
+
+### 2025-12-20: Planning Session - Pending Items Analysis
+
+After thorough exploration of the codebase, here is the implementation plan for the pending items:
+
+---
+
+### Item 1: Register Intrinsic Functions in Semantic Analyzer
+
+**Priority**: P0 (Critical - required for stdlib to work)
+
+**Current State**:
+- Only 3 functions registered in `Scope::new_global()`: `اطبع`/`print`, `طول`/`len`, `نوع`/`type`
+- C runtime (`tarqeem_rt.h`) defines 100+ functions
+- Method resolver handles array/string/map methods but not global functions
+
+**Files to Modify**:
+1. `src/semantic/scope.rs` - Add function registrations in `Scope::new_global()`
+
+**Implementation Steps**:
+
+1. **Math Functions** (40+ functions):
+   ```rust
+   // Power and roots
+   scope.define(Symbol::function("قوة", vec![Type::Float, Type::Float], Type::Float));
+   scope.define(Symbol::function("pow", vec![Type::Float, Type::Float], Type::Float));
+   scope.define(Symbol::function("جذر", vec![Type::Float], Type::Float));
+   scope.define(Symbol::function("sqrt", vec![Type::Float], Type::Float));
+   // etc.
+   ```
+
+2. **String Functions** (15+ functions):
+   ```rust
+   scope.define(Symbol::function("نص", vec![Type::Any], Type::String));
+   scope.define(Symbol::function("str", vec![Type::Any], Type::String));
+   ```
+
+3. **I/O Functions**:
+   ```rust
+   scope.define(Symbol::function("ادخل", vec![], Type::String));
+   scope.define(Symbol::function("input", vec![], Type::String));
+   ```
+
+4. **Type Conversion Functions**:
+   ```rust
+   scope.define(Symbol::function("عدد", vec![Type::Any], Type::Int));
+   scope.define(Symbol::function("int", vec![Type::Any], Type::Int));
+   scope.define(Symbol::function("عدد_عشري", vec![Type::Any], Type::Float));
+   scope.define(Symbol::function("float", vec![Type::Any], Type::Float));
+   ```
+
+**Estimated Functions to Add**: ~50 bilingual pairs
+
+---
+
+### Item 2: Add stdlib_trq to Module Search Path
+
+**Priority**: P0 (Critical - required for imports to work)
+
+**Current State**:
+- `ModuleLoader.add_search_path()` exists but never called
+- `Analyzer.add_search_path()` wrapper exists but never called
+- CLI commands create Analyzer but don't configure search paths
+
+**Files to Modify**:
+1. `src/cli/commands.rs` - Add helper function and call it
+
+**Implementation**:
+
+```rust
+// Add this helper function (similar to find_runtime())
+fn find_stdlib_path() -> Option<PathBuf> {
+    let search_paths = [
+        // Relative to executable (installed)
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.join("stdlib_trq"))),
+        // Relative to executable parent (development)
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().and_then(|p| p.parent().map(|p| p.join("stdlib_trq")))),
+        // Relative to current directory (development)
+        Some(PathBuf::from("stdlib_trq")),
+        // Standard install locations
+        Some(PathBuf::from("/usr/local/lib/tarqeem/stdlib_trq")),
+    ];
+
+    for path in search_paths.iter().flatten() {
+        if path.exists() && path.is_dir() {
+            return Some(path.clone());
+        }
+    }
+    None
+}
+
+// Then in each command handler (Compile, Run, Check, Repl):
+let mut analyzer = Analyzer::new();
+if let Some(stdlib_path) = find_stdlib_path() {
+    analyzer.add_search_path(stdlib_path);
+}
+```
+
+**Commands to Update**: `Compile` (line 122), `Run` (line 369), `Check` (line 425), `Repl` (line 481)
+
+---
+
+### Item 3: Add Integration Tests for stdlib
+
+**Priority**: P1 (Important - ensures stdlib works correctly)
+
+**Current State**:
+- `tests/phase3_criteria_tests.rs` - Parsing tests only (850+ lines)
+- `tests/stdlib_test.ترقيم` - Manual test file, not automated
+- No runtime verification of stdlib functionality
+
+**Files to Create**:
+1. `tests/common/mod.rs` - Test helpers
+2. `tests/stdlib/mod.rs` - Stdlib test module
+3. `tests/stdlib/collections_tests.rs` - Collection tests
+4. `tests/stdlib/math_tests.rs` - Math tests
+
+**Implementation**:
+
+```rust
+// tests/common/mod.rs
+use std::process::Command;
+
+pub fn compile_and_run(source: &str) -> Result<String, String> {
+    // Write source to temp file
+    let temp_file = std::env::temp_dir().join("test.trq");
+    std::fs::write(&temp_file, source).map_err(|e| e.to_string())?;
+
+    // Compile
+    let output = Command::new("cargo")
+        .args(["run", "--", "run", temp_file.to_str().unwrap()])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+```
+
+```rust
+// tests/stdlib/collections_tests.rs
+mod common;
+use common::compile_and_run;
+
+#[test]
+fn test_list_basic_operations() {
+    let source = r#"
+استورد { قائمة } من "مجموعات"
+متغير ق = جديد قائمة<عدد>()
+ق.أضف(10)
+ق.أضف(20)
+اطبع(ق.طول())
+"#;
+    let output = compile_and_run(source).unwrap();
+    assert_eq!(output.trim(), "2");
+}
+```
+
+---
+
+### Item 4: Create Integration Tests for Compiler Pipeline
+
+**Priority**: P1 (Important - ensures end-to-end correctness)
+
+**Current State**:
+- Unit tests exist for each stage
+- No end-to-end tests that verify full compilation works
+- Examples exist but not automated
+
+**Files to Create**:
+1. `tests/pipeline/mod.rs` - Pipeline test module
+2. `tests/pipeline/end_to_end_tests.rs` - Full pipeline tests
+3. `tests/pipeline/examples_tests.rs` - Example file tests
+
+**Implementation**:
+
+```rust
+// tests/pipeline/end_to_end_tests.rs
+mod common;
+
+#[test]
+fn test_hello_world() {
+    let source = r#"اطبع("مرحباً بالعالم!")"#;
+    let output = common::compile_and_run(source).unwrap();
+    assert_eq!(output.trim(), "مرحباً بالعالم!");
+}
+
+#[test]
+fn test_factorial_recursion() {
+    let source = include_str!("../../examples/اختبار_بسيط.ترقيم");
+    let output = common::compile_and_run(source).unwrap();
+    assert!(output.contains("5! = 120"));
+}
+
+#[test]
+fn test_control_flow() {
+    let source = r#"
+متغير س = 5
+إذا (س > 3) {
+    اطبع("كبير")
+} وإلا {
+    اطبع("صغير")
+}
+"#;
+    let output = common::compile_and_run(source).unwrap();
+    assert_eq!(output.trim(), "كبير");
+}
+```
+
+---
+
+### Item 5: Document Common Error Patterns and Solutions
+
+**Priority**: P2 (Nice-to-have - improves developer experience)
+
+**Current State**:
+- Errors are bilingual (Arabic + English)
+- No central documentation of common errors
+- `.claude/rules/` has some patterns but not error-specific
+
+**Files to Create**:
+1. `docs/ERROR_PATTERNS.md` - Common errors and solutions
+
+**Content Structure**:
+
+```markdown
+# Common Error Patterns and Solutions
+
+## Type Errors
+
+### Error: "لا يمكن تعيين قيمة من نوع X إلى Y"
+**English**: "Cannot assign value of type X to Y"
+**Cause**: Type mismatch in assignment
+**Solution**: Use type conversion or correct the type
+
+### Error: "المتغير X غير معرف"
+**English**: "Variable X is not defined"
+**Cause**: Using variable before declaration
+**Solution**: Declare variable before use
+
+## Import Errors
+
+### Error: "الوحدة X غير موجودة"
+**English**: "Module X not found"
+**Cause**: Module path not found
+**Solution**: Check module path and ensure stdlib_trq is in search path
+
+... more patterns
+```
+
+---
+
+### Implementation Priority Order
+
+| Priority | Item | Effort | Dependencies |
+|----------|------|--------|--------------|
+| P0.1 | Register intrinsic functions | 2-3 hours | None |
+| P0.2 | Add stdlib_trq search path | 30 min | None |
+| P1.1 | Test helpers (`tests/common/`) | 1 hour | P0.1, P0.2 |
+| P1.2 | Stdlib tests | 2-3 hours | P1.1 |
+| P1.3 | Pipeline tests | 2-3 hours | P1.1 |
+| P2 | Error documentation | 1 hour | None |
+
+**Total Estimated Effort**: 9-12 hours
+
+---
+
+### Risk Assessment
+
+| Risk | Mitigation |
+|------|-----------|
+| Intrinsic function signatures may not match C runtime | Cross-reference with `tarqeem_rt.h` |
+| stdlib_trq path may differ on different systems | Use multiple fallback paths |
+| Integration tests may fail on systems without LLVM | Make tests conditional |
+| Interpreter mode may behave differently than compiled | Test both modes |
+
+---
+
 ## Template for New Entries
 
 ```markdown
