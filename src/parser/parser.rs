@@ -207,14 +207,11 @@ impl Parser {
         self.advance(); // consume '<'
 
         loop {
-            let param = self.expect_identifier(
-                "Expected type parameter name / متوقع اسم معامل النوع",
-            )?;
+            let param =
+                self.expect_identifier("Expected type parameter name / متوقع اسم معامل النوع")?;
             params.push(param);
 
-            if !self.match_token(&TokenKind::Comma)
-                && !self.match_token(&TokenKind::ArabicComma)
-            {
+            if !self.match_token(&TokenKind::Comma) && !self.match_token(&TokenKind::ArabicComma) {
                 break;
             }
         }
@@ -861,7 +858,7 @@ impl Parser {
                 // Skip generic type arguments if present: <T, U, ...>
                 if self.check(&TokenKind::Less) {
                     self.advance(); // consume '<'
-                    // Parse type arguments (for now, just skip over them)
+                                    // Parse type arguments (for now, just skip over them)
                     loop {
                         self.parse_type_annotation()?; // consume type argument
                         if !self.match_token(&TokenKind::Comma)

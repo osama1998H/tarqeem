@@ -56,7 +56,11 @@ mod module_system {
         let source = r#"
 استورد { قائمة، مجموعة } من "مجموعات"
 "#;
-        assert!(parses_ok(source), "Named import syntax should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Named import syntax should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test import with alias syntax
@@ -65,7 +69,11 @@ mod module_system {
         let source = r#"
 استورد * كـ رياضيات من "رياضيات"
 "#;
-        assert!(parses_ok(source), "Wildcard import with alias should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Wildcard import with alias should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test relative import syntax
@@ -74,7 +82,11 @@ mod module_system {
         let source = r#"
 استورد { مساعد } من "./أدوات"
 "#;
-        assert!(parses_ok(source), "Relative import should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Relative import should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test export syntax
@@ -85,7 +97,11 @@ mod module_system {
     أرجع س * 2
 }
 "#;
-        assert!(parses_ok(source), "Export function should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Export function should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test export class syntax
@@ -100,7 +116,11 @@ mod module_system {
     }
 }
 "#;
-        assert!(parses_ok(source), "Export class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Export class should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test re-export syntax
@@ -110,7 +130,11 @@ mod module_system {
 استورد { قائمة } من "./قائمة"
 صدّر { قائمة }
 "#;
-        assert!(parses_ok(source), "Re-export should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Re-export should parse: {}",
+            parse_error(source)
+        );
     }
 }
 
@@ -146,7 +170,11 @@ mod collections {
     }
 }
 "#;
-        assert!(parses_ok(source), "List class definition should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "List class definition should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test Set (مجموعة) class syntax
@@ -163,7 +191,11 @@ mod collections {
     عام دالة فرق(أخرى: مجموعة<ن>) -> مجموعة<ن> { أرجع هذا }
 }
 "#;
-        assert!(parses_ok(source), "Set class with operations should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Set class with operations should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test Map (قاموس/خريطة) class syntax
@@ -180,7 +212,11 @@ mod collections {
     عام دالة قيم() -> مصفوفة<ق> { أرجع هذا._قيم }
 }
 "#;
-        assert!(parses_ok(source), "Map class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Map class should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test Stack (مكدس) class syntax
@@ -194,7 +230,11 @@ mod collections {
     عام دالة فارغ() -> منطقي { أرجع صحيح }
 }
 "#;
-        assert!(parses_ok(source), "Stack class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Stack class should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test Queue (طابور) class syntax
@@ -208,7 +248,11 @@ mod collections {
     عام دالة فارغ() -> منطقي { أرجع صحيح }
 }
 "#;
-        assert!(parses_ok(source), "Queue class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Queue class should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test Iterator interface syntax
@@ -224,7 +268,11 @@ mod collections {
     دالة متكرر() -> متكرر<ن>
 }
 "#;
-        assert!(parses_ok(source), "Iterator interfaces should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Iterator interfaces should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test Pair (زوج) class for Map entries
@@ -241,7 +289,11 @@ mod collections {
     }
 }
 "#;
-        assert!(parses_ok(source), "Pair class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Pair class should parse: {}",
+            parse_error(source)
+        );
     }
 }
 
@@ -272,7 +324,11 @@ mod string_utilities {
     أرجع __str_ends_with__(سلسلة، لاحقة)
 }
 "#;
-        assert!(parses_ok(source), "String basic functions should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "String basic functions should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test StringBuilder (باني_نص) class
@@ -299,7 +355,11 @@ mod string_utilities {
     }
 }
 "#;
-        assert!(parses_ok(source), "StringBuilder class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "StringBuilder class should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test string formatting functions
@@ -318,7 +378,11 @@ mod string_utilities {
     أرجع ""
 }
 "#;
-        assert!(parses_ok(source), "String formatting functions should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "String formatting functions should parse: {}",
+            parse_error(source)
+        );
     }
 }
 
@@ -345,7 +409,11 @@ mod math_library {
     أرجع __sqrt__(قيمة)
 }
 "#;
-        assert!(parses_ok(source), "Basic math functions should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Basic math functions should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test trigonometric functions
@@ -376,7 +444,11 @@ mod math_library {
     أرجع __atan__(س)
 }
 "#;
-        assert!(parses_ok(source), "Trigonometric functions should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Trigonometric functions should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test math constants
@@ -388,7 +460,11 @@ mod math_library {
 صدّر ثابت ذهبي: عدد_عشري = 1.618033988749895
 صدّر ثابت جذر2: عدد_عشري = 1.4142135623730951
 "#;
-        assert!(parses_ok(source), "Math constants should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Math constants should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test random number functions
@@ -407,7 +483,11 @@ mod math_library {
     __random_seed__(بذرة)
 }
 "#;
-        assert!(parses_ok(source), "Random functions should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Random functions should parse: {}",
+            parse_error(source)
+        );
     }
 }
 
@@ -443,7 +523,11 @@ mod file_system {
     }
 }
 "#;
-        assert!(parses_ok(source), "File class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "File class should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test Path handling functions
@@ -478,7 +562,11 @@ mod file_system {
     أرجع __is_dir__(مسار)
 }
 "#;
-        assert!(parses_ok(source), "Path functions should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Path functions should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test Directory class
@@ -509,7 +597,11 @@ mod file_system {
     }
 }
 "#;
-        assert!(parses_ok(source), "Directory class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Directory class should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test convenience file functions
@@ -536,7 +628,11 @@ mod file_system {
     __file_copy__(المصدر، الهدف)
 }
 "#;
-        assert!(parses_ok(source), "File convenience functions should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "File convenience functions should parse: {}",
+            parse_error(source)
+        );
     }
 }
 
@@ -575,7 +671,11 @@ mod date_time {
     }
 }
 "#;
-        assert!(parses_ok(source), "Date class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Date class should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test Time class
@@ -604,7 +704,11 @@ mod date_time {
     }
 }
 "#;
-        assert!(parses_ok(source), "Time class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Time class should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test DateTime class
@@ -636,7 +740,11 @@ mod date_time {
     __sleep__(ميلي)
 }
 "#;
-        assert!(parses_ok(source), "DateTime class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "DateTime class should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test Arabic day/month names constants
@@ -668,7 +776,11 @@ mod date_time {
     "ديسمبر"
 ]
 "#;
-        assert!(parses_ok(source), "Arabic date names should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Arabic date names should parse: {}",
+            parse_error(source)
+        );
     }
 }
 
@@ -697,7 +809,11 @@ mod error_handling {
     }
 }
 "#;
-        assert!(parses_ok(source), "Error class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Error class should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test specific error types with inheritance
@@ -736,7 +852,11 @@ mod error_handling {
     }
 }
 "#;
-        assert!(parses_ok(source), "Specific error types should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Specific error types should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test Result type
@@ -772,7 +892,11 @@ mod error_handling {
     }
 }
 "#;
-        assert!(parses_ok(source), "Result type should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Result type should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test Option type
@@ -803,7 +927,11 @@ mod error_handling {
     }
 }
 "#;
-        assert!(parses_ok(source), "Option type should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Option type should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test try-catch syntax
@@ -827,7 +955,11 @@ mod error_handling {
     أرجع س / ص
 }
 "#;
-        assert!(parses_ok(source), "Try-catch syntax should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Try-catch syntax should parse: {}",
+            parse_error(source)
+        );
     }
 }
 
@@ -859,7 +991,11 @@ mod console_io {
     أرجع __readline__()
 }
 "#;
-        assert!(parses_ok(source), "Basic I/O functions should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Basic I/O functions should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test ANSI color constants
@@ -876,7 +1012,11 @@ mod console_io {
     اطبع(اللون + السلسلة + لون_افتراضي)
 }
 "#;
-        assert!(parses_ok(source), "ANSI color constants should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "ANSI color constants should parse: {}",
+            parse_error(source)
+        );
     }
 }
 
@@ -923,7 +1063,11 @@ mod networking {
     }
 }
 "#;
-        assert!(parses_ok(source), "TCP connection class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "TCP connection class should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test TCP server class
@@ -952,7 +1096,11 @@ mod networking {
     }
 }
 "#;
-        assert!(parses_ok(source), "TCP server class should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "TCP server class should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test HTTP client
@@ -984,7 +1132,11 @@ mod networking {
     }
 }
 "#;
-        assert!(parses_ok(source), "HTTP client should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "HTTP client should parse: {}",
+            parse_error(source)
+        );
     }
 }
 
@@ -1014,7 +1166,11 @@ mod integration {
 اطبع("مجموع الأعمار: ")
 اطبع_سطر(مجموع)
 "#;
-        assert!(parses_ok(source), "Full program with collections should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Full program with collections should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test a complete OOP program
@@ -1064,7 +1220,11 @@ mod integration {
 متغير موظف1 = جديد موظف("أحمد"، 30، 5000.0)
 موظف1.اطبع_معلومات()
 "#;
-        assert!(parses_ok(source), "Full OOP program should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Full OOP program should parse: {}",
+            parse_error(source)
+        );
     }
 
     /// Test a program with generics
@@ -1095,6 +1255,10 @@ mod integration {
 اطبع_سطر(صندوق_رقم.احصل())
 اطبع_سطر(صندوق_نص.احصل())
 "#;
-        assert!(parses_ok(source), "Program with generics should parse: {}", parse_error(source));
+        assert!(
+            parses_ok(source),
+            "Program with generics should parse: {}",
+            parse_error(source)
+        );
     }
 }
