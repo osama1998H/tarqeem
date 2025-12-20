@@ -13,7 +13,9 @@ pub use commands::run;
 #[command(author = "Tarqeem Contributors")]
 #[command(version = "0.1.0")]
 #[command(about = "ترقيم - أول لغة برمجة عربية مُترجَمة")]
-#[command(long_about = "Tarqeem (ترقيم) is a compiled, general-purpose programming language with full Arabic syntax support.")]
+#[command(
+    long_about = "Tarqeem (ترقيم) is a compiled, general-purpose programming language with full Arabic syntax support."
+)]
 pub struct Cli {
     /// Use English for error messages (default is Arabic)
     #[arg(long, short = 'e', global = true)]

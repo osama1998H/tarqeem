@@ -141,10 +141,10 @@ impl Parser {
         if self.check(&TokenKind::Implements) {
             self.advance();
             loop {
-                implements.push(
-                    self.expect_identifier("Expected interface name / متوقع اسم الواجهة")?,
-                );
-                if !self.match_token(&TokenKind::Comma) && !self.match_token(&TokenKind::ArabicComma)
+                implements
+                    .push(self.expect_identifier("Expected interface name / متوقع اسم الواجهة")?);
+                if !self.match_token(&TokenKind::Comma)
+                    && !self.match_token(&TokenKind::ArabicComma)
                 {
                     break;
                 }
@@ -278,10 +278,7 @@ impl Parser {
         self.expect(&TokenKind::RightBrace, "Expected '}' / متوقع '}'")?;
 
         let span = start.merge(&self.previous_span());
-        Ok(Stmt::new(
-            StmtKind::InterfaceDecl { name, methods },
-            span,
-        ))
+        Ok(Stmt::new(StmtKind::InterfaceDecl { name, methods }, span))
     }
 
     fn parse_import_statement(&mut self) -> Result<Stmt, Diagnostic> {
@@ -303,7 +300,8 @@ impl Parser {
                 };
                 items.push(ImportItem { name, alias });
 
-                if !self.match_token(&TokenKind::Comma) && !self.match_token(&TokenKind::ArabicComma)
+                if !self.match_token(&TokenKind::Comma)
+                    && !self.match_token(&TokenKind::ArabicComma)
                 {
                     break;
                 }
@@ -446,7 +444,10 @@ impl Parser {
         } else {
             let expr = self.parse_expression()?;
             self.consume_semicolon()?;
-            Some(Box::new(Stmt::new(StmtKind::Expr(expr), self.previous_span())))
+            Some(Box::new(Stmt::new(
+                StmtKind::Expr(expr),
+                self.previous_span(),
+            )))
         };
 
         // For var declarations, semicolon is already consumed
@@ -455,12 +456,12 @@ impl Parser {
         }
 
         // Parse condition
-        let condition = if self.check(&TokenKind::Semicolon) || self.check(&TokenKind::ArabicSemicolon)
-        {
-            None
-        } else {
-            Some(self.parse_expression()?)
-        };
+        let condition =
+            if self.check(&TokenKind::Semicolon) || self.check(&TokenKind::ArabicSemicolon) {
+                None
+            } else {
+                Some(self.parse_expression()?)
+            };
         self.consume_semicolon()?;
 
         // Parse update
@@ -509,7 +510,8 @@ impl Parser {
                 self.expect(&TokenKind::Case, "Expected 'case' / متوقع 'حالة'")?;
                 loop {
                     patterns.push(self.parse_expression()?);
-                    if !self.match_token(&TokenKind::Comma) && !self.match_token(&TokenKind::ArabicComma)
+                    if !self.match_token(&TokenKind::Comma)
+                        && !self.match_token(&TokenKind::ArabicComma)
                     {
                         break;
                     }
@@ -683,9 +685,7 @@ impl Parser {
             TokenKind::Null => Ok(Expr::new(ExprKind::Literal(Literal::Null), span)),
 
             // Identifiers
-            TokenKind::Identifier(name) => {
-                Ok(Expr::new(ExprKind::Identifier(name.clone()), span))
-            }
+            TokenKind::Identifier(name) => Ok(Expr::new(ExprKind::Identifier(name.clone()), span)),
 
             // this/super
             TokenKind::This => Ok(Expr::new(ExprKind::This, span)),
@@ -696,7 +696,10 @@ impl Parser {
                 let expr = self.parse_expression()?;
                 self.expect(&TokenKind::RightParen, "Expected ')' / متوقع ')'")?;
                 let end_span = self.previous_span();
-                Ok(Expr::new(ExprKind::Grouping(Box::new(expr)), span.merge(&end_span)))
+                Ok(Expr::new(
+                    ExprKind::Grouping(Box::new(expr)),
+                    span.merge(&end_span),
+                ))
             }
 
             // Array literal
@@ -810,7 +813,10 @@ impl Parser {
             TokenKind::Await => {
                 let expr = self.parse_precedence(Precedence::Unary)?;
                 let end_span = expr.span;
-                Ok(Expr::new(ExprKind::Await(Box::new(expr)), span.merge(&end_span)))
+                Ok(Expr::new(
+                    ExprKind::Await(Box::new(expr)),
+                    span.merge(&end_span),
+                ))
             }
 
             _ => Err(Diagnostic::error(
@@ -927,7 +933,8 @@ impl Parser {
             // Member access
             TokenKind::Dot => {
                 self.advance();
-                let property = self.expect_identifier("Expected property name / متوقع اسم الخاصية")?;
+                let property =
+                    self.expect_identifier("Expected property name / متوقع اسم الخاصية")?;
                 let span = left.span.merge(&self.previous_span());
                 Ok(Expr::new(
                     ExprKind::Member {
@@ -1019,7 +1026,8 @@ impl Parser {
         if !self.check(&TokenKind::RightParen) {
             loop {
                 args.push(self.parse_expression()?);
-                if !self.match_token(&TokenKind::Comma) && !self.match_token(&TokenKind::ArabicComma)
+                if !self.match_token(&TokenKind::Comma)
+                    && !self.match_token(&TokenKind::ArabicComma)
                 {
                     break;
                 }
@@ -1041,7 +1049,8 @@ impl Parser {
             let mut args = Vec::new();
             loop {
                 args.push(self.parse_type_annotation()?);
-                if !self.match_token(&TokenKind::Comma) && !self.match_token(&TokenKind::ArabicComma)
+                if !self.match_token(&TokenKind::Comma)
+                    && !self.match_token(&TokenKind::ArabicComma)
                 {
                     break;
                 }
@@ -1056,10 +1065,7 @@ impl Parser {
 
         // Check for optional
         let kind = if self.match_token(&TokenKind::Question) {
-            TypeKind::Optional(Box::new(TypeAnnotation::new(
-                TypeKind::Simple(name),
-                start,
-            )))
+            TypeKind::Optional(Box::new(TypeAnnotation::new(TypeKind::Simple(name), start)))
         } else {
             TypeKind::Simple(name)
         };
@@ -1095,7 +1101,8 @@ impl Parser {
                     span: start.merge(&self.previous_span()),
                 });
 
-                if !self.match_token(&TokenKind::Comma) && !self.match_token(&TokenKind::ArabicComma)
+                if !self.match_token(&TokenKind::Comma)
+                    && !self.match_token(&TokenKind::ArabicComma)
                 {
                     break;
                 }

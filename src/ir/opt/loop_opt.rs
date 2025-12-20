@@ -647,8 +647,8 @@ impl LoopUnroller {
     pub fn new() -> Self {
         Self {
             stats: OptStats::new(),
-            max_body_size: 50,      // Maximum instructions in loop body
-            unroll_factor: 4,       // Unroll 4 times
+            max_body_size: 50, // Maximum instructions in loop body
+            unroll_factor: 4,  // Unroll 4 times
             require_known_trip_count: true,
         }
     }
@@ -942,7 +942,11 @@ fn instruction_operands(inst: &Instruction) -> Vec<VarId> {
 
         Instruction::ArrayGet { array, index, .. } => vec![*array, *index],
 
-        Instruction::ArraySet { array, index, value } => vec![*array, *index, *value],
+        Instruction::ArraySet {
+            array,
+            index,
+            value,
+        } => vec![*array, *index, *value],
 
         Instruction::ArrayLen { array, .. } => vec![*array],
 
@@ -952,8 +956,7 @@ fn instruction_operands(inst: &Instruction) -> Vec<VarId> {
 
         Instruction::Return { value } => value.iter().copied().collect(),
 
-        Instruction::Call { args, .. }
-        | Instruction::CallIndirect { args, .. } => args.clone(),
+        Instruction::Call { args, .. } | Instruction::CallIndirect { args, .. } => args.clone(),
 
         Instruction::CallMethod { object, args, .. }
         | Instruction::CallVirtual { object, args, .. } => {
@@ -977,7 +980,7 @@ fn instruction_operands(inst: &Instruction) -> Vec<VarId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{BasicBlock, Function, FuncId, Parameter};
+    use crate::ir::{BasicBlock, FuncId, Function, Parameter};
 
     #[test]
     fn test_loop_detection() {
@@ -996,9 +999,8 @@ mod tests {
 
         let mut bb0 = BasicBlock::new(BlockId(0));
         bb0.successors = vec![BlockId(1)];
-        bb0.instructions.push(Instruction::Jump {
-            target: BlockId(1),
-        });
+        bb0.instructions
+            .push(Instruction::Jump { target: BlockId(1) });
 
         let mut bb1 = BasicBlock::new(BlockId(1));
         bb1.predecessors = vec![BlockId(0), BlockId(2)];
@@ -1017,9 +1019,8 @@ mod tests {
         let mut bb2 = BasicBlock::new(BlockId(2));
         bb2.predecessors = vec![BlockId(1)];
         bb2.successors = vec![BlockId(1)];
-        bb2.instructions.push(Instruction::Jump {
-            target: BlockId(1),
-        });
+        bb2.instructions
+            .push(Instruction::Jump { target: BlockId(1) });
 
         let mut bb3 = BasicBlock::new(BlockId(3));
         bb3.predecessors = vec![BlockId(1)];

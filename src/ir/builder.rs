@@ -118,7 +118,13 @@ impl IrBuilder {
     pub fn build(mut self, ast: &Ast) -> Result<Module> {
         // First pass: collect global constants (immutable VarDecls at module level)
         for stmt in &ast.statements {
-            if let StmtKind::VarDecl { name, mutable: false, ty, init } = &stmt.kind {
+            if let StmtKind::VarDecl {
+                name,
+                mutable: false,
+                ty,
+                init,
+            } = &stmt.kind
+            {
                 if let Some(init_expr) = init {
                     if let Some(const_val) = self.try_evaluate_const(init_expr) {
                         let ir_type = if let Some(t) = ty {
@@ -126,7 +132,8 @@ impl IrBuilder {
                         } else {
                             self.const_to_type(&const_val)
                         };
-                        self.global_constants.insert(name.clone(), (const_val, ir_type));
+                        self.global_constants
+                            .insert(name.clone(), (const_val, ir_type));
                     }
                 }
             }
@@ -141,7 +148,13 @@ impl IrBuilder {
 
         // Third pass: collect function signatures
         for stmt in &ast.statements {
-            if let StmtKind::FuncDecl { name, params, return_type, .. } = &stmt.kind {
+            if let StmtKind::FuncDecl {
+                name,
+                params,
+                return_type,
+                ..
+            } = &stmt.kind
+            {
                 self.collect_function_signature(name, params, return_type)?;
             }
         }
@@ -151,7 +164,9 @@ impl IrBuilder {
         let mut has_top_level_code = false;
         for stmt in &ast.statements {
             match &stmt.kind {
-                StmtKind::FuncDecl { .. } | StmtKind::ClassDecl { .. } | StmtKind::InterfaceDecl { .. } => {
+                StmtKind::FuncDecl { .. }
+                | StmtKind::ClassDecl { .. }
+                | StmtKind::InterfaceDecl { .. } => {
                     // These are declarations, not executable code
                 }
                 _ => {
@@ -190,14 +205,22 @@ impl IrBuilder {
 
         for member in members {
             match member {
-                ClassMember::Field { name: field_name, ty, .. } => {
+                ClassMember::Field {
+                    name: field_name,
+                    ty,
+                    ..
+                } => {
                     let ir_type = ty
                         .as_ref()
                         .map(|t| self.convert_type(t))
                         .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                     fields.push((field_name.clone(), ir_type));
                 }
-                ClassMember::Method { name: method_name, return_type, .. } => {
+                ClassMember::Method {
+                    name: method_name,
+                    return_type,
+                    ..
+                } => {
                     // Store method return type
                     let ret_ty = return_type
                         .as_ref()
@@ -357,7 +380,10 @@ impl IrBuilder {
                 // Maps are represented as struct pointers for now
                 IrType::Ptr(Box::new(IrType::Void))
             }
-            TypeKind::Function { params, return_type } => IrType::Function {
+            TypeKind::Function {
+                params,
+                return_type,
+            } => IrType::Function {
                 params: params.iter().map(|p| self.convert_type(p)).collect(),
                 ret: Box::new(self.convert_type(return_type)),
             },
@@ -416,7 +442,10 @@ impl IrBuilder {
                 IrType::Array(Box::new(self.semantic_to_ir_type(inner)), 0)
             }
             SemanticType::Class(name) => IrType::Struct(ClassId(name.clone())),
-            SemanticType::Function { params, return_type } => IrType::Function {
+            SemanticType::Function {
+                params,
+                return_type,
+            } => IrType::Function {
                 params: params.iter().map(|p| self.semantic_to_ir_type(p)).collect(),
                 ret: Box::new(self.semantic_to_ir_type(return_type)),
             },
@@ -450,14 +479,30 @@ impl IrBuilder {
                 let left_val = self.try_evaluate_const(left)?;
                 let right_val = self.try_evaluate_const(right)?;
                 match (left_val, op, right_val) {
-                    (Constant::Int(a), AstBinaryOp::Add, Constant::Int(b)) => Some(Constant::Int(a + b)),
-                    (Constant::Int(a), AstBinaryOp::Sub, Constant::Int(b)) => Some(Constant::Int(a - b)),
-                    (Constant::Int(a), AstBinaryOp::Mul, Constant::Int(b)) => Some(Constant::Int(a * b)),
-                    (Constant::Int(a), AstBinaryOp::Div, Constant::Int(b)) if b != 0 => Some(Constant::Int(a / b)),
-                    (Constant::Float(a), AstBinaryOp::Add, Constant::Float(b)) => Some(Constant::Float(a + b)),
-                    (Constant::Float(a), AstBinaryOp::Sub, Constant::Float(b)) => Some(Constant::Float(a - b)),
-                    (Constant::Float(a), AstBinaryOp::Mul, Constant::Float(b)) => Some(Constant::Float(a * b)),
-                    (Constant::Float(a), AstBinaryOp::Div, Constant::Float(b)) if b != 0.0 => Some(Constant::Float(a / b)),
+                    (Constant::Int(a), AstBinaryOp::Add, Constant::Int(b)) => {
+                        Some(Constant::Int(a + b))
+                    }
+                    (Constant::Int(a), AstBinaryOp::Sub, Constant::Int(b)) => {
+                        Some(Constant::Int(a - b))
+                    }
+                    (Constant::Int(a), AstBinaryOp::Mul, Constant::Int(b)) => {
+                        Some(Constant::Int(a * b))
+                    }
+                    (Constant::Int(a), AstBinaryOp::Div, Constant::Int(b)) if b != 0 => {
+                        Some(Constant::Int(a / b))
+                    }
+                    (Constant::Float(a), AstBinaryOp::Add, Constant::Float(b)) => {
+                        Some(Constant::Float(a + b))
+                    }
+                    (Constant::Float(a), AstBinaryOp::Sub, Constant::Float(b)) => {
+                        Some(Constant::Float(a - b))
+                    }
+                    (Constant::Float(a), AstBinaryOp::Mul, Constant::Float(b)) => {
+                        Some(Constant::Float(a * b))
+                    }
+                    (Constant::Float(a), AstBinaryOp::Div, Constant::Float(b)) if b != 0.0 => {
+                        Some(Constant::Float(a / b))
+                    }
                     _ => None,
                 }
             }
@@ -599,17 +644,22 @@ impl IrBuilder {
                 IrType::Array(Box::new(elem_ty), elements.len())
             }
             ExprKind::Binary { op, left, right } => match op {
-                AstBinaryOp::Eq | AstBinaryOp::NotEq |
-                AstBinaryOp::Lt | AstBinaryOp::LtEq |
-                AstBinaryOp::Gt | AstBinaryOp::GtEq |
-                AstBinaryOp::And | AstBinaryOp::Or => IrType::Bool,
+                AstBinaryOp::Eq
+                | AstBinaryOp::NotEq
+                | AstBinaryOp::Lt
+                | AstBinaryOp::LtEq
+                | AstBinaryOp::Gt
+                | AstBinaryOp::GtEq
+                | AstBinaryOp::And
+                | AstBinaryOp::Or => IrType::Bool,
                 AstBinaryOp::Add => {
                     // Handle string concatenation
                     let left_ty = self.infer_expr_type(left);
                     let right_ty = self.infer_expr_type(right);
                     if matches!(left_ty, IrType::String) || matches!(right_ty, IrType::String) {
                         IrType::String
-                    } else if matches!(left_ty, IrType::Float) || matches!(right_ty, IrType::Float) {
+                    } else if matches!(left_ty, IrType::Float) || matches!(right_ty, IrType::Float)
+                    {
                         IrType::Float
                     } else {
                         IrType::Int
@@ -629,8 +679,11 @@ impl IrBuilder {
             },
             ExprKind::Unary { op, operand } => match op {
                 AstUnaryOp::Not => IrType::Bool,
-                AstUnaryOp::Neg | AstUnaryOp::PreInc | AstUnaryOp::PreDec |
-                AstUnaryOp::PostInc | AstUnaryOp::PostDec => {
+                AstUnaryOp::Neg
+                | AstUnaryOp::PreInc
+                | AstUnaryOp::PreDec
+                | AstUnaryOp::PostInc
+                | AstUnaryOp::PostDec => {
                     // Preserve operand type (Int or Float)
                     let operand_ty = self.infer_expr_type(operand);
                     match operand_ty {
@@ -650,7 +703,10 @@ impl IrBuilder {
             ExprKind::Identifier(name) => {
                 // Look up the variable's type
                 if let Some(ptr) = self.lookup_var(name) {
-                    self.var_types.get(&ptr.0).cloned().unwrap_or(IrType::Ptr(Box::new(IrType::Void)))
+                    self.var_types
+                        .get(&ptr.0)
+                        .cloned()
+                        .unwrap_or(IrType::Ptr(Box::new(IrType::Void)))
                 } else {
                     IrType::Ptr(Box::new(IrType::Void))
                 }
@@ -687,8 +743,12 @@ impl IrBuilder {
             }
             ExprKind::This => {
                 // Look up the type of 'this' from the first parameter (which is always 'this')
-                if let Some(var_id) = self.lookup_var("هذا").or_else(|| self.lookup_var("this")) {
-                    self.var_types.get(&var_id.0).cloned().unwrap_or(IrType::Ptr(Box::new(IrType::Void)))
+                if let Some(var_id) = self.lookup_var("هذا").or_else(|| self.lookup_var("this"))
+                {
+                    self.var_types
+                        .get(&var_id.0)
+                        .cloned()
+                        .unwrap_or(IrType::Ptr(Box::new(IrType::Void)))
                 } else {
                     IrType::Ptr(Box::new(IrType::Void))
                 }
@@ -711,11 +771,10 @@ impl IrBuilder {
             .iter()
             .enumerate()
             .map(|(i, p)| {
-                let ty = p
-                    .ty
-                    .as_ref()
-                    .map(|t| self.convert_type(t))
-                    .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+                let ty =
+                    p.ty.as_ref()
+                        .map(|t| self.convert_type(t))
+                        .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                 Parameter {
                     id: VarId(i as u32),
                     name: p.name.clone(),
@@ -822,11 +881,10 @@ impl IrBuilder {
                     }];
 
                     for (i, p) in params.iter().enumerate() {
-                        let ty = p
-                            .ty
-                            .as_ref()
-                            .map(|t| self.convert_type(t))
-                            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+                        let ty =
+                            p.ty.as_ref()
+                                .map(|t| self.convert_type(t))
+                                .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                         method_params.push(Parameter {
                             id: VarId((i + 1) as u32),
                             name: p.name.clone(),
@@ -884,11 +942,10 @@ impl IrBuilder {
                     }];
 
                     for (i, p) in params.iter().enumerate() {
-                        let ty = p
-                            .ty
-                            .as_ref()
-                            .map(|t| self.convert_type(t))
-                            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+                        let ty =
+                            p.ty.as_ref()
+                                .map(|t| self.convert_type(t))
+                                .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                         ctor_params.push(Parameter {
                             id: VarId((i + 1) as u32),
                             name: p.name.clone(),
@@ -1372,13 +1429,12 @@ impl IrBuilder {
     /// Build IR for a break statement
     fn build_break(&mut self) -> Result<()> {
         if let Some((_, exit_block)) = self.loop_stack.last() {
-            self.emit(Instruction::Jump { target: *exit_block });
+            self.emit(Instruction::Jump {
+                target: *exit_block,
+            });
             Ok(())
         } else {
-            Err(IrError::new(
-                "break outside of loop",
-                "كسر خارج حلقة",
-            ))
+            Err(IrError::new("break outside of loop", "كسر خارج حلقة"))
         }
     }
 
@@ -1390,10 +1446,7 @@ impl IrBuilder {
             });
             Ok(())
         } else {
-            Err(IrError::new(
-                "continue outside of loop",
-                "استمر خارج حلقة",
-            ))
+            Err(IrError::new("continue outside of loop", "استمر خارج حلقة"))
         }
     }
 
@@ -1552,7 +1605,9 @@ impl IrBuilder {
             }
 
             // Get the actual type from tracking (for local variables)
-            let var_type = self.var_types.get(&var_id.0)
+            let var_type = self
+                .var_types
+                .get(&var_id.0)
                 .cloned()
                 .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
 
@@ -1602,8 +1657,16 @@ impl IrBuilder {
         let right_var = self.build_expr(right)?;
 
         // Get operand types for better type inference
-        let left_ty = self.var_types.get(&left_var.0).cloned().unwrap_or(IrType::Int);
-        let right_ty = self.var_types.get(&right_var.0).cloned().unwrap_or(IrType::Int);
+        let left_ty = self
+            .var_types
+            .get(&left_var.0)
+            .cloned()
+            .unwrap_or(IrType::Int);
+        let right_ty = self
+            .var_types
+            .get(&right_var.0)
+            .cloned()
+            .unwrap_or(IrType::Int);
 
         // Handle string concatenation with type coercion
         if matches!(op, AstBinaryOp::Add) {
@@ -1655,9 +1718,20 @@ impl IrBuilder {
 
         // Determine result type based on operation and operand types
         let result_ty = match ir_op {
-            BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt
-            | BinaryOp::Ge | BinaryOp::And | BinaryOp::Or => IrType::Bool,
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod | BinaryOp::Pow => {
+            BinaryOp::Eq
+            | BinaryOp::Ne
+            | BinaryOp::Lt
+            | BinaryOp::Le
+            | BinaryOp::Gt
+            | BinaryOp::Ge
+            | BinaryOp::And
+            | BinaryOp::Or => IrType::Bool,
+            BinaryOp::Add
+            | BinaryOp::Sub
+            | BinaryOp::Mul
+            | BinaryOp::Div
+            | BinaryOp::Mod
+            | BinaryOp::Pow => {
                 // Promote to Float if either operand is Float
                 if matches!(left_ty, IrType::Float) || matches!(right_ty, IrType::Float) {
                     IrType::Float
@@ -1745,19 +1819,26 @@ impl IrBuilder {
     }
 
     /// Build increment/decrement with store-back
-    fn build_increment(&mut self, operand: &Expr, is_increment: bool, is_prefix: bool) -> Result<VarId> {
+    fn build_increment(
+        &mut self,
+        operand: &Expr,
+        is_increment: bool,
+        is_prefix: bool,
+    ) -> Result<VarId> {
         // Get variable pointer - must be an lvalue
         let ptr = match &operand.kind {
-            ExprKind::Identifier(name) => {
-                self.lookup_var(name).ok_or_else(|| IrError::new(
+            ExprKind::Identifier(name) => self.lookup_var(name).ok_or_else(|| {
+                IrError::new(
                     format!("Cannot modify undefined variable '{}'", name),
                     format!("لا يمكن تعديل متغير غير معرّف '{}'", name),
-                ))?
+                )
+            })?,
+            _ => {
+                return Err(IrError::new(
+                    "Increment/decrement requires a variable",
+                    "الزيادة/النقصان تتطلب متغيراً",
+                ))
             }
-            _ => return Err(IrError::new(
-                "Increment/decrement requires a variable",
-                "الزيادة/النقصان تتطلب متغيراً",
-            )),
         };
 
         // Get variable type
@@ -1792,7 +1873,11 @@ impl IrBuilder {
 
         // Compute new value: old_val +/- 1
         let new_val = self.new_var();
-        let op = if is_increment { BinaryOp::Add } else { BinaryOp::Sub };
+        let op = if is_increment {
+            BinaryOp::Add
+        } else {
+            BinaryOp::Sub
+        };
         self.emit(Instruction::Binary {
             dest: new_val,
             op,
@@ -1877,9 +1962,17 @@ impl IrBuilder {
                                 IrType::Array(inner, _) => (**inner).clone(),
                                 IrType::Ptr(inner) => match inner.as_ref() {
                                     IrType::Array(elem, _) => (**elem).clone(),
-                                    _ => self.var_types.get(&value_var.0).cloned().unwrap_or(IrType::Int),
+                                    _ => self
+                                        .var_types
+                                        .get(&value_var.0)
+                                        .cloned()
+                                        .unwrap_or(IrType::Int),
                                 },
-                                _ => self.var_types.get(&value_var.0).cloned().unwrap_or(IrType::Int),
+                                _ => self
+                                    .var_types
+                                    .get(&value_var.0)
+                                    .cloned()
+                                    .unwrap_or(IrType::Int),
                             };
                             self.emit(Instruction::ArrayPush {
                                 array: obj_var,
@@ -1920,7 +2013,9 @@ impl IrBuilder {
 
             // Look up method return type
             let full_method_name = format!("{}::{}", class_id.0, property);
-            let ret_ty = self.method_return_types.get(&full_method_name)
+            let ret_ty = self
+                .method_return_types
+                .get(&full_method_name)
                 .cloned()
                 .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
 
@@ -1999,7 +2094,11 @@ impl IrBuilder {
                 (IrType::Ptr(Box::new(IrType::Void)), 0, class_id)
             }
         } else {
-            (IrType::Ptr(Box::new(IrType::Void)), 0, ClassId("".to_string()))
+            (
+                IrType::Ptr(Box::new(IrType::Void)),
+                0,
+                ClassId("".to_string()),
+            )
         };
 
         self.emit(Instruction::GetField {
@@ -2104,7 +2203,8 @@ impl IrBuilder {
 
                 // Look up class and field index
                 let (class_id, field_index) = if let Some(class_id) = class_id_opt {
-                    let index = self.get_field_info(&class_id.0, property)
+                    let index = self
+                        .get_field_info(&class_id.0, property)
                         .map(|(idx, _)| idx)
                         .unwrap_or(0);
                     (class_id, index)
@@ -2278,11 +2378,10 @@ impl IrBuilder {
             .iter()
             .enumerate()
             .map(|(i, p)| {
-                let ty = p
-                    .ty
-                    .as_ref()
-                    .map(|t| self.convert_type(t))
-                    .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+                let ty =
+                    p.ty.as_ref()
+                        .map(|t| self.convert_type(t))
+                        .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                 Parameter {
                     id: VarId(i as u32),
                     name: p.name.clone(),

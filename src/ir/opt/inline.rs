@@ -24,7 +24,7 @@
 //! ```
 
 use super::OptStats;
-use crate::ir::{BasicBlock, BlockId, Function, FuncId, Instruction, IrType, Module, VarId};
+use crate::ir::{BasicBlock, BlockId, FuncId, Function, Instruction, IrType, Module, VarId};
 use std::collections::{HashMap, HashSet};
 
 /// Configuration for the inliner
@@ -185,7 +185,12 @@ impl FunctionInliner {
         for (block_idx, inst_idx, callee_id) in calls_to_inline.into_iter().rev() {
             // Find the callee function
             if let Some(callee) = module.functions.iter().find(|f| f.id == callee_id).cloned() {
-                self.inline_call(&mut module.functions[func_idx], block_idx, inst_idx, &callee);
+                self.inline_call(
+                    &mut module.functions[func_idx],
+                    block_idx,
+                    inst_idx,
+                    &callee,
+                );
                 self.stats.functions_inlined += 1;
             }
         }

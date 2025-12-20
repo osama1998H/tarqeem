@@ -18,10 +18,10 @@
 //! - aarch64-linux-gnu
 //! - wasm32 (future)
 
-pub mod llvm;
 pub mod linker;
+pub mod llvm;
 pub mod target;
 
-pub use llvm::LlvmCodegen;
 pub use linker::Linker;
+pub use llvm::LlvmCodegen;
 pub use target::{Target, TargetTriple};

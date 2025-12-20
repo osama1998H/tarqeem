@@ -286,11 +286,7 @@ pub enum Instruction {
 
     /// Load a value from memory
     /// dest = load ptr
-    Load {
-        dest: VarId,
-        ptr: VarId,
-        ty: IrType,
-    },
+    Load { dest: VarId, ptr: VarId, ty: IrType },
 
     /// Store a value to memory
     /// store value -> ptr

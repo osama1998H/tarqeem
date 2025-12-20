@@ -161,7 +161,13 @@ impl Diagnostic {
 
         // Print header
         if let Some(code) = &self.code {
-            eprintln!("{}{}{}: {}", level_colored, "[".dimmed(), code.dimmed(), message.bold());
+            eprintln!(
+                "{}{}{}: {}",
+                level_colored,
+                "[".dimmed(),
+                code.dimmed(),
+                message.bold()
+            );
         } else {
             eprintln!("{}: {}", level_colored, message.bold());
         }
@@ -189,16 +195,8 @@ impl Diagnostic {
                 // Print underline
                 let col = self.span.column.saturating_sub(1);
                 let underline_len = self.span.len().max(1);
-                let underline = format!(
-                    "{}{}",
-                    " ".repeat(col),
-                    "^".repeat(underline_len)
-                );
-                eprintln!(
-                    "   {}| {}",
-                    padding.blue().bold(),
-                    underline.red().bold()
-                );
+                let underline = format!("{}{}", " ".repeat(col), "^".repeat(underline_len));
+                eprintln!("   {}| {}", padding.blue().bold(), underline.red().bold());
             }
         }
 
@@ -217,12 +215,7 @@ impl Diagnostic {
                 Language::Arabic => &suggestion.message_ar,
                 Language::English => &suggestion.message,
             };
-            eprintln!(
-                "   {} {}: {}",
-                "=".blue().bold(),
-                "help".green(),
-                sugg_msg
-            );
+            eprintln!("   {} {}: {}", "=".blue().bold(), "help".green(), sugg_msg);
             eprintln!(
                 "   {} `{}`",
                 "=".blue().bold(),

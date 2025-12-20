@@ -22,7 +22,7 @@ pub use const_fold::ConstantFolder;
 pub use cse::CommonSubexprElim;
 pub use dce::DeadCodeEliminator;
 pub use inline::FunctionInliner;
-pub use loop_opt::{LoopOptimizer, LoopAnalysis};
+pub use loop_opt::{LoopAnalysis, LoopOptimizer};
 
 use super::Module;
 

@@ -97,7 +97,11 @@ impl TypeMapper {
     }
 
     /// Generate LLVM struct type definition for a class
-    pub fn generate_struct_type(&mut self, class_id: &ClassId, fields: &[(String, IrType)]) -> String {
+    pub fn generate_struct_type(
+        &mut self,
+        class_id: &ClassId,
+        fields: &[(String, IrType)],
+    ) -> String {
         let mangled_name = mangle_name(&class_id.0);
         let field_types: Vec<String> = fields.iter().map(|(_, ty)| self.map_type(ty)).collect();
         let type_def = format!(
@@ -105,7 +109,8 @@ impl TypeMapper {
             mangled_name,
             field_types.join(", ")
         );
-        self.struct_types.insert(class_id.0.clone(), type_def.clone());
+        self.struct_types
+            .insert(class_id.0.clone(), type_def.clone());
         type_def
     }
 

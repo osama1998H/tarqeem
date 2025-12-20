@@ -109,10 +109,7 @@ pub enum StmtKind {
     Throw(Expr),
 
     /// Import statement: استورد { x, y } من "module"
-    Import {
-        items: ImportItems,
-        from: String,
-    },
+    Import { items: ImportItems, from: String },
 
     /// Export statement: صدّر ...
     Export(Box<Stmt>),
@@ -157,28 +154,16 @@ pub enum ExprKind {
     Unary { op: UnaryOp, operand: Box<Expr> },
 
     /// Function call: foo(a, b)
-    Call {
-        callee: Box<Expr>,
-        args: Vec<Expr>,
-    },
+    Call { callee: Box<Expr>, args: Vec<Expr> },
 
     /// Member access: obj.property
-    Member {
-        object: Box<Expr>,
-        property: String,
-    },
+    Member { object: Box<Expr>, property: String },
 
     /// Index access: arr[0]
-    Index {
-        object: Box<Expr>,
-        index: Box<Expr>,
-    },
+    Index { object: Box<Expr>, index: Box<Expr> },
 
     /// Assignment: x = 5
-    Assignment {
-        target: Box<Expr>,
-        value: Box<Expr>,
-    },
+    Assignment { target: Box<Expr>, value: Box<Expr> },
 
     /// Compound assignment: x += 5
     CompoundAssignment {
@@ -200,10 +185,7 @@ pub enum ExprKind {
     },
 
     /// New expression: جديد Person("name")
-    New {
-        class: Box<Expr>,
-        args: Vec<Expr>,
-    },
+    New { class: Box<Expr>, args: Vec<Expr> },
 
     /// Await expression: انتظر promise
     Await(Box<Expr>),
@@ -284,8 +266,8 @@ impl BinaryOp {
 /// Unary operators
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
-    Neg,   // -x
-    Not,   // !x, ليس x
+    Neg,     // -x
+    Not,     // !x, ليس x
     PreInc,  // ++x
     PreDec,  // --x
     PostInc, // x++
@@ -451,10 +433,7 @@ mod tests {
                 name: "x".to_string(),
                 mutable: true,
                 ty: None,
-                init: Some(Expr::new(
-                    ExprKind::Literal(Literal::Int(5)),
-                    Span::empty(),
-                )),
+                init: Some(Expr::new(ExprKind::Literal(Literal::Int(5)), Span::empty())),
             },
             Span::empty(),
         )]);
