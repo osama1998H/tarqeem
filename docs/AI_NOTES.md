@@ -1202,6 +1202,79 @@ fn test_control_flow() {
 | Integration tests may fail on systems without LLVM | Make tests conditional |
 | Interpreter mode may behave differently than compiled | Test both modes |
 
+### Session: 2025-12-20 - Phase 4 Milestone 4.1 Implementation Planning
+
+**Goal**: Create comprehensive implementation plan for Package Manager (Milestone 4.1)
+
+**Exploration Completed**:
+- Analyzed current CLI structure (`src/cli/`) - uses clap v4.5 derive macros
+- Reviewed module system (`src/semantic/modules.rs`) - ModuleLoader with search paths
+- Examined current dependencies in `Cargo.toml`
+- Studied error handling patterns (`src/error/`)
+- Mapped full source directory structure (46 Rust files)
+
+**Key Findings**:
+1. CLI uses bilingual aliases pattern: `#[command(aliases = ["عربي", "en"])]`
+2. ModuleLoader already supports search paths and can be extended for packages
+3. No existing TOML parsing - needs `serde`, `toml` crates
+4. Existing patterns for finding stdlib can be adapted for packages
+
+**Implementation Plan Created** (`docs/PHASE4_MILESTONE_4.1_PLAN.md`):
+
+**Phase 4.1.1: Core Infrastructure (Days 1-3)**
+- `src/package/mod.rs` - Module exports
+- `src/package/manifest.rs` - `حزمة.toml` parsing with serde
+- `src/package/lockfile.rs` - `.trqlock` file handling
+- `src/package/version.rs` - Semver utilities
+- `src/package/error.rs` - Package-specific bilingual errors
+
+**Phase 4.1.2: CLI Commands (Days 4-6)**
+- Add `Pkg` subcommand enum with `PkgCommands`
+- Commands: init, add, remove, install, update, build, run, test, search, info
+- All commands have Arabic aliases (e.g., `init` → `هيئ`)
+
+**Phase 4.1.3: Dependency Resolution (Days 7-9)**
+- `src/package/resolver.rs` - Semver-based dependency resolution
+- `src/package/cache.rs` - Local package cache in `~/.cache/tarqeem/packages/`
+- `src/package/registry.rs` - HTTP client for registry API
+- Cycle detection and topological sorting
+
+**Phase 4.1.4: ModuleLoader Integration (Days 10-11)**
+- Extend `ModuleLoader` with `add_package_path()`
+- Update CLI commands to configure package paths
+- Enable `استورد { X } من "package-name"` for installed packages
+
+**Phase 4.1.5: Build & Run Commands (Days 12-14)**
+- `trqpm build` - Compile with package awareness
+- `trqpm run` - Build and execute
+- Output to `بناء/تطوير/` or `بناء/إصدار/` directories
+
+**Dependencies to Add** (Cargo.toml):
+```toml
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+semver = "1.0"
+sha2 = "0.10"
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+flate2 = "1.0"
+tar = "0.4"
+dirs = "5.0"
+walkdir = "2.5"
+hex = "0.4"
+```
+
+**Manifest Structure Designed**:
+- Bilingual keys: `اسم` / `name`, `نسخة` / `version`, etc.
+- Serde aliases enable both Arabic and English
+- Supports: simple versions, path dependencies, git dependencies
+
+**Estimated Timeline**: 14 days / 2-3 weeks
+
+**Files Created**:
+- `docs/PHASE4_MILESTONE_4.1_PLAN.md` - Complete implementation plan (~600 lines)
+
 ---
 
 ## Template for New Entries
