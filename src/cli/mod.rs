@@ -46,6 +46,10 @@ pub enum Commands {
         /// Dump AST (for debugging)
         #[arg(long)]
         dump_ast: bool,
+
+        /// Dump IR (for debugging)
+        #[arg(long)]
+        dump_ir: bool,
     },
 
     /// Run a Tarqeem source file / تشغيل ملف ترقيم

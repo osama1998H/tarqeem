@@ -2,6 +2,7 @@
 
 use super::{Cli, Commands};
 use crate::error::Language;
+use crate::ir::IrBuilder;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::semantic::Analyzer;
@@ -23,6 +24,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             output,
             dump_tokens,
             dump_ast,
+            dump_ir,
         } => {
             let source = fs::read_to_string(&file)
                 .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
@@ -65,14 +67,43 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 ));
             }
 
-            // TODO: Code generation
+            // IR generation
+            let module_name = file
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("module")
+                .to_string();
+
+            let ir_builder = IrBuilder::new(module_name);
+            let ir_module = ir_builder.build(&ast).map_err(|e| {
+                format!("IR generation error: {} / خطأ في توليد الـ IR: {}", e.message, e.message_ar)
+            })?;
+
+            if dump_ir {
+                println!("{}", "=== IR / التمثيل الوسيط ===".cyan().bold());
+                println!("{}", ir_module);
+                return Ok(());
+            }
+
+            // TODO: Code generation (LLVM)
             if cli.verbose {
                 println!("{}", "Compilation successful! / تمت الترجمة بنجاح!".green().bold());
+                println!(
+                    "  Functions: {} / الدوال: {}",
+                    ir_module.functions.len(),
+                    ir_module.functions.len()
+                );
+                println!(
+                    "  Classes: {} / الأصناف: {}",
+                    ir_module.classes.len(),
+                    ir_module.classes.len()
+                );
             }
 
             if let Some(output_path) = output {
-                // For now, just write a placeholder
-                fs::write(&output_path, "# Compiled Tarqeem program\n")
+                // For now, write IR as output
+                let ir_output = format!("{}", ir_module);
+                fs::write(&output_path, ir_output)
                     .map_err(|e| format!("Could not write output: {}", e))?;
                 println!(
                     "Output written to: {} / تم الكتابة إلى: {}",
