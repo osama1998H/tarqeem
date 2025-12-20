@@ -750,6 +750,15 @@ impl Parser {
             // Identifiers
             TokenKind::Identifier(name) => Ok(Expr::new(ExprKind::Identifier(name.clone()), span)),
 
+            // Type keywords as identifiers (for type conversion functions like نص(42), منطقي(1))
+            TokenKind::TypeInt => Ok(Expr::new(ExprKind::Identifier("عدد".to_string()), span)),
+            TokenKind::TypeFloat => Ok(Expr::new(
+                ExprKind::Identifier("عدد_عشري".to_string()),
+                span,
+            )),
+            TokenKind::TypeString => Ok(Expr::new(ExprKind::Identifier("نص".to_string()), span)),
+            TokenKind::TypeBool => Ok(Expr::new(ExprKind::Identifier("منطقي".to_string()), span)),
+
             // this/super
             TokenKind::This => Ok(Expr::new(ExprKind::This, span)),
             TokenKind::Super => Ok(Expr::new(ExprKind::Super, span)),

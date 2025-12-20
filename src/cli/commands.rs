@@ -65,6 +65,53 @@ fn find_runtime() -> Option<PathBuf> {
     None
 }
 
+/// Find the Tarqeem standard library directory (stdlib_trq/)
+fn find_stdlib_path() -> Option<PathBuf> {
+    // Try several locations in priority order
+    let search_paths: Vec<Option<PathBuf>> = vec![
+        // Relative to executable (installed)
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.join("stdlib_trq"))),
+        // Relative to executable parent (development build)
+        std::env::current_exe().ok().and_then(|p| {
+            p.parent()
+                .and_then(|p| p.parent().map(|p| p.join("stdlib_trq")))
+        }),
+        // Relative to current directory (development)
+        Some(PathBuf::from("stdlib_trq")),
+        // Standard install locations
+        Some(PathBuf::from("/usr/local/lib/tarqeem/stdlib_trq")),
+        Some(PathBuf::from("/usr/lib/tarqeem/stdlib_trq")),
+    ];
+
+    for path in search_paths.into_iter().flatten() {
+        if path.exists() && path.is_dir() {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+/// Configure the analyzer with stdlib search path
+fn configure_analyzer(analyzer: &mut Analyzer, verbose: bool) {
+    if let Some(stdlib_path) = find_stdlib_path() {
+        if verbose {
+            eprintln!(
+                "{}",
+                format!(
+                    "Using stdlib: {} / المكتبة القياسية: {}",
+                    stdlib_path.display(),
+                    stdlib_path.display()
+                )
+                .dimmed()
+            );
+        }
+        analyzer.add_search_path(stdlib_path);
+    }
+}
+
 /// Run the CLI
 pub fn run(cli: Cli) -> Result<(), String> {
     let lang = if cli.english {
@@ -120,6 +167,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             // Semantic analysis
             let mut analyzer = Analyzer::new();
+            configure_analyzer(&mut analyzer, cli.verbose);
             if let Err(diagnostics) = analyzer.analyze(&ast) {
                 for diag in &diagnostics {
                     diag.emit(&source, &filename, lang);
@@ -367,6 +415,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             // Semantic analysis
             let mut analyzer = Analyzer::new();
+            configure_analyzer(&mut analyzer, cli.verbose);
             if let Err(diagnostics) = analyzer.analyze(&ast) {
                 for diag in &diagnostics {
                     diag.emit(&source, &filename, lang);
@@ -423,6 +472,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             // Analyze
             let mut analyzer = Analyzer::new();
+            configure_analyzer(&mut analyzer, cli.verbose);
             if let Err(diagnostics) = analyzer.analyze(&ast) {
                 for diag in &diagnostics {
                     diag.emit(&source, &filename, lang);
@@ -479,6 +529,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                         match parser.parse() {
                             Ok(ast) => {
                                 let mut analyzer = Analyzer::new();
+                                configure_analyzer(&mut analyzer, cli.verbose);
                                 if let Err(diagnostics) = analyzer.analyze(&ast) {
                                     for diag in &diagnostics {
                                         diag.emit(trimmed, "<repl>", lang);
