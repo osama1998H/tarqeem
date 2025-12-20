@@ -1,0 +1,23 @@
+// ملفات - File System Module
+// ملفات - وحدة نظام الملفات
+
+// This module provides file and directory operations
+// تقدم هذه الوحدة عمليات الملفات والمجلدات
+
+// Re-export all submodules
+// إعادة تصدير جميع الوحدات الفرعية
+
+// File operations
+// عمليات الملفات
+استورد * من "./ملف"
+
+// Path handling
+// معالجة المسارات
+استورد * من "./مسار"
+
+// Directory operations
+// عمليات المجلدات
+استورد * من "./مجلد"
+
+// Re-export everything
+صدّر *

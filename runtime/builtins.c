@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <time.h>
 
 /*============================================================================
  * Math Operations
@@ -107,6 +108,177 @@ double trq_min_float(double a, double b) {
 
 double trq_max_float(double a, double b) {
     return a > b ? a : b;
+}
+
+double trq_pow_float(double base, double exp) {
+    return pow(base, exp);
+}
+
+double trq_cbrt(double value) {
+    return cbrt(value);
+}
+
+double trq_nroot(double value, int64_t n) {
+    if (n == 0) return 0.0;
+    return pow(value, 1.0 / (double)n);
+}
+
+double trq_log2(double value) {
+    return log2(value);
+}
+
+double trq_trunc(double value) {
+    return trunc(value);
+}
+
+int64_t trq_clamp_int(int64_t value, int64_t min, int64_t max) {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+}
+
+double trq_clamp_float(double value, double min, double max) {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+}
+
+int64_t trq_sign(int64_t value) {
+    if (value < 0) return -1;
+    if (value > 0) return 1;
+    return 0;
+}
+
+int64_t trq_mod(int64_t a, int64_t b) {
+    if (b == 0) return 0;
+    int64_t result = a % b;
+    if (result < 0) result += (b < 0 ? -b : b);
+    return result;
+}
+
+int64_t trq_gcd(int64_t a, int64_t b) {
+    if (a < 0) a = -a;
+    if (b < 0) b = -b;
+    while (b != 0) {
+        int64_t temp = b;
+        b = a % b;
+        a = temp;
+    }
+    return a;
+}
+
+int64_t trq_lcm(int64_t a, int64_t b) {
+    if (a == 0 || b == 0) return 0;
+    int64_t g = trq_gcd(a, b);
+    return (a / g) * b;
+}
+
+int64_t trq_factorial(int64_t n) {
+    if (n < 0) return 0;
+    if (n <= 1) return 1;
+    int64_t result = 1;
+    for (int64_t i = 2; i <= n; i++) {
+        result *= i;
+    }
+    return result;
+}
+
+/* Trigonometric functions */
+double trq_cot(double value) {
+    return 1.0 / tan(value);
+}
+
+double trq_sec(double value) {
+    return 1.0 / cos(value);
+}
+
+double trq_csc(double value) {
+    return 1.0 / sin(value);
+}
+
+/* Inverse trigonometric functions */
+double trq_asin(double value) {
+    return asin(value);
+}
+
+double trq_acos(double value) {
+    return acos(value);
+}
+
+double trq_atan(double value) {
+    return atan(value);
+}
+
+double trq_atan2(double y, double x) {
+    return atan2(y, x);
+}
+
+/* Hyperbolic functions */
+double trq_sinh(double value) {
+    return sinh(value);
+}
+
+double trq_cosh(double value) {
+    return cosh(value);
+}
+
+double trq_tanh(double value) {
+    return tanh(value);
+}
+
+/* Conversion */
+double trq_to_radians(double degrees) {
+    return degrees * (3.14159265358979323846 / 180.0);
+}
+
+double trq_to_degrees(double radians) {
+    return radians * (180.0 / 3.14159265358979323846);
+}
+
+/*============================================================================
+ * Random Number Generation
+ *============================================================================*/
+
+static bool random_initialized = false;
+
+void trq_random_seed(int64_t seed) {
+    srand((unsigned int)seed);
+    random_initialized = true;
+}
+
+static void ensure_random_init(void) {
+    if (!random_initialized) {
+        srand((unsigned int)time(NULL));
+        random_initialized = true;
+    }
+}
+
+int64_t trq_random_int(void) {
+    ensure_random_init();
+    // Combine multiple rand() calls for better range
+    return ((int64_t)rand() << 32) | (int64_t)rand();
+}
+
+int64_t trq_random_int_range(int64_t min, int64_t max) {
+    if (min >= max) return min;
+    ensure_random_init();
+    int64_t range = max - min + 1;
+    return min + (trq_random_int() % range);
+}
+
+double trq_random_float(void) {
+    ensure_random_init();
+    return (double)rand() / ((double)RAND_MAX + 1.0);
+}
+
+double trq_random_float_range(double min, double max) {
+    if (min >= max) return min;
+    return min + trq_random_float() * (max - min);
+}
+
+bool trq_random_bool(void) {
+    ensure_random_init();
+    return rand() % 2 == 0;
 }
 
 /*============================================================================

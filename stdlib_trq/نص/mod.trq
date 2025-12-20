@@ -1,0 +1,21 @@
+// نص - String Utilities Module
+// نص - وحدة أدوات النصوص
+
+// This module provides comprehensive string manipulation utilities
+// تقدم هذه الوحدة أدوات شاملة لمعالجة النصوص
+
+// Re-export all submodules
+// إعادة تصدير جميع الوحدات الفرعية
+
+// Basic string operations
+// عمليات النص الأساسية
+استورد * كـ اساسي من "./اساسي"
+
+// StringBuilder for efficient concatenation
+// باني النص للدمج الفعال
+استورد { باني_نص } من "./بناء"
+
+// Formatting utilities
+// أدوات التنسيق
+استورد { نسّق } من "./تنسيق"
+

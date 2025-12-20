@@ -1,0 +1,27 @@
+// رياضيات - Math Module
+// رياضيات - وحدة الرياضيات
+
+// This module provides comprehensive mathematical functions
+// تقدم هذه الوحدة دوال رياضية شاملة
+
+// Re-export all submodules
+// إعادة تصدير جميع الوحدات الفرعية
+
+// Basic math operations
+// العمليات الرياضية الأساسية
+استورد * من "./اساسي"
+
+// Trigonometric functions
+// الدوال المثلثية
+استورد * من "./مثلثات"
+
+// Random number generation
+// توليد الأرقام العشوائية
+استورد * من "./عشوائي"
+
+// Mathematical constants
+// الثوابت الرياضية
+استورد * من "./ثوابت"
+
+// Re-export everything
+صدّر *
