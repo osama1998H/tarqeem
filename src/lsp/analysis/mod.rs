@@ -5,4 +5,4 @@
 
 mod document;
 
-pub use document::{DocumentState, SymbolKind};
+pub use document::{AnalysisResult, DocumentState, SymbolInfo, SymbolKind};

@@ -41,14 +41,14 @@ The Tarqeem LSP server provides full IDE support through the Language Server Pro
 | **Document Symbols** | Outline view of document structure | مخطط المستند |
 | **Formatting** | Basic code formatting | تنسيق الكود |
 
-### P2 - Nice to Have (Planned)
+### P2 - Nice to Have (Implemented)
 
-| Feature | Description | Status |
+| Feature | Description | Arabic |
 |---------|-------------|--------|
-| Code Actions | Quick fixes and refactorings | Planned |
-| Inlay Hints | Inline type annotations | Planned |
-| Semantic Tokens | Syntax highlighting | Planned |
-| Code Folding | Collapsible regions | Planned |
+| **Code Actions** | Quick fixes and refactorings | إجراءات سريعة |
+| **Inlay Hints** | Inline type annotations | تلميحات مضمنة |
+| **Semantic Tokens** | Enhanced syntax highlighting | رموز دلالية |
+| **Code Folding** | Collapsible code regions | طي الكود |
 
 ## Usage
 
@@ -123,14 +123,18 @@ src/lsp/
 │   └── document.rs     # Document state and incremental analysis
 ├── handlers/
 │   ├── mod.rs          # Handler exports
+│   ├── code_actions.rs # Quick fixes and refactorings
 │   ├── completion.rs   # Auto-completion
 │   ├── definition.rs   # Go to definition
 │   ├── diagnostics.rs  # Error/warning publishing
 │   ├── document_symbol.rs # Document outline
+│   ├── folding.rs      # Code folding ranges
 │   ├── formatting.rs   # Code formatting
 │   ├── hover.rs        # Hover information
+│   ├── inlay_hints.rs  # Inline type/parameter hints
 │   ├── references.rs   # Find references
-│   └── rename.rs       # Symbol renaming
+│   ├── rename.rs       # Symbol renaming
+│   └── semantic_tokens.rs # Semantic syntax highlighting
 └── utils/
     ├── mod.rs          # Utility exports
     └── position.rs     # Position/offset conversion
@@ -158,7 +162,17 @@ The server uses **full document sync** mode, meaning the entire document content
     "prepareProvider": true
   },
   "documentSymbolProvider": true,
-  "documentFormattingProvider": true
+  "documentFormattingProvider": true,
+  "codeActionProvider": true,
+  "foldingRangeProvider": true,
+  "inlayHintProvider": true,
+  "semanticTokensProvider": {
+    "full": true,
+    "legend": {
+      "tokenTypes": ["namespace", "type", "class", ...],
+      "tokenModifiers": ["declaration", "readonly", ...]
+    }
+  }
 }
 ```
 
@@ -244,6 +258,10 @@ cargo test lsp
 # Run specific handler tests
 cargo test lsp::handlers::completion
 cargo test lsp::handlers::hover
+cargo test lsp::handlers::code_actions
+cargo test lsp::handlers::folding
+cargo test lsp::handlers::inlay_hints
+cargo test lsp::handlers::semantic_tokens
 cargo test lsp::utils::position
 ```
 

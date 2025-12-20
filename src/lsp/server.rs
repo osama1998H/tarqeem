@@ -6,8 +6,10 @@ use crate::error::Language;
 use crate::lsp::analysis::DocumentState;
 use crate::lsp::capabilities::server_capabilities;
 use crate::lsp::handlers::{
-    handle_completion, handle_definition, handle_document_symbol, handle_formatting,
-    handle_hover, handle_prepare_rename, handle_references, handle_rename, publish_diagnostics,
+    handle_code_actions, handle_completion, handle_definition, handle_document_symbol,
+    handle_folding_ranges, handle_formatting, handle_hover, handle_inlay_hints,
+    handle_prepare_rename, handle_references, handle_rename, handle_semantic_tokens_full,
+    publish_diagnostics,
 };
 use crate::lsp::state::ServerState;
 use async_trait::async_trait;
@@ -251,6 +253,61 @@ impl LanguageServer for TarqeemLanguageServer {
             Ok(None)
         }
     }
+
+    // ============ P2 Features ============
+
+    /// Handle code action request
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let uri = params.text_document.uri;
+        let range = params.range;
+        let language = self.get_language().await;
+
+        if let Some(mut doc) = self.documents.get_mut(&uri) {
+            Ok(handle_code_actions(&mut doc, range, language))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Handle folding range request
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        let uri = params.text_document.uri;
+        let language = self.get_language().await;
+
+        if let Some(mut doc) = self.documents.get_mut(&uri) {
+            Ok(handle_folding_ranges(&mut doc, language))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Handle semantic tokens full request
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = params.text_document.uri;
+        let language = self.get_language().await;
+
+        if let Some(mut doc) = self.documents.get_mut(&uri) {
+            Ok(handle_semantic_tokens_full(&mut doc, language))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Handle inlay hint request
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let uri = params.text_document.uri;
+        let range = params.range;
+        let language = self.get_language().await;
+
+        if let Some(mut doc) = self.documents.get_mut(&uri) {
+            Ok(handle_inlay_hints(&mut doc, range, language))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -262,14 +319,26 @@ mod tests {
     // which is complex. These tests verify basic functionality.
 
     #[test]
-    fn test_server_capabilities() {
+    fn test_server_capabilities_p0_p1() {
         let caps = server_capabilities();
+        // P0 features
         assert!(caps.hover_provider.is_some());
         assert!(caps.completion_provider.is_some());
         assert!(caps.definition_provider.is_some());
+        // P1 features
         assert!(caps.references_provider.is_some());
         assert!(caps.rename_provider.is_some());
         assert!(caps.document_symbol_provider.is_some());
         assert!(caps.document_formatting_provider.is_some());
+    }
+
+    #[test]
+    fn test_server_capabilities_p2() {
+        let caps = server_capabilities();
+        // P2 features
+        assert!(caps.code_action_provider.is_some());
+        assert!(caps.inlay_hint_provider.is_some());
+        assert!(caps.semantic_tokens_provider.is_some());
+        assert!(caps.folding_range_provider.is_some());
     }
 }

@@ -2,9 +2,12 @@
 //!
 //! Defines what features the Tarqeem language server supports.
 
+use crate::lsp::handlers::get_semantic_tokens_legend;
 use tower_lsp::lsp_types::{
-    CompletionOptions, HoverProviderCapability, OneOf, RenameOptions, ServerCapabilities,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    CodeActionProviderCapability, CompletionOptions, FoldingRangeProviderCapability,
+    HoverProviderCapability, InlayHintOptions, InlayHintServerCapabilities, OneOf, RenameOptions,
+    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensServerCapabilities,
+    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
     WorkDoneProgressOptions,
 };
 
@@ -64,8 +67,8 @@ pub fn server_capabilities() -> ServerCapabilities {
         // Document formatting (تنسيق الكود)
         document_formatting_provider: Some(OneOf::Left(true)),
 
-        // Code actions (not yet implemented)
-        code_action_provider: None,
+        // Code actions (إجراءات الكود)
+        code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
 
         // Code lens (not yet implemented)
         code_lens_provider: None,
@@ -73,17 +76,33 @@ pub fn server_capabilities() -> ServerCapabilities {
         // Document links (not yet implemented)
         document_link_provider: None,
 
-        // Folding ranges (not yet implemented)
-        folding_range_provider: None,
+        // Folding ranges (طي الكود)
+        folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
 
         // Selection ranges (not yet implemented)
         selection_range_provider: None,
 
-        // Semantic tokens (not yet implemented)
-        semantic_tokens_provider: None,
+        // Semantic tokens (رموز دلالية)
+        semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
+            SemanticTokensOptions {
+                legend: get_semantic_tokens_legend(),
+                range: Some(false),
+                full: Some(SemanticTokensFullOptions::Bool(true)),
+                work_done_progress_options: WorkDoneProgressOptions {
+                    work_done_progress: Some(false),
+                },
+            },
+        )),
 
-        // Inlay hints (not yet implemented)
-        inlay_hint_provider: None,
+        // Inlay hints (تلميحات مضمنة)
+        inlay_hint_provider: Some(OneOf::Right(InlayHintServerCapabilities::Options(
+            InlayHintOptions {
+                resolve_provider: Some(false),
+                work_done_progress_options: WorkDoneProgressOptions {
+                    work_done_progress: Some(false),
+                },
+            },
+        ))),
 
         // Signature help (not yet implemented)
         signature_help_provider: None,
