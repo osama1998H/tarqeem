@@ -43,11 +43,15 @@ mod tests {
         let content = r#"
 متغير س = 5
 اطبع(س)
-"#.to_string();
+"#
+        .to_string();
         let mut doc = DocumentState::new(uri.clone(), 1, content);
 
         // Position on "س" in "اطبع(س)"
-        let position = Position { line: 2, character: 5 };
+        let position = Position {
+            line: 2,
+            character: 5,
+        };
         let result = handle_definition(&mut doc, position, Language::Arabic);
 
         // Should find the definition

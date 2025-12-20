@@ -51,7 +51,9 @@ impl TarqeemLanguageServer {
 
         if let Some(mut doc) = self.documents.get_mut(uri) {
             let params = publish_diagnostics(&mut doc, language);
-            self.client.publish_diagnostics(params.uri, params.diagnostics, params.version).await;
+            self.client
+                .publish_diagnostics(params.uri, params.diagnostics, params.version)
+                .await;
         }
     }
 }
@@ -87,7 +89,10 @@ impl LanguageServer for TarqeemLanguageServer {
     /// Handle initialized notification
     async fn initialized(&self, _: InitializedParams) {
         self.client
-            .log_message(MessageType::INFO, "Tarqeem language server initialized | خادم لغة ترقيم جاهز")
+            .log_message(
+                MessageType::INFO,
+                "Tarqeem language server initialized | خادم لغة ترقيم جاهز",
+            )
             .await;
     }
 
@@ -102,8 +107,10 @@ impl LanguageServer for TarqeemLanguageServer {
         let version = params.text_document.version;
         let content = params.text_document.text;
 
-        self.documents
-            .insert(uri.clone(), DocumentState::new(uri.clone(), version, content));
+        self.documents.insert(
+            uri.clone(),
+            DocumentState::new(uri.clone(), version, content),
+        );
 
         self.publish_diagnostics_for(&uri).await;
     }
@@ -135,7 +142,8 @@ impl LanguageServer for TarqeemLanguageServer {
     /// Handle text document save
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         // Re-publish diagnostics on save
-        self.publish_diagnostics_for(&params.text_document.uri).await;
+        self.publish_diagnostics_for(&params.text_document.uri)
+            .await;
     }
 
     /// Handle hover request
@@ -188,7 +196,12 @@ impl LanguageServer for TarqeemLanguageServer {
         let language = self.get_language().await;
 
         if let Some(mut doc) = self.documents.get_mut(&uri) {
-            Ok(handle_references(&mut doc, position, include_declaration, language))
+            Ok(handle_references(
+                &mut doc,
+                position,
+                include_declaration,
+                language,
+            ))
         } else {
             Ok(None)
         }

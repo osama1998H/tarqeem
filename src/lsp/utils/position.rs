@@ -144,10 +144,34 @@ mod tests {
     #[test]
     fn test_offset_to_position_simple() {
         let content = "hello\nworld";
-        assert_eq!(offset_to_position(content, 0), Position { line: 0, character: 0 });
-        assert_eq!(offset_to_position(content, 5), Position { line: 0, character: 5 });
-        assert_eq!(offset_to_position(content, 6), Position { line: 1, character: 0 });
-        assert_eq!(offset_to_position(content, 11), Position { line: 1, character: 5 });
+        assert_eq!(
+            offset_to_position(content, 0),
+            Position {
+                line: 0,
+                character: 0
+            }
+        );
+        assert_eq!(
+            offset_to_position(content, 5),
+            Position {
+                line: 0,
+                character: 5
+            }
+        );
+        assert_eq!(
+            offset_to_position(content, 6),
+            Position {
+                line: 1,
+                character: 0
+            }
+        );
+        assert_eq!(
+            offset_to_position(content, 11),
+            Position {
+                line: 1,
+                character: 5
+            }
+        );
     }
 
     #[test]
@@ -155,15 +179,48 @@ mod tests {
         let content = "متغير س = 5";
         // "متغير" is 5 Arabic characters, each 2 bytes in UTF-8
         // Space is 1 byte, "س" is 2 bytes, etc.
-        assert_eq!(offset_to_position(content, 0), Position { line: 0, character: 0 });
+        assert_eq!(
+            offset_to_position(content, 0),
+            Position {
+                line: 0,
+                character: 0
+            }
+        );
     }
 
     #[test]
     fn test_position_to_offset() {
         let content = "hello\nworld";
-        assert_eq!(position_to_offset(content, Position { line: 0, character: 0 }), 0);
-        assert_eq!(position_to_offset(content, Position { line: 1, character: 0 }), 6);
-        assert_eq!(position_to_offset(content, Position { line: 1, character: 5 }), 11);
+        assert_eq!(
+            position_to_offset(
+                content,
+                Position {
+                    line: 0,
+                    character: 0
+                }
+            ),
+            0
+        );
+        assert_eq!(
+            position_to_offset(
+                content,
+                Position {
+                    line: 1,
+                    character: 0
+                }
+            ),
+            6
+        );
+        assert_eq!(
+            position_to_offset(
+                content,
+                Position {
+                    line: 1,
+                    character: 5
+                }
+            ),
+            11
+        );
     }
 
     #[test]
@@ -179,7 +236,13 @@ mod tests {
     fn test_find_word_at_position() {
         let content = "متغير س = 5";
         // Find "متغير"
-        let result = find_word_at_position(content, Position { line: 0, character: 2 });
+        let result = find_word_at_position(
+            content,
+            Position {
+                line: 0,
+                character: 2,
+            },
+        );
         assert!(result.is_some());
         let (_, _, word) = result.unwrap();
         assert_eq!(word, "متغير");

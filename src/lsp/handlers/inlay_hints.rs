@@ -6,9 +6,7 @@ use crate::error::Language;
 use crate::lsp::analysis::{DocumentState, SymbolKind};
 use crate::lsp::utils::offset_to_position;
 use crate::semantic::Type;
-use tower_lsp::lsp_types::{
-    InlayHint, InlayHintKind, InlayHintLabel, Position, Range,
-};
+use tower_lsp::lsp_types::{InlayHint, InlayHintKind, InlayHintLabel, Position, Range};
 
 /// Handle inlay hints request
 pub fn handle_inlay_hints(
@@ -51,7 +49,9 @@ pub fn handle_inlay_hints(
             text_edits: None,
             tooltip: Some(tower_lsp::lsp_types::InlayHintTooltip::String(
                 match language {
-                    Language::Arabic => format!("نوع المتغير '{}' هو {}", name, info.ty.arabic_name()),
+                    Language::Arabic => {
+                        format!("نوع المتغير '{}' هو {}", name, info.ty.arabic_name())
+                    }
                     Language::English => format!("Type of '{}' is {}", name, info.ty),
                 },
             )),
@@ -124,7 +124,12 @@ fn collect_parameter_hints_from_stmt(
                 collect_parameter_hints_from_stmt(content, &stmt.kind, hints, language, range);
             }
         }
-        StmtKind::If { then_branch, else_branch, condition, .. } => {
+        StmtKind::If {
+            then_branch,
+            else_branch,
+            condition,
+            ..
+        } => {
             collect_parameter_hints_from_expr(content, &condition.kind, hints, language, range);
             for stmt in &then_branch.statements {
                 collect_parameter_hints_from_stmt(content, &stmt.kind, hints, language, range);
@@ -135,7 +140,9 @@ fn collect_parameter_hints_from_stmt(
                 }
             }
         }
-        StmtKind::While { body, condition, .. } => {
+        StmtKind::While {
+            body, condition, ..
+        } => {
             collect_parameter_hints_from_expr(content, &condition.kind, hints, language, range);
             for stmt in &body.statements {
                 collect_parameter_hints_from_stmt(content, &stmt.kind, hints, language, range);
@@ -159,7 +166,9 @@ fn collect_parameter_hints_from_stmt(
             for member in members {
                 if let ClassMember::Method { body, .. } = member {
                     for stmt in &body.statements {
-                        collect_parameter_hints_from_stmt(content, &stmt.kind, hints, language, range);
+                        collect_parameter_hints_from_stmt(
+                            content, &stmt.kind, hints, language, range,
+                        );
                     }
                 }
             }
@@ -288,14 +297,44 @@ mod tests {
     #[test]
     fn test_position_in_range() {
         let range = Range {
-            start: Position { line: 0, character: 0 },
-            end: Position { line: 10, character: 100 },
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 10,
+                character: 100,
+            },
         };
 
-        assert!(position_in_range(&Position { line: 5, character: 50 }, &range));
-        assert!(position_in_range(&Position { line: 0, character: 0 }, &range));
-        assert!(position_in_range(&Position { line: 10, character: 100 }, &range));
-        assert!(!position_in_range(&Position { line: 11, character: 0 }, &range));
+        assert!(position_in_range(
+            &Position {
+                line: 5,
+                character: 50
+            },
+            &range
+        ));
+        assert!(position_in_range(
+            &Position {
+                line: 0,
+                character: 0
+            },
+            &range
+        ));
+        assert!(position_in_range(
+            &Position {
+                line: 10,
+                character: 100
+            },
+            &range
+        ));
+        assert!(!position_in_range(
+            &Position {
+                line: 11,
+                character: 0
+            },
+            &range
+        ));
     }
 
     #[test]
@@ -322,8 +361,14 @@ mod tests {
         let mut doc = DocumentState::new(uri, 1, content);
 
         let range = Range {
-            start: Position { line: 0, character: 0 },
-            end: Position { line: 100, character: 0 },
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 100,
+                character: 0,
+            },
         };
 
         let hints = handle_inlay_hints(&mut doc, range, Language::Arabic);

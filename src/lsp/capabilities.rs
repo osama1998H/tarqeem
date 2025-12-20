@@ -32,10 +32,10 @@ pub fn server_capabilities() -> ServerCapabilities {
         completion_provider: Some(CompletionOptions {
             resolve_provider: Some(true),
             trigger_characters: Some(vec![
-                ".".to_string(),   // Member access
-                ":".to_string(),   // Type annotation
-                "\"".to_string(),  // String imports
-                "/".to_string(),   // Path imports
+                ".".to_string(),  // Member access
+                ":".to_string(),  // Type annotation
+                "\"".to_string(), // String imports
+                "/".to_string(),  // Path imports
             ]),
             work_done_progress_options: WorkDoneProgressOptions {
                 work_done_progress: Some(false),

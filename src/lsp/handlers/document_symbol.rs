@@ -117,7 +117,8 @@ mod tests {
 دالة جمع(أ: عدد، ب: عدد) -> عدد {
     أرجع أ + ب
 }
-"#.to_string();
+"#
+        .to_string();
         let mut doc = DocumentState::new(uri, 1, content);
 
         let result = handle_document_symbol(&mut doc, Language::Arabic);
@@ -142,7 +143,8 @@ mod tests {
         أرجع هذا.اسم
     }
 }
-"#.to_string();
+"#
+        .to_string();
         let mut doc = DocumentState::new(uri, 1, content);
 
         let result = handle_document_symbol(&mut doc, Language::Arabic);

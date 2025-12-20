@@ -127,7 +127,11 @@ impl MarkdownGenerator {
 
         let functions: Vec<_> = doc.functions().collect();
         if !functions.is_empty() {
-            let header = if self.arabic_headers { "الدوال" } else { "Functions" };
+            let header = if self.arabic_headers {
+                "الدوال"
+            } else {
+                "Functions"
+            };
             writeln!(writer, "- [{}](#الدوال--functions)", header)?;
             for func in &functions {
                 writeln!(writer, "  - [`{}`](#{})", &func.name, slug(&func.name))?;
@@ -136,7 +140,11 @@ impl MarkdownGenerator {
 
         let classes: Vec<_> = doc.classes().collect();
         if !classes.is_empty() {
-            let header = if self.arabic_headers { "الأصناف" } else { "Classes" };
+            let header = if self.arabic_headers {
+                "الأصناف"
+            } else {
+                "Classes"
+            };
             writeln!(writer, "- [{}](#الأصناف--classes)", header)?;
             for class in &classes {
                 writeln!(writer, "  - [`{}`](#{})", &class.name, slug(&class.name))?;
@@ -145,7 +153,11 @@ impl MarkdownGenerator {
 
         let interfaces: Vec<_> = doc.interfaces().collect();
         if !interfaces.is_empty() {
-            let header = if self.arabic_headers { "الواجهات" } else { "Interfaces" };
+            let header = if self.arabic_headers {
+                "الواجهات"
+            } else {
+                "Interfaces"
+            };
             writeln!(writer, "- [{}](#الواجهات--interfaces)", header)?;
             for iface in &interfaces {
                 writeln!(writer, "  - [`{}`](#{})", &iface.name, slug(&iface.name))?;
@@ -194,7 +206,11 @@ impl MarkdownGenerator {
 
         // Parameters
         if !func.params.is_empty() {
-            let header = if self.arabic_headers { "**المعاملات:**" } else { "**Parameters:**" };
+            let header = if self.arabic_headers {
+                "**المعاملات:**"
+            } else {
+                "**Parameters:**"
+            };
             writeln!(writer, "{}", header)?;
             writeln!(writer)?;
             for param in &func.params {
@@ -232,7 +248,11 @@ impl MarkdownGenerator {
 
         // Examples
         for example in &func.examples {
-            let header = if self.arabic_headers { "**مثال:**" } else { "**Example:**" };
+            let header = if self.arabic_headers {
+                "**مثال:**"
+            } else {
+                "**Example:**"
+            };
             writeln!(writer, "{}", header)?;
             writeln!(writer)?;
             writeln!(writer, "```tarqeem")?;
@@ -243,7 +263,11 @@ impl MarkdownGenerator {
 
         // See also
         if !func.see_also.is_empty() {
-            let header = if self.arabic_headers { "**انظر أيضاً:**" } else { "**See also:**" };
+            let header = if self.arabic_headers {
+                "**انظر أيضاً:**"
+            } else {
+                "**See also:**"
+            };
             write!(writer, "{} ", header)?;
             for (i, item) in func.see_also.iter().enumerate() {
                 if i > 0 {
@@ -303,7 +327,11 @@ impl MarkdownGenerator {
 
         // Constructor
         if let Some(ctor) = &class.constructor {
-            let header = if self.arabic_headers { "#### المُنشئ" } else { "#### Constructor" };
+            let header = if self.arabic_headers {
+                "#### المُنشئ"
+            } else {
+                "#### Constructor"
+            };
             writeln!(writer, "{}", header)?;
             writeln!(writer)?;
             if let Some(desc) = &ctor.description {
@@ -327,7 +355,11 @@ impl MarkdownGenerator {
 
         // Fields
         if !class.fields.is_empty() {
-            let header = if self.arabic_headers { "#### الحقول" } else { "#### Fields" };
+            let header = if self.arabic_headers {
+                "#### الحقول"
+            } else {
+                "#### Fields"
+            };
             writeln!(writer, "{}", header)?;
             writeln!(writer)?;
             writeln!(writer, "| الاسم | النوع | الوصف |")?;
@@ -336,14 +368,22 @@ impl MarkdownGenerator {
                 let ty = field.ty.as_deref().unwrap_or("-");
                 let desc = field.description.as_deref().unwrap_or("-");
                 let visibility = format!("({}) ", &field.visibility);
-                writeln!(writer, "| {}`{}` | `{}` | {} |", visibility, &field.name, ty, desc)?;
+                writeln!(
+                    writer,
+                    "| {}`{}` | `{}` | {} |",
+                    visibility, &field.name, ty, desc
+                )?;
             }
             writeln!(writer)?;
         }
 
         // Methods
         if !class.methods.is_empty() {
-            let header = if self.arabic_headers { "#### الدوال" } else { "#### Methods" };
+            let header = if self.arabic_headers {
+                "#### الدوال"
+            } else {
+                "#### Methods"
+            };
             writeln!(writer, "{}", header)?;
             writeln!(writer)?;
             for method in &class.methods {
@@ -412,7 +452,11 @@ impl MarkdownGenerator {
 
         // Methods
         if !interface.methods.is_empty() {
-            let header = if self.arabic_headers { "#### الدوال" } else { "#### Methods" };
+            let header = if self.arabic_headers {
+                "#### الدوال"
+            } else {
+                "#### Methods"
+            };
             writeln!(writer, "{}", header)?;
             writeln!(writer)?;
             for method in &interface.methods {
@@ -448,7 +492,11 @@ impl MarkdownGenerator {
         writeln!(writer, "### `{}`", &var.name)?;
         writeln!(writer)?;
 
-        let keyword = if var.is_mutable { "متغير" } else { "ثابت" };
+        let keyword = if var.is_mutable {
+            "متغير"
+        } else {
+            "ثابت"
+        };
         write!(writer, "```tarqeem\n")?;
         write!(writer, "{} {}", keyword, &var.name)?;
         if let Some(ty) = &var.ty {

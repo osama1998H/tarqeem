@@ -153,7 +153,13 @@ impl DocumentState {
 
         for stmt in &ast.statements {
             match &stmt.kind {
-                StmtKind::VarDecl { name, mutable, ty, doc_comment, .. } => {
+                StmtKind::VarDecl {
+                    name,
+                    mutable,
+                    ty,
+                    doc_comment,
+                    ..
+                } => {
                     let resolved_type = ty
                         .as_ref()
                         .map(|t| self.resolve_type_annotation(t))
@@ -227,7 +233,12 @@ impl DocumentState {
                     }
                 }
 
-                StmtKind::ClassDecl { name, members, doc_comment, .. } => {
+                StmtKind::ClassDecl {
+                    name,
+                    members,
+                    doc_comment,
+                    ..
+                } => {
                     symbols.insert(
                         name.clone(),
                         SymbolInfo {
@@ -242,7 +253,12 @@ impl DocumentState {
                     // Add class members
                     for member in members {
                         match member {
-                            ClassMember::Field { name: field_name, ty, doc_comment: field_doc, .. } => {
+                            ClassMember::Field {
+                                name: field_name,
+                                ty,
+                                doc_comment: field_doc,
+                                ..
+                            } => {
                                 let field_type = ty
                                     .as_ref()
                                     .map(|t| self.resolve_type_annotation(t))
@@ -301,7 +317,9 @@ impl DocumentState {
                     }
                 }
 
-                StmtKind::InterfaceDecl { name, doc_comment, .. } => {
+                StmtKind::InterfaceDecl {
+                    name, doc_comment, ..
+                } => {
                     symbols.insert(
                         name.clone(),
                         SymbolInfo {
@@ -328,15 +346,23 @@ impl DocumentState {
                 Box::new(self.resolve_type_annotation(key)),
                 Box::new(self.resolve_type_annotation(value)),
             ),
-            TypeKind::Function { params, return_type } => Type::Function {
-                params: params.iter().map(|p| self.resolve_type_annotation(p)).collect(),
+            TypeKind::Function {
+                params,
+                return_type,
+            } => Type::Function {
+                params: params
+                    .iter()
+                    .map(|p| self.resolve_type_annotation(p))
+                    .collect(),
                 return_type: Box::new(self.resolve_type_annotation(return_type)),
             },
             TypeKind::Generic { base, args: _ } => {
                 // For now, just treat generics as the base type
                 self.parse_type_name(base)
             }
-            TypeKind::Optional(inner) => Type::Optional(Box::new(self.resolve_type_annotation(inner))),
+            TypeKind::Optional(inner) => {
+                Type::Optional(Box::new(self.resolve_type_annotation(inner)))
+            }
         }
     }
 
@@ -355,7 +381,11 @@ impl DocumentState {
     }
 
     /// Find the symbol at a given position
-    pub fn find_symbol_at(&mut self, offset: usize, language: Language) -> Option<(&str, &SymbolInfo)> {
+    pub fn find_symbol_at(
+        &mut self,
+        offset: usize,
+        language: Language,
+    ) -> Option<(&str, &SymbolInfo)> {
         let analysis = self.get_analysis(language);
 
         // Find which token is at the offset
@@ -424,7 +454,8 @@ mod tests {
 دالة جمع(أ: عدد، ب: عدد) -> عدد {
     أرجع أ + ب
 }
-"#.to_string();
+"#
+        .to_string();
         let mut doc = DocumentState::new(uri, 1, content);
 
         let analysis = doc.get_analysis(Language::Arabic);
@@ -439,7 +470,8 @@ mod tests {
 دالة جمع(أ: عدد، ب: عدد) -> عدد {
     أرجع أ + ب
 }
-"#.to_string();
+"#
+        .to_string();
         let mut doc = DocumentState::new(uri, 1, content);
 
         let analysis = doc.get_analysis(Language::Arabic);

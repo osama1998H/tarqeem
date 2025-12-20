@@ -113,7 +113,11 @@ fn collect_folding_ranges(
         }
 
         // If statements
-        StmtKind::If { then_branch, else_branch, .. } => {
+        StmtKind::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             let start_pos = offset_to_position(content, span.start);
             let end_pos = offset_to_position(content, span.end);
 
@@ -227,7 +231,11 @@ fn collect_folding_ranges(
         }
 
         // Try-catch-finally
-        StmtKind::Try { body, catch, finally } => {
+        StmtKind::Try {
+            body,
+            catch,
+            finally,
+        } => {
             let start_pos = offset_to_position(content, span.start);
             let end_pos = offset_to_position(content, span.end);
 
@@ -382,7 +390,8 @@ mod tests {
 function add(a: int, b: int) -> int {
     return a + b
 }
-"#.to_string();
+"#
+        .to_string();
         let mut doc = DocumentState::new(uri, 1, content);
 
         let ranges = handle_folding_ranges(&mut doc, Language::English);
@@ -401,7 +410,8 @@ function add(a: int, b: int) -> int {
 دالة جمع(أ: عدد، ب: عدد) -> عدد {
     أرجع أ + ب
 }
-"#.to_string();
+"#
+        .to_string();
         let mut doc = DocumentState::new(uri, 1, content);
 
         let ranges = handle_folding_ranges(&mut doc, Language::Arabic);
@@ -424,7 +434,8 @@ function add(a: int, b: int) -> int {
         هذا.اسم = اسم
     }
 }
-"#.to_string();
+"#
+        .to_string();
         let mut doc = DocumentState::new(uri, 1, content);
 
         let ranges = handle_folding_ranges(&mut doc, Language::Arabic);

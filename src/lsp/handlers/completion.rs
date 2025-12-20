@@ -126,9 +126,17 @@ fn get_keyword_completions(language: Language) -> Vec<CompletionItem> {
         Language::English => vec![
             ("let", "Define a mutable variable", "let $1 = $2"),
             ("const", "Define a constant", "const $1 = $2"),
-            ("function", "Define a function", "function $1($2) -> $3 {\n\t$0\n}"),
+            (
+                "function",
+                "Define a function",
+                "function $1($2) -> $3 {\n\t$0\n}",
+            ),
             ("class", "Define a class", "class $1 {\n\t$0\n}"),
-            ("interface", "Define an interface", "interface $1 {\n\t$0\n}"),
+            (
+                "interface",
+                "Define an interface",
+                "interface $1 {\n\t$0\n}",
+            ),
             ("import", "Import a module", "import { $1 } from \"$2\""),
             ("export", "Export", "export "),
         ],
@@ -158,7 +166,11 @@ fn get_statement_keyword_completions(language: Language) -> Vec<CompletionItem> 
             ("أرجع", "إرجاع قيمة", "أرجع $0"),
             ("أوقف", "خروج من الحلقة", "أوقف"),
             ("استمر", "متابعة للتكرار التالي", "استمر"),
-            ("حاول", "معالجة الأخطاء", "حاول {\n\t$1\n} التقط ($2) {\n\t$0\n}"),
+            (
+                "حاول",
+                "معالجة الأخطاء",
+                "حاول {\n\t$1\n} التقط ($2) {\n\t$0\n}",
+            ),
             ("ارمِ", "رمي خطأ", "ارمِ $0"),
             ("تطابق", "مطابقة الأنماط", "تطابق ($1) {\n\tحالة $2 => $0\n}"),
         ],
@@ -170,9 +182,17 @@ fn get_statement_keyword_completions(language: Language) -> Vec<CompletionItem> 
             ("return", "Return a value", "return $0"),
             ("break", "Break from loop", "break"),
             ("continue", "Continue to next iteration", "continue"),
-            ("try", "Error handling", "try {\n\t$1\n} catch ($2) {\n\t$0\n}"),
+            (
+                "try",
+                "Error handling",
+                "try {\n\t$1\n} catch ($2) {\n\t$0\n}",
+            ),
             ("throw", "Throw an error", "throw $0"),
-            ("match", "Pattern matching", "match ($1) {\n\tcase $2 => $0\n}"),
+            (
+                "match",
+                "Pattern matching",
+                "match ($1) {\n\tcase $2 => $0\n}",
+            ),
         ],
     };
 

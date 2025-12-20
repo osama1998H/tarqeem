@@ -101,12 +101,28 @@ pub enum Commands {
     /// Format a Tarqeem source file / تنسيق ملف ترقيم
     #[command(aliases = ["نسق", "f"])]
     Fmt {
-        /// Source file to format
-        file: PathBuf,
+        /// Source file or directory to format (not required with --sample-config)
+        path: Option<PathBuf>,
 
         /// Write changes to file (default is stdout)
-        #[arg(long, short = 'w')]
+        #[arg(long, short = 'w', aliases = ["in-place", "i"])]
         write: bool,
+
+        /// Check if file is formatted (exit 1 if not)
+        #[arg(long, aliases = ["افحص"])]
+        check: bool,
+
+        /// Show diff between original and formatted
+        #[arg(long, aliases = ["فرق"])]
+        diff: bool,
+
+        /// Configuration file path
+        #[arg(long, short = 'c', aliases = ["إعدادات"])]
+        config: Option<PathBuf>,
+
+        /// Generate sample config file
+        #[arg(long, aliases = ["نموذج"])]
+        sample_config: bool,
     },
 
     /// Tokenize a file and display tokens / تحليل الرموز

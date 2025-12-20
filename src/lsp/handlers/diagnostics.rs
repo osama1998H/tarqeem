@@ -85,7 +85,10 @@ fn convert_diagnostic(
     LspDiagnostic {
         range,
         severity: Some(severity),
-        code: diag.code.as_ref().map(|c| NumberOrString::String(c.clone())),
+        code: diag
+            .code
+            .as_ref()
+            .map(|c| NumberOrString::String(c.clone())),
         code_description: None,
         source: Some("tarqeem".to_string()),
         message: message.clone(),

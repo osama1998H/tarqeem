@@ -29,10 +29,7 @@ pub fn handle_prepare_rename(
     }
 
     // Return the range of the word that will be renamed
-    let range = span_to_range(
-        &content,
-        &crate::error::Span::new(start, end, 1, 1),
-    );
+    let range = span_to_range(&content, &crate::error::Span::new(start, end, 1, 1));
 
     Some(PrepareRenameResponse::Range(range))
 }
@@ -133,7 +130,10 @@ mod tests {
         let mut doc = DocumentState::new(uri, 1, content);
 
         // Position on "س"
-        let position = Position { line: 0, character: 6 };
+        let position = Position {
+            line: 0,
+            character: 6,
+        };
         let result = handle_prepare_rename(&mut doc, position, Language::Arabic);
 
         // Should return the range of "س"
@@ -146,11 +146,15 @@ mod tests {
         let content = r#"
 متغير س = 5
 اطبع(س)
-"#.to_string();
+"#
+        .to_string();
         let mut doc = DocumentState::new(uri, 1, content);
 
         // Position on "س"
-        let position = Position { line: 1, character: 6 };
+        let position = Position {
+            line: 1,
+            character: 6,
+        };
         let result = handle_rename(&mut doc, position, "ص".to_string(), Language::Arabic);
 
         // Should return edits for all occurrences of "س"

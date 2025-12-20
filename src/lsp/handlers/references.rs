@@ -54,11 +54,15 @@ mod tests {
 متغير س = 5
 متغير ص = س + 1
 اطبع(س)
-"#.to_string();
+"#
+        .to_string();
         let mut doc = DocumentState::new(uri, 1, content);
 
         // Position on first "س"
-        let position = Position { line: 1, character: 6 };
+        let position = Position {
+            line: 1,
+            character: 6,
+        };
         let result = handle_references(&mut doc, position, true, Language::Arabic);
 
         // Should find multiple references

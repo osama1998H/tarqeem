@@ -12,6 +12,7 @@ pub mod cli;
 pub mod codegen;
 pub mod doc;
 pub mod error;
+pub mod fmt;
 pub mod interpreter;
 pub mod ir;
 pub mod lexer;
@@ -23,6 +24,7 @@ pub mod utils;
 
 pub use codegen::{Linker, LlvmCodegen, Target};
 pub use error::{Diagnostic, DiagnosticLevel, Span};
+pub use fmt::{format_source, FormatConfig, FormatError, Formatter};
 pub use ir::{IrBuilder, Module as IrModule};
 pub use lexer::{Lexer, Token, TokenKind};
 pub use package::{Cache, LockFile, Manifest, PackageError, Resolver};

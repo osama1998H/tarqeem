@@ -7,47 +7,47 @@ use crate::lexer::TokenKind;
 use crate::lsp::analysis::DocumentState;
 use crate::lsp::utils::offset_to_position;
 use tower_lsp::lsp_types::{
-    SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
-    SemanticTokensLegend, SemanticTokensResult,
+    SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensLegend,
+    SemanticTokensResult,
 };
 
 /// Standard semantic token types used by Tarqeem
 pub const TOKEN_TYPES: &[SemanticTokenType] = &[
-    SemanticTokenType::NAMESPACE,     // 0
-    SemanticTokenType::TYPE,          // 1
-    SemanticTokenType::CLASS,         // 2
-    SemanticTokenType::ENUM,          // 3
-    SemanticTokenType::INTERFACE,     // 4
-    SemanticTokenType::STRUCT,        // 5
+    SemanticTokenType::NAMESPACE,      // 0
+    SemanticTokenType::TYPE,           // 1
+    SemanticTokenType::CLASS,          // 2
+    SemanticTokenType::ENUM,           // 3
+    SemanticTokenType::INTERFACE,      // 4
+    SemanticTokenType::STRUCT,         // 5
     SemanticTokenType::TYPE_PARAMETER, // 6
-    SemanticTokenType::PARAMETER,     // 7
-    SemanticTokenType::VARIABLE,      // 8
-    SemanticTokenType::PROPERTY,      // 9
-    SemanticTokenType::ENUM_MEMBER,   // 10
-    SemanticTokenType::EVENT,         // 11
-    SemanticTokenType::FUNCTION,      // 12
-    SemanticTokenType::METHOD,        // 13
-    SemanticTokenType::MACRO,         // 14
-    SemanticTokenType::KEYWORD,       // 15
-    SemanticTokenType::MODIFIER,      // 16
-    SemanticTokenType::COMMENT,       // 17
-    SemanticTokenType::STRING,        // 18
-    SemanticTokenType::NUMBER,        // 19
-    SemanticTokenType::REGEXP,        // 20
-    SemanticTokenType::OPERATOR,      // 21
+    SemanticTokenType::PARAMETER,      // 7
+    SemanticTokenType::VARIABLE,       // 8
+    SemanticTokenType::PROPERTY,       // 9
+    SemanticTokenType::ENUM_MEMBER,    // 10
+    SemanticTokenType::EVENT,          // 11
+    SemanticTokenType::FUNCTION,       // 12
+    SemanticTokenType::METHOD,         // 13
+    SemanticTokenType::MACRO,          // 14
+    SemanticTokenType::KEYWORD,        // 15
+    SemanticTokenType::MODIFIER,       // 16
+    SemanticTokenType::COMMENT,        // 17
+    SemanticTokenType::STRING,         // 18
+    SemanticTokenType::NUMBER,         // 19
+    SemanticTokenType::REGEXP,         // 20
+    SemanticTokenType::OPERATOR,       // 21
 ];
 
 /// Standard semantic token modifiers
 pub const TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
-    SemanticTokenModifier::DECLARATION,    // 0
-    SemanticTokenModifier::DEFINITION,     // 1
-    SemanticTokenModifier::READONLY,       // 2
-    SemanticTokenModifier::STATIC,         // 3
-    SemanticTokenModifier::DEPRECATED,     // 4
-    SemanticTokenModifier::ABSTRACT,       // 5
-    SemanticTokenModifier::ASYNC,          // 6
-    SemanticTokenModifier::MODIFICATION,   // 7
-    SemanticTokenModifier::DOCUMENTATION,  // 8
+    SemanticTokenModifier::DECLARATION,     // 0
+    SemanticTokenModifier::DEFINITION,      // 1
+    SemanticTokenModifier::READONLY,        // 2
+    SemanticTokenModifier::STATIC,          // 3
+    SemanticTokenModifier::DEPRECATED,      // 4
+    SemanticTokenModifier::ABSTRACT,        // 5
+    SemanticTokenModifier::ASYNC,           // 6
+    SemanticTokenModifier::MODIFICATION,    // 7
+    SemanticTokenModifier::DOCUMENTATION,   // 8
     SemanticTokenModifier::DEFAULT_LIBRARY, // 9
 ];
 
@@ -86,9 +86,7 @@ pub fn handle_semantic_tokens_full(
     }
 
     // Sort tokens by position (line, then character)
-    tokens.sort_by(|a, b| {
-        a.line.cmp(&b.line).then(a.start_char.cmp(&b.start_char))
-    });
+    tokens.sort_by(|a, b| a.line.cmp(&b.line).then(a.start_char.cmp(&b.start_char)));
 
     // Convert to LSP delta-encoded format
     let semantic_tokens = encode_tokens(&tokens);
@@ -177,13 +175,13 @@ fn classify_token(
             if let Some(info) = symbols.get(name) {
                 let modifiers = compute_modifiers(info);
                 match info.kind {
-                    SymbolKind::Variable => Some((8, modifiers)),   // VARIABLE
-                    SymbolKind::Function => Some((12, modifiers)),  // FUNCTION
-                    SymbolKind::Class => Some((2, modifiers)),      // CLASS
-                    SymbolKind::Interface => Some((4, modifiers)),  // INTERFACE
-                    SymbolKind::Parameter => Some((7, modifiers)),  // PARAMETER
-                    SymbolKind::Field => Some((9, modifiers)),      // PROPERTY
-                    SymbolKind::Method => Some((13, modifiers)),    // METHOD
+                    SymbolKind::Variable => Some((8, modifiers)), // VARIABLE
+                    SymbolKind::Function => Some((12, modifiers)), // FUNCTION
+                    SymbolKind::Class => Some((2, modifiers)),    // CLASS
+                    SymbolKind::Interface => Some((4, modifiers)), // INTERFACE
+                    SymbolKind::Parameter => Some((7, modifiers)), // PARAMETER
+                    SymbolKind::Field => Some((9, modifiers)),    // PROPERTY
+                    SymbolKind::Method => Some((13, modifiers)),  // METHOD
                 }
             } else if is_builtin_function(name) {
                 Some((12, 1 << 9)) // FUNCTION with DEFAULT_LIBRARY modifier
@@ -241,19 +239,37 @@ fn compute_modifiers(info: &crate::lsp::analysis::SymbolInfo) -> u32 {
 fn is_builtin_function(name: &str) -> bool {
     matches!(
         name,
-        "اطبع" | "print" | "println" | "اطبع_سطر"
-            | "ادخل" | "input"
-            | "طول" | "len" | "length"
-            | "نوع" | "type" | "typeof"
-            | "عدد" | "int"
-            | "عدد_عشري" | "float"
-            | "نص" | "str" | "string"
-            | "منطقي" | "bool"
-            | "مطلق" | "abs"
-            | "جذر" | "sqrt"
-            | "قوة" | "pow"
-            | "اقرأ_ملف" | "read_file"
-            | "اكتب_ملف" | "write_file"
+        "اطبع"
+            | "print"
+            | "println"
+            | "اطبع_سطر"
+            | "ادخل"
+            | "input"
+            | "طول"
+            | "len"
+            | "length"
+            | "نوع"
+            | "type"
+            | "typeof"
+            | "عدد"
+            | "int"
+            | "عدد_عشري"
+            | "float"
+            | "نص"
+            | "str"
+            | "string"
+            | "منطقي"
+            | "bool"
+            | "مطلق"
+            | "abs"
+            | "جذر"
+            | "sqrt"
+            | "قوة"
+            | "pow"
+            | "اقرأ_ملف"
+            | "read_file"
+            | "اكتب_ملف"
+            | "write_file"
     )
 }
 
@@ -304,7 +320,10 @@ mod tests {
     fn test_classify_keyword() {
         let symbols = std::collections::HashMap::new();
         assert_eq!(classify_token(&TokenKind::Let, &symbols), Some((15, 0)));
-        assert_eq!(classify_token(&TokenKind::Function, &symbols), Some((15, 0)));
+        assert_eq!(
+            classify_token(&TokenKind::Function, &symbols),
+            Some((15, 0))
+        );
         assert_eq!(classify_token(&TokenKind::If, &symbols), Some((15, 0)));
     }
 
@@ -312,14 +331,23 @@ mod tests {
     fn test_classify_type() {
         let symbols = std::collections::HashMap::new();
         assert_eq!(classify_token(&TokenKind::TypeInt, &symbols), Some((1, 0)));
-        assert_eq!(classify_token(&TokenKind::TypeString, &symbols), Some((1, 0)));
+        assert_eq!(
+            classify_token(&TokenKind::TypeString, &symbols),
+            Some((1, 0))
+        );
     }
 
     #[test]
     fn test_classify_literal() {
         let symbols = std::collections::HashMap::new();
-        assert_eq!(classify_token(&TokenKind::IntLiteral(42), &symbols), Some((19, 0)));
-        assert_eq!(classify_token(&TokenKind::StringLiteral("test".into()), &symbols), Some((18, 0)));
+        assert_eq!(
+            classify_token(&TokenKind::IntLiteral(42), &symbols),
+            Some((19, 0))
+        );
+        assert_eq!(
+            classify_token(&TokenKind::StringLiteral("test".into()), &symbols),
+            Some((18, 0))
+        );
     }
 
     #[test]

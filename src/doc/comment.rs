@@ -252,7 +252,10 @@ impl DocCommentParser {
             (name.to_string(), Some(desc.to_string()))
         } else {
             // Just a name, no description
-            (rest.split_whitespace().next().unwrap_or(rest).to_string(), None)
+            (
+                rest.split_whitespace().next().unwrap_or(rest).to_string(),
+                None,
+            )
         };
 
         Some(ParamDoc {
@@ -302,7 +305,10 @@ mod tests {
         let comment = "دالة لحساب مجموع عددين";
         let parsed = DocCommentParser::parse(comment);
 
-        assert_eq!(parsed.description, Some("دالة لحساب مجموع عددين".to_string()));
+        assert_eq!(
+            parsed.description,
+            Some("دالة لحساب مجموع عددين".to_string())
+        );
         assert!(parsed.params.is_empty());
         assert!(parsed.returns.is_none());
     }
@@ -353,7 +359,10 @@ Adds two numbers together
         assert_eq!(parsed.params.len(), 1);
         assert_eq!(parsed.params[0].name, "س");
         assert_eq!(parsed.params[0].ty, Some("عدد".to_string()));
-        assert_eq!(parsed.params[0].description, Some("الإحداثي السيني".to_string()));
+        assert_eq!(
+            parsed.params[0].description,
+            Some("الإحداثي السيني".to_string())
+        );
 
         assert!(parsed.returns.is_some());
         let returns = parsed.returns.unwrap();

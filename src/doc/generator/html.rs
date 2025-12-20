@@ -4,7 +4,9 @@
 //! and a bilingual interface.
 
 use super::DocGenerator;
-use crate::doc::model::{ClassDoc, Documentation, FieldDoc, FunctionDoc, InterfaceDoc, MethodDoc, VariableDoc};
+use crate::doc::model::{
+    ClassDoc, Documentation, FieldDoc, FunctionDoc, InterfaceDoc, MethodDoc, VariableDoc,
+};
 use std::io::Write;
 
 /// HTML documentation generator
@@ -117,7 +119,11 @@ impl HtmlGenerator {
             writer,
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
         )?;
-        writeln!(writer, "<title>{} - توثيق ترقيم</title>", html_escape(&doc.name))?;
+        writeln!(
+            writer,
+            "<title>{} - توثيق ترقيم</title>",
+            html_escape(&doc.name)
+        )?;
         writeln!(writer, "<style>{}</style>", self.get_css())?;
         if let Some(custom) = &self.custom_css {
             writeln!(writer, "<style>{}</style>", custom)?;
@@ -129,10 +135,7 @@ impl HtmlGenerator {
 
     fn write_footer(&self, writer: &mut dyn Write) -> std::io::Result<()> {
         writeln!(writer, "<footer>")?;
-        writeln!(
-            writer,
-            "<p>تم إنشاؤه بواسطة trqdoc - مولد توثيق ترقيم</p>"
-        )?;
+        writeln!(writer, "<p>تم إنشاؤه بواسطة trqdoc - مولد توثيق ترقيم</p>")?;
         writeln!(writer, "</footer>")?;
         writeln!(writer, "</body>")?;
         writeln!(writer, "</html>")?;
@@ -219,7 +222,11 @@ impl HtmlGenerator {
             write!(writer, "<span class=\"modifier\">غير_متزامن</span> ")?;
         }
         write!(writer, "<span class=\"keyword\">دالة</span> ")?;
-        write!(writer, "<span class=\"func-name\">{}</span>(", html_escape(&func.name))?;
+        write!(
+            writer,
+            "<span class=\"func-name\">{}</span>(",
+            html_escape(&func.name)
+        )?;
 
         // Parameters
         for (i, param) in func.params.iter().enumerate() {
@@ -236,7 +243,11 @@ impl HtmlGenerator {
         // Return type
         if let Some(ret) = &func.returns {
             if let Some(ty) = &ret.ty {
-                write!(writer, " -&gt; <span class=\"type\">{}</span>", html_escape(ty))?;
+                write!(
+                    writer,
+                    " -&gt; <span class=\"type\">{}</span>",
+                    html_escape(ty)
+                )?;
             }
         }
         writeln!(writer, "</h3>")?;
@@ -248,7 +259,11 @@ impl HtmlGenerator {
 
         // Description
         if let Some(desc) = &func.description {
-            writeln!(writer, "<div class=\"description\">{}</div>", html_escape(desc))?;
+            writeln!(
+                writer,
+                "<div class=\"description\">{}</div>",
+                html_escape(desc)
+            )?;
         }
 
         // Parameters section
@@ -309,7 +324,11 @@ impl HtmlGenerator {
         // Class signature
         write!(writer, "<h3 class=\"name\">")?;
         write!(writer, "<span class=\"keyword\">صنف</span> ")?;
-        write!(writer, "<span class=\"class-name\">{}</span>", html_escape(&class.name))?;
+        write!(
+            writer,
+            "<span class=\"class-name\">{}</span>",
+            html_escape(&class.name)
+        )?;
 
         // Type parameters
         if !class.type_params.is_empty() {
@@ -351,7 +370,11 @@ impl HtmlGenerator {
 
         // Description
         if let Some(desc) = &class.description {
-            writeln!(writer, "<div class=\"description\">{}</div>", html_escape(desc))?;
+            writeln!(
+                writer,
+                "<div class=\"description\">{}</div>",
+                html_escape(desc)
+            )?;
         }
 
         // Constructor
@@ -379,7 +402,10 @@ impl HtmlGenerator {
             writeln!(writer, "<div class=\"fields\">")?;
             writeln!(writer, "<h4>الحقول:</h4>")?;
             writeln!(writer, "<table>")?;
-            writeln!(writer, "<thead><tr><th>الاسم</th><th>النوع</th><th>الوصف</th></tr></thead>")?;
+            writeln!(
+                writer,
+                "<thead><tr><th>الاسم</th><th>النوع</th><th>الوصف</th></tr></thead>"
+            )?;
             writeln!(writer, "<tbody>")?;
             for field in &class.fields {
                 self.write_field_row(field, writer)?;
@@ -423,7 +449,11 @@ impl HtmlGenerator {
         writeln!(
             writer,
             "<td>{}</td>",
-            field.description.as_deref().map(html_escape).unwrap_or_default()
+            field
+                .description
+                .as_deref()
+                .map(html_escape)
+                .unwrap_or_default()
         )?;
         writeln!(writer, "</tr>")?;
         Ok(())
@@ -432,7 +462,11 @@ impl HtmlGenerator {
     fn write_method(&self, method: &MethodDoc, writer: &mut dyn Write) -> std::io::Result<()> {
         writeln!(writer, "<div class=\"method\">")?;
         write!(writer, "<h5>")?;
-        write!(writer, "<span class=\"visibility {}\">{}</span> ", &method.visibility, &method.visibility)?;
+        write!(
+            writer,
+            "<span class=\"visibility {}\">{}</span> ",
+            &method.visibility, &method.visibility
+        )?;
         if method.is_static {
             write!(writer, "<span class=\"modifier\">ثابت_صنف</span> ")?;
         }
@@ -440,7 +474,11 @@ impl HtmlGenerator {
             write!(writer, "<span class=\"modifier\">غير_متزامن</span> ")?;
         }
         write!(writer, "<span class=\"keyword\">دالة</span> ")?;
-        write!(writer, "<span class=\"method-name\">{}</span>(", html_escape(&method.name))?;
+        write!(
+            writer,
+            "<span class=\"method-name\">{}</span>(",
+            html_escape(&method.name)
+        )?;
 
         for (i, param) in method.params.iter().enumerate() {
             if i > 0 {
@@ -455,7 +493,11 @@ impl HtmlGenerator {
 
         if let Some(ret) = &method.returns {
             if let Some(ty) = &ret.ty {
-                write!(writer, " -&gt; <span class=\"type\">{}</span>", html_escape(ty))?;
+                write!(
+                    writer,
+                    " -&gt; <span class=\"type\">{}</span>",
+                    html_escape(ty)
+                )?;
             }
         }
         writeln!(writer, "</h5>")?;
@@ -481,7 +523,11 @@ impl HtmlGenerator {
 
         write!(writer, "<h3 class=\"name\">")?;
         write!(writer, "<span class=\"keyword\">واجهة</span> ")?;
-        write!(writer, "<span class=\"interface-name\">{}</span>", html_escape(&interface.name))?;
+        write!(
+            writer,
+            "<span class=\"interface-name\">{}</span>",
+            html_escape(&interface.name)
+        )?;
 
         if !interface.type_params.is_empty() {
             write!(writer, "&lt;")?;
@@ -501,7 +547,11 @@ impl HtmlGenerator {
         writeln!(writer, "</header>")?;
 
         if let Some(desc) = &interface.description {
-            writeln!(writer, "<div class=\"description\">{}</div>", html_escape(desc))?;
+            writeln!(
+                writer,
+                "<div class=\"description\">{}</div>",
+                html_escape(desc)
+            )?;
         }
 
         // Methods
@@ -546,9 +596,17 @@ impl HtmlGenerator {
         writeln!(writer, "<header>")?;
 
         write!(writer, "<h3 class=\"name\">")?;
-        let keyword = if var.is_mutable { "متغير" } else { "ثابت" };
+        let keyword = if var.is_mutable {
+            "متغير"
+        } else {
+            "ثابت"
+        };
         write!(writer, "<span class=\"keyword\">{}</span> ", keyword)?;
-        write!(writer, "<span class=\"var-name\">{}</span>", html_escape(&var.name))?;
+        write!(
+            writer,
+            "<span class=\"var-name\">{}</span>",
+            html_escape(&var.name)
+        )?;
         if let Some(ty) = &var.ty {
             write!(writer, ": <span class=\"type\">{}</span>", html_escape(ty))?;
         }
@@ -560,7 +618,11 @@ impl HtmlGenerator {
         writeln!(writer, "</header>")?;
 
         if let Some(desc) = &var.description {
-            writeln!(writer, "<div class=\"description\">{}</div>", html_escape(desc))?;
+            writeln!(
+                writer,
+                "<div class=\"description\">{}</div>",
+                html_escape(desc)
+            )?;
         }
 
         writeln!(writer, "</article>")?;
