@@ -268,12 +268,20 @@ void trq_print_newline(void);
 /**
  * Print an array to stdout.
  * @param arr Array to print
+ *
+ * NOTE: Current implementation only supports printing integer arrays.
+ * Non-integer element types will be cast to integers for printing.
+ * TODO: Add element type tracking to TrqArray for proper polymorphic printing.
  */
 void trq_print_array(TrqArray* arr);
 
 /**
  * Read a line from stdin.
  * @return String containing the line (without newline)
+ *
+ * NOTE: Returns empty string on both EOF and error.
+ * Use trq_file_eof() with file handles for proper EOF detection.
+ * TODO: Consider returning NULL on EOF for better error handling.
  */
 TrqString* trq_input(void);
 

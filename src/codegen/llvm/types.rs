@@ -138,7 +138,8 @@ impl TypeMapper {
 }
 
 /// Mangle a name to be valid for LLVM (no non-ASCII characters)
-fn mangle_name(name: &str) -> String {
+/// Used for encoding Arabic identifiers as valid LLVM names
+pub fn mangle_name(name: &str) -> String {
     let mut result = String::new();
     for ch in name.chars() {
         if ch.is_ascii_alphanumeric() || ch == '_' {

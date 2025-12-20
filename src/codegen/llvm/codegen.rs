@@ -2,7 +2,7 @@
 //!
 //! This module converts Tarqeem IR to LLVM IR text format.
 
-use super::TypeMapper;
+use super::{mangle_name, TypeMapper};
 use crate::codegen::Target;
 use crate::ir::{
     BasicBlock, BinaryOp, BlockId, Class, Constant, Function,
@@ -526,11 +526,14 @@ impl LlvmCodegen {
                 ret_ty,
             } => {
                 let func_ptr_name = self.get_var(*func_ptr)?;
+                // Get proper argument types from var_types - use map_param_type for args
                 let args_str: Vec<String> = args
                     .iter()
                     .map(|a| {
                         let name = self.get_var(*a).unwrap_or("undef".to_string());
-                        format!("i64 {}", name)
+                        let arg_ty = self.var_types.get(&a.0).cloned().unwrap_or(IrType::Int);
+                        let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
+                        format!("{} {}", llvm_ty, name)
                     })
                     .collect();
                 let ret_type = self.type_mapper.map_type(ret_ty);
@@ -1269,21 +1272,6 @@ impl std::fmt::Display for CodegenError {
 }
 
 impl std::error::Error for CodegenError {}
-
-/// Mangle a name to be valid for LLVM (works for functions and classes)
-fn mangle_name(name: &str) -> String {
-    // Replace non-ASCII with hex encoding
-    let mut result = String::new();
-    for ch in name.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '_' {
-            result.push(ch);
-        } else {
-            // Encode as _U followed by hex codepoint
-            result.push_str(&format!("_U{:04X}_", ch as u32));
-        }
-    }
-    result
-}
 
 /// Mangle a function name to be valid for LLVM
 fn mangle_function_name(name: &str) -> String {

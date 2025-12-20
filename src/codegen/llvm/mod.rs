@@ -7,4 +7,4 @@ mod codegen;
 mod types;
 
 pub use codegen::LlvmCodegen;
-pub use types::TypeMapper;
+pub use types::{mangle_name, TypeMapper};
