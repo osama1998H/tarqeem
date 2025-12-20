@@ -753,6 +753,41 @@ Updated C runtime (`runtime/tarqeem_rt.h`) with ~450 new lines:
 
 **Result**: Phase 3 Standard Library is now complete with all 10 milestones (3.0-3.9) implemented.
 
+### Session: 2025-12-20 - Type Conversion Fix and Error Documentation
+
+**Goal**: Fix remaining pending items from the implementation plan
+
+**Bug Fixed - Type Conversion Function Calls** (`src/parser/parser.rs`):
+
+**Problem**: Type keywords (`نص`, `منطقي`, `عدد`, `عدد_عشري`) were tokenized as type tokens (e.g., `TypeString`) rather than identifiers. When parsing `نص(42)`, the parser didn't handle type keywords in expression context.
+
+**Solution**: Added cases in `parse_prefix()` to treat type keywords as identifiers when they appear as expressions:
+```rust
+// In parse_prefix() around line 753-761
+TokenKind::TypeInt => Ok(Expr::new(ExprKind::Identifier("عدد".to_string()), span)),
+TokenKind::TypeFloat => Ok(Expr::new(ExprKind::Identifier("عدد_عشري".to_string()), span)),
+TokenKind::TypeString => Ok(Expr::new(ExprKind::Identifier("نص".to_string()), span)),
+TokenKind::TypeBool => Ok(Expr::new(ExprKind::Identifier("منطقي".to_string()), span)),
+```
+
+**Files Modified**:
+- `src/parser/parser.rs` - Added type keyword handling in `parse_prefix()`
+
+**Tests Added** (`tests/integration_tests.rs`):
+- `test_type_conversion_str` - Tests `نص(42)` conversion
+- `test_type_conversion_bool` - Tests `منطقي(1)` conversion
+- `test_type_conversion_int` - Tests `عدد(3.14)` conversion
+- `test_type_conversion_float` - Tests `عدد_عشري(42)` conversion
+
+**Documentation Created** (`docs/ERROR_PATTERNS.md`):
+- Comprehensive error patterns guide (~400 lines)
+- Covers: Type errors, scope errors, function errors, class errors
+- Import/module errors, parser errors, IR/codegen errors
+- Best practices section for avoiding common errors
+- Status of fixed bugs (empty else, global constants, type conversion)
+
+**Test Results**: 36 integration tests passing, 108+ unit tests passing
+
 ---
 
 ## TODOs
@@ -804,10 +839,17 @@ Track follow-up items here:
   - Error handling tests: undefined variables, type mismatches
   - Bilingual keyword tests: Arabic, English, and mixed language support
 
+**Completed (2025-12-20 P2 Documentation)**:
+- [x] Fix type conversion function calls (نص(42), منطقي(1), عدد(3.14), عدد_عشري(42))
+  - Modified parser to treat type keywords as identifiers in expression context
+  - Added 4 new tests for type conversion functions (36 total integration tests)
+- [x] Document common error patterns and solutions (docs/ERROR_PATTERNS.md)
+  - Comprehensive guide covering type errors, scope errors, function errors
+  - Class errors, import/module errors, parser errors, IR/codegen errors
+  - Best practices section included
+
 **Pending**:
 - [ ] Add more path-scoped rules as patterns emerge
-- [ ] Document common error patterns and solutions
-- [ ] Fix type conversion function calls (نص(42), منطقي(1) - 2 ignored tests)
 
 ---
 

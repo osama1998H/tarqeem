@@ -259,7 +259,6 @@ mod builtins {
     }
 
     #[test]
-    #[ignore] // TODO: Type conversion functions need proper call handling
     fn test_type_conversion_str() {
         // Test string conversion function exists
         let source = r#"
@@ -269,11 +268,28 @@ mod builtins {
     }
 
     #[test]
-    #[ignore] // TODO: Type conversion functions need proper call handling
     fn test_type_conversion_bool() {
         // Test boolean conversion function exists
         let source = r#"
 متغير أ = منطقي(1)
+"#;
+        assert!(analyzes_ok(source));
+    }
+
+    #[test]
+    fn test_type_conversion_int() {
+        // Test int conversion function exists (عدد)
+        let source = r#"
+متغير أ = عدد(3.14)
+"#;
+        assert!(analyzes_ok(source));
+    }
+
+    #[test]
+    fn test_type_conversion_float() {
+        // Test float conversion function exists (عدد_عشري)
+        let source = r#"
+متغير أ = عدد_عشري(42)
 "#;
         assert!(analyzes_ok(source));
     }
