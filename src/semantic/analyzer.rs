@@ -695,6 +695,139 @@ impl Analyzer {
         }
     }
 
+    /// Analyze a super constructor call: أساس(args)
+    fn analyze_super_constructor_call(&mut self, args: &[Expr], span: Span) -> Type {
+        // Must be inside a class
+        if !self.scope.is_in_class() {
+            self.error(
+                "'super()' can only be used inside a class constructor",
+                "'أساس()' يمكن استخدامه فقط داخل منشئ صنف",
+                span,
+            );
+            return Type::Error;
+        }
+
+        // Get current class
+        let current_class_name = match &self.current_class {
+            Some(name) => name.clone(),
+            None => {
+                self.error(
+                    "'super()' can only be used inside a class",
+                    "'أساس()' يمكن استخدامه فقط داخل صنف",
+                    span,
+                );
+                return Type::Error;
+            }
+        };
+
+        // Get current class info
+        let parent_name = match self.class_resolver.get_class(&current_class_name) {
+            Some(class_info) => match &class_info.parent {
+                Some(parent) => parent.clone(),
+                None => {
+                    self.error(
+                        &format!(
+                            "Cannot use 'super()' in class '{}' which has no parent class",
+                            current_class_name
+                        ),
+                        &format!(
+                            "لا يمكن استخدام 'أساس()' في الصنف '{}' الذي ليس له صنف أب",
+                            current_class_name
+                        ),
+                        span,
+                    );
+                    return Type::Error;
+                }
+            },
+            None => {
+                // This shouldn't happen if we're inside a class
+                return Type::Error;
+            }
+        };
+
+        // Get parent class constructor
+        let parent_constructor = match self.class_resolver.get_class(&parent_name) {
+            Some(parent_info) => parent_info.constructor.clone(),
+            None => {
+                self.error(
+                    &format!("Parent class '{}' not found", parent_name),
+                    &format!("الصنف الأب '{}' غير موجود", parent_name),
+                    span,
+                );
+                return Type::Error;
+            }
+        };
+
+        // Check if parent has a constructor
+        match parent_constructor {
+            Some(constructor) => {
+                let params = &constructor.params;
+
+                // Check argument count
+                if args.len() != params.len() {
+                    self.error(
+                        &format!(
+                            "Parent constructor expects {} arguments, got {}",
+                            params.len(),
+                            args.len()
+                        ),
+                        &format!(
+                            "منشئ الصنف الأب يتوقع {} معاملات، وُجد {}",
+                            params.len(),
+                            args.len()
+                        ),
+                        span,
+                    );
+                }
+
+                // Check argument types
+                for (i, (arg, (_param_name, param_type))) in
+                    args.iter().zip(params.iter()).enumerate()
+                {
+                    let arg_type = self.infer_type(arg);
+                    if !arg_type.is_compatible_with(param_type) {
+                        self.error(
+                            &format!(
+                                "Argument {} to super() has wrong type: expected {}, got {}",
+                                i + 1,
+                                param_type,
+                                arg_type
+                            ),
+                            &format!(
+                                "المعامل {} لـ أساس() نوعه خاطئ: متوقع {}، وُجد {}",
+                                i + 1,
+                                param_type.arabic_name(),
+                                arg_type.arabic_name()
+                            ),
+                            arg.span,
+                        );
+                    }
+                }
+            }
+            None => {
+                // Parent has no explicit constructor, check that no args are passed
+                if !args.is_empty() {
+                    self.error(
+                        &format!(
+                            "Parent class '{}' has no constructor, but {} arguments were passed",
+                            parent_name,
+                            args.len()
+                        ),
+                        &format!(
+                            "الصنف الأب '{}' ليس له منشئ، لكن تم تمرير {} معاملات",
+                            parent_name,
+                            args.len()
+                        ),
+                        span,
+                    );
+                }
+            }
+        }
+
+        // Super constructor calls don't return a value
+        Type::Void
+    }
+
     fn analyze_block(&mut self, block: &Block, kind: ScopeKind) {
         self.push_scope(kind);
 
@@ -802,6 +935,11 @@ impl Analyzer {
             }
 
             ExprKind::Call { callee, args } => {
+                // Special case: super constructor call (أساس(...))
+                if matches!(callee.kind, ExprKind::Super) {
+                    return self.analyze_super_constructor_call(args, expr.span);
+                }
+
                 let callee_type = self.infer_type(callee);
 
                 match callee_type {
@@ -1500,6 +1638,65 @@ mod tests {
         let result = analyze(
             r#"
             أساس;
+        "#,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_super_constructor_call() {
+        // Test super constructor call in child class
+        let result = analyze(
+            r#"
+            صنف أب {
+                خاص اسم: نص;
+                منشئ(اسم: نص) {
+                    هذا.اسم = اسم;
+                }
+            }
+            صنف ابن يرث أب {
+                خاص عمر: عدد;
+                منشئ(اسم: نص، عمر: عدد) {
+                    أساس(اسم);
+                    هذا.عمر = عمر;
+                }
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_super_constructor_call_wrong_args() {
+        // Test super constructor call with wrong number of arguments
+        let result = analyze(
+            r#"
+            صنف أب {
+                خاص اسم: نص;
+                منشئ(اسم: نص) {
+                    هذا.اسم = اسم;
+                }
+            }
+            صنف ابن يرث أب {
+                منشئ() {
+                    أساس();
+                }
+            }
+        "#,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_super_constructor_call_no_parent() {
+        // Test super constructor call in class without parent
+        let result = analyze(
+            r#"
+            صنف أ {
+                منشئ() {
+                    أساس();
+                }
+            }
         "#,
         );
         assert!(result.is_err());

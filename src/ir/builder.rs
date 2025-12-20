@@ -1899,6 +1899,11 @@ impl IrBuilder {
 
     /// Build IR for a function call
     fn build_call(&mut self, callee: &Expr, args: &[Expr]) -> Result<VarId> {
+        // Special case: super constructor call (أساس(...))
+        if matches!(callee.kind, ExprKind::Super) {
+            return self.build_super_constructor_call(args);
+        }
+
         // Build arguments
         let arg_vars: Vec<VarId> = args
             .iter()
@@ -2561,6 +2566,81 @@ impl IrBuilder {
                 "'الأصل' يمكن استخدامه فقط داخل دالة",
             ))
         }
+    }
+
+    /// Build IR for a super constructor call: أساس(args)
+    fn build_super_constructor_call(&mut self, args: &[Expr]) -> Result<VarId> {
+        // Get 'this' reference
+        let this_var = self
+            .lookup_var("هذا")
+            .or_else(|| self.lookup_var("this"))
+            .ok_or_else(|| {
+                IrError::new(
+                    "'super()' can only be used inside a constructor",
+                    "'أساس()' يمكن استخدامه فقط داخل منشئ",
+                )
+            })?;
+
+        // Get current class name from the current function name
+        // Function names for constructors are in format: "ClassName::منشئ"
+        let current_class_name = match &self.current_function {
+            Some(func) => {
+                if let Some(idx) = func.name.find("::") {
+                    func.name[..idx].to_string()
+                } else {
+                    return Err(IrError::new(
+                        "'super()' can only be used inside a class constructor",
+                        "'أساس()' يمكن استخدامه فقط داخل منشئ صنف",
+                    ));
+                }
+            }
+            None => {
+                return Err(IrError::new(
+                    "'super()' can only be used inside a function",
+                    "'أساس()' يمكن استخدامه فقط داخل دالة",
+                ));
+            }
+        };
+
+        // Find the parent class
+        let parent_class_name = self
+            .module
+            .classes
+            .iter()
+            .find(|c| c.name == current_class_name)
+            .and_then(|c| c.parent.as_ref())
+            .map(|p| p.0.clone())
+            .ok_or_else(|| {
+                IrError::new(
+                    &format!("Class '{}' has no parent class", current_class_name),
+                    &format!("الصنف '{}' ليس له صنف أب", current_class_name),
+                )
+            })?;
+
+        // Build argument expressions
+        let arg_vars: Vec<VarId> = args
+            .iter()
+            .map(|a| self.build_expr(a))
+            .collect::<Result<Vec<_>>>()?;
+
+        // Build the call to parent constructor: ParentClass::منشئ(this, args...)
+        let parent_ctor_name = format!("{}::منشئ", parent_class_name);
+
+        // Prepend 'this' to the arguments
+        let mut call_args = vec![this_var];
+        call_args.extend(arg_vars);
+
+        // Generate the call
+        let dest = self.new_var();
+        self.emit(Instruction::Call {
+            dest: Some(dest),
+            func: FuncId(parent_ctor_name),
+            args: call_args,
+            ret_ty: IrType::Void,
+        });
+        self.var_types.insert(dest.0, IrType::Void);
+
+        Ok(dest)
     }
 }
 
