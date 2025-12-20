@@ -1019,6 +1019,456 @@ void trq_clear_exception(void);
 TrqString* trq_type_of(void* value);
 
 /*============================================================================
+ * Networking Operations
+ *============================================================================*/
+
+/**
+ * TCP connection info structure.
+ */
+typedef struct TrqTcpInfo {
+    TrqString* address;
+    int64_t port;
+    int64_t handle;
+} TrqTcpInfo;
+
+/**
+ * Connect to TCP server.
+ * @param address Server address
+ * @param port Server port
+ * @param timeout_ms Connection timeout in milliseconds
+ * @return Socket handle or -1 on error
+ */
+int64_t trq_tcp_connect(TrqString* address, int64_t port, int64_t timeout_ms);
+
+/**
+ * Close TCP connection.
+ * @param handle Socket handle
+ */
+void trq_tcp_close(int64_t handle);
+
+/**
+ * Send data over TCP.
+ * @param handle Socket handle
+ * @param data Data to send
+ * @return true on success
+ */
+bool trq_tcp_send(int64_t handle, TrqString* data);
+
+/**
+ * Send bytes over TCP.
+ * @param handle Socket handle
+ * @param data Byte array to send
+ * @return true on success
+ */
+bool trq_tcp_send_bytes(int64_t handle, TrqArray* data);
+
+/**
+ * Receive data from TCP.
+ * @param handle Socket handle
+ * @param timeout_ms Receive timeout in milliseconds
+ * @return Received data or empty string on error
+ */
+TrqString* trq_tcp_receive(int64_t handle, int64_t timeout_ms);
+
+/**
+ * Receive bytes from TCP.
+ * @param handle Socket handle
+ * @param size Number of bytes to receive
+ * @param timeout_ms Receive timeout in milliseconds
+ * @return Byte array or empty array on error
+ */
+TrqArray* trq_tcp_receive_bytes(int64_t handle, int64_t size, int64_t timeout_ms);
+
+/**
+ * Receive until delimiter.
+ * @param handle Socket handle
+ * @param delimiter Delimiter string
+ * @param timeout_ms Receive timeout in milliseconds
+ * @return Received data or empty string on error
+ */
+TrqString* trq_tcp_receive_until(int64_t handle, TrqString* delimiter, int64_t timeout_ms);
+
+/**
+ * Check if data is available.
+ * @param handle Socket handle
+ * @return true if data is available
+ */
+bool trq_tcp_available(int64_t handle);
+
+/**
+ * Create TCP server socket.
+ * @param address Bind address
+ * @param port Port number
+ * @param backlog Connection queue size
+ * @return Server socket handle or -1 on error
+ */
+int64_t trq_tcp_listen(TrqString* address, int64_t port, int64_t backlog);
+
+/**
+ * Accept TCP connection.
+ * @param handle Server socket handle
+ * @return Connection info structure
+ */
+TrqTcpInfo* trq_tcp_accept(int64_t handle);
+
+/**
+ * Accept TCP connection with timeout.
+ * @param handle Server socket handle
+ * @param timeout_ms Accept timeout in milliseconds
+ * @return Connection info structure (handle -1 on timeout)
+ */
+TrqTcpInfo* trq_tcp_accept_timeout(int64_t handle, int64_t timeout_ms);
+
+/**
+ * Get local address of socket.
+ * @param handle Socket handle
+ * @return Local address string
+ */
+TrqString* trq_tcp_local_address(int64_t handle);
+
+/**
+ * Get local port of socket.
+ * @param handle Socket handle
+ * @return Local port number
+ */
+int64_t trq_tcp_local_port(int64_t handle);
+
+/* UDP Operations */
+
+/**
+ * Bind UDP socket.
+ * @param port Port number
+ * @return Socket handle or -1 on error
+ */
+int64_t trq_udp_bind(int64_t port);
+
+/**
+ * Close UDP socket.
+ * @param handle Socket handle
+ */
+void trq_udp_close(int64_t handle);
+
+/**
+ * Send UDP datagram.
+ * @param handle Socket handle
+ * @param address Destination address
+ * @param port Destination port
+ * @param data Data to send
+ * @return true on success
+ */
+bool trq_udp_send_to(int64_t handle, TrqString* address, int64_t port, TrqString* data);
+
+/**
+ * Send UDP bytes.
+ * @param handle Socket handle
+ * @param address Destination address
+ * @param port Destination port
+ * @param data Byte array to send
+ * @return true on success
+ */
+bool trq_udp_send_bytes_to(int64_t handle, TrqString* address, int64_t port, TrqArray* data);
+
+/**
+ * Receive UDP datagram.
+ * @param handle Socket handle
+ * @param timeout_ms Receive timeout in milliseconds
+ * @return Received data or empty string on timeout
+ */
+TrqString* trq_udp_receive(int64_t handle, int64_t timeout_ms);
+
+/**
+ * Receive UDP bytes.
+ * @param handle Socket handle
+ * @param size Maximum bytes to receive
+ * @param timeout_ms Receive timeout in milliseconds
+ * @return Byte array or empty array on timeout
+ */
+TrqArray* trq_udp_receive_bytes(int64_t handle, int64_t size, int64_t timeout_ms);
+
+/**
+ * Reply to last sender.
+ * @param handle Socket handle
+ * @param data Data to send
+ * @return true on success
+ */
+bool trq_udp_reply(int64_t handle, TrqString* data);
+
+/**
+ * Resolve hostname to IP.
+ * @param hostname Hostname to resolve
+ * @return IP address string or empty on error
+ */
+TrqString* trq_resolve_hostname(TrqString* hostname);
+
+/**
+ * Get local IP address.
+ * @return Local IP address string
+ */
+TrqString* trq_get_local_ip(void);
+
+/* HTTP Operations */
+
+/**
+ * HTTP response structure.
+ */
+typedef struct TrqHttpResponse {
+    int64_t status;
+    TrqString* status_text;
+    TrqString* body;
+    TrqArray* headers;
+} TrqHttpResponse;
+
+/**
+ * Perform HTTP request.
+ * @param method HTTP method
+ * @param url Request URL
+ * @param headers Request headers array
+ * @param body Request body
+ * @param timeout_ms Request timeout in milliseconds
+ * @param follow_redirects Whether to follow redirects
+ * @return HTTP response structure
+ */
+TrqHttpResponse* trq_http_request(
+    TrqString* method,
+    TrqString* url,
+    TrqArray* headers,
+    TrqString* body,
+    int64_t timeout_ms,
+    bool follow_redirects
+);
+
+/**
+ * Download file from URL.
+ * @param url Source URL
+ * @param path Destination path
+ * @return true on success
+ */
+bool trq_http_download(TrqString* url, TrqString* path);
+
+/**
+ * URL encode string.
+ * @param str String to encode
+ * @return URL-encoded string
+ */
+TrqString* trq_url_encode(TrqString* str);
+
+/**
+ * URL decode string.
+ * @param str String to decode
+ * @return URL-decoded string
+ */
+TrqString* trq_url_decode(TrqString* str);
+
+/**
+ * Base64 encode string.
+ * @param str String to encode
+ * @return Base64-encoded string
+ */
+TrqString* trq_base64_encode(TrqString* str);
+
+/**
+ * Base64 decode string.
+ * @param str String to decode
+ * @return Decoded string
+ */
+TrqString* trq_base64_decode(TrqString* str);
+
+/*============================================================================
+ * Date and Time Operations
+ *============================================================================*/
+
+/**
+ * Date structure.
+ */
+typedef struct TrqDate {
+    int64_t year;
+    int64_t month;
+    int64_t day;
+} TrqDate;
+
+/**
+ * Time structure.
+ */
+typedef struct TrqTime {
+    int64_t hour;
+    int64_t minute;
+    int64_t second;
+    int64_t millisecond;
+} TrqTime;
+
+/**
+ * DateTime structure.
+ */
+typedef struct TrqDateTime {
+    int64_t year;
+    int64_t month;
+    int64_t day;
+    int64_t hour;
+    int64_t minute;
+    int64_t second;
+    int64_t millisecond;
+} TrqDateTime;
+
+/**
+ * Get today's date.
+ * @return Date structure
+ */
+TrqDate* trq_date_today(void);
+
+/**
+ * Parse date from ISO string.
+ * @param str Date string (YYYY-MM-DD)
+ * @return Date structure
+ */
+TrqDate* trq_date_parse(TrqString* str);
+
+/**
+ * Create date from Unix timestamp.
+ * @param timestamp Unix timestamp in seconds
+ * @return Date structure
+ */
+TrqDate* trq_date_from_timestamp(int64_t timestamp);
+
+/**
+ * Add days to date.
+ * @param year Year
+ * @param month Month
+ * @param day Day
+ * @param days Days to add
+ * @return New date structure
+ */
+TrqDate* trq_date_add_days(int64_t year, int64_t month, int64_t day, int64_t days);
+
+/**
+ * Add months to date.
+ * @param year Year
+ * @param month Month
+ * @param day Day
+ * @param months Months to add
+ * @return New date structure
+ */
+TrqDate* trq_date_add_months(int64_t year, int64_t month, int64_t day, int64_t months);
+
+/**
+ * Get difference in days between two dates.
+ * @return Number of days
+ */
+int64_t trq_date_diff_days(int64_t y1, int64_t m1, int64_t d1, int64_t y2, int64_t m2, int64_t d2);
+
+/**
+ * Get day of week (0 = Sunday).
+ * @return Day of week (0-6)
+ */
+int64_t trq_day_of_week(int64_t year, int64_t month, int64_t day);
+
+/**
+ * Get day of year (1-366).
+ * @return Day of year
+ */
+int64_t trq_day_of_year(int64_t year, int64_t month, int64_t day);
+
+/**
+ * Get ISO week number.
+ * @return Week number (1-53)
+ */
+int64_t trq_week_number(int64_t year, int64_t month, int64_t day);
+
+/**
+ * Get days in month.
+ * @param year Year
+ * @param month Month
+ * @return Number of days in month
+ */
+int64_t trq_days_in_month(int64_t year, int64_t month);
+
+/**
+ * Convert date to Unix timestamp.
+ * @return Unix timestamp in seconds
+ */
+int64_t trq_date_to_timestamp(int64_t year, int64_t month, int64_t day);
+
+/**
+ * Format date using pattern.
+ * @param year Year
+ * @param month Month
+ * @param day Day
+ * @param pattern Format pattern
+ * @return Formatted date string
+ */
+TrqString* trq_date_format(int64_t year, int64_t month, int64_t day, TrqString* pattern);
+
+/**
+ * Get current time.
+ * @return Time structure
+ */
+TrqTime* trq_time_now(void);
+
+/**
+ * Parse time from string.
+ * @param str Time string (HH:MM:SS)
+ * @return Time structure
+ */
+TrqTime* trq_time_parse(TrqString* str);
+
+/**
+ * Format time using pattern.
+ * @return Formatted time string
+ */
+TrqString* trq_time_format(int64_t hour, int64_t minute, int64_t second, int64_t milli, TrqString* pattern);
+
+/**
+ * Get current datetime.
+ * @return DateTime structure
+ */
+TrqDateTime* trq_datetime_now(void);
+
+/**
+ * Create datetime from Unix timestamp.
+ * @param timestamp Unix timestamp in seconds
+ * @return DateTime structure
+ */
+TrqDateTime* trq_datetime_from_timestamp(int64_t timestamp);
+
+/**
+ * Parse datetime from ISO string.
+ * @param str DateTime string (YYYY-MM-DDTHH:MM:SS)
+ * @return DateTime structure
+ */
+TrqDateTime* trq_datetime_parse(TrqString* str);
+
+/**
+ * Format datetime using pattern.
+ * @return Formatted datetime string
+ */
+TrqString* trq_datetime_format(
+    int64_t year, int64_t month, int64_t day,
+    int64_t hour, int64_t minute, int64_t second,
+    TrqString* pattern
+);
+
+/**
+ * Sleep for milliseconds.
+ * @param milliseconds Duration to sleep
+ */
+void trq_sleep(int64_t milliseconds);
+
+/**
+ * Get high-resolution time in milliseconds.
+ * @return Milliseconds since some fixed point
+ */
+int64_t trq_performance_now(void);
+
+/*============================================================================
+ * Panic / Assert
+ *============================================================================*/
+
+/**
+ * Panic with message (terminates program).
+ * @param message Panic message
+ */
+void trq_panic(TrqString* message);
+
+/*============================================================================
  * Runtime Initialization
  *============================================================================*/
 

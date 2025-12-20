@@ -1,0 +1,13 @@
+// شبكة - Networking Module Re-export
+// شبكة - إعادة تصدير وحدة الشبكة
+//
+// Provides TCP/UDP networking and HTTP client functionality
+// يوفر اتصالات TCP/UDP ووظائف عميل HTTP
+//
+// Usage:
+//   استورد { اتصال_tcp، خادم_tcp، طلب_http } من "شبكة"
+//   استورد { احصل، ارسل } من "شبكة"
+
+استورد * من "./شبكة/mod"
+
+صدّر *
