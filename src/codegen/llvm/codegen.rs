@@ -5,8 +5,8 @@
 use super::{mangle_name, TypeMapper};
 use crate::codegen::Target;
 use crate::ir::{
-    BasicBlock, BinaryOp, BlockId, Class, Constant, Function,
-    Instruction, IrType, Module, UnaryOp, VarId,
+    BasicBlock, BinaryOp, BlockId, Class, Constant, Function, Instruction, IrType, Module, UnaryOp,
+    VarId,
 };
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
@@ -107,18 +107,9 @@ impl LlvmCodegen {
 
     /// Emit module header with target info
     fn emit_header(&mut self, name: &str) {
-        writeln!(
-            self.output,
-            "; ModuleID = '{}'",
-            name
-        )
-        .unwrap();
-        writeln!(
-            self.output,
-            "source_filename = \"{}.trq\"",
-            name
-        )
-        .unwrap();
+        writeln!(self.output, "; ModuleID = '{}'", name).unwrap();
+        // Note: source_filename is metadata only. Tarqeem supports both .trq and .ترقيم extensions
+        writeln!(self.output, "source_filename = \"{}\"", name).unwrap();
         writeln!(
             self.output,
             "target datalayout = \"{}\"",
@@ -175,9 +166,9 @@ impl LlvmCodegen {
             .insert(class.id.0.clone(), class.fields.clone());
 
         // Generate struct type
-        let type_def =
-            self.type_mapper
-                .generate_struct_type(&class.id, &class.fields);
+        let type_def = self
+            .type_mapper
+            .generate_struct_type(&class.id, &class.fields);
         writeln!(self.output, "{}", type_def).unwrap();
 
         // Generate vtable if class has virtual methods
@@ -214,8 +205,7 @@ impl LlvmCodegen {
         )
         .unwrap();
 
-        self.vtable_globals
-            .insert(class.id.0.clone(), vtable_name);
+        self.vtable_globals.insert(class.id.0.clone(), vtable_name);
         Ok(())
     }
 
@@ -305,9 +295,7 @@ impl LlvmCodegen {
             .params
             .iter()
             .enumerate()
-            .map(|(i, p)| {
-                format!("{} %arg.{}", self.type_mapper.map_param_type(&p.ty), i)
-            })
+            .map(|(i, p)| format!("{} %arg.{}", self.type_mapper.map_param_type(&p.ty), i))
             .collect();
 
         writeln!(
@@ -366,8 +354,12 @@ impl LlvmCodegen {
                 // Track the result type
                 let result_type = match op {
                     // Comparisons return Bool
-                    BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le |
-                    BinaryOp::Gt | BinaryOp::Ge => IrType::Bool,
+                    BinaryOp::Eq
+                    | BinaryOp::Ne
+                    | BinaryOp::Lt
+                    | BinaryOp::Le
+                    | BinaryOp::Gt
+                    | BinaryOp::Ge => IrType::Bool,
                     // Logical operations return Bool
                     BinaryOp::And | BinaryOp::Or => IrType::Bool,
                     // Arithmetic returns the operand type
@@ -443,7 +435,8 @@ impl LlvmCodegen {
                 let dest_name = self.get_or_create_var(*dest);
                 let llvm_ty = self.type_mapper.map_type(ty);
                 // Track the allocated pointer type
-                self.var_types.insert(dest.0, IrType::Ptr(Box::new(ty.clone())));
+                self.var_types
+                    .insert(dest.0, IrType::Ptr(Box::new(ty.clone())));
                 writeln!(self.output, "  {} = alloca {}", dest_name, llvm_ty).unwrap();
             }
 
@@ -643,7 +636,8 @@ impl LlvmCodegen {
                 )
                 .unwrap();
                 // Track that result is a pointer to the struct
-                self.var_types.insert(dest.0, IrType::Ptr(Box::new(IrType::Struct(class.clone()))));
+                self.var_types
+                    .insert(dest.0, IrType::Ptr(Box::new(IrType::Struct(class.clone()))));
             }
 
             Instruction::GetField {
@@ -758,12 +752,7 @@ impl LlvmCodegen {
 
                 // Load vtable pointer from object (assume it's at offset 0)
                 let vtable_ptr = self.fresh_name("vtable.ptr");
-                writeln!(
-                    self.output,
-                    "  {} = load ptr, ptr {}",
-                    vtable_ptr, obj_name
-                )
-                .unwrap();
+                writeln!(self.output, "  {} = load ptr, ptr {}", vtable_ptr, obj_name).unwrap();
 
                 // Get method pointer from vtable
                 let method_ptr_ptr = self.fresh_name("method.ptr.ptr");
@@ -825,7 +814,10 @@ impl LlvmCodegen {
                 let len = elements.len() as i64;
 
                 // Track the array type - it returns a pointer
-                self.var_types.insert(dest.0, IrType::Array(Box::new(elem_ty.clone()), len as usize));
+                self.var_types.insert(
+                    dest.0,
+                    IrType::Array(Box::new(elem_ty.clone()), len as usize),
+                );
 
                 // Allocate array
                 writeln!(
@@ -839,7 +831,11 @@ impl LlvmCodegen {
                 for (i, elem) in elements.iter().enumerate() {
                     let elem_name = self.get_var(*elem)?;
                     // Use the actual element type from var_types if available
-                    let actual_elem_ty = self.var_types.get(&elem.0).cloned().unwrap_or(elem_ty.clone());
+                    let actual_elem_ty = self
+                        .var_types
+                        .get(&elem.0)
+                        .cloned()
+                        .unwrap_or(elem_ty.clone());
                     let llvm_elem_ty = self.type_mapper.map_type(&actual_elem_ty);
                     // Get element pointer
                     let elem_ptr = self.fresh_name("elem.ptr");
@@ -944,12 +940,7 @@ impl LlvmCodegen {
 
                 // Create temporary storage for the value
                 let temp_ptr = self.fresh_name("push.tmp");
-                writeln!(
-                    self.output,
-                    "  {} = alloca {}",
-                    temp_ptr, llvm_ty
-                )
-                .unwrap();
+                writeln!(self.output, "  {} = alloca {}", temp_ptr, llvm_ty).unwrap();
 
                 // Store the value into temp storage
                 writeln!(
@@ -985,12 +976,7 @@ impl LlvmCodegen {
             Instruction::TryBegin { catch_block } => {
                 // Exception handling - for now just emit a comment
                 let catch_label = self.get_block(*catch_block)?;
-                writeln!(
-                    self.output,
-                    "  ; try_begin catch={}",
-                    catch_label
-                )
-                .unwrap();
+                writeln!(self.output, "  ; try_begin catch={}", catch_label).unwrap();
             }
 
             Instruction::TryEnd => {
@@ -999,12 +985,7 @@ impl LlvmCodegen {
 
             Instruction::Throw { exception } => {
                 let exc_name = self.get_var(*exception)?;
-                writeln!(
-                    self.output,
-                    "  call void @trq_throw(ptr {})",
-                    exc_name
-                )
-                .unwrap();
+                writeln!(self.output, "  call void @trq_throw(ptr {})", exc_name).unwrap();
                 writeln!(self.output, "  unreachable").unwrap();
             }
 
@@ -1048,25 +1029,19 @@ impl LlvmCodegen {
                 match &var_type {
                     Some(IrType::String) | Some(IrType::Ptr(_)) => {
                         // Strings are already TrqString*, pass directly to trq_print
-                        writeln!(
-                            self.output,
-                            "  call void @trq_print(ptr {})",
-                            val_name
-                        ).unwrap();
+                        writeln!(self.output, "  call void @trq_print(ptr {})", val_name).unwrap();
                     }
                     Some(IrType::Float) => {
                         writeln!(
                             self.output,
                             "  call void @trq_print_float(double {})",
                             val_name
-                        ).unwrap();
+                        )
+                        .unwrap();
                     }
                     Some(IrType::Bool) => {
-                        writeln!(
-                            self.output,
-                            "  call void @trq_print_bool(i1 {})",
-                            val_name
-                        ).unwrap();
+                        writeln!(self.output, "  call void @trq_print_bool(i1 {})", val_name)
+                            .unwrap();
                     }
                     Some(IrType::Array(_, _)) => {
                         // For arrays, call trq_print_array
@@ -1074,15 +1049,13 @@ impl LlvmCodegen {
                             self.output,
                             "  call void @trq_print_array(ptr {})",
                             val_name
-                        ).unwrap();
+                        )
+                        .unwrap();
                     }
                     _ => {
                         // Default to int
-                        writeln!(
-                            self.output,
-                            "  call void @trq_print_int(i64 {})",
-                            val_name
-                        ).unwrap();
+                        writeln!(self.output, "  call void @trq_print_int(i64 {})", val_name)
+                            .unwrap();
                     }
                 }
                 writeln!(self.output, "  call void @trq_print_newline()").unwrap();
@@ -1124,20 +1097,10 @@ impl LlvmCodegen {
             Constant::Int(i) => {
                 // Can't just assign in LLVM - need an instruction
                 // Use add with 0 as a workaround
-                writeln!(
-                    self.output,
-                    "  {} = add i64 {}, 0",
-                    dest_name, i
-                )
-                .unwrap();
+                writeln!(self.output, "  {} = add i64 {}, 0", dest_name, i).unwrap();
             }
             Constant::Float(f) => {
-                writeln!(
-                    self.output,
-                    "  {} = fadd double {:e}, 0.0",
-                    dest_name, f
-                )
-                .unwrap();
+                writeln!(self.output, "  {} = fadd double {:e}, 0.0", dest_name, f).unwrap();
             }
             Constant::String(idx) => {
                 // Create a TrqString from the string literal
@@ -1257,14 +1220,8 @@ impl LlvmCodegen {
 
             _ => {
                 return Err(CodegenError {
-                    message: format!(
-                        "Unsupported binary operation: {:?} on {:?}",
-                        op, ty
-                    ),
-                    message_ar: format!(
-                        "عملية ثنائية غير مدعومة: {:?} على {:?}",
-                        op, ty
-                    ),
+                    message: format!("Unsupported binary operation: {:?} on {:?}", op, ty),
+                    message_ar: format!("عملية ثنائية غير مدعومة: {:?} على {:?}", op, ty),
                 });
             }
         };
@@ -1292,12 +1249,7 @@ impl LlvmCodegen {
 
         match (op, ty) {
             (UnaryOp::Neg, IrType::Int) => {
-                writeln!(
-                    self.output,
-                    "  {} = sub i64 0, {}",
-                    dest_name, operand_name
-                )
-                .unwrap();
+                writeln!(self.output, "  {} = sub i64 0, {}", dest_name, operand_name).unwrap();
             }
             (UnaryOp::Neg, IrType::Float) => {
                 writeln!(
@@ -1326,10 +1278,7 @@ impl LlvmCodegen {
             _ => {
                 return Err(CodegenError {
                     message: format!("Unsupported unary operation: {:?} on {:?}", op, ty),
-                    message_ar: format!(
-                        "عملية أحادية غير مدعومة: {:?} على {:?}",
-                        op, ty
-                    ),
+                    message_ar: format!("عملية أحادية غير مدعومة: {:?} على {:?}", op, ty),
                 });
             }
         }
@@ -1350,10 +1299,13 @@ impl LlvmCodegen {
 
     /// Get variable name (must exist)
     fn get_var(&self, var: VarId) -> Result<String, CodegenError> {
-        self.var_map.get(&var.0).cloned().ok_or_else(|| CodegenError {
-            message: format!("Unknown variable: {}", var),
-            message_ar: format!("متغير غير معروف: {}", var),
-        })
+        self.var_map
+            .get(&var.0)
+            .cloned()
+            .ok_or_else(|| CodegenError {
+                message: format!("Unknown variable: {}", var),
+                message_ar: format!("متغير غير معروف: {}", var),
+            })
     }
 
     /// Get block label
