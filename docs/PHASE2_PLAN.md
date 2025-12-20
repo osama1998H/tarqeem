@@ -246,25 +246,45 @@ Phase 2 transforms Tarqeem from a compiler frontend into a fully functional comp
 
 ---
 
-### Milestone 2.6: Interpreter Mode (Optional)
+### Milestone 2.6: Interpreter Mode ✅ COMPLETE
 **Goal:** Enable fast development iteration without compilation
 
-#### Tasks:
-- [ ] Tree-walking interpreter (`src/interpreter/mod.rs`)
-  - Direct AST execution
-  - Variable environment
-  - Function call stack
-  - Object system
+#### Implementation Notes:
+- Uses IR-based interpretation (not AST tree-walking) for better performance
+- Leverages existing IR infrastructure from Milestone 2.1
+- Full SSA execution with Phi node resolution
 
-- [ ] REPL improvements (`src/cli/repl.rs`)
+#### Tasks:
+- [x] IR interpreter (`src/interpreter/mod.rs`)
+  - Runtime value representation (`value.rs`)
+  - Bilingual error handling (`error.rs`)
+  - Core execution engine (`executor.rs`)
+  - All IR instruction execution
+  - Function call stack with recursion support
+  - Object/class instantiation and field access
+  - Array operations (create, get, set, push, length)
+  - Exception handling (try/catch/throw)
+
+- [x] Built-in functions
+  - Print/input functions (اطبع، ادخل)
+  - Type conversions (عدد، عدد_عشري، نص، منطقي)
+  - Math functions (abs, sqrt, sin, cos, tan, floor, ceil, round)
+  - Utility functions (طول، نوع)
+
+- [x] CLI integration
+  - `tarqeem run` executes via interpreter
+  - REPL evaluates and executes code interactively
+
+- [ ] REPL enhancements (deferred)
   - Multi-line input
   - History with arrow keys
   - Tab completion
   - Variable inspection
 
 **Deliverables:**
-- `tarqeem run برنامج.trq` executes immediately
-- Interactive REPL with state preservation
+- ✅ `tarqeem run برنامج.trq` executes immediately
+- ✅ Interactive REPL with code execution
+- ✅ All 101 tests passing
 
 ---
 
@@ -292,6 +312,12 @@ src/
 │       ├── mod.rs
 │       ├── types.rs             # Type mapping (IR → LLVM)
 │       └── codegen.rs           # Main IR → LLVM conversion
+│
+├── interpreter/                 # IR Interpreter ✅
+│   ├── mod.rs                   # Module root and public API
+│   ├── value.rs                 # Runtime value representation
+│   ├── error.rs                 # Bilingual runtime errors
+│   └── executor.rs              # Core IR execution engine
 │
 ├── semantic/                    # Enhanced ✅
 │   ├── mod.rs
