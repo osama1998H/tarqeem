@@ -23,6 +23,9 @@ pub struct Analyzer {
     language: Language,
     /// Current class being analyzed (if any)
     current_class: Option<String>,
+    /// Expected type for context-aware inference (e.g., for empty arrays)
+    /// This is set before calling infer_type to provide context
+    expected_type: Option<Type>,
 }
 
 impl Analyzer {
@@ -35,6 +38,7 @@ impl Analyzer {
             diagnostics: Vec::new(),
             language: Language::Arabic,
             current_class: None,
+            expected_type: None,
         }
     }
 
@@ -253,9 +257,12 @@ impl Analyzer {
         init: Option<&Expr>,
         span: Span,
     ) {
+        // Resolve type annotation first (if present) for context-aware inference
+        let declared_type = ty.map(|t| self.resolve_type(t));
+
         // Infer or check type
-        let var_type = if let Some(type_ann) = ty {
-            self.resolve_type(type_ann)
+        let var_type = if let Some(ref declared) = declared_type {
+            declared.clone()
         } else if let Some(init_expr) = init {
             self.infer_type(init_expr)
         } else {
@@ -268,10 +275,13 @@ impl Analyzer {
         };
 
         // Check initializer type matches
-        if let (Some(init_expr), Some(type_ann)) = (init, ty) {
+        // Set expected_type for context-aware inference (e.g., empty arrays)
+        if let (Some(init_expr), Some(ref expected)) = (init, &declared_type) {
+            self.expected_type = Some(expected.clone());
             let init_type = self.infer_type(init_expr);
-            let expected = self.resolve_type(type_ann);
-            if !init_type.is_compatible_with(&expected) {
+            self.expected_type = None; // Clear after inference
+
+            if !init_type.is_compatible_with(expected) {
                 self.error(
                     &format!(
                         "Type mismatch: expected {}, got {}",
@@ -992,7 +1002,12 @@ impl Analyzer {
 
             ExprKind::Array(elements) => {
                 if elements.is_empty() {
-                    Type::Array(Box::new(Type::Unknown))
+                    // Use expected type for context-aware inference
+                    if let Some(Type::Array(elem_ty)) = &self.expected_type {
+                        Type::Array(elem_ty.clone())
+                    } else {
+                        Type::Array(Box::new(Type::Unknown))
+                    }
                 } else {
                     let first_type = self.infer_type(&elements[0]);
                     for elem in elements.iter().skip(1) {
@@ -1267,9 +1282,32 @@ impl Analyzer {
                 params: params.iter().map(|p| self.resolve_type(p)).collect(),
                 return_type: Box::new(self.resolve_type(return_type)),
             },
-            TypeKind::Generic { base, args: _ } => {
-                // For now, treat generics as the base type
-                parse_type_name(base)
+            TypeKind::Generic { base, args } => {
+                // Handle built-in generic types like مصفوفة<عدد> (Array<Int>)
+                match base.as_str() {
+                    "مصفوفة" | "array" | "Array" => {
+                        if let Some(elem_type) = args.first() {
+                            Type::Array(Box::new(self.resolve_type(elem_type)))
+                        } else {
+                            Type::Array(Box::new(Type::Unknown))
+                        }
+                    }
+                    "قاموس" | "map" | "Map" | "dict" | "Dict" => {
+                        if args.len() >= 2 {
+                            Type::Map(
+                                Box::new(self.resolve_type(&args[0])),
+                                Box::new(self.resolve_type(&args[1])),
+                            )
+                        } else {
+                            // Fallback to class type
+                            parse_type_name(base)
+                        }
+                    }
+                    _ => {
+                        // For other generics, treat as the base type for now
+                        parse_type_name(base)
+                    }
+                }
             }
             TypeKind::Optional(inner) => Type::Optional(Box::new(self.resolve_type(inner))),
         }
@@ -1321,9 +1359,28 @@ fn resolve_type_annotation(type_ann: &TypeAnnotation) -> Type {
             params: params.iter().map(resolve_type_annotation).collect(),
             return_type: Box::new(resolve_type_annotation(return_type)),
         },
-        TypeKind::Generic { base, args: _ } => {
-            // For now, treat generics as the base type
-            parse_type_name(base)
+        TypeKind::Generic { base, args } => {
+            // Handle built-in generic types like مصفوفة<عدد> (Array<Int>)
+            match base.as_str() {
+                "مصفوفة" | "array" | "Array" => {
+                    if let Some(elem_type) = args.first() {
+                        Type::Array(Box::new(resolve_type_annotation(elem_type)))
+                    } else {
+                        Type::Array(Box::new(Type::Unknown))
+                    }
+                }
+                "قاموس" | "map" | "Map" | "dict" | "Dict" => {
+                    if args.len() >= 2 {
+                        Type::Map(
+                            Box::new(resolve_type_annotation(&args[0])),
+                            Box::new(resolve_type_annotation(&args[1])),
+                        )
+                    } else {
+                        parse_type_name(base)
+                    }
+                }
+                _ => parse_type_name(base),
+            }
         }
         TypeKind::Optional(inner) => Type::Optional(Box::new(resolve_type_annotation(inner))),
     }

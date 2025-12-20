@@ -409,6 +409,14 @@ pub enum Instruction {
         value: VarId,
     },
 
+    /// Push element to array (append)
+    /// array.push(value)
+    ArrayPush {
+        array: VarId,
+        value: VarId,
+        elem_ty: IrType,
+    },
+
     // ==================== Strings ====================
     /// Concatenate strings
     /// dest = left + right
@@ -637,6 +645,13 @@ impl fmt::Display for Instruction {
                 value,
             } => {
                 write!(f, "array_set {}, {}, {}", array, index, value)
+            }
+            Instruction::ArrayPush {
+                array,
+                value,
+                elem_ty,
+            } => {
+                write!(f, "array_push {}, {}: {}", array, value, elem_ty)
             }
             Instruction::StringConcat { dest, left, right } => {
                 write!(f, "{}: str = string_concat {}, {}", dest, left, right)

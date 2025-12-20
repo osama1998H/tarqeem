@@ -35,6 +35,8 @@ pub struct LlvmCodegen {
     class_defs: HashMap<String, Vec<(String, IrType)>>,
     /// VTable globals
     vtable_globals: HashMap<String, String>,
+    /// Current function's return type (for Return instruction)
+    current_return_type: IrType,
 }
 
 impl LlvmCodegen {
@@ -53,6 +55,7 @@ impl LlvmCodegen {
             name_counter: 0,
             class_defs: HashMap::new(),
             vtable_globals: HashMap::new(),
+            current_return_type: IrType::Void,
         }
     }
 
@@ -82,7 +85,24 @@ impl LlvmCodegen {
             self.emit_function(func)?;
         }
 
+        // Emit C main entry point if we have __main__
+        let has_main = module.functions.iter().any(|f| f.name == "__main__");
+        if has_main {
+            self.emit_c_main_entry();
+        }
+
         Ok(self.output.clone())
+    }
+
+    /// Emit C main entry point that calls __main__
+    fn emit_c_main_entry(&mut self) {
+        writeln!(self.output).unwrap();
+        writeln!(self.output, "; C entry point").unwrap();
+        writeln!(self.output, "define i32 @main() {{").unwrap();
+        writeln!(self.output, "entry:").unwrap();
+        writeln!(self.output, "  call void @__main__()").unwrap();
+        writeln!(self.output, "  ret i32 0").unwrap();
+        writeln!(self.output, "}}").unwrap();
     }
 
     /// Emit module header with target info
@@ -222,6 +242,8 @@ impl LlvmCodegen {
         writeln!(self.output, "declare i64 @trq_array_len(ptr)").unwrap();
         writeln!(self.output, "declare ptr @trq_array_get(ptr, i64)").unwrap();
         writeln!(self.output, "declare void @trq_array_set(ptr, i64, ptr)").unwrap();
+        // Array push takes (array_ptr, value_ptr, elem_size)
+        writeln!(self.output, "declare void @trq_array_push(ptr, ptr, i64)").unwrap();
 
         // I/O operations
         writeln!(self.output, "declare void @trq_print(ptr)").unwrap();
@@ -254,19 +276,23 @@ impl LlvmCodegen {
 
         let func_name = mangle_function_name(&func.id.0);
         self.current_func = Some(func_name.clone());
+        self.current_return_type = func.return_type.clone();
 
-        // Map parameters
+        // Map parameters - register both names and types
         for (i, param) in func.params.iter().enumerate() {
             let param_name = format!("%arg.{}", i);
             self.var_map.insert(param.id.0, param_name);
+            // Also register parameter types for correct call-site type lookup
+            self.var_types.insert(param.id.0, param.ty.clone());
         }
 
-        // Map blocks
+        // Map blocks - include block ID for unique labels
         for (i, block) in func.blocks.iter().enumerate() {
             let block_label = if i == 0 {
                 "entry".to_string()
             } else if let Some(ref label) = block.label {
-                sanitize_label(label)
+                // Include block ID to make labels unique
+                format!("{}.{}", sanitize_label(label), block.id.0)
             } else {
                 format!("bb{}", block.id.0)
             };
@@ -314,6 +340,11 @@ impl LlvmCodegen {
             self.emit_instruction(inst)?;
         }
 
+        // Add unreachable if block has no terminator (dead code path)
+        if !block.has_terminator() {
+            writeln!(self.output, "  unreachable").unwrap();
+        }
+
         Ok(())
     }
 
@@ -332,6 +363,17 @@ impl LlvmCodegen {
                 ty,
             } => {
                 self.emit_binary(*dest, *op, *left, *right, ty)?;
+                // Track the result type
+                let result_type = match op {
+                    // Comparisons return Bool
+                    BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le |
+                    BinaryOp::Gt | BinaryOp::Ge => IrType::Bool,
+                    // Logical operations return Bool
+                    BinaryOp::And | BinaryOp::Or => IrType::Bool,
+                    // Arithmetic returns the operand type
+                    _ => ty.clone(),
+                };
+                self.var_types.insert(dest.0, result_type);
             }
 
             Instruction::Unary {
@@ -341,6 +383,12 @@ impl LlvmCodegen {
                 ty,
             } => {
                 self.emit_unary(*dest, *op, *operand, ty)?;
+                // Track the result type
+                let result_type = match op {
+                    UnaryOp::Not => IrType::Bool,
+                    UnaryOp::Neg | UnaryOp::BitNot => ty.clone(),
+                };
+                self.var_types.insert(dest.0, result_type);
             }
 
             Instruction::IntToFloat { dest, src } => {
@@ -352,6 +400,7 @@ impl LlvmCodegen {
                     dest_name, src_name
                 )
                 .unwrap();
+                self.var_types.insert(dest.0, IrType::Float);
             }
 
             Instruction::FloatToInt { dest, src } => {
@@ -363,6 +412,7 @@ impl LlvmCodegen {
                     dest_name, src_name
                 )
                 .unwrap();
+                self.var_types.insert(dest.0, IrType::Int);
             }
 
             Instruction::ToString { dest, src } => {
@@ -467,8 +517,8 @@ impl LlvmCodegen {
             Instruction::Return { value } => {
                 if let Some(val) = value {
                     let val_name = self.get_var(*val)?;
-                    // TODO: Need to know the return type
-                    writeln!(self.output, "  ret i64 {}", val_name).unwrap();
+                    let ret_ty = self.type_mapper.map_type(&self.current_return_type);
+                    writeln!(self.output, "  ret {} {}", ret_ty, val_name).unwrap();
                 } else {
                     writeln!(self.output, "  ret void").unwrap();
                 }
@@ -494,19 +544,34 @@ impl LlvmCodegen {
                     .collect();
                 let ret_type = self.type_mapper.map_type(ret_ty);
 
+                // Don't assign to destination if return type is void
+                let is_void = matches!(ret_ty, IrType::Void);
+
                 if let Some(d) = dest {
-                    let dest_name = self.get_or_create_var(*d);
-                    writeln!(
-                        self.output,
-                        "  {} = call {} @{}({})",
-                        dest_name,
-                        ret_type,
-                        func_name,
-                        args_str.join(", ")
-                    )
-                    .unwrap();
-                    // Track return type
-                    self.var_types.insert(d.0, ret_ty.clone());
+                    if is_void {
+                        // Void functions cannot have a destination - just call
+                        writeln!(
+                            self.output,
+                            "  call {} @{}({})",
+                            ret_type,
+                            func_name,
+                            args_str.join(", ")
+                        )
+                        .unwrap();
+                    } else {
+                        let dest_name = self.get_or_create_var(*d);
+                        writeln!(
+                            self.output,
+                            "  {} = call {} @{}({})",
+                            dest_name,
+                            ret_type,
+                            func_name,
+                            args_str.join(", ")
+                        )
+                        .unwrap();
+                        // Track return type
+                        self.var_types.insert(d.0, ret_ty.clone());
+                    }
                 } else {
                     writeln!(
                         self.output,
@@ -648,10 +713,13 @@ impl LlvmCodegen {
                 let full_method_name = format!("{}::{}", method.class.0, method.name);
                 let method_name = mangle_function_name(&full_method_name);
 
+                // Get proper argument types from var_types (same pattern as Instruction::Call)
                 let mut all_args = vec![format!("ptr {}", obj_name)];
                 for arg in args {
                     let arg_name = self.get_var(*arg)?;
-                    all_args.push(format!("i64 {}", arg_name));
+                    let arg_ty = self.var_types.get(&arg.0).cloned().unwrap_or(IrType::Int);
+                    let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
+                    all_args.push(format!("{} {}", llvm_ty, arg_name));
                 }
 
                 let ret_type = self.type_mapper.map_type(ret_ty);
@@ -714,11 +782,13 @@ impl LlvmCodegen {
                 )
                 .unwrap();
 
-                // Call through function pointer
+                // Call through function pointer - get proper argument types from var_types
                 let mut all_args = vec![format!("ptr {}", obj_name)];
                 for arg in args {
                     let arg_name = self.get_var(*arg)?;
-                    all_args.push(format!("i64 {}", arg_name));
+                    let arg_ty = self.var_types.get(&arg.0).cloned().unwrap_or(IrType::Int);
+                    let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
+                    all_args.push(format!("{} {}", llvm_ty, arg_name));
                 }
 
                 let ret_type = self.type_mapper.map_type(ret_ty);
@@ -823,6 +893,8 @@ impl LlvmCodegen {
                     dest_name, llvm_ty, elem_ptr
                 )
                 .unwrap();
+                // Track the element type for later Store/Load operations
+                self.var_types.insert(dest.0, elem_ty.clone());
             }
 
             Instruction::ArraySet {
@@ -848,6 +920,50 @@ impl LlvmCodegen {
                     self.output,
                     "  store {} {}, ptr {}",
                     llvm_ty, value_name, elem_ptr
+                )
+                .unwrap();
+            }
+
+            Instruction::ArrayPush {
+                array,
+                value,
+                elem_ty,
+            } => {
+                let array_name = self.get_var(*array)?;
+                let value_name = self.get_var(*value)?;
+                let llvm_ty = self.type_mapper.map_type(elem_ty);
+
+                // Get element size in bytes
+                let elem_size = match elem_ty {
+                    IrType::Bool => 1,
+                    IrType::Int => 8,
+                    IrType::Float => 8,
+                    IrType::Ptr(_) | IrType::String | IrType::Array(_, _) | IrType::Struct(_) => 8,
+                    _ => 8,
+                };
+
+                // Create temporary storage for the value
+                let temp_ptr = self.fresh_name("push.tmp");
+                writeln!(
+                    self.output,
+                    "  {} = alloca {}",
+                    temp_ptr, llvm_ty
+                )
+                .unwrap();
+
+                // Store the value into temp storage
+                writeln!(
+                    self.output,
+                    "  store {} {}, ptr {}",
+                    llvm_ty, value_name, temp_ptr
+                )
+                .unwrap();
+
+                // Call trq_array_push(array_ptr, value_ptr, elem_size)
+                writeln!(
+                    self.output,
+                    "  call void @trq_array_push(ptr {}, ptr {}, i64 {})",
+                    array_name, temp_ptr, elem_size
                 )
                 .unwrap();
             }

@@ -48,6 +48,7 @@ TrqArray* trq_array_new(int64_t len, int64_t elem_size) {
 
     arr->len = len;
     arr->cap = cap;
+    arr->elem_size = elem_size;
 
     return arr;
 }
@@ -75,8 +76,8 @@ void* trq_array_get(TrqArray* arr, int64_t index) {
         return NULL;
     }
 
-    // Return pointer to element (assuming 8-byte elements for pointers/i64/f64)
-    return (char*)arr->data + (index * sizeof(void*));
+    // Return pointer to element using stored element size
+    return (char*)arr->data + (index * arr->elem_size);
 }
 
 void trq_array_set(TrqArray* arr, int64_t index, void* value) {
@@ -91,9 +92,8 @@ void trq_array_set(TrqArray* arr, int64_t index, void* value) {
         return;
     }
 
-    // Copy value to element location (assuming 8-byte elements)
-    void** elem_ptr = (void**)((char*)arr->data + (index * sizeof(void*)));
-    *elem_ptr = value;
+    // Copy value to element location using stored element size
+    memcpy((char*)arr->data + (index * arr->elem_size), value, arr->elem_size);
 }
 
 /*============================================================================
@@ -102,8 +102,9 @@ void trq_array_set(TrqArray* arr, int64_t index, void* value) {
 
 /**
  * Ensure array has capacity for at least new_cap elements.
+ * Uses the array's stored elem_size.
  */
-static bool trq_array_ensure_capacity(TrqArray* arr, int64_t new_cap, int64_t elem_size) {
+static bool trq_array_ensure_capacity(TrqArray* arr, int64_t new_cap) {
     if (!arr) {
         return false;
     }
@@ -118,6 +119,7 @@ static bool trq_array_ensure_capacity(TrqArray* arr, int64_t new_cap, int64_t el
         cap *= ARRAY_GROWTH_FACTOR;
     }
 
+    int64_t elem_size = arr->elem_size;
     void* new_data = realloc(arr->data, cap * elem_size);
     if (!new_data) {
         return false;
@@ -137,18 +139,19 @@ void trq_array_push(TrqArray* arr, void* value, int64_t elem_size) {
         return;
     }
 
+    // Use stored elem_size if not provided (for consistency)
     if (elem_size <= 0) {
-        elem_size = sizeof(void*);
+        elem_size = arr->elem_size;
     }
 
-    // Ensure capacity
-    if (!trq_array_ensure_capacity(arr, arr->len + 1, elem_size)) {
+    // Ensure capacity using stored elem_size
+    if (!trq_array_ensure_capacity(arr, arr->len + 1)) {
         fprintf(stderr, "Error: Failed to grow array / خطأ: فشل في توسيع المصفوفة\n");
         return;
     }
 
-    // Copy value to end
-    memcpy((char*)arr->data + (arr->len * elem_size), value, elem_size);
+    // Copy value to end using stored elem_size
+    memcpy((char*)arr->data + (arr->len * arr->elem_size), value, arr->elem_size);
     arr->len++;
 }
 
@@ -159,7 +162,7 @@ void* trq_array_pop(TrqArray* arr) {
     }
 
     arr->len--;
-    return (char*)arr->data + (arr->len * sizeof(void*));
+    return (char*)arr->data + (arr->len * arr->elem_size);
 }
 
 /*============================================================================
@@ -174,8 +177,9 @@ TrqArray* trq_array_clone(TrqArray* arr, int64_t elem_size) {
         return NULL;
     }
 
+    // Use stored elem_size if not provided
     if (elem_size <= 0) {
-        elem_size = sizeof(void*);
+        elem_size = arr->elem_size;
     }
 
     TrqArray* clone = trq_array_new(arr->len, elem_size);
@@ -192,11 +196,12 @@ TrqArray* trq_array_clone(TrqArray* arr, int64_t elem_size) {
  */
 TrqArray* trq_array_concat(TrqArray* a, TrqArray* b, int64_t elem_size) {
     if (!a && !b) {
-        return trq_array_new(0, elem_size);
+        return trq_array_new(0, elem_size > 0 ? elem_size : (int64_t)sizeof(void*));
     }
 
+    // Use stored elem_size from first non-null array if not provided
     if (elem_size <= 0) {
-        elem_size = sizeof(void*);
+        elem_size = a ? a->elem_size : b->elem_size;
     }
 
     int64_t len_a = a ? a->len : 0;
@@ -223,11 +228,12 @@ TrqArray* trq_array_concat(TrqArray* a, TrqArray* b, int64_t elem_size) {
  */
 TrqArray* trq_array_slice(TrqArray* arr, int64_t start, int64_t end, int64_t elem_size) {
     if (!arr || !arr->data) {
-        return trq_array_new(0, elem_size);
+        return trq_array_new(0, elem_size > 0 ? elem_size : (int64_t)sizeof(void*));
     }
 
+    // Use stored elem_size if not provided
     if (elem_size <= 0) {
-        elem_size = sizeof(void*);
+        elem_size = arr->elem_size;
     }
 
     // Clamp bounds
