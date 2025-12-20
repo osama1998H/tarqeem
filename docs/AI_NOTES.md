@@ -795,11 +795,19 @@ Track follow-up items here:
 - [x] Register intrinsic functions in semantic analyzer (~100 bilingual functions)
 - [x] Add stdlib_trq to module search path (Compile, Run, Check, REPL commands)
 
+**Completed (2025-12-20 P1 Integration Tests)**:
+- [x] Add integration tests for stdlib and pipeline (34 tests in tests/integration_tests.rs)
+  - Pipeline tests: variables, functions, control flow, loops, arrays, classes
+  - Builtin function tests: print, len, type, math, trig, random, file operations
+  - Example file tests: verify all example files parse correctly
+  - Interpreter execution tests: arithmetic, factorial, fibonacci
+  - Error handling tests: undefined variables, type mismatches
+  - Bilingual keyword tests: Arabic, English, and mixed language support
+
 **Pending**:
-- [ ] Add integration tests for stdlib
 - [ ] Add more path-scoped rules as patterns emerge
-- [ ] Create integration tests for the compiler pipeline
 - [ ] Document common error patterns and solutions
+- [ ] Fix type conversion function calls (نص(42), منطقي(1) - 2 ignored tests)
 
 ---
 
