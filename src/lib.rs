@@ -11,6 +11,7 @@
 pub mod cli;
 pub mod codegen;
 pub mod error;
+pub mod interpreter;
 pub mod ir;
 pub mod lexer;
 pub mod parser;

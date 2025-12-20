@@ -3,6 +3,7 @@
 use super::{Cli, Commands};
 use crate::codegen::{target::TargetTriple, Linker, LlvmCodegen, Target};
 use crate::error::Language;
+use crate::interpreter::Interpreter;
 use crate::ir::{IrBuilder, OptLevel, Optimizer};
 use crate::lexer::Lexer;
 use crate::parser::Parser;
@@ -357,13 +358,14 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             let filename = file.display().to_string();
 
-            // Parse and analyze
+            // Parse
             let mut parser = Parser::new(&source);
             let ast = parser.parse().map_err(|e| {
                 e.emit(&source, &filename, lang);
                 format!("Parse error / خطأ في التحليل")
             })?;
 
+            // Semantic analysis
             let mut analyzer = Analyzer::new();
             if let Err(diagnostics) = analyzer.analyze(&ast) {
                 for diag in &diagnostics {
@@ -376,17 +378,29 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 ));
             }
 
-            // TODO: Interpret/execute the program
-            println!(
-                "{}",
-                "Note: Execution not yet implemented / ملاحظة: التنفيذ غير مُنفذ بعد"
-                    .yellow()
-                    .bold()
-            );
-            println!(
-                "{}",
-                "Program parsed and analyzed successfully! / تم التحليل بنجاح!".green()
-            );
+            // Build IR
+            let ir_builder = IrBuilder::new(filename.clone());
+            let ir_module = ir_builder
+                .build(&ast)
+                .map_err(|e| format!("IR build error: {} / خطأ بناء التمثيل الوسيط: {}", e, e))?;
+
+            // Run interpreter
+            let mut interpreter = Interpreter::new(ir_module);
+            match interpreter.run() {
+                Ok(_result) => {
+                    // Program executed successfully
+                    if cli.verbose {
+                        println!(
+                            "{}",
+                            "Program completed successfully / اكتمل تنفيذ البرنامج بنجاح".green()
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{} {}", "Runtime error / خطأ وقت التشغيل:".red().bold(), e);
+                    return Err(format!("Runtime error / خطأ وقت التشغيل"));
+                }
+            }
 
             Ok(())
         }
@@ -438,6 +452,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             let stdin = io::stdin();
             let mut stdout = io::stdout();
+            let mut line_count = 0u32;
 
             loop {
                 print!("{}", "ترقيم> ".green().bold());
@@ -457,6 +472,8 @@ pub fn run(cli: Cli) -> Result<(), String> {
                             continue;
                         }
 
+                        line_count += 1;
+
                         // Parse and analyze the line
                         let mut parser = Parser::new(trimmed);
                         match parser.parse() {
@@ -467,9 +484,35 @@ pub fn run(cli: Cli) -> Result<(), String> {
                                         diag.emit(trimmed, "<repl>", lang);
                                     }
                                 } else {
-                                    println!("{}", "OK".green());
-                                    if cli.verbose {
-                                        println!("{:#?}", ast);
+                                    // Build IR and execute
+                                    let module_name = format!("<repl:{}>", line_count);
+                                    let ir_builder = IrBuilder::new(module_name);
+                                    match ir_builder.build(&ast) {
+                                        Ok(ir_module) => {
+                                            let mut interpreter = Interpreter::new(ir_module);
+                                            match interpreter.run() {
+                                                Ok(result) => {
+                                                    // Print result if not null and verbose
+                                                    if cli.verbose {
+                                                        println!(
+                                                            "{} {}",
+                                                            "=>".cyan(),
+                                                            format!("{}", result).yellow()
+                                                        );
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    eprintln!(
+                                                        "{} {}",
+                                                        "Runtime error:".red().bold(),
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            eprintln!("{} {}", "IR error:".red().bold(), e);
+                                        }
                                     }
                                 }
                             }
