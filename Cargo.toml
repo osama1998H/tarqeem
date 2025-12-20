@@ -39,6 +39,13 @@ walkdir = "2.5"
 # Error handling
 thiserror = "1.0"
 
+# LSP (Language Server Protocol)
+tower-lsp = "0.20"
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+dashmap = "6.0"    # Concurrent hashmap for document state
+
 [dev-dependencies]
 pretty_assertions = "1.4"
 tempfile = "3.14"
