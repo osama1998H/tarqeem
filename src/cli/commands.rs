@@ -668,5 +668,30 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             result.map_err(|e| format!("{}", e))
         }
+
+        Commands::Lsp => {
+            // Start the LSP server
+            if cli.verbose {
+                eprintln!(
+                    "{}",
+                    "Starting Tarqeem Language Server... / جاري بدء خادم لغة ترقيم..."
+                        .cyan()
+                        .bold()
+                );
+            }
+
+            // Create and run the async runtime
+            let runtime = tokio::runtime::Runtime::new()
+                .map_err(|e| format!("Failed to create runtime: {} / فشل إنشاء وقت التشغيل: {}", e, e))?;
+
+            runtime.block_on(async {
+                crate::lsp::run_server().await.map_err(|e| {
+                    format!(
+                        "LSP server error: {} / خطأ خادم LSP: {}",
+                        e, e
+                    )
+                })
+            })
+        }
     }
 }

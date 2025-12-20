@@ -127,6 +127,10 @@ pub enum Commands {
         #[command(subcommand)]
         command: PkgCommands,
     },
+
+    /// Start the Language Server Protocol server / بدء خادم LSP
+    #[command(aliases = ["خادم"])]
+    Lsp,
 }
 
 /// Package manager subcommands / أوامر مدير الحزم
