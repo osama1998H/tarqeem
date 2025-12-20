@@ -151,6 +151,35 @@ Use this section to summarize what was accomplished in each session.
 - Updated CLAUDE.md with project map and workflow
 - Created this notes file
 
+### Session: 2025-12-20 - Conway's Game of Life Stress Test
+
+**Goal**: Stress test the Tarqeem compiler with a non-trivial program (Conway's Game of Life)
+
+**Test Files Created**:
+1. `examples/لعبة_الحياة.trq` - Full implementation (33 errors, exposed type system gaps)
+2. `examples/لعبة_الحياة_بسيط.trq` - Simplified without arrays (global constant issues)
+3. `examples/اختبار_بسيط.trq` - Minimal test (LLVM codegen bugs)
+
+**Findings**:
+| Component | Status |
+|-----------|--------|
+| Lexer | ✅ Working |
+| Parser | ✅ Working |
+| Semantic Analysis | ⚠️ Partial (arrays/generics broken) |
+| IR Generation | ⚠️ Partial (simple cases work) |
+| LLVM Codegen | ❌ Bugs (empty else blocks, type mismatches) |
+| Execution | ❌ Not implemented |
+
+**Critical Bugs Discovered**:
+1. Empty else block in LLVM IR causes clang to fail
+2. Global constants not visible in function scope during IR gen
+3. Type mismatch: double returned as i64
+4. Array indexing not implemented in type checker
+5. For-in iteration over arrays not implemented
+6. Generic types (مصفوفة<مصفوفة<منطقي>>) not fully supported
+
+**See**: `docs/STRESS_TEST_REPORT.md` for detailed analysis
+
 ---
 
 ## TODOs
@@ -160,6 +189,12 @@ Track follow-up items here:
 - [ ] Add more path-scoped rules as patterns emerge
 - [ ] Create integration tests for the compiler pipeline
 - [ ] Document common error patterns and solutions
+- [ ] Fix empty else block bug in LLVM codegen
+- [ ] Fix type mismatch in return statements
+- [ ] Support generic array types properly
+- [ ] Implement array indexing
+- [ ] Implement for-in iteration over collections
+- [ ] Make global constants visible in IR generation
 
 ---
 
