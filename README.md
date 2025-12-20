@@ -356,7 +356,7 @@ RTL support depends on the editor. Recommended editors with RTL configuration:
 - [x] IR infrastructure (three-address code, SSA form)
 - [x] Type system completion (generics, class hierarchies, vtables)
 - [x] Code optimizer (constant folding, DCE, CSE, inlining)
-- [ ] Native code generation (LLVM)
+- [x] Native code generation (LLVM)
 
 ### Phase 3: Standard Library
 - [ ] Core types and collections
