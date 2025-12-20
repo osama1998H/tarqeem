@@ -68,12 +68,18 @@ impl ServerState {
     }
 
     /// Get a document (read-only access)
-    pub fn get_document(&self, uri: &Url) -> Option<dashmap::mapref::one::Ref<'_, Url, DocumentState>> {
+    pub fn get_document(
+        &self,
+        uri: &Url,
+    ) -> Option<dashmap::mapref::one::Ref<'_, Url, DocumentState>> {
         self.documents.get(uri)
     }
 
     /// Get a document (mutable access)
-    pub fn get_document_mut(&self, uri: &Url) -> Option<dashmap::mapref::one::RefMut<'_, Url, DocumentState>> {
+    pub fn get_document_mut(
+        &self,
+        uri: &Url,
+    ) -> Option<dashmap::mapref::one::RefMut<'_, Url, DocumentState>> {
         self.documents.get_mut(uri)
     }
 

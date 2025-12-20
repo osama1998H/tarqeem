@@ -11,4 +11,6 @@ pub mod model;
 pub use comment::DocCommentParser;
 pub use extractor::DocExtractor;
 pub use generator::{generate_docs, HtmlGenerator, JsonGenerator, MarkdownGenerator, OutputFormat};
-pub use model::{DocItem, Documentation, FunctionDoc, ParamDoc, ClassDoc, FieldDoc, MethodDoc, InterfaceDoc};
+pub use model::{
+    ClassDoc, DocItem, Documentation, FieldDoc, FunctionDoc, InterfaceDoc, MethodDoc, ParamDoc,
+};

@@ -252,7 +252,9 @@ impl Lexer {
                 }
                 '/' if self.peek_next() == '/' => {
                     // Check if it's a doc comment ///
-                    if self.position + 2 < self.source.len() && self.source[self.position + 2] == '/' {
+                    if self.position + 2 < self.source.len()
+                        && self.source[self.position + 2] == '/'
+                    {
                         // Doc comment - don't skip, return as token
                         return Some(self.scan_doc_comment());
                     }
@@ -265,9 +267,13 @@ impl Lexer {
                 }
                 '/' if self.peek_next() == '*' => {
                     // Check if it's a block doc comment /**
-                    if self.position + 2 < self.source.len() && self.source[self.position + 2] == '*' {
+                    if self.position + 2 < self.source.len()
+                        && self.source[self.position + 2] == '*'
+                    {
                         // Check it's not /*** (which is not a doc comment)
-                        if self.position + 3 >= self.source.len() || self.source[self.position + 3] != '*' {
+                        if self.position + 3 >= self.source.len()
+                            || self.source[self.position + 3] != '*'
+                        {
                             // Block doc comment - don't skip, return as token
                             return Some(self.scan_block_doc_comment());
                         }
@@ -789,9 +795,7 @@ mod tests {
         let mut lexer = Lexer::new(source);
         let tokens: Vec<_> = lexer.tokenize();
 
-        assert!(
-            matches!(&tokens[0].kind, TokenKind::DocComment(s) if s == "سطر أول\nسطر ثاني")
-        );
+        assert!(matches!(&tokens[0].kind, TokenKind::DocComment(s) if s == "سطر أول\nسطر ثاني"));
     }
 
     #[test]
@@ -804,7 +808,9 @@ mod tests {
         let mut lexer = Lexer::new(source);
         let tokens: Vec<_> = lexer.tokenize();
 
-        assert!(matches!(&tokens[0].kind, TokenKind::BlockDocComment(s) if s.contains("دالة لحساب المضروب")));
+        assert!(
+            matches!(&tokens[0].kind, TokenKind::BlockDocComment(s) if s.contains("دالة لحساب المضروب"))
+        );
         assert_eq!(tokens[1].kind, TokenKind::Newline);
         assert_eq!(tokens[2].kind, TokenKind::Function);
     }

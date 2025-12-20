@@ -102,7 +102,11 @@ impl DocExtractor {
 
                     // Update param descriptions from doc comment
                     for doc_param in parsed.params {
-                        if let Some(ast_param) = func_doc.params.iter_mut().find(|p| p.name == doc_param.name) {
+                        if let Some(ast_param) = func_doc
+                            .params
+                            .iter_mut()
+                            .find(|p| p.name == doc_param.name)
+                        {
                             ast_param.description = doc_param.description;
                             if ast_param.ty.is_none() {
                                 ast_param.ty = doc_param.ty;
@@ -215,7 +219,11 @@ impl DocExtractor {
 
                                 // Update param descriptions
                                 for doc_param in parsed.params {
-                                    if let Some(ast_param) = method_doc.params.iter_mut().find(|p| p.name == doc_param.name) {
+                                    if let Some(ast_param) = method_doc
+                                        .params
+                                        .iter_mut()
+                                        .find(|p| p.name == doc_param.name)
+                                    {
                                         ast_param.description = doc_param.description;
                                     }
                                 }
@@ -233,7 +241,11 @@ impl DocExtractor {
                             class_doc.methods.push(method_doc);
                         }
 
-                        ClassMember::Constructor { params, doc_comment, .. } => {
+                        ClassMember::Constructor {
+                            params,
+                            doc_comment,
+                            ..
+                        } => {
                             let mut ctor_doc = ConstructorDoc {
                                 description: None,
                                 params: Vec::new(),
@@ -253,7 +265,11 @@ impl DocExtractor {
                                 ctor_doc.description = parsed.description;
 
                                 for doc_param in parsed.params {
-                                    if let Some(ast_param) = ctor_doc.params.iter_mut().find(|p| p.name == doc_param.name) {
+                                    if let Some(ast_param) = ctor_doc
+                                        .params
+                                        .iter_mut()
+                                        .find(|p| p.name == doc_param.name)
+                                    {
                                         ast_param.description = doc_param.description;
                                     }
                                 }
@@ -305,7 +321,9 @@ impl DocExtractor {
                         sig_doc.description = parsed.description;
 
                         for doc_param in parsed.params {
-                            if let Some(ast_param) = sig_doc.params.iter_mut().find(|p| p.name == doc_param.name) {
+                            if let Some(ast_param) =
+                                sig_doc.params.iter_mut().find(|p| p.name == doc_param.name)
+                            {
                                 ast_param.description = doc_param.description;
                             }
                         }
@@ -331,11 +349,22 @@ impl DocExtractor {
             TypeKind::Simple(name) => name.clone(),
             TypeKind::Array(inner) => format!("مصفوفة<{}>", self.type_to_string(inner)),
             TypeKind::Map(key, val) => {
-                format!("قاموس<{}، {}>", self.type_to_string(key), self.type_to_string(val))
+                format!(
+                    "قاموس<{}، {}>",
+                    self.type_to_string(key),
+                    self.type_to_string(val)
+                )
             }
-            TypeKind::Function { params, return_type } => {
+            TypeKind::Function {
+                params,
+                return_type,
+            } => {
                 let params_str: Vec<_> = params.iter().map(|p| self.type_to_string(p)).collect();
-                format!("({}) -> {}", params_str.join("، "), self.type_to_string(return_type))
+                format!(
+                    "({}) -> {}",
+                    params_str.join("، "),
+                    self.type_to_string(return_type)
+                )
             }
             TypeKind::Generic { base, args } => {
                 let args_str: Vec<_> = args.iter().map(|a| self.type_to_string(a)).collect();

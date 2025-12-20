@@ -32,7 +32,10 @@ pub async fn run_server() -> Result<(), Box<dyn Error + Send + Sync>> {
 }
 
 /// Start the LSP server with custom I/O
-pub async fn run_server_with_io<I, O>(input: I, output: O) -> Result<(), Box<dyn Error + Send + Sync>>
+pub async fn run_server_with_io<I, O>(
+    input: I,
+    output: O,
+) -> Result<(), Box<dyn Error + Send + Sync>>
 where
     I: AsyncRead + Unpin,
     O: AsyncWrite + Unpin,

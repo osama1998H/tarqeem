@@ -58,9 +58,13 @@ fn format_content(content: &str) -> String {
         }
 
         // Handle else/catch/finally that start with closing brace
-        if trimmed.starts_with('}') && (trimmed.contains("وإلا") || trimmed.contains("else")
-            || trimmed.contains("التقط") || trimmed.contains("catch")
-            || trimmed.contains("أخيراً") || trimmed.contains("finally"))
+        if trimmed.starts_with('}')
+            && (trimmed.contains("وإلا")
+                || trimmed.contains("else")
+                || trimmed.contains("التقط")
+                || trimmed.contains("catch")
+                || trimmed.contains("أخيراً")
+                || trimmed.contains("finally"))
         {
             // Special case: } وإلا { should be on same line
             result.push_str(&indent_str.repeat(indent_level as usize));

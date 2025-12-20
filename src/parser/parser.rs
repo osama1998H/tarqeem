@@ -1546,7 +1546,10 @@ mod tests {
             } => {
                 assert_eq!(name, "جمع");
                 assert!(doc_comment.is_some());
-                assert!(doc_comment.as_ref().unwrap().contains("دالة لحساب مجموع عددين"));
+                assert!(doc_comment
+                    .as_ref()
+                    .unwrap()
+                    .contains("دالة لحساب مجموع عددين"));
             }
             _ => panic!("Expected FuncDecl"),
         }

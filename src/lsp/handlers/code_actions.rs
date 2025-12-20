@@ -5,10 +5,10 @@
 use crate::error::Language;
 use crate::lsp::analysis::DocumentState;
 use crate::lsp::utils::span_to_range;
+use std::collections::HashMap;
 use tower_lsp::lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, Range, TextEdit, Url, WorkspaceEdit,
 };
-use std::collections::HashMap;
 
 /// Handle code actions request
 pub fn handle_code_actions(
@@ -29,14 +29,17 @@ pub fn handle_code_actions(
         // Check if diagnostic overlaps with request range
         if ranges_overlap(&diag_range, &range) {
             // Generate quick fixes based on diagnostic type
-            if let Some(fix_actions) = generate_quick_fixes(&uri, diagnostic, &diag_range, language) {
+            if let Some(fix_actions) = generate_quick_fixes(&uri, diagnostic, &diag_range, language)
+            {
                 actions.extend(fix_actions);
             }
         }
     }
 
     // Add refactoring actions based on context
-    if let Some(refactor_actions) = generate_refactorings(&uri, &content, &range, analysis, language) {
+    if let Some(refactor_actions) =
+        generate_refactorings(&uri, &content, &range, analysis, language)
+    {
         actions.extend(refactor_actions);
     }
 
@@ -114,7 +117,8 @@ fn generate_quick_fixes(
     }
 
     // Check for "immutable" errors - suggest making mutable
-    if message.contains("immutable") || message.contains("ثابت") || message.contains("غير قابل") {
+    if message.contains("immutable") || message.contains("ثابت") || message.contains("غير قابل")
+    {
         let (title, old_keyword, new_keyword) = match language {
             Language::Arabic => ("تحويل إلى متغير قابل للتعديل", "ثابت", "متغير"),
             Language::English => ("Convert to mutable variable", "const", "let"),
@@ -268,16 +272,34 @@ mod tests {
     #[test]
     fn test_ranges_overlap() {
         let a = Range {
-            start: tower_lsp::lsp_types::Position { line: 0, character: 0 },
-            end: tower_lsp::lsp_types::Position { line: 0, character: 10 },
+            start: tower_lsp::lsp_types::Position {
+                line: 0,
+                character: 0,
+            },
+            end: tower_lsp::lsp_types::Position {
+                line: 0,
+                character: 10,
+            },
         };
         let b = Range {
-            start: tower_lsp::lsp_types::Position { line: 0, character: 5 },
-            end: tower_lsp::lsp_types::Position { line: 0, character: 15 },
+            start: tower_lsp::lsp_types::Position {
+                line: 0,
+                character: 5,
+            },
+            end: tower_lsp::lsp_types::Position {
+                line: 0,
+                character: 15,
+            },
         };
         let c = Range {
-            start: tower_lsp::lsp_types::Position { line: 1, character: 0 },
-            end: tower_lsp::lsp_types::Position { line: 1, character: 10 },
+            start: tower_lsp::lsp_types::Position {
+                line: 1,
+                character: 0,
+            },
+            end: tower_lsp::lsp_types::Position {
+                line: 1,
+                character: 10,
+            },
         };
 
         assert!(ranges_overlap(&a, &b));
@@ -295,9 +317,6 @@ mod tests {
             extract_identifier_from_message("المتغير «س» غير معرف"),
             Some("س".to_string())
         );
-        assert_eq!(
-            extract_identifier_from_message("Some other message"),
-            None
-        );
+        assert_eq!(extract_identifier_from_message("Some other message"), None);
     }
 }

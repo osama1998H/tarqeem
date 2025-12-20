@@ -188,11 +188,13 @@ mod tests {
 
     #[test]
     fn test_format_type_info() {
-        let (type_str, kind) = format_type_info(&Type::Int, &SymbolKind::Variable, Language::Arabic);
+        let (type_str, kind) =
+            format_type_info(&Type::Int, &SymbolKind::Variable, Language::Arabic);
         assert_eq!(type_str, "عدد");
         assert_eq!(kind, "متغير");
 
-        let (type_str, kind) = format_type_info(&Type::Int, &SymbolKind::Variable, Language::English);
+        let (type_str, kind) =
+            format_type_info(&Type::Int, &SymbolKind::Variable, Language::English);
         assert_eq!(type_str, "int");
         assert_eq!(kind, "Variable");
     }
