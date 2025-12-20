@@ -881,11 +881,27 @@ impl Interpreter {
                 _ => Err(RuntimeError::type_error("int or bool", left.type_name())),
             },
             BinaryOp::Shl => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a << b)),
+                (Value::Int(a), Value::Int(b)) => {
+                    if *b < 0 || *b >= 64 {
+                        return Err(RuntimeError::invalid_operation(
+                            format!("Shift amount {} is out of range (0-63)", b),
+                            format!("مقدار الإزاحة {} خارج النطاق (0-63)", b),
+                        ));
+                    }
+                    Ok(Value::Int(*a << *b))
+                }
                 _ => Err(RuntimeError::type_error("int", left.type_name())),
             },
             BinaryOp::Shr => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a >> b)),
+                (Value::Int(a), Value::Int(b)) => {
+                    if *b < 0 || *b >= 64 {
+                        return Err(RuntimeError::invalid_operation(
+                            format!("Shift amount {} is out of range (0-63)", b),
+                            format!("مقدار الإزاحة {} خارج النطاق (0-63)", b),
+                        ));
+                    }
+                    Ok(Value::Int(*a >> *b))
+                }
                 _ => Err(RuntimeError::type_error("int", left.type_name())),
             },
         }
