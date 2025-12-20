@@ -1,0 +1,42 @@
+// نص - String Utilities Module
+// نص - وحدة معالجة النصوص
+
+// Check if string is empty
+صدّر دالة فارغ(س: نص) -> منطقي {
+    أرجع س.طول == 0
+}
+
+// Check if string contains a substring
+// TODO: Requires runtime string support
+صدّر دالة يحتوي(نص: نص، جزء: نص) -> منطقي {
+    // Placeholder - needs runtime implementation
+    أرجع خطأ
+}
+
+// Check if string starts with a prefix
+// TODO: Requires runtime string support
+صدّر دالة يبدأ_بـ(نص: نص، بادئة: نص) -> منطقي {
+    // Placeholder - needs runtime implementation
+    أرجع خطأ
+}
+
+// Check if string ends with a suffix
+// TODO: Requires runtime string support
+صدّر دالة ينتهي_بـ(نص: نص، لاحقة: نص) -> منطقي {
+    // Placeholder - needs runtime implementation
+    أرجع خطأ
+}
+
+// Repeat a string n times
+// TODO: Requires runtime string support
+صدّر دالة كرر(نص: نص، عدد: عدد) -> نص {
+    // Placeholder - needs runtime implementation
+    أرجع نص
+}
+
+// Trim whitespace from both ends
+// TODO: Requires runtime string support
+صدّر دالة قص(نص: نص) -> نص {
+    // Placeholder - needs runtime implementation
+    أرجع نص
+}
