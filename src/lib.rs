@@ -15,6 +15,7 @@ pub mod ir;
 pub mod lexer;
 pub mod parser;
 pub mod semantic;
+pub mod utils;
 
 pub use codegen::{Linker, LlvmCodegen, Target};
 pub use error::{Diagnostic, DiagnosticLevel, Span};
@@ -22,3 +23,4 @@ pub use ir::{IrBuilder, Module as IrModule};
 pub use lexer::{Lexer, Token, TokenKind};
 pub use parser::{Ast, Parser};
 pub use semantic::Analyzer;
+pub use utils::{has_tarqeem_extension, is_valid_source_extension, FileExtension};

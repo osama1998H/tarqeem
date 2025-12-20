@@ -132,7 +132,11 @@ impl ConstantFolder {
                 }
 
                 // Fold string concatenation of constant strings
-                Instruction::StringConcat { dest: _, left, right } => {
+                Instruction::StringConcat {
+                    dest: _,
+                    left,
+                    right,
+                } => {
                     if let (Some(Constant::String(left_idx)), Some(Constant::String(right_idx))) =
                         (constants.get(left), constants.get(right))
                     {
@@ -265,9 +269,7 @@ mod tests {
         });
 
         // ret void
-        block
-            .instructions
-            .push(Instruction::Return { value: None });
+        block.instructions.push(Instruction::Return { value: None });
 
         func.blocks.push(block);
         func
@@ -330,9 +332,7 @@ mod tests {
             ty: IrType::Bool,
         });
 
-        block
-            .instructions
-            .push(Instruction::Return { value: None });
+        block.instructions.push(Instruction::Return { value: None });
 
         func.blocks.push(block);
 

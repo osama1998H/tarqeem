@@ -1,24 +1,53 @@
 //! CLI command implementations
 
 use super::{Cli, Commands};
-use crate::codegen::{Linker, LlvmCodegen, Target, target::TargetTriple};
+use crate::codegen::{target::TargetTriple, Linker, LlvmCodegen, Target};
 use crate::error::Language;
 use crate::ir::{IrBuilder, OptLevel, Optimizer};
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::semantic::Analyzer;
+use crate::utils::{is_valid_source_extension, valid_source_extensions_display};
 use colored::Colorize;
 use std::fs;
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Warn if file doesn't have a valid Tarqeem extension
+fn warn_invalid_extension(file: &Path) {
+    if !is_valid_source_extension(file) {
+        eprintln!(
+            "{}",
+            format!(
+                "تحذير: الملف لا يحمل امتداد ترقيم صالح ({})",
+                valid_source_extensions_display()
+            )
+            .yellow()
+        );
+        eprintln!(
+            "{}",
+            format!(
+                "Warning: File doesn't have a valid Tarqeem extension ({})",
+                valid_source_extensions_display()
+            )
+            .yellow()
+        );
+    }
+}
 
 /// Find the Tarqeem runtime library (libtrq.a)
 fn find_runtime() -> Option<PathBuf> {
     // Try several locations
     let search_paths = [
         // Relative to executable
-        std::env::current_exe().ok()?.parent()?.join("runtime/libtrq.a"),
-        std::env::current_exe().ok()?.parent()?.join("../runtime/libtrq.a"),
+        std::env::current_exe()
+            .ok()?
+            .parent()?
+            .join("runtime/libtrq.a"),
+        std::env::current_exe()
+            .ok()?
+            .parent()?
+            .join("../runtime/libtrq.a"),
         // Relative to current directory
         PathBuf::from("runtime/libtrq.a"),
         // Standard install locations
@@ -57,6 +86,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
             dump_ir,
             dump_opt_stats,
         } => {
+            // Warn if file extension is not recognized
+            warn_invalid_extension(&file);
+
             let source = fs::read_to_string(&file)
                 .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
 
@@ -107,7 +139,10 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             let ir_builder = IrBuilder::new(module_name);
             let mut ir_module = ir_builder.build(&ast).map_err(|e| {
-                format!("IR generation error: {} / خطأ في توليد الـ IR: {}", e.message, e.message_ar)
+                format!(
+                    "IR generation error: {} / خطأ في توليد الـ IR: {}",
+                    e.message, e.message_ar
+                )
             })?;
 
             // Run optimization passes
@@ -122,7 +157,12 @@ pub fn run(cli: Cli) -> Result<(), String> {
             optimizer.optimize(&mut ir_module);
 
             if dump_opt_stats && optimizer.stats().any_changes() {
-                println!("{}", "=== Optimization Stats / إحصائيات التحسين ===".cyan().bold());
+                println!(
+                    "{}",
+                    "=== Optimization Stats / إحصائيات التحسين ==="
+                        .cyan()
+                        .bold()
+                );
                 println!("{}", optimizer.stats());
             }
 
@@ -136,19 +176,30 @@ pub fn run(cli: Cli) -> Result<(), String> {
             let target_config = if let Some(ref triple_str) = target {
                 TargetTriple::parse(triple_str)
                     .map(Target::from_triple)
-                    .ok_or_else(|| format!("Invalid target triple: {} / هدف غير صالح: {}", triple_str, triple_str))?
+                    .ok_or_else(|| {
+                        format!(
+                            "Invalid target triple: {} / هدف غير صالح: {}",
+                            triple_str, triple_str
+                        )
+                    })?
             } else {
                 Target::native()
             };
 
             let mut codegen = LlvmCodegen::new(target_config.clone());
             let llvm_ir = codegen.generate(&ir_module).map_err(|e| {
-                format!("Code generation error: {} / خطأ في توليد الكود: {}", e.message, e.message_ar)
+                format!(
+                    "Code generation error: {} / خطأ في توليد الكود: {}",
+                    e.message, e.message_ar
+                )
             })?;
 
             // Determine output path
             let output_path = output.unwrap_or_else(|| {
-                let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
+                let stem = file
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("output");
                 if emit_llvm {
                     PathBuf::from(format!("{}.ll", stem))
                 } else if emit_asm {
@@ -163,12 +214,17 @@ pub fn run(cli: Cli) -> Result<(), String> {
             // Handle different emit modes
             if emit_llvm {
                 // Write LLVM IR directly
-                fs::write(&output_path, &llvm_ir)
-                    .map_err(|e| format!("Could not write output: {} / لا يمكن كتابة الملف: {}", e, e))?;
+                fs::write(&output_path, &llvm_ir).map_err(|e| {
+                    format!("Could not write output: {} / لا يمكن كتابة الملف: {}", e, e)
+                })?;
                 println!(
                     "{}",
-                    format!("LLVM IR written to: {} / تم كتابة LLVM IR إلى: {}",
-                        output_path.display(), output_path.display()).green()
+                    format!(
+                        "LLVM IR written to: {} / تم كتابة LLVM IR إلى: {}",
+                        output_path.display(),
+                        output_path.display()
+                    )
+                    .green()
                 );
             } else if emit_asm || emit_obj {
                 // Use linker to compile
@@ -181,20 +237,40 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 }
 
                 if emit_asm {
-                    linker.compile_to_assembly(&llvm_ir, &output_path)
-                        .map_err(|e| format!("Assembly generation failed: {} / فشل توليد التجميع: {}", e.message, e.message_ar))?;
+                    linker
+                        .compile_to_assembly(&llvm_ir, &output_path)
+                        .map_err(|e| {
+                            format!(
+                                "Assembly generation failed: {} / فشل توليد التجميع: {}",
+                                e.message, e.message_ar
+                            )
+                        })?;
                     println!(
                         "{}",
-                        format!("Assembly written to: {} / تم كتابة التجميع إلى: {}",
-                            output_path.display(), output_path.display()).green()
+                        format!(
+                            "Assembly written to: {} / تم كتابة التجميع إلى: {}",
+                            output_path.display(),
+                            output_path.display()
+                        )
+                        .green()
                     );
                 } else {
-                    linker.compile_to_object(&llvm_ir, &output_path)
-                        .map_err(|e| format!("Object compilation failed: {} / فشل ترجمة الكائن: {}", e.message, e.message_ar))?;
+                    linker
+                        .compile_to_object(&llvm_ir, &output_path)
+                        .map_err(|e| {
+                            format!(
+                                "Object compilation failed: {} / فشل ترجمة الكائن: {}",
+                                e.message, e.message_ar
+                            )
+                        })?;
                     println!(
                         "{}",
-                        format!("Object file written to: {} / تم كتابة ملف الكائن إلى: {}",
-                            output_path.display(), output_path.display()).green()
+                        format!(
+                            "Object file written to: {} / تم كتابة ملف الكائن إلى: {}",
+                            output_path.display(),
+                            output_path.display()
+                        )
+                        .green()
                     );
                 }
             } else {
@@ -210,32 +286,50 @@ pub fn run(cli: Cli) -> Result<(), String> {
                         eprintln!("{}", "Warning: Runtime library not found. Executable may not link correctly. / تحذير: لم يتم العثور على مكتبة التشغيل.".yellow());
                     }
 
-                    linker.compile_to_executable(&llvm_ir, &output_path, runtime_path.as_deref())
-                        .map_err(|e| format!("Linking failed: {} / فشل الربط: {}", e.message, e.message_ar))?;
+                    linker
+                        .compile_to_executable(&llvm_ir, &output_path, runtime_path.as_deref())
+                        .map_err(|e| {
+                            format!(
+                                "Linking failed: {} / فشل الربط: {}",
+                                e.message, e.message_ar
+                            )
+                        })?;
                     println!(
                         "{}",
-                        format!("Executable created: {} / تم إنشاء الملف التنفيذي: {}",
-                            output_path.display(), output_path.display()).green()
+                        format!(
+                            "Executable created: {} / تم إنشاء الملف التنفيذي: {}",
+                            output_path.display(),
+                            output_path.display()
+                        )
+                        .green()
                     );
                 } else {
                     // Fallback: just write LLVM IR
                     let ll_path = output_path.with_extension("ll");
-                    fs::write(&ll_path, &llvm_ir)
-                        .map_err(|e| format!("Could not write output: {} / لا يمكن كتابة الملف: {}", e, e))?;
+                    fs::write(&ll_path, &llvm_ir).map_err(|e| {
+                        format!("Could not write output: {} / لا يمكن كتابة الملف: {}", e, e)
+                    })?;
                     println!(
                         "{}",
                         "Note: No compiler found. LLVM IR written instead. / ملاحظة: لم يتم العثور على مترجم. تم كتابة LLVM IR بدلاً من ذلك.".yellow()
                     );
                     println!(
                         "  You can compile with: clang {} -o {} / يمكنك الترجمة بـ: clang {} -o {}",
-                        ll_path.display(), output_path.display(),
-                        ll_path.display(), output_path.display()
+                        ll_path.display(),
+                        output_path.display(),
+                        ll_path.display(),
+                        output_path.display()
                     );
                 }
             }
 
             if cli.verbose {
-                println!("{}", "Compilation successful! / تمت الترجمة بنجاح!".green().bold());
+                println!(
+                    "{}",
+                    "Compilation successful! / تمت الترجمة بنجاح!"
+                        .green()
+                        .bold()
+                );
                 println!(
                     "  Functions: {} / الدوال: {}",
                     ir_module.functions.len(),
@@ -247,10 +341,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     ir_module.classes.len()
                 );
                 if opt != OptLevel::O0 {
-                    println!(
-                        "  Optimization level: {} / مستوى التحسين: {}",
-                        opt, opt
-                    );
+                    println!("  Optimization level: {} / مستوى التحسين: {}", opt, opt);
                 }
             }
 
@@ -258,6 +349,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
         }
 
         Commands::Run { file } => {
+            // Warn if file extension is not recognized
+            warn_invalid_extension(&file);
+
             let source = fs::read_to_string(&file)
                 .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
 
@@ -289,12 +383,18 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     .yellow()
                     .bold()
             );
-            println!("{}", "Program parsed and analyzed successfully! / تم التحليل بنجاح!".green());
+            println!(
+                "{}",
+                "Program parsed and analyzed successfully! / تم التحليل بنجاح!".green()
+            );
 
             Ok(())
         }
 
         Commands::Check { file } => {
+            // Warn if file extension is not recognized
+            warn_invalid_extension(&file);
+
             let source = fs::read_to_string(&file)
                 .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
 
@@ -329,7 +429,10 @@ pub fn run(cli: Cli) -> Result<(), String> {
         }
 
         Commands::Repl => {
-            println!("{}", "=== Tarqeem REPL / الوضع التفاعلي لترقيم ===".cyan().bold());
+            println!(
+                "{}",
+                "=== Tarqeem REPL / الوضع التفاعلي لترقيم ===".cyan().bold()
+            );
             println!("Type 'exit' or 'خروج' to quit / اكتب 'exit' أو 'خروج' للخروج");
             println!();
 
@@ -386,6 +489,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
         }
 
         Commands::Fmt { file, write } => {
+            // Warn if file extension is not recognized
+            warn_invalid_extension(&file);
+
             let source = fs::read_to_string(&file)
                 .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
 
@@ -406,6 +512,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
         }
 
         Commands::Lex { file } => {
+            // Warn if file extension is not recognized
+            warn_invalid_extension(&file);
+
             let source = fs::read_to_string(&file)
                 .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
 
@@ -424,6 +533,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
         }
 
         Commands::Parse { file } => {
+            // Warn if file extension is not recognized
+            warn_invalid_extension(&file);
+
             let source = fs::read_to_string(&file)
                 .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
 

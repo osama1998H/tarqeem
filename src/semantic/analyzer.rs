@@ -94,16 +94,11 @@ impl Analyzer {
                 implements,
                 ..
             } => {
-                self.class_resolver.register_class(
-                    name,
-                    extends.as_deref(),
-                    implements,
-                    stmt.span,
-                );
+                self.class_resolver
+                    .register_class(name, extends.as_deref(), implements, stmt.span);
             }
             StmtKind::InterfaceDecl { name, .. } => {
-                self.class_resolver
-                    .register_interface(name, &[], stmt.span);
+                self.class_resolver.register_interface(name, &[], stmt.span);
             }
             _ => {}
         }
@@ -150,7 +145,14 @@ impl Analyzer {
                 body,
                 is_async,
             } => {
-                self.analyze_func_decl(name, params, return_type.as_ref(), body, *is_async, stmt.span);
+                self.analyze_func_decl(
+                    name,
+                    params,
+                    return_type.as_ref(),
+                    body,
+                    *is_async,
+                    stmt.span,
+                );
             }
 
             StmtKind::ClassDecl {
@@ -205,11 +207,7 @@ impl Analyzer {
 
             StmtKind::Break => {
                 if !self.scope.is_in_loop() {
-                    self.error(
-                        "'break' outside of loop",
-                        "'أوقف' خارج الحلقة",
-                        stmt.span,
-                    );
+                    self.error("'break' outside of loop", "'أوقف' خارج الحلقة", stmt.span);
                 }
             }
 
@@ -223,7 +221,11 @@ impl Analyzer {
                 }
             }
 
-            StmtKind::Try { body, catch, finally } => {
+            StmtKind::Try {
+                body,
+                catch,
+                finally,
+            } => {
                 self.analyze_try(body, catch.as_ref(), finally.as_ref());
             }
 
@@ -283,10 +285,7 @@ impl Analyzer {
 
             if !init_type.is_compatible_with(expected) {
                 self.error(
-                    &format!(
-                        "Type mismatch: expected {}, got {}",
-                        expected, init_type
-                    ),
+                    &format!("Type mismatch: expected {}, got {}", expected, init_type),
                     &format!(
                         "عدم تطابق الأنواع: متوقع {}، وُجد {}",
                         expected.arabic_name(),
@@ -532,10 +531,7 @@ impl Analyzer {
         if !cond_type.is_compatible_with(&Type::Bool) {
             self.error(
                 &format!("Condition must be boolean, got {}", cond_type),
-                &format!(
-                    "الشرط يجب أن يكون منطقياً، وُجد {}",
-                    cond_type.arabic_name()
-                ),
+                &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
                 condition.span,
             );
         }
@@ -552,10 +548,7 @@ impl Analyzer {
         if !cond_type.is_compatible_with(&Type::Bool) {
             self.error(
                 &format!("Condition must be boolean, got {}", cond_type),
-                &format!(
-                    "الشرط يجب أن يكون منطقياً، وُجد {}",
-                    cond_type.arabic_name()
-                ),
+                &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
                 condition.span,
             );
         }
@@ -581,10 +574,7 @@ impl Analyzer {
             if !cond_type.is_compatible_with(&Type::Bool) {
                 self.error(
                     &format!("Condition must be boolean, got {}", cond_type),
-                    &format!(
-                        "الشرط يجب أن يكون منطقياً، وُجد {}",
-                        cond_type.arabic_name()
-                    ),
+                    &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
                     cond_expr.span,
                 );
             }
@@ -620,7 +610,8 @@ impl Analyzer {
         };
 
         self.push_scope(ScopeKind::Loop);
-        self.scope.define(Symbol::variable(variable, elem_type, false));
+        self.scope
+            .define(Symbol::variable(variable, elem_type, false));
 
         for stmt in &body.statements {
             self.analyze_stmt(stmt);
@@ -657,11 +648,7 @@ impl Analyzer {
 
     fn analyze_return(&mut self, value: Option<&Expr>, span: Span) {
         if !self.scope.is_in_function() {
-            self.error(
-                "'return' outside of function",
-                "'أرجع' خارج الدالة",
-                span,
-            );
+            self.error("'return' outside of function", "'أرجع' خارج الدالة", span);
             return;
         }
 
@@ -818,20 +805,15 @@ impl Analyzer {
                 let callee_type = self.infer_type(callee);
 
                 match callee_type {
-                    Type::Function { params, return_type } => {
+                    Type::Function {
+                        params,
+                        return_type,
+                    } => {
                         // Check argument count
                         if args.len() != params.len() {
                             self.error(
-                                &format!(
-                                    "Expected {} arguments, got {}",
-                                    params.len(),
-                                    args.len()
-                                ),
-                                &format!(
-                                    "متوقع {} معاملات، وُجد {}",
-                                    params.len(),
-                                    args.len()
-                                ),
+                                &format!("Expected {} arguments, got {}", params.len(), args.len()),
+                                &format!("متوقع {} معاملات، وُجد {}", params.len(), args.len()),
                                 expr.span,
                             );
                         }
@@ -870,10 +852,7 @@ impl Analyzer {
                     _ => {
                         self.error(
                             &format!("Cannot call non-function type {}", callee_type),
-                            &format!(
-                                "لا يمكن استدعاء نوع غير دالة {}",
-                                callee_type.arabic_name()
-                            ),
+                            &format!("لا يمكن استدعاء نوع غير دالة {}", callee_type.arabic_name()),
                             callee.span,
                         );
                         Type::Error
@@ -946,7 +925,8 @@ impl Analyzer {
                 match &target.kind {
                     ExprKind::Identifier(name) => {
                         // Clone symbol info first to avoid borrow conflicts
-                        let symbol_info = self.scope.lookup(name).map(|s| (s.mutable, s.ty.clone()));
+                        let symbol_info =
+                            self.scope.lookup(name).map(|s| (s.mutable, s.ty.clone()));
 
                         if let Some((mutable, ty)) = symbol_info {
                             if !mutable {
@@ -958,10 +938,7 @@ impl Analyzer {
                             }
                             if !value_type.is_compatible_with(&ty) {
                                 self.error(
-                                    &format!(
-                                        "Type mismatch: expected {}, got {}",
-                                        ty, value_type
-                                    ),
+                                    &format!("Type mismatch: expected {}, got {}", ty, value_type),
                                     &format!(
                                         "عدم تطابق الأنواع: متوقع {}، وُجد {}",
                                         ty.arabic_name(),
@@ -993,7 +970,11 @@ impl Analyzer {
                 value_type
             }
 
-            ExprKind::CompoundAssignment { target, op: _, value } => {
+            ExprKind::CompoundAssignment {
+                target,
+                op: _,
+                value,
+            } => {
                 // Similar to assignment but with operation
                 self.infer_type(target);
                 self.infer_type(value);
@@ -1044,12 +1025,12 @@ impl Analyzer {
                 let param_types: Vec<Type> = params
                     .iter()
                     .map(|p| {
-                        let ty = p
-                            .ty
-                            .as_ref()
-                            .map(|t| self.resolve_type(t))
-                            .unwrap_or(Type::Any);
-                        self.scope.define(Symbol::variable(&p.name, ty.clone(), false));
+                        let ty =
+                            p.ty.as_ref()
+                                .map(|t| self.resolve_type(t))
+                                .unwrap_or(Type::Any);
+                        self.scope
+                            .define(Symbol::variable(&p.name, ty.clone(), false));
                         ty
                     })
                     .collect();
@@ -1196,11 +1177,7 @@ impl Analyzer {
 
             ExprKind::This => {
                 if !self.scope.is_in_class() {
-                    self.error(
-                        "'this' outside of class",
-                        "'هذا' خارج الصنف",
-                        expr.span,
-                    );
+                    self.error("'this' outside of class", "'هذا' خارج الصنف", expr.span);
                     Type::Error
                 } else if let Some(ref class_name) = self.current_class {
                     Type::Class(class_name.clone())
@@ -1211,11 +1188,7 @@ impl Analyzer {
 
             ExprKind::Super => {
                 if !self.scope.is_in_class() {
-                    self.error(
-                        "'super' outside of class",
-                        "'أساس' خارج الصنف",
-                        expr.span,
-                    );
+                    self.error("'super' outside of class", "'أساس' خارج الصنف", expr.span);
                     Type::Error
                 } else if let Some(ref class_name) = self.current_class {
                     // Get the parent class type
@@ -1258,8 +1231,14 @@ impl Analyzer {
                 if let Type::Class(class_name) = object_type {
                     if self.class_resolver.get_class(class_name).is_some() {
                         self.error(
-                            &format!("Property '{}' not found on class '{}'", property, class_name),
-                            &format!("الخاصية '{}' غير موجودة في الصنف '{}'", property, class_name),
+                            &format!(
+                                "Property '{}' not found on class '{}'",
+                                property, class_name
+                            ),
+                            &format!(
+                                "الخاصية '{}' غير موجودة في الصنف '{}'",
+                                property, class_name
+                            ),
                             span,
                         );
                     }
@@ -1275,10 +1254,14 @@ impl Analyzer {
         match &type_ann.kind {
             TypeKind::Simple(name) => parse_type_name(name),
             TypeKind::Array(inner) => Type::Array(Box::new(self.resolve_type(inner))),
-            TypeKind::Map(k, v) => {
-                Type::Map(Box::new(self.resolve_type(k)), Box::new(self.resolve_type(v)))
-            }
-            TypeKind::Function { params, return_type } => Type::Function {
+            TypeKind::Map(k, v) => Type::Map(
+                Box::new(self.resolve_type(k)),
+                Box::new(self.resolve_type(v)),
+            ),
+            TypeKind::Function {
+                params,
+                return_type,
+            } => Type::Function {
                 params: params.iter().map(|p| self.resolve_type(p)).collect(),
                 return_type: Box::new(self.resolve_type(return_type)),
             },
@@ -1355,7 +1338,10 @@ fn resolve_type_annotation(type_ann: &TypeAnnotation) -> Type {
             Box::new(resolve_type_annotation(k)),
             Box::new(resolve_type_annotation(v)),
         ),
-        TypeKind::Function { params, return_type } => Type::Function {
+        TypeKind::Function {
+            params,
+            return_type,
+        } => Type::Function {
             params: params.iter().map(resolve_type_annotation).collect(),
             return_type: Box::new(resolve_type_annotation(return_type)),
         },
@@ -1418,11 +1404,13 @@ mod tests {
 
     #[test]
     fn test_function_declaration() {
-        let result = analyze(r#"
+        let result = analyze(
+            r#"
             دالة جمع(أ: عدد، ب: عدد) -> عدد {
                 أرجع أ + ب;
             }
-        "#);
+        "#,
+        );
         assert!(result.is_ok());
     }
 
@@ -1442,17 +1430,20 @@ mod tests {
 
     #[test]
     fn test_class_declaration() {
-        let result = analyze(r#"
+        let result = analyze(
+            r#"
             صنف شخص {
                 عام الاسم: نص;
             }
-        "#);
+        "#,
+        );
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_class_with_methods() {
-        let result = analyze(r#"
+        let result = analyze(
+            r#"
             صنف حساب {
                 خاص رصيد: عدد;
 
@@ -1460,13 +1451,15 @@ mod tests {
                     متغير س = مبلغ;
                 }
             }
-        "#);
+        "#,
+        );
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_class_inheritance() {
-        let result = analyze(r#"
+        let result = analyze(
+            r#"
             صنف حيوان {
                 عام الاسم: نص;
             }
@@ -1474,52 +1467,63 @@ mod tests {
             صنف قط يرث حيوان {
                 عام اللون: نص;
             }
-        "#);
+        "#,
+        );
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_interface_declaration() {
-        let result = analyze(r#"
+        let result = analyze(
+            r#"
             واجهة قابل_للطباعة {
                 دالة اطبع() -> نص
             }
-        "#);
+        "#,
+        );
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_this_outside_class() {
-        let result = analyze(r#"
+        let result = analyze(
+            r#"
             متغير س = هذا.الاسم;
-        "#);
+        "#,
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn test_super_outside_class() {
         // Test super usage outside class
-        let result = analyze(r#"
+        let result = analyze(
+            r#"
             أساس;
-        "#);
+        "#,
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn test_array_length_property() {
-        let result = analyze(r#"
+        let result = analyze(
+            r#"
             متغير أرقام = [1, 2, 3];
             متغير ط = أرقام.طول;
-        "#);
+        "#,
+        );
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_string_length_property() {
-        let result = analyze(r#"
+        let result = analyze(
+            r#"
             متغير كلمة = "مرحبا";
             متغير ط = كلمة.طول;
-        "#);
+        "#,
+        );
         assert!(result.is_ok());
     }
 }

@@ -6,17 +6,17 @@ use crate::lexer::TokenKind;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Precedence {
     None = 0,
-    Assignment = 1,    // =, +=, -=, etc.
-    Ternary = 2,       // ?:
-    Or = 3,            // ||, أو
-    And = 4,           // &&, و
-    Equality = 5,      // ==, !=
-    Comparison = 6,    // <, >, <=, >=
-    Term = 7,          // +, -
-    Factor = 8,        // *, /, %
-    Power = 9,         // **
-    Unary = 10,        // -, !, ليس
-    Call = 11,         // (), [], .
+    Assignment = 1, // =, +=, -=, etc.
+    Ternary = 2,    // ?:
+    Or = 3,         // ||, أو
+    And = 4,        // &&, و
+    Equality = 5,   // ==, !=
+    Comparison = 6, // <, >, <=, >=
+    Term = 7,       // +, -
+    Factor = 8,     // *, /, %
+    Power = 9,      // **
+    Unary = 10,     // -, !, ليس
+    Call = 11,      // (), [], .
     Primary = 12,
 }
 

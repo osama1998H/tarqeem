@@ -110,7 +110,10 @@ impl Type {
                 },
             ) => {
                 p1.len() == p2.len()
-                    && p1.iter().zip(p2.iter()).all(|(a, b)| a.is_compatible_with(b))
+                    && p1
+                        .iter()
+                        .zip(p2.iter())
+                        .all(|(a, b)| a.is_compatible_with(b))
                     && r1.is_compatible_with(r2)
             }
 
@@ -201,9 +204,16 @@ impl Type {
             Type::Null => "عدم".to_string(),
             Type::Array(inner) => format!("مصفوفة<{}>", inner.arabic_name()),
             Type::Map(k, v) => format!("قاموس<{}، {}>", k.arabic_name(), v.arabic_name()),
-            Type::Function { params, return_type } => {
+            Type::Function {
+                params,
+                return_type,
+            } => {
                 let params_str: Vec<_> = params.iter().map(|p| p.arabic_name()).collect();
-                format!("({}) -> {}", params_str.join("، "), return_type.arabic_name())
+                format!(
+                    "({}) -> {}",
+                    params_str.join("، "),
+                    return_type.arabic_name()
+                )
             }
             Type::Class(name) => name.clone(),
             Type::Interface(name) => name.clone(),
@@ -228,7 +238,10 @@ impl fmt::Display for Type {
             Type::Null => write!(f, "null"),
             Type::Array(inner) => write!(f, "array<{}>", inner),
             Type::Map(k, v) => write!(f, "map<{}, {}>", k, v),
-            Type::Function { params, return_type } => {
+            Type::Function {
+                params,
+                return_type,
+            } => {
                 let params_str: Vec<_> = params.iter().map(|p| p.to_string()).collect();
                 write!(f, "({}) -> {}", params_str.join(", "), return_type)
             }

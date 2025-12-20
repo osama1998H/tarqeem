@@ -109,13 +109,14 @@ impl GenericContext {
     /// Apply substitutions to a type
     pub fn apply(&self, ty: &Type) -> Type {
         match ty {
-            Type::Generic(name) => {
-                self.substitutions.get(name).cloned().unwrap_or(ty.clone())
-            }
+            Type::Generic(name) => self.substitutions.get(name).cloned().unwrap_or(ty.clone()),
             Type::Array(inner) => Type::Array(Box::new(self.apply(inner))),
             Type::Map(k, v) => Type::Map(Box::new(self.apply(k)), Box::new(self.apply(v))),
             Type::Optional(inner) => Type::Optional(Box::new(self.apply(inner))),
-            Type::Function { params, return_type } => Type::Function {
+            Type::Function {
+                params,
+                return_type,
+            } => Type::Function {
                 params: params.iter().map(|p| self.apply(p)).collect(),
                 return_type: Box::new(self.apply(return_type)),
             },
@@ -220,11 +221,7 @@ impl GenericResolver {
                         params.len(),
                         args.len()
                     ),
-                    &format!(
-                        "متوقع {} معاملات نوع، وُجد {}",
-                        params.len(),
-                        args.len()
-                    ),
+                    &format!("متوقع {} معاملات نوع، وُجد {}", params.len(), args.len()),
                     span,
                 ));
                 return None;
@@ -315,7 +312,10 @@ impl GenericResolver {
                     self.infer_from_type(context, inner, arg_inner);
                 }
             }
-            Type::Function { params, return_type } => {
+            Type::Function {
+                params,
+                return_type,
+            } => {
                 if let Type::Function {
                     params: arg_params,
                     return_type: arg_ret,
@@ -406,9 +406,7 @@ mod tests {
         let params = vec![GenericParam::new("ن".to_string())];
         let args = vec![Type::Int];
 
-        let context = resolver
-            .instantiate(&params, &args, Span::empty())
-            .unwrap();
+        let context = resolver.instantiate(&params, &args, Span::empty()).unwrap();
         assert_eq!(context.get("ن"), Some(&Type::Int));
     }
 

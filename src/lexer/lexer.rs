@@ -139,7 +139,9 @@ impl Lexer {
     }
 
     fn current_lexeme(&self) -> String {
-        self.source[self.token_start..self.position].iter().collect()
+        self.source[self.token_start..self.position]
+            .iter()
+            .collect()
     }
 
     fn make_token(&self, kind: TokenKind) -> Token {
@@ -609,10 +611,7 @@ mod tests {
         let tokens: Vec<_> = lexer.tokenize();
 
         // Should skip comments and parse both variables
-        let keywords: Vec<_> = tokens
-            .iter()
-            .filter(|t| t.kind == TokenKind::Let)
-            .collect();
+        let keywords: Vec<_> = tokens.iter().filter(|t| t.kind == TokenKind::Let).collect();
         assert_eq!(keywords.len(), 2);
     }
 

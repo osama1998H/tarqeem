@@ -66,7 +66,11 @@ impl ClassInfo {
     }
 
     /// Get a field by name, including inherited fields
-    pub fn get_field<'a>(&'a self, name: &str, resolver: &'a ClassResolver) -> Option<&'a FieldInfo> {
+    pub fn get_field<'a>(
+        &'a self,
+        name: &str,
+        resolver: &'a ClassResolver,
+    ) -> Option<&'a FieldInfo> {
         let mut visited = HashSet::new();
         self.get_field_with_cycle_check(name, resolver, &mut visited)
     }
@@ -98,7 +102,11 @@ impl ClassInfo {
     }
 
     /// Get a method by name, including inherited methods
-    pub fn get_method<'a>(&'a self, name: &str, resolver: &'a ClassResolver) -> Option<&'a MethodInfo> {
+    pub fn get_method<'a>(
+        &'a self,
+        name: &str,
+        resolver: &'a ClassResolver,
+    ) -> Option<&'a MethodInfo> {
         let mut visited = HashSet::new();
         self.get_method_with_cycle_check(name, resolver, &mut visited)
     }
@@ -167,7 +175,10 @@ impl ClassInfo {
     }
 
     /// Get all methods including inherited ones
-    pub fn all_methods<'a>(&'a self, resolver: &'a ClassResolver) -> Vec<(&'a str, &'a MethodInfo)> {
+    pub fn all_methods<'a>(
+        &'a self,
+        resolver: &'a ClassResolver,
+    ) -> Vec<(&'a str, &'a MethodInfo)> {
         let mut visited = HashSet::new();
         self.all_methods_with_cycle_check(resolver, &mut visited)
     }
@@ -220,7 +231,10 @@ pub struct MethodSignatureInfo {
 
 impl InterfaceInfo {
     /// Get all methods including from extended interfaces
-    pub fn all_methods<'a>(&'a self, resolver: &'a ClassResolver) -> Vec<(&'a str, &'a MethodSignatureInfo)> {
+    pub fn all_methods<'a>(
+        &'a self,
+        resolver: &'a ClassResolver,
+    ) -> Vec<(&'a str, &'a MethodSignatureInfo)> {
         let mut visited = HashSet::new();
         self.all_methods_with_cycle_check(resolver, &mut visited)
     }
@@ -334,11 +348,7 @@ impl ClassResolver {
                     .params
                     .iter()
                     .map(|p| {
-                        let ty = p
-                            .ty
-                            .as_ref()
-                            .map(|t| resolve_type(t))
-                            .unwrap_or(Type::Any);
+                        let ty = p.ty.as_ref().map(|t| resolve_type(t)).unwrap_or(Type::Any);
                         (p.name.clone(), ty)
                     })
                     .collect();
@@ -381,10 +391,7 @@ impl ClassResolver {
                     init,
                     is_static,
                 } => {
-                    let field_type = ty
-                        .as_ref()
-                        .map(|t| resolve_type(t))
-                        .unwrap_or(Type::Any);
+                    let field_type = ty.as_ref().map(|t| resolve_type(t)).unwrap_or(Type::Any);
 
                     let field_info = FieldInfo {
                         name: name.clone(),
@@ -409,11 +416,7 @@ impl ClassResolver {
                     let param_types: Vec<(String, Type)> = params
                         .iter()
                         .map(|p| {
-                            let ty = p
-                                .ty
-                                .as_ref()
-                                .map(|t| resolve_type(t))
-                                .unwrap_or(Type::Any);
+                            let ty = p.ty.as_ref().map(|t| resolve_type(t)).unwrap_or(Type::Any);
                             (p.name.clone(), ty)
                         })
                         .collect();
@@ -441,11 +444,7 @@ impl ClassResolver {
                     let param_types: Vec<(String, Type)> = params
                         .iter()
                         .map(|p| {
-                            let ty = p
-                                .ty
-                                .as_ref()
-                                .map(|t| resolve_type(t))
-                                .unwrap_or(Type::Any);
+                            let ty = p.ty.as_ref().map(|t| resolve_type(t)).unwrap_or(Type::Any);
                             (p.name.clone(), ty)
                         })
                         .collect();
@@ -685,7 +684,8 @@ impl ClassResolver {
 
         // Add all violations to diagnostics
         for (msg, msg_ar, span) in violations {
-            self.diagnostics.push(Diagnostic::error(&msg, &msg_ar, span));
+            self.diagnostics
+                .push(Diagnostic::error(&msg, &msg_ar, span));
         }
     }
 
@@ -718,7 +718,10 @@ impl ClassResolver {
                             }
 
                             // Check return type is compatible
-                            if !method.return_type.is_compatible_with(&parent_method.return_type) {
+                            if !method
+                                .return_type
+                                .is_compatible_with(&parent_method.return_type)
+                            {
                                 violations.push((
                                     format!(
                                         "Return type of '{}' is not compatible with parent",
@@ -738,7 +741,8 @@ impl ClassResolver {
         }
 
         for (msg, msg_ar, span) in violations {
-            self.diagnostics.push(Diagnostic::error(&msg, &msg_ar, span));
+            self.diagnostics
+                .push(Diagnostic::error(&msg, &msg_ar, span));
         }
     }
 

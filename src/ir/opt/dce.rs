@@ -69,7 +69,9 @@ impl DeadCodeEliminator {
         let original_count = function.blocks.len();
 
         // Keep only reachable blocks
-        function.blocks.retain(|block| reachable.contains(&block.id));
+        function
+            .blocks
+            .retain(|block| reachable.contains(&block.id));
 
         let removed = original_count - function.blocks.len();
         self.stats.dead_blocks_removed += removed;
@@ -412,9 +414,9 @@ mod tests {
 
         // Entry block - jumps to block 2
         let mut entry = BasicBlock::new(BlockId(0));
-        entry.instructions.push(Instruction::Jump {
-            target: BlockId(2),
-        });
+        entry
+            .instructions
+            .push(Instruction::Jump { target: BlockId(2) });
 
         // Unreachable block (block 1)
         let mut unreachable = BasicBlock::new(BlockId(1));
@@ -467,9 +469,7 @@ mod tests {
             .push(Instruction::Print { value: VarId(0) });
 
         // ret void
-        block
-            .instructions
-            .push(Instruction::Return { value: None });
+        block.instructions.push(Instruction::Return { value: None });
 
         func.blocks.push(block);
 
