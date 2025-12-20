@@ -139,6 +139,9 @@ impl Parser {
 
         let name = self.expect_identifier("Expected class name / متوقع اسم الصنف")?;
 
+        // Parse optional generic type parameters: <T, U, ...>
+        let type_params = self.parse_type_parameters()?;
+
         let extends = if self.check(&TokenKind::Extends) {
             self.advance();
             Some(self.expect_identifier("Expected superclass name / متوقع اسم الصنف الأب")?)
@@ -150,8 +153,24 @@ impl Parser {
         if self.check(&TokenKind::Implements) {
             self.advance();
             loop {
-                implements
-                    .push(self.expect_identifier("Expected interface name / متوقع اسم الواجهة")?);
+                let interface_name =
+                    self.expect_identifier("Expected interface name / متوقع اسم الواجهة")?;
+                implements.push(interface_name);
+
+                // Skip generic type arguments on interface: <T, U, ...>
+                if self.check(&TokenKind::Less) {
+                    self.advance(); // consume '<'
+                    loop {
+                        self.parse_type_annotation()?;
+                        if !self.match_token(&TokenKind::Comma)
+                            && !self.match_token(&TokenKind::ArabicComma)
+                        {
+                            break;
+                        }
+                    }
+                    self.expect(&TokenKind::Greater, "Expected '>' / متوقع '>'")?;
+                }
+
                 if !self.match_token(&TokenKind::Comma)
                     && !self.match_token(&TokenKind::ArabicComma)
                 {
@@ -168,12 +187,40 @@ impl Parser {
         Ok(Stmt::new(
             StmtKind::ClassDecl {
                 name,
+                type_params,
                 extends,
                 implements,
                 members,
             },
             span,
         ))
+    }
+
+    /// Parse generic type parameters: <T, U, V>
+    fn parse_type_parameters(&mut self) -> Result<Vec<String>, Diagnostic> {
+        let mut params = Vec::new();
+
+        if !self.check(&TokenKind::Less) {
+            return Ok(params);
+        }
+
+        self.advance(); // consume '<'
+
+        loop {
+            let param = self.expect_identifier(
+                "Expected type parameter name / متوقع اسم معامل النوع",
+            )?;
+            params.push(param);
+
+            if !self.match_token(&TokenKind::Comma)
+                && !self.match_token(&TokenKind::ArabicComma)
+            {
+                break;
+            }
+        }
+
+        self.expect(&TokenKind::Greater, "Expected '>' / متوقع '>'")?;
+        Ok(params)
     }
 
     fn parse_class_members(&mut self) -> Result<Vec<ClassMember>, Diagnostic> {
@@ -261,6 +308,9 @@ impl Parser {
 
         let name = self.expect_identifier("Expected interface name / متوقع اسم الواجهة")?;
 
+        // Parse optional generic type parameters: <T, U, ...>
+        let type_params = self.parse_type_parameters()?;
+
         self.expect(&TokenKind::LeftBrace, "Expected '{' / متوقع '{'")?;
 
         let mut methods = Vec::new();
@@ -287,7 +337,14 @@ impl Parser {
         self.expect(&TokenKind::RightBrace, "Expected '}' / متوقع '}'")?;
 
         let span = start.merge(&self.previous_span());
-        Ok(Stmt::new(StmtKind::InterfaceDecl { name, methods }, span))
+        Ok(Stmt::new(
+            StmtKind::InterfaceDecl {
+                name,
+                type_params,
+                methods,
+            },
+            span,
+        ))
     }
 
     fn parse_import_statement(&mut self) -> Result<Stmt, Diagnostic> {
@@ -796,10 +853,26 @@ impl Parser {
                 ))
             }
 
-            // new expression: جديد ClassName(args)
+            // new expression: جديد ClassName(args) or جديد ClassName<T>(args)
             TokenKind::New => {
                 // Parse class name at Primary level to avoid parsing args as a call
                 let class = self.parse_precedence(Precedence::Primary)?;
+
+                // Skip generic type arguments if present: <T, U, ...>
+                if self.check(&TokenKind::Less) {
+                    self.advance(); // consume '<'
+                    // Parse type arguments (for now, just skip over them)
+                    loop {
+                        self.parse_type_annotation()?; // consume type argument
+                        if !self.match_token(&TokenKind::Comma)
+                            && !self.match_token(&TokenKind::ArabicComma)
+                        {
+                            break;
+                        }
+                    }
+                    self.expect(&TokenKind::Greater, "Expected '>' / متوقع '>'")?;
+                }
+
                 // Args must follow immediately with parentheses
                 let args = if self.match_token(&TokenKind::LeftParen) {
                     let args = self.parse_arguments()?;
@@ -1255,14 +1328,22 @@ impl Parser {
         } else {
             // Semicolons are optional at end of blocks
             if self.check(&TokenKind::RightBrace) || self.is_at_end() {
-                Ok(())
-            } else {
-                Err(Diagnostic::error(
-                    "Expected ';'",
-                    "متوقع '؛'",
-                    self.current_span(),
-                ))
+                return Ok(());
             }
+
+            // Automatic semicolon insertion: if current token is on a new line,
+            // treat newline as statement terminator (like Go, Kotlin, Swift)
+            let prev_line = self.previous_span().line;
+            let curr_line = self.current_span().line;
+            if curr_line > prev_line {
+                return Ok(());
+            }
+
+            Err(Diagnostic::error(
+                "Expected ';'",
+                "متوقع '؛'",
+                self.current_span(),
+            ))
         }
     }
 

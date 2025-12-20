@@ -172,6 +172,84 @@ int64_t trq_string_to_int(TrqString* str);
  */
 double trq_string_to_float(TrqString* str);
 
+/**
+ * Check if string contains substring.
+ * @param str Main string
+ * @param substr Substring to find
+ * @return true if found
+ */
+bool trq_string_contains(TrqString* str, TrqString* substr);
+
+/**
+ * Check if string starts with prefix.
+ * @param str Main string
+ * @param prefix Prefix to check
+ * @return true if starts with prefix
+ */
+bool trq_string_starts_with(TrqString* str, TrqString* prefix);
+
+/**
+ * Check if string ends with suffix.
+ * @param str Main string
+ * @param suffix Suffix to check
+ * @return true if ends with suffix
+ */
+bool trq_string_ends_with(TrqString* str, TrqString* suffix);
+
+/**
+ * Find index of substring.
+ * @param str Main string
+ * @param substr Substring to find
+ * @return Index of first occurrence, or -1 if not found
+ */
+int64_t trq_string_index_of(TrqString* str, TrqString* substr);
+
+/**
+ * Convert string to uppercase.
+ * @param str String to convert
+ * @return New uppercase string (ASCII only)
+ */
+TrqString* trq_string_to_upper(TrqString* str);
+
+/**
+ * Convert string to lowercase.
+ * @param str String to convert
+ * @return New lowercase string (ASCII only)
+ */
+TrqString* trq_string_to_lower(TrqString* str);
+
+/**
+ * Trim whitespace from both ends.
+ * @param str String to trim
+ * @return New trimmed string
+ */
+TrqString* trq_string_trim(TrqString* str);
+
+/**
+ * Repeat string n times.
+ * @param str String to repeat
+ * @param n Number of repetitions
+ * @return New repeated string
+ */
+TrqString* trq_string_repeat(TrqString* str, int64_t n);
+
+/**
+ * Replace first occurrence.
+ * @param str Source string
+ * @param old_str String to find
+ * @param new_str Replacement string
+ * @return New string with replacement
+ */
+TrqString* trq_string_replace(TrqString* str, TrqString* old_str, TrqString* new_str);
+
+/**
+ * Split string by delimiter.
+ * @param str String to split
+ * @param delim Delimiter
+ * @return Array of strings
+ */
+TrqArray* trq_string_split(TrqString* str, TrqString* delim);
+
 /*============================================================================
  * Array Operations
  *============================================================================*/

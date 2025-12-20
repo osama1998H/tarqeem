@@ -541,6 +541,7 @@ impl IrBuilder {
                 extends,
                 implements,
                 members,
+                ..
             } => self.build_class_decl(name, extends.as_ref(), implements, members),
             StmtKind::InterfaceDecl { .. } => {
                 // Interfaces don't generate runtime code

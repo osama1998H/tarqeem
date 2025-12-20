@@ -1,0 +1,22 @@
+// مجموعات - Collections Module
+// مجموعات - وحدة المجموعات
+//
+// This module provides core collection types for Tarqeem:
+// - قائمة<ن>    - Dynamic list (List<T>)
+// - مجموعة<ن>   - Unique elements set (Set<T>)
+// - خريطة<م، ق> - Key-value dictionary (Map<K, V>)
+// - طابور<ن>    - FIFO queue (Queue<T>)
+// - مكدس<ن>     - LIFO stack (Stack<T>)
+// - زوج<أ، ب>   - Key-value pair (Pair<A, B>)
+//
+// NOTE: خريطة is used instead of قاموس because قاموس is a reserved type keyword
+
+// Re-export all collection types
+استورد { قائمة } من "./قائمة"
+استورد { مجموعة } من "./مجموعة"
+استورد { خريطة، زوج } من "./قاموس"
+استورد { طابور } من "./طابور"
+استورد { مكدس } من "./مكدس"
+استورد { متكرر، قابل_للتكرار } من "./متكرر"
+
+صدّر { قائمة، مجموعة، خريطة، زوج، طابور، مكدس، متكرر، قابل_للتكرار }

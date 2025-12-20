@@ -47,17 +47,19 @@ pub enum StmtKind {
         is_async: bool,
     },
 
-    /// Class declaration: صنف Person { ... }
+    /// Class declaration: صنف Person<T> { ... }
     ClassDecl {
         name: String,
+        type_params: Vec<String>,
         extends: Option<String>,
         implements: Vec<String>,
         members: Vec<ClassMember>,
     },
 
-    /// Interface declaration: واجهة Printable { ... }
+    /// Interface declaration: واجهة Printable<T> { ... }
     InterfaceDecl {
         name: String,
+        type_params: Vec<String>,
         methods: Vec<MethodSignature>,
     },
 
