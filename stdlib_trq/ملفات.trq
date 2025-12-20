@@ -1,0 +1,39 @@
+// ملفات - File Operations Module
+// ملفات - وحدة عمليات الملفات
+
+// Note: File I/O requires runtime support via trq_file_* functions
+
+// Read entire file contents
+// TODO: Implement via runtime
+صدّر دالة اقرأ_ملف(مسار: نص) -> نص {
+    // Placeholder - needs runtime implementation
+    أرجع ""
+}
+
+// Write content to a file
+// TODO: Implement via runtime
+صدّر دالة اكتب_ملف(مسار: نص، محتوى: نص) -> منطقي {
+    // Placeholder - needs runtime implementation
+    أرجع خطأ
+}
+
+// Append content to a file
+// TODO: Implement via runtime
+صدّر دالة ألحق_ملف(مسار: نص، محتوى: نص) -> منطقي {
+    // Placeholder - needs runtime implementation
+    أرجع خطأ
+}
+
+// Check if file exists
+// TODO: Implement via runtime
+صدّر دالة موجود(مسار: نص) -> منطقي {
+    // Placeholder - needs runtime implementation
+    أرجع خطأ
+}
+
+// Delete a file
+// TODO: Implement via runtime
+صدّر دالة احذف(مسار: نص) -> منطقي {
+    // Placeholder - needs runtime implementation
+    أرجع خطأ
+}

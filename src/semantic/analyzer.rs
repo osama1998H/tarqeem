@@ -3,10 +3,13 @@
 use super::class_resolver::ClassResolver;
 use super::generics::GenericResolver;
 use super::method_resolver::{MemberResolution, MethodResolver};
+use super::modules::{ExportKind, ModuleLoader};
 use super::scope::{Scope, ScopeKind, Symbol, SymbolKind};
 use super::types::{parse_type_name, Type};
 use crate::error::{Diagnostic, Language, Span};
 use crate::parser::*;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// The semantic analyzer
 pub struct Analyzer {
@@ -17,6 +20,12 @@ pub struct Analyzer {
     /// Generic type resolver (for future use with generics)
     #[allow(dead_code)]
     generic_resolver: GenericResolver,
+    /// Module loader for handling imports
+    module_loader: ModuleLoader,
+    /// Current file being analyzed
+    current_file: Option<PathBuf>,
+    /// Exported symbols from this module
+    exports: HashMap<String, Type>,
     /// Collected diagnostics
     diagnostics: Vec<Diagnostic>,
     /// Language for error messages
@@ -35,11 +44,31 @@ impl Analyzer {
             scope: Scope::new_global(),
             class_resolver: ClassResolver::new(),
             generic_resolver: GenericResolver::new(),
+            module_loader: ModuleLoader::new(),
+            current_file: None,
+            exports: HashMap::new(),
             diagnostics: Vec::new(),
             language: Language::Arabic,
             current_class: None,
             expected_type: None,
         }
+    }
+
+    /// Create a new analyzer for a specific file
+    pub fn for_file(path: PathBuf) -> Self {
+        let mut analyzer = Self::new();
+        analyzer.current_file = Some(path);
+        analyzer
+    }
+
+    /// Add a module search path
+    pub fn add_search_path(&mut self, path: PathBuf) {
+        self.module_loader.add_search_path(path);
+    }
+
+    /// Get exported symbols from this module
+    pub fn exports(&self) -> &HashMap<String, Type> {
+        &self.exports
     }
 
     /// Get the class resolver
@@ -677,8 +706,93 @@ impl Analyzer {
         }
     }
 
-    fn analyze_import(&mut self, items: &ImportItems, _from: &str, _span: Span) {
-        // For now, just register the imported names
+    fn analyze_import(&mut self, items: &ImportItems, from: &str, span: Span) {
+        // Try to resolve and load the module
+        let current_file = self
+            .current_file
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let module_path = match self.module_loader.resolve_path(&current_file, from) {
+            Some(path) => path,
+            None => {
+                // Module not found - fall back to registering names as Any
+                // This allows compilation to proceed with unknown modules
+                self.warn(
+                    &format!("Module '{}' not found, imports will be typed as 'any'", from),
+                    &format!("الوحدة '{}' غير موجودة، سيتم تصنيف الاستيرادات كـ 'أي'", from),
+                    span,
+                );
+                self.register_imports_as_any(items);
+                return;
+            }
+        };
+
+        // Load the module and clone exports to avoid borrow issues
+        let module_exports = match self.module_loader.load_module(&module_path, span) {
+            Ok(loaded_module) => {
+                // Clone the exports we need
+                loaded_module.exports.clone()
+            }
+            Err(()) => {
+                // Module loading failed - diagnostics already added by loader
+                // Merge loader diagnostics
+                let loader_diagnostics = self.module_loader.take_diagnostics();
+                self.diagnostics.extend(loader_diagnostics);
+
+                // Fall back to registering names as Any
+                self.register_imports_as_any(items);
+                return;
+            }
+        };
+
+        // Import symbols from the loaded module
+        match items {
+            ImportItems::Named(imports) => {
+                for import in imports {
+                    let name = import.alias.as_ref().unwrap_or(&import.name);
+                    if let Some(exported) = module_exports.get(&import.name) {
+                        // Convert ExportKind to Type
+                        let ty = self.export_kind_to_type(&exported.kind, &import.name);
+                        self.scope.define(Symbol::variable(name, ty, false));
+                    } else {
+                        self.error(
+                            &format!("Module '{}' has no export named '{}'", from, import.name),
+                            &format!(
+                                "الوحدة '{}' لا تحتوي على تصدير باسم '{}'",
+                                from, import.name
+                            ),
+                            span,
+                        );
+                        // Still register as Any to allow compilation to continue
+                        self.scope.define(Symbol::variable(name, Type::Any, false));
+                    }
+                }
+            }
+            ImportItems::Wildcard(alias) => {
+                // Create a namespace object with all exports
+                // For now, just register as Any
+                self.scope.define(Symbol::variable(alias, Type::Any, false));
+            }
+            ImportItems::Default(name) => {
+                // Look for default export
+                if let Some(exported) = module_exports.get("default") {
+                    let ty = self.export_kind_to_type(&exported.kind, "default");
+                    self.scope.define(Symbol::variable(name, ty, false));
+                } else {
+                    self.warn(
+                        &format!("Module '{}' has no default export", from),
+                        &format!("الوحدة '{}' لا تحتوي على تصدير افتراضي", from),
+                        span,
+                    );
+                    self.scope.define(Symbol::variable(name, Type::Any, false));
+                }
+            }
+        }
+    }
+
+    /// Helper to register imports as Type::Any when module loading fails
+    fn register_imports_as_any(&mut self, items: &ImportItems) {
         match items {
             ImportItems::Named(imports) => {
                 for import in imports {
@@ -693,6 +807,157 @@ impl Analyzer {
                 self.scope.define(Symbol::variable(name, Type::Any, false));
             }
         }
+    }
+
+    /// Convert ExportKind to Type
+    fn export_kind_to_type(&self, kind: &ExportKind, name: &str) -> Type {
+        match kind {
+            ExportKind::Function => Type::Function {
+                params: vec![],
+                return_type: Box::new(Type::Any),
+            },
+            ExportKind::Class => Type::Class(name.to_string()),
+            ExportKind::Interface => Type::Interface(name.to_string()),
+            ExportKind::Variable | ExportKind::Constant => Type::Any,
+        }
+    }
+
+    /// Add a warning diagnostic
+    fn warn(&mut self, message: &str, message_ar: &str, span: Span) {
+        self.diagnostics.push(Diagnostic::warning(message, message_ar, span));
+    }
+
+    /// Analyze a super constructor call: أساس(args)
+    fn analyze_super_constructor_call(&mut self, args: &[Expr], span: Span) -> Type {
+        // Must be inside a class
+        if !self.scope.is_in_class() {
+            self.error(
+                "'super()' can only be used inside a class constructor",
+                "'أساس()' يمكن استخدامه فقط داخل منشئ صنف",
+                span,
+            );
+            return Type::Error;
+        }
+
+        // Get current class
+        let current_class_name = match &self.current_class {
+            Some(name) => name.clone(),
+            None => {
+                self.error(
+                    "'super()' can only be used inside a class",
+                    "'أساس()' يمكن استخدامه فقط داخل صنف",
+                    span,
+                );
+                return Type::Error;
+            }
+        };
+
+        // Get current class info
+        let parent_name = match self.class_resolver.get_class(&current_class_name) {
+            Some(class_info) => match &class_info.parent {
+                Some(parent) => parent.clone(),
+                None => {
+                    self.error(
+                        &format!(
+                            "Cannot use 'super()' in class '{}' which has no parent class",
+                            current_class_name
+                        ),
+                        &format!(
+                            "لا يمكن استخدام 'أساس()' في الصنف '{}' الذي ليس له صنف أب",
+                            current_class_name
+                        ),
+                        span,
+                    );
+                    return Type::Error;
+                }
+            },
+            None => {
+                // This shouldn't happen if we're inside a class
+                return Type::Error;
+            }
+        };
+
+        // Get parent class constructor
+        let parent_constructor = match self.class_resolver.get_class(&parent_name) {
+            Some(parent_info) => parent_info.constructor.clone(),
+            None => {
+                self.error(
+                    &format!("Parent class '{}' not found", parent_name),
+                    &format!("الصنف الأب '{}' غير موجود", parent_name),
+                    span,
+                );
+                return Type::Error;
+            }
+        };
+
+        // Check if parent has a constructor
+        match parent_constructor {
+            Some(constructor) => {
+                let params = &constructor.params;
+
+                // Check argument count
+                if args.len() != params.len() {
+                    self.error(
+                        &format!(
+                            "Parent constructor expects {} arguments, got {}",
+                            params.len(),
+                            args.len()
+                        ),
+                        &format!(
+                            "منشئ الصنف الأب يتوقع {} معاملات، وُجد {}",
+                            params.len(),
+                            args.len()
+                        ),
+                        span,
+                    );
+                }
+
+                // Check argument types
+                for (i, (arg, (_param_name, param_type))) in
+                    args.iter().zip(params.iter()).enumerate()
+                {
+                    let arg_type = self.infer_type(arg);
+                    if !arg_type.is_compatible_with(param_type) {
+                        self.error(
+                            &format!(
+                                "Argument {} to super() has wrong type: expected {}, got {}",
+                                i + 1,
+                                param_type,
+                                arg_type
+                            ),
+                            &format!(
+                                "المعامل {} لـ أساس() نوعه خاطئ: متوقع {}، وُجد {}",
+                                i + 1,
+                                param_type.arabic_name(),
+                                arg_type.arabic_name()
+                            ),
+                            arg.span,
+                        );
+                    }
+                }
+            }
+            None => {
+                // Parent has no explicit constructor, check that no args are passed
+                if !args.is_empty() {
+                    self.error(
+                        &format!(
+                            "Parent class '{}' has no constructor, but {} arguments were passed",
+                            parent_name,
+                            args.len()
+                        ),
+                        &format!(
+                            "الصنف الأب '{}' ليس له منشئ، لكن تم تمرير {} معاملات",
+                            parent_name,
+                            args.len()
+                        ),
+                        span,
+                    );
+                }
+            }
+        }
+
+        // Super constructor calls don't return a value
+        Type::Void
     }
 
     fn analyze_block(&mut self, block: &Block, kind: ScopeKind) {
@@ -802,6 +1067,11 @@ impl Analyzer {
             }
 
             ExprKind::Call { callee, args } => {
+                // Special case: super constructor call (أساس(...))
+                if matches!(callee.kind, ExprKind::Super) {
+                    return self.analyze_super_constructor_call(args, expr.span);
+                }
+
                 let callee_type = self.infer_type(callee);
 
                 match callee_type {
@@ -1500,6 +1770,65 @@ mod tests {
         let result = analyze(
             r#"
             أساس;
+        "#,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_super_constructor_call() {
+        // Test super constructor call in child class
+        let result = analyze(
+            r#"
+            صنف أب {
+                خاص اسم: نص;
+                منشئ(اسم: نص) {
+                    هذا.اسم = اسم;
+                }
+            }
+            صنف ابن يرث أب {
+                خاص عمر: عدد;
+                منشئ(اسم: نص، عمر: عدد) {
+                    أساس(اسم);
+                    هذا.عمر = عمر;
+                }
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_super_constructor_call_wrong_args() {
+        // Test super constructor call with wrong number of arguments
+        let result = analyze(
+            r#"
+            صنف أب {
+                خاص اسم: نص;
+                منشئ(اسم: نص) {
+                    هذا.اسم = اسم;
+                }
+            }
+            صنف ابن يرث أب {
+                منشئ() {
+                    أساس();
+                }
+            }
+        "#,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_super_constructor_call_no_parent() {
+        // Test super constructor call in class without parent
+        let result = analyze(
+            r#"
+            صنف أ {
+                منشئ() {
+                    أساس();
+                }
+            }
         "#,
         );
         assert!(result.is_err());
