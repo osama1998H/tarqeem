@@ -10,11 +10,13 @@
 
 pub mod cli;
 pub mod error;
+pub mod ir;
 pub mod lexer;
 pub mod parser;
 pub mod semantic;
 
 pub use error::{Diagnostic, DiagnosticLevel, Span};
+pub use ir::{IrBuilder, Module as IrModule};
 pub use lexer::{Lexer, Token, TokenKind};
 pub use parser::{Ast, Parser};
 pub use semantic::Analyzer;
