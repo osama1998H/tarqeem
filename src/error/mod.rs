@@ -6,6 +6,11 @@
 mod diagnostic;
 mod span;
 
+#[cfg(test)]
+mod diagnostic_tests;
+#[cfg(test)]
+mod span_tests;
+
 pub use diagnostic::{Diagnostic, DiagnosticLevel, Note, Suggestion};
 pub use span::Span;
 

@@ -3,6 +3,9 @@
 mod commands;
 pub mod pm;
 
+#[cfg(test)]
+mod cli_tests;
+
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
