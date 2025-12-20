@@ -243,6 +243,10 @@ impl DeadCodeEliminator {
                 used.insert(*index);
                 used.insert(*value);
             }
+            Instruction::ArrayPush { array, value, .. } => {
+                used.insert(*array);
+                used.insert(*value);
+            }
             Instruction::StringConcat { left, right, .. } => {
                 used.insert(*left);
                 used.insert(*right);

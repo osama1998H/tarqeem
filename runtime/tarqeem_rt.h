@@ -181,9 +181,10 @@ double trq_string_to_float(TrqString* str);
  * Dynamic arrays with reference counting.
  */
 typedef struct TrqArray {
-    int64_t len;      // Number of elements
-    int64_t cap;      // Capacity
-    void* data;       // Element data
+    int64_t len;       // Number of elements
+    int64_t cap;       // Capacity
+    int64_t elem_size; // Size of each element in bytes
+    void* data;        // Element data
 } TrqArray;
 
 /**
