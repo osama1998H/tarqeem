@@ -2,6 +2,111 @@
 
 This document provides context and guidelines for Claude (AI assistant) when working on the Tarqeem project.
 
+## Imports
+
+See @ARCHITECTURE.md for detailed technical architecture.
+See @README.md for user documentation and syntax examples.
+
+---
+
+## Project Map (READ FIRST)
+
+**Architecture**: Compiled language with LLVM backend
+**Language**: Rust
+**Core rule**: Preserve existing patterns; do not invent new abstractions if one already exists.
+
+### Directory Structure
+
+```
+src/
+├── main.rs              # CLI entry point
+├── lib.rs               # Library root
+├── lexer/               # Tokenization (Arabic + English)
+├── parser/              # Recursive descent + Pratt parsing
+├── semantic/            # Type checking, scope, generics
+├── ir/                  # Three-address code, SSA, optimizations
+├── codegen/             # LLVM code generation
+├── cli/                 # Commands (compile, run, repl)
+└── error/               # Bilingual diagnostics
+```
+
+### Compiler Pipeline (Layer Ordering)
+
+```
+Source → Lexer → Parser → Semantic → IR → Codegen → Binary
+```
+
+**CRITICAL**: Each layer can ONLY depend on layers BEFORE it. See `.claude/rules/architecture.md`.
+
+---
+
+## Agent Operating Procedure (MANDATORY)
+
+**The agent MUST follow this workflow for ALL code changes.** Skipping steps causes bugs.
+
+### Workflow: Explore → Plan → Implement → Verify
+
+1. **EXPLORE (Read-Only)**: Identify modules, find patterns, list files. **NO CODE**.
+2. **PLAN**: Steps, files, impact, tests, risks. Get approval for significant changes.
+3. **IMPLEMENT**: Minimal diff, reuse patterns, bilingual messages.
+4. **VERIFY**: Run `cargo fmt && cargo clippy && cargo test`.
+5. **DOCUMENT**: Update `docs/AI_NOTES.md` with decisions.
+
+**Rule: Never write code until you understand the system.**
+
+See `.claude/rules/00-operating-procedure.md` for complete workflow.
+
+---
+
+## Critical Invariants (DO NOT BREAK)
+
+| Invariant | Rule |
+|-----------|------|
+| Layer boundaries | Lexer→Parser→Semantic→IR→Codegen (no reverse deps) |
+| Bilingual messages | ALL user-facing strings need Arabic + English |
+| NFC normalization | Arabic identifiers MUST be normalized before comparison |
+| Error recovery | Never `panic!()` or `unwrap()` on user input |
+| Token spans | Every token must have accurate source location |
+
+---
+
+## Modular Rules (.claude/rules/)
+
+| File | Purpose |
+|------|---------|
+| `00-operating-procedure.md` | Mandatory workflow (MUST READ) |
+| `architecture.md` | Layer boundaries and invariants |
+| `testing.md` | Testing requirements |
+| `rust-style.md` | Rust coding standards |
+| `arabic-support.md` | Arabic language handling |
+
+---
+
+## Slash Commands (.claude/commands/)
+
+| Command | Purpose |
+|---------|---------|
+| `/project:safe-change <task>` | Full safe change workflow |
+| `/project:explore <topic>` | Read-only codebase exploration |
+| `/project:fix-issue <issue>` | Bug fix workflow |
+| `/project:add-feature <feature>` | New feature workflow |
+| `/project:review-code <code>` | Code review checklist |
+
+---
+
+## Standard Commands
+
+```bash
+cargo build --release    # Build
+cargo test               # Run all tests
+cargo clippy             # Lint
+cargo fmt                # Format
+cargo run -- compile x.trq  # Compile a file
+cargo run -- run x.trq      # Run a file
+```
+
+---
+
 ## Project Overview
 
 Tarqeem (ترقيم) is an Arabic programming language compiler written in Rust. The goal is to create a fully-featured, compiled, general-purpose programming language with native Arabic syntax support.
