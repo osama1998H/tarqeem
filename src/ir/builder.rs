@@ -1554,10 +1554,44 @@ impl IrBuilder {
             ty: IrType::Int,
         });
 
-        // Store back
-        if let ExprKind::Identifier(name) = &target.kind {
-            if let Some(ptr) = self.lookup_var(name) {
-                self.emit(Instruction::Store { ptr, value: result });
+        // Store back based on target type
+        match &target.kind {
+            ExprKind::Identifier(name) => {
+                if let Some(ptr) = self.lookup_var(name) {
+                    self.emit(Instruction::Store { ptr, value: result });
+                } else {
+                    return Err(IrError::new(
+                        format!("Cannot assign to undefined variable: '{}'", name),
+                        format!("لا يمكن التعيين لمتغير غير معرّف: '{}'", name),
+                    ));
+                }
+            }
+            ExprKind::Member { object, property } => {
+                let obj_var = self.build_expr(object)?;
+                self.emit(Instruction::SetField {
+                    object: obj_var,
+                    field: FieldId {
+                        class: ClassId("".to_string()),
+                        name: property.clone(),
+                        index: 0,
+                    },
+                    value: result,
+                });
+            }
+            ExprKind::Index { object, index } => {
+                let obj_var = self.build_expr(object)?;
+                let idx_var = self.build_expr(index)?;
+                self.emit(Instruction::ArraySet {
+                    array: obj_var,
+                    index: idx_var,
+                    value: result,
+                });
+            }
+            _ => {
+                return Err(IrError::new(
+                    "Unsupported compound assignment target",
+                    "هدف التعيين المركب غير مدعوم",
+                ));
             }
         }
 
@@ -1777,21 +1811,23 @@ impl IrBuilder {
         if let Some(var) = self.lookup_var("هذا").or_else(|| self.lookup_var("this")) {
             Ok(var)
         } else {
-            // Return null if not in a method context
-            let dest = self.new_var();
-            self.emit(Instruction::Const {
-                dest,
-                value: Constant::Null,
-                ty: IrType::Ptr(Box::new(IrType::Void)),
-            });
-            Ok(dest)
+            Err(IrError::new(
+                "'this' can only be used inside a method",
+                "'هذا' يمكن استخدامه فقط داخل دالة",
+            ))
         }
     }
 
     /// Build IR for 'super' reference
     fn build_super(&mut self) -> Result<VarId> {
-        // Super is essentially 'this' but for method resolution
-        self.build_this()
+        if let Some(var) = self.lookup_var("هذا").or_else(|| self.lookup_var("this")) {
+            Ok(var)
+        } else {
+            Err(IrError::new(
+                "'super' can only be used inside a method",
+                "'الأصل' يمكن استخدامه فقط داخل دالة",
+            ))
+        }
     }
 }
 

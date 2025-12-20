@@ -221,12 +221,27 @@ pub struct MethodSignatureInfo {
 impl InterfaceInfo {
     /// Get all methods including from extended interfaces
     pub fn all_methods<'a>(&'a self, resolver: &'a ClassResolver) -> Vec<(&'a str, &'a MethodSignatureInfo)> {
+        let mut visited = HashSet::new();
+        self.all_methods_with_cycle_check(resolver, &mut visited)
+    }
+
+    /// Internal helper to get all methods with cycle detection
+    fn all_methods_with_cycle_check<'a>(
+        &'a self,
+        resolver: &'a ClassResolver,
+        visited: &mut HashSet<String>,
+    ) -> Vec<(&'a str, &'a MethodSignatureInfo)> {
         let mut methods: IndexMap<&str, &MethodSignatureInfo> = IndexMap::new();
 
-        // First add extended interface methods
+        // First add extended interface methods with cycle detection
         for parent_name in &self.extends {
+            if visited.contains(parent_name) {
+                // Cycle detected - skip to prevent infinite recursion
+                continue;
+            }
+            visited.insert(parent_name.clone());
             if let Some(parent) = resolver.get_interface(parent_name) {
-                for (name, method) in parent.all_methods(resolver) {
+                for (name, method) in parent.all_methods_with_cycle_check(resolver, visited) {
                     methods.insert(name, method);
                 }
             }
@@ -614,16 +629,50 @@ impl ClassResolver {
                                 class.span,
                             ));
                         } else if let Some(method) = class.get_method(method_name, self) {
-                            // Check signature matches
+                            // Check parameter count matches
                             if method.params.len() != sig.params.len() {
                                 violations.push((
                                     format!(
-                                        "Method '{}' in class '{}' has wrong number of parameters",
-                                        method_name, class_name
+                                        "Method '{}' in class '{}' has wrong number of parameters (expected {}, got {})",
+                                        method_name, class_name, sig.params.len(), method.params.len()
                                     ),
                                     format!(
-                                        "الدالة '{}' في الصنف '{}' لديها عدد خاطئ من المعاملات",
-                                        method_name, class_name
+                                        "الدالة '{}' في الصنف '{}' لديها عدد خاطئ من المعاملات (متوقع {}، وجد {})",
+                                        method_name, class_name, sig.params.len(), method.params.len()
+                                    ),
+                                    class.span,
+                                ));
+                            } else {
+                                // Check parameter types match
+                                for (i, ((_, expected_ty), (_, actual_ty))) in
+                                    sig.params.iter().zip(method.params.iter()).enumerate()
+                                {
+                                    if expected_ty != actual_ty {
+                                        violations.push((
+                                            format!(
+                                                "Parameter {} of method '{}' in class '{}' has wrong type (expected {:?}, got {:?})",
+                                                i + 1, method_name, class_name, expected_ty, actual_ty
+                                            ),
+                                            format!(
+                                                "المعامل {} للدالة '{}' في الصنف '{}' له نوع خاطئ (متوقع {:?}، وجد {:?})",
+                                                i + 1, method_name, class_name, expected_ty, actual_ty
+                                            ),
+                                            class.span,
+                                        ));
+                                    }
+                                }
+                            }
+
+                            // Check return type matches
+                            if method.return_type != sig.return_type {
+                                violations.push((
+                                    format!(
+                                        "Method '{}' in class '{}' has wrong return type (expected {:?}, got {:?})",
+                                        method_name, class_name, sig.return_type, method.return_type
+                                    ),
+                                    format!(
+                                        "الدالة '{}' في الصنف '{}' لديها نوع إرجاع خاطئ (متوقع {:?}، وجد {:?})",
+                                        method_name, class_name, sig.return_type, method.return_type
                                     ),
                                     class.span,
                                 ));
