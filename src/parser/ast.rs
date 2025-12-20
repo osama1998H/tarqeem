@@ -36,6 +36,8 @@ pub enum StmtKind {
         mutable: bool,
         ty: Option<TypeAnnotation>,
         init: Option<Expr>,
+        /// Documentation comment attached to this declaration
+        doc_comment: Option<String>,
     },
 
     /// Function declaration: دالة foo(x: عدد) -> عدد { ... }
@@ -45,6 +47,8 @@ pub enum StmtKind {
         return_type: Option<TypeAnnotation>,
         body: Block,
         is_async: bool,
+        /// Documentation comment attached to this declaration
+        doc_comment: Option<String>,
     },
 
     /// Class declaration: صنف Person<T> { ... }
@@ -54,6 +58,8 @@ pub enum StmtKind {
         extends: Option<String>,
         implements: Vec<String>,
         members: Vec<ClassMember>,
+        /// Documentation comment attached to this declaration
+        doc_comment: Option<String>,
     },
 
     /// Interface declaration: واجهة Printable<T> { ... }
@@ -61,6 +67,8 @@ pub enum StmtKind {
         name: String,
         type_params: Vec<String>,
         methods: Vec<MethodSignature>,
+        /// Documentation comment attached to this declaration
+        doc_comment: Option<String>,
     },
 
     /// If statement: إذا (cond) { ... } وإلا { ... }
@@ -390,6 +398,8 @@ pub enum ClassMember {
         ty: Option<TypeAnnotation>,
         init: Option<Expr>,
         is_static: bool,
+        /// Documentation comment attached to this field
+        doc_comment: Option<String>,
     },
 
     /// Method
@@ -401,10 +411,17 @@ pub enum ClassMember {
         body: Block,
         is_static: bool,
         is_async: bool,
+        /// Documentation comment attached to this method
+        doc_comment: Option<String>,
     },
 
     /// Constructor
-    Constructor { params: Vec<Param>, body: Block },
+    Constructor {
+        params: Vec<Param>,
+        body: Block,
+        /// Documentation comment attached to this constructor
+        doc_comment: Option<String>,
+    },
 }
 
 /// Method signature (for interfaces)
@@ -413,6 +430,8 @@ pub struct MethodSignature {
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: Option<TypeAnnotation>,
+    /// Documentation comment attached to this method signature
+    pub doc_comment: Option<String>,
 }
 
 /// Visibility modifier
@@ -436,10 +455,33 @@ mod tests {
                 mutable: true,
                 ty: None,
                 init: Some(Expr::new(ExprKind::Literal(Literal::Int(5)), Span::empty())),
+                doc_comment: None,
             },
             Span::empty(),
         )]);
 
         assert_eq!(ast.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_ast_with_doc_comment() {
+        let ast = Ast::new(vec![Stmt::new(
+            StmtKind::VarDecl {
+                name: "س".to_string(),
+                mutable: true,
+                ty: None,
+                init: Some(Expr::new(ExprKind::Literal(Literal::Int(5)), Span::empty())),
+                doc_comment: Some("متغير للاختبار".to_string()),
+            },
+            Span::empty(),
+        )]);
+
+        assert_eq!(ast.statements.len(), 1);
+        match &ast.statements[0].kind {
+            StmtKind::VarDecl { doc_comment, .. } => {
+                assert_eq!(doc_comment.as_deref(), Some("متغير للاختبار"));
+            }
+            _ => panic!("Expected VarDecl"),
+        }
     }
 }

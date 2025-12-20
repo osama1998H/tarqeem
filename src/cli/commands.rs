@@ -2,6 +2,8 @@
 
 use super::{Cli, Commands, PkgCommands};
 use crate::codegen::{target::TargetTriple, Linker, LlvmCodegen, Target};
+use crate::doc::generator::DocGenerator;
+use crate::doc::{DocExtractor, HtmlGenerator, JsonGenerator, MarkdownGenerator, OutputFormat};
 use crate::error::Language;
 use crate::interpreter::Interpreter;
 use crate::ir::{IrBuilder, OptLevel, Optimizer};
@@ -693,5 +695,433 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 })
             })
         }
+
+        Commands::Doc {
+            path,
+            output,
+            format,
+            single_file,
+        } => {
+            // Determine output format
+            let output_format = match format.to_lowercase().as_str() {
+                "html" => OutputFormat::Html,
+                "markdown" | "md" => OutputFormat::Markdown,
+                "json" => OutputFormat::Json,
+                _ => {
+                    return Err(format!(
+                        "Unknown format: {}. Use html, markdown, or json / صيغة غير معروفة: {}. استخدم html أو markdown أو json",
+                        format, format
+                    ));
+                }
+            };
+
+            // Collect source files
+            let source_files: Vec<PathBuf> = if path.is_dir() {
+                // Find all .trq and .ترقيم files in the directory
+                collect_source_files(&path)?
+            } else {
+                warn_invalid_extension(&path);
+                vec![path.clone()]
+            };
+
+            if source_files.is_empty() {
+                return Err(
+                    "No source files found / لم يتم العثور على ملفات مصدر".to_string()
+                );
+            }
+
+            // Determine output directory
+            let output_dir = output.unwrap_or_else(|| {
+                if path.is_dir() {
+                    path.join("docs")
+                } else {
+                    path.parent()
+                        .map(|p| p.join("docs"))
+                        .unwrap_or_else(|| PathBuf::from("docs"))
+                }
+            });
+
+            // Create output directory if it doesn't exist
+            if !single_file {
+                fs::create_dir_all(&output_dir).map_err(|e| {
+                    format!(
+                        "Could not create output directory: {} / لا يمكن إنشاء مجلد الإخراج: {}",
+                        e, e
+                    )
+                })?;
+            }
+
+            if cli.verbose {
+                println!(
+                    "{}",
+                    format!(
+                        "Generating documentation for {} file(s)... / جاري توليد التوثيق لـ {} ملف(ات)...",
+                        source_files.len(),
+                        source_files.len()
+                    )
+                    .cyan()
+                );
+            }
+
+            // Process each source file
+            let mut all_docs = Vec::new();
+            for source_file in &source_files {
+                let source = fs::read_to_string(source_file).map_err(|e| {
+                    format!(
+                        "Could not read file {}: {} / لا يمكن قراءة الملف {}: {}",
+                        source_file.display(),
+                        e,
+                        source_file.display(),
+                        e
+                    )
+                })?;
+
+                let filename = source_file.display().to_string();
+                let module_name = source_file
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("module")
+                    .to_string();
+
+                // Parse the file
+                let mut parser = Parser::new(&source);
+                let ast = parser.parse().map_err(|e| {
+                    e.emit(&source, &filename, lang);
+                    format!(
+                        "Parse error in {}: / خطأ في تحليل {}:",
+                        source_file.display(),
+                        source_file.display()
+                    )
+                })?;
+
+                // Extract documentation
+                let extractor = DocExtractor::new(module_name.clone(), filename);
+                let doc = extractor.extract(&ast);
+
+                if cli.verbose {
+                    let item_count = doc.items.len();
+                    println!(
+                        "  {} - {} items / {} عنصر",
+                        module_name,
+                        item_count,
+                        item_count
+                    );
+                }
+
+                all_docs.push((module_name, doc));
+            }
+
+            // Generate output
+            if single_file {
+                // Generate a single combined documentation file
+                let output_file = if output_dir.is_dir() || !output_dir.exists() {
+                    let ext = match output_format {
+                        OutputFormat::Html => "html",
+                        OutputFormat::Markdown => "md",
+                        OutputFormat::Json => "json",
+                    };
+                    output_dir.join(format!("documentation.{}", ext))
+                } else {
+                    output_dir.clone()
+                };
+
+                // For now, generate first doc (TODO: combine all docs)
+                if let Some((_name, doc)) = all_docs.first() {
+                    let mut output_buffer = Vec::new();
+
+                    match output_format {
+                        OutputFormat::Html => {
+                            let generator = HtmlGenerator::new();
+                            generator.generate(doc, &mut output_buffer)
+                        }
+                        OutputFormat::Markdown => {
+                            let generator = MarkdownGenerator::new();
+                            generator.generate(doc, &mut output_buffer)
+                        }
+                        OutputFormat::Json => {
+                            let generator = JsonGenerator::new();
+                            generator.generate(doc, &mut output_buffer)
+                        }
+                    }
+                    .map_err(|e| {
+                        format!(
+                            "Failed to generate documentation: {} / فشل توليد التوثيق: {}",
+                            e, e
+                        )
+                    })?;
+
+                    // Create parent directory if needed
+                    if let Some(parent) = output_file.parent() {
+                        fs::create_dir_all(parent).map_err(|e| {
+                            format!(
+                                "Could not create output directory: {} / لا يمكن إنشاء مجلد الإخراج: {}",
+                                e, e
+                            )
+                        })?;
+                    }
+
+                    fs::write(&output_file, output_buffer).map_err(|e| {
+                        format!(
+                            "Could not write output: {} / لا يمكن كتابة الإخراج: {}",
+                            e, e
+                        )
+                    })?;
+
+                    println!(
+                        "{}",
+                        format!(
+                            "Documentation generated: {} / تم توليد التوثيق: {}",
+                            output_file.display(),
+                            output_file.display()
+                        )
+                        .green()
+                    );
+                }
+            } else {
+                // Generate separate documentation files
+                for (module_name, doc) in &all_docs {
+                    let ext = match output_format {
+                        OutputFormat::Html => "html",
+                        OutputFormat::Markdown => "md",
+                        OutputFormat::Json => "json",
+                    };
+                    let output_file = output_dir.join(format!("{}.{}", module_name, ext));
+
+                    let mut output_buffer = Vec::new();
+
+                    match output_format {
+                        OutputFormat::Html => {
+                            let generator = HtmlGenerator::new();
+                            generator.generate(doc, &mut output_buffer)
+                        }
+                        OutputFormat::Markdown => {
+                            let generator = MarkdownGenerator::new();
+                            generator.generate(doc, &mut output_buffer)
+                        }
+                        OutputFormat::Json => {
+                            let generator = JsonGenerator::new();
+                            generator.generate(doc, &mut output_buffer)
+                        }
+                    }
+                    .map_err(|e| {
+                        format!(
+                            "Failed to generate documentation: {} / فشل توليد التوثيق: {}",
+                            e, e
+                        )
+                    })?;
+
+                    fs::write(&output_file, output_buffer).map_err(|e| {
+                        format!(
+                            "Could not write output: {} / لا يمكن كتابة الإخراج: {}",
+                            e, e
+                        )
+                    })?;
+                }
+
+                // Generate index file for HTML
+                if output_format == OutputFormat::Html && all_docs.len() > 1 {
+                    let index_content = generate_html_index(&all_docs);
+                    let index_file = output_dir.join("index.html");
+                    fs::write(&index_file, index_content).map_err(|e| {
+                        format!(
+                            "Could not write index: {} / لا يمكن كتابة الفهرس: {}",
+                            e, e
+                        )
+                    })?;
+                }
+
+                println!(
+                    "{}",
+                    format!(
+                        "Documentation generated in: {} / تم توليد التوثيق في: {}",
+                        output_dir.display(),
+                        output_dir.display()
+                    )
+                    .green()
+                );
+            }
+
+            if cli.verbose {
+                println!(
+                    "{}",
+                    "Documentation generation complete! / اكتمل توليد التوثيق!"
+                        .green()
+                        .bold()
+                );
+            }
+
+            Ok(())
+        }
     }
+}
+
+/// Collect all Tarqeem source files from a directory
+fn collect_source_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+
+    let entries = fs::read_dir(dir).map_err(|e| {
+        format!(
+            "Could not read directory: {} / لا يمكن قراءة المجلد: {}",
+            e, e
+        )
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| {
+            format!(
+                "Could not read entry: {} / لا يمكن قراءة المدخل: {}",
+                e, e
+            )
+        })?;
+        let path = entry.path();
+
+        if path.is_file() && is_valid_source_extension(&path) {
+            files.push(path);
+        } else if path.is_dir() {
+            // Recursively collect from subdirectories
+            files.extend(collect_source_files(&path)?);
+        }
+    }
+
+    // Sort files for consistent output
+    files.sort();
+
+    Ok(files)
+}
+
+/// Generate an HTML index page for multiple documentation files
+fn generate_html_index(docs: &[(String, crate::doc::model::Documentation)]) -> String {
+    let mut html = String::from(
+        r#"<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>توثيق ترقيم | Tarqeem Documentation</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --secondary-color: #1e40af;
+            --background-color: #f8fafc;
+            --card-background: #ffffff;
+            --text-color: #1e293b;
+            --border-color: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            direction: rtl;
+            text-align: right;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: var(--primary-color);
+            text-align: center;
+            margin-bottom: 2rem;
+            font-size: 2.5rem;
+        }
+
+        .module-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .module-card {
+            background: var(--card-background);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            transition: box-shadow 0.2s, transform 0.2s;
+        }
+
+        .module-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .module-card h2 {
+            margin: 0 0 1rem 0;
+            color: var(--secondary-color);
+        }
+
+        .module-card a {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        .module-card a:hover {
+            text-decoration: underline;
+        }
+
+        .module-stats {
+            color: #64748b;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 3rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-color);
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>توثيق ترقيم<br><small style="font-size: 0.5em; color: #64748b;">Tarqeem Documentation</small></h1>
+
+        <div class="module-grid">
+"#,
+    );
+
+    for (name, doc) in docs {
+        let func_count = doc.items.iter().filter(|i| matches!(i, crate::doc::model::DocItem::Function(_))).count();
+        let class_count = doc.items.iter().filter(|i| matches!(i, crate::doc::model::DocItem::Class(_))).count();
+        let interface_count = doc.items.iter().filter(|i| matches!(i, crate::doc::model::DocItem::Interface(_))).count();
+
+        html.push_str(&format!(
+            r#"            <div class="module-card">
+                <h2><a href="{}.html">{}</a></h2>
+                {}
+                <div class="module-stats">
+                    {} دوال | {} أصناف | {} واجهات
+                </div>
+            </div>
+"#,
+            name,
+            name,
+            doc.description.as_ref().map(|d| format!("<p>{}</p>", d)).unwrap_or_default(),
+            func_count,
+            class_count,
+            interface_count
+        ));
+    }
+
+    html.push_str(
+        r#"        </div>
+
+        <footer>
+            <p>تم توليده بواسطة trqdoc | Generated by trqdoc</p>
+        </footer>
+    </div>
+</body>
+</html>
+"#,
+    );
+
+    html
 }

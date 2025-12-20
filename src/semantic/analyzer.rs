@@ -163,6 +163,7 @@ impl Analyzer {
                 mutable,
                 ty,
                 init,
+                ..
             } => {
                 self.analyze_var_decl(name, *mutable, ty.as_ref(), init.as_ref(), stmt.span);
             }
@@ -173,6 +174,7 @@ impl Analyzer {
                 return_type,
                 body,
                 is_async,
+                ..
             } => {
                 self.analyze_func_decl(
                     name,
@@ -510,7 +512,7 @@ impl Analyzer {
                     );
                 }
 
-                ClassMember::Constructor { params, body } => {
+                ClassMember::Constructor { params, body, .. } => {
                     self.push_scope(ScopeKind::Function);
 
                     for param in params {
