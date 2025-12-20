@@ -850,6 +850,71 @@ Track follow-up items here:
 
 **Pending**:
 - [ ] Add more path-scoped rules as patterns emerge
+- [ ] Phase 4: Tooling implementation (see docs/PHASE4_PLAN.md)
+
+### Session: 2025-12-20 - Phase 4 Roadmap Planning
+
+**Goal**: Create comprehensive plan for Phase 4 (Tooling) following the same format as Phase 2 and Phase 3 plans
+
+**Document Created**: `docs/PHASE4_PLAN.md` (~1200 lines)
+
+**Phase 4 Milestones Defined**:
+
+1. **Milestone 4.1: مدير الحزم (Package Manager)**
+   - Package structure (حزمة.toml)
+   - Commands: init, add, remove, install, update, build, run, test, publish
+   - Registry API design
+   - Dependency resolution and lock files
+
+2. **Milestone 4.2: خادم LSP (Language Server Protocol)**
+   - Diagnostics (P0)
+   - Auto-completion (P0)
+   - Go to Definition (P0)
+   - Hover information (P0)
+   - Find References, Rename, Formatting (P1)
+   - Incremental analysis engine
+
+3. **Milestone 4.3: إضافة VS Code (VS Code Extension)**
+   - Syntax highlighting with RTL support
+   - LSP client integration
+   - Arabic code snippets
+   - Run/debug support
+   - Marketplace publishing
+
+4. **Milestone 4.4: مولد التوثيق (Documentation Generator)**
+   - **4.4.0: Doc Comment Infrastructure** (prerequisite)
+     - Lexer changes to capture `///` and `/** */`
+     - AST modifications for doc fields
+     - Parser changes to attach doc comments
+   - Doc comment format with Arabic tags (@معامل, @ارجاع, @مثال)
+   - HTML/Markdown/JSON output with RTL support
+   - Light and dark themes
+
+5. **Milestone 4.5: منسق الكود (Code Formatter)**
+   - Formatting rules and configuration
+   - Arabic punctuation support (،؛)
+   - LSP integration
+
+6. **Milestone 4.6: مصحح الأخطاء (Debugger)**
+   - Debug Adapter Protocol (DAP) implementation
+   - Breakpoints, stepping, variable inspection
+   - VS Code integration
+
+**Key Design Decisions**:
+- All UIs bilingual (Arabic/English)
+- RTL support throughout
+- Arabic-first documentation
+- Compatible with previous phases
+
+**Current Comment Status Documented**:
+- Comments (`//` and `/* */`) are currently discarded during lexing
+- No docstring infrastructure exists
+- Milestone 4.4.0 specifies required compiler changes
+
+**Files Created**:
+- `docs/PHASE4_PLAN.md` - Comprehensive Phase 4 implementation plan
+
+**Estimated Timeline**: 14 weeks
 
 ---
 
