@@ -2,7 +2,7 @@
 
 use super::{Cli, Commands};
 use crate::error::Language;
-use crate::ir::IrBuilder;
+use crate::ir::{IrBuilder, OptLevel, Optimizer};
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::semantic::Analyzer;
@@ -22,9 +22,11 @@ pub fn run(cli: Cli) -> Result<(), String> {
         Commands::Compile {
             file,
             output,
+            opt_level,
             dump_tokens,
             dump_ast,
             dump_ir,
+            dump_opt_stats,
         } => {
             let source = fs::read_to_string(&file)
                 .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
@@ -75,9 +77,25 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 .to_string();
 
             let ir_builder = IrBuilder::new(module_name);
-            let ir_module = ir_builder.build(&ast).map_err(|e| {
+            let mut ir_module = ir_builder.build(&ast).map_err(|e| {
                 format!("IR generation error: {} / خطأ في توليد الـ IR: {}", e.message, e.message_ar)
             })?;
+
+            // Run optimization passes
+            let opt = match opt_level {
+                0 => OptLevel::O0,
+                1 => OptLevel::O1,
+                2 => OptLevel::O2,
+                _ => OptLevel::O3,
+            };
+
+            let mut optimizer = Optimizer::new(opt);
+            optimizer.optimize(&mut ir_module);
+
+            if dump_opt_stats && optimizer.stats().any_changes() {
+                println!("{}", "=== Optimization Stats / إحصائيات التحسين ===".cyan().bold());
+                println!("{}", optimizer.stats());
+            }
 
             if dump_ir {
                 println!("{}", "=== IR / التمثيل الوسيط ===".cyan().bold());
@@ -98,6 +116,12 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     ir_module.classes.len(),
                     ir_module.classes.len()
                 );
+                if opt != OptLevel::O0 {
+                    println!(
+                        "  Optimization level: {} / مستوى التحسين: {}",
+                        opt, opt
+                    );
+                }
             }
 
             if let Some(output_path) = output {

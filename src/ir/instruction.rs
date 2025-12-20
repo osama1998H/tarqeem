@@ -152,7 +152,7 @@ impl fmt::Display for Constant {
 }
 
 /// Binary operation types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOp {
     // Arithmetic
     Add,
@@ -207,7 +207,7 @@ impl fmt::Display for BinaryOp {
 }
 
 /// Unary operation types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
     /// Arithmetic negation
     Neg,

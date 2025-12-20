@@ -39,6 +39,11 @@ pub enum Commands {
         #[arg(long, short = 'o')]
         output: Option<PathBuf>,
 
+        /// Optimization level (0=none, 1=basic, 2=standard, 3=aggressive)
+        /// مستوى التحسين (0=لا شيء، 1=أساسي، 2=قياسي، 3=متقدم)
+        #[arg(short = 'O', value_name = "LEVEL", default_value = "0")]
+        opt_level: u8,
+
         /// Dump tokens (for debugging)
         #[arg(long)]
         dump_tokens: bool,
@@ -50,6 +55,10 @@ pub enum Commands {
         /// Dump IR (for debugging)
         #[arg(long)]
         dump_ir: bool,
+
+        /// Show optimization statistics
+        #[arg(long)]
+        dump_opt_stats: bool,
     },
 
     /// Run a Tarqeem source file / تشغيل ملف ترقيم

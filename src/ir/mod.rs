@@ -26,6 +26,8 @@
 
 mod builder;
 mod instruction;
+pub mod opt;
 
 pub use builder::IrBuilder;
 pub use instruction::*;
+pub use opt::{OptLevel, OptStats, Optimizer};
