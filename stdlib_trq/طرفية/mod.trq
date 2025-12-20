@@ -1,0 +1,24 @@
+// طرفية - Console I/O Module
+// طرفية - وحدة الإدخال والإخراج
+
+// This module provides console input/output operations
+// تقدم هذه الوحدة عمليات الإدخال والإخراج للطرفية
+
+// Re-export all submodules
+// إعادة تصدير جميع الوحدات الفرعية
+
+// Basic I/O operations
+// عمليات الإدخال والإخراج الأساسية
+استورد * من "./اساسي"
+
+// Color output
+// الإخراج الملون
+استورد * من "./الوان"
+
+// Formatting
+// التنسيق
+استورد * من "./تنسيق"
+
+// Re-export everything
+صدّر *
+

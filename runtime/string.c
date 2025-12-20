@@ -488,6 +488,537 @@ TrqArray* trq_string_split(TrqString* str, TrqString* delim) {
 }
 
 /*============================================================================
+ * Additional String Search Functions
+ *============================================================================*/
+
+int64_t trq_string_last_index_of(TrqString* str, TrqString* substr) {
+    if (!str || !substr) {
+        return -1;
+    }
+    if (substr->len == 0) {
+        return str->len;
+    }
+    if (substr->len > str->len) {
+        return -1;
+    }
+
+    // Search from end
+    for (int64_t i = str->len - substr->len; i >= 0; i--) {
+        if (memcmp(str->data + i, substr->data, substr->len) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int64_t trq_string_count(TrqString* str, TrqString* substr) {
+    if (!str || !substr || substr->len == 0) {
+        return 0;
+    }
+    if (substr->len > str->len) {
+        return 0;
+    }
+
+    int64_t count = 0;
+    const char* pos = str->data;
+    const char* end = str->data + str->len - substr->len + 1;
+
+    while (pos < end) {
+        if (memcmp(pos, substr->data, substr->len) == 0) {
+            count++;
+            pos += substr->len;
+        } else {
+            pos++;
+        }
+    }
+    return count;
+}
+
+TrqString* trq_string_reverse(TrqString* str) {
+    if (!str || str->len == 0) {
+        return trq_string_new("", 0);
+    }
+
+    // For UTF-8 aware reversal, we need to handle multi-byte characters
+    TrqString* result = (TrqString*)trq_alloc(sizeof(TrqString));
+    if (!result) {
+        return NULL;
+    }
+
+    result->data = (char*)malloc(str->len + 1);
+    if (!result->data) {
+        trq_free(result);
+        return NULL;
+    }
+
+    // Find UTF-8 code point boundaries
+    const unsigned char* src = (const unsigned char*)str->data;
+    int64_t n_chars = 0;
+    int64_t* offsets = (int64_t*)malloc((str->len + 1) * sizeof(int64_t));
+    if (!offsets) {
+        free(result->data);
+        trq_free(result);
+        return NULL;
+    }
+
+    offsets[0] = 0;
+    for (int64_t i = 0; i < str->len; ) {
+        unsigned char c = src[i];
+        int char_len = 1;
+        if ((c & 0x80) == 0) {
+            char_len = 1;
+        } else if ((c & 0xE0) == 0xC0) {
+            char_len = 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            char_len = 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            char_len = 4;
+        }
+        i += char_len;
+        n_chars++;
+        offsets[n_chars] = i;
+    }
+
+    // Copy in reverse order
+    char* dest = result->data;
+    for (int64_t i = n_chars - 1; i >= 0; i--) {
+        int64_t start = offsets[i];
+        int64_t len = offsets[i + 1] - start;
+        memcpy(dest, str->data + start, len);
+        dest += len;
+    }
+    *dest = '\0';
+
+    free(offsets);
+    result->len = str->len;
+    result->cap = str->len + 1;
+
+    return result;
+}
+
+TrqString* trq_string_to_title(TrqString* str) {
+    if (!str) {
+        return trq_string_new("", 0);
+    }
+
+    TrqString* result = trq_string_new(str->data, str->len);
+    if (!result) {
+        return NULL;
+    }
+
+    bool capitalize_next = true;
+    for (int64_t i = 0; i < result->len; i++) {
+        char c = result->data[i];
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            capitalize_next = true;
+        } else if (capitalize_next && c >= 'a' && c <= 'z') {
+            result->data[i] = c - 32;
+            capitalize_next = false;
+        } else if (c >= 'A' && c <= 'Z') {
+            if (!capitalize_next) {
+                result->data[i] = c + 32;
+            }
+            capitalize_next = false;
+        } else {
+            capitalize_next = false;
+        }
+    }
+    return result;
+}
+
+TrqString* trq_string_trim_left(TrqString* str) {
+    if (!str || str->len == 0) {
+        return trq_string_new("", 0);
+    }
+
+    const char* start = str->data;
+    const char* end = str->data + str->len;
+
+    while (start < end && (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r')) {
+        start++;
+    }
+
+    return trq_string_new(start, end - start);
+}
+
+TrqString* trq_string_trim_right(TrqString* str) {
+    if (!str || str->len == 0) {
+        return trq_string_new("", 0);
+    }
+
+    const char* start = str->data;
+    const char* end = str->data + str->len - 1;
+
+    while (end >= start && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) {
+        end--;
+    }
+
+    return trq_string_new(start, end - start + 1);
+}
+
+TrqString* trq_string_join(TrqArray* arr, TrqString* delim) {
+    if (!arr || arr->len == 0) {
+        return trq_string_new("", 0);
+    }
+
+    // Calculate total length
+    int64_t total_len = 0;
+    TrqString** strings = (TrqString**)arr->data;
+    for (int64_t i = 0; i < arr->len; i++) {
+        if (strings[i]) {
+            total_len += strings[i]->len;
+        }
+        if (delim && i < arr->len - 1) {
+            total_len += delim->len;
+        }
+    }
+
+    TrqString* result = (TrqString*)trq_alloc(sizeof(TrqString));
+    if (!result) {
+        return NULL;
+    }
+
+    result->data = (char*)malloc(total_len + 1);
+    if (!result->data) {
+        trq_free(result);
+        return NULL;
+    }
+
+    char* dest = result->data;
+    for (int64_t i = 0; i < arr->len; i++) {
+        if (strings[i]) {
+            memcpy(dest, strings[i]->data, strings[i]->len);
+            dest += strings[i]->len;
+        }
+        if (delim && i < arr->len - 1) {
+            memcpy(dest, delim->data, delim->len);
+            dest += delim->len;
+        }
+    }
+    *dest = '\0';
+
+    result->len = total_len;
+    result->cap = total_len + 1;
+
+    return result;
+}
+
+TrqString* trq_string_replace_all(TrqString* str, TrqString* old_str, TrqString* new_str) {
+    if (!str) {
+        return trq_string_new("", 0);
+    }
+    if (!old_str || old_str->len == 0) {
+        return trq_string_new(str->data, str->len);
+    }
+
+    TrqString* empty = trq_string_new("", 0);
+    if (!new_str) {
+        new_str = empty;
+    }
+
+    // Count occurrences
+    int64_t count = trq_string_count(str, old_str);
+    if (count == 0) {
+        trq_release(empty);
+        return trq_string_new(str->data, str->len);
+    }
+
+    // Calculate new length
+    int64_t new_len = str->len + count * (new_str->len - old_str->len);
+    TrqString* result = (TrqString*)trq_alloc(sizeof(TrqString));
+    if (!result) {
+        trq_release(empty);
+        return NULL;
+    }
+
+    result->data = (char*)malloc(new_len + 1);
+    if (!result->data) {
+        trq_free(result);
+        trq_release(empty);
+        return NULL;
+    }
+
+    // Build result
+    char* dest = result->data;
+    const char* src = str->data;
+    const char* end = str->data + str->len;
+
+    while (src < end) {
+        if (src <= end - old_str->len && memcmp(src, old_str->data, old_str->len) == 0) {
+            memcpy(dest, new_str->data, new_str->len);
+            dest += new_str->len;
+            src += old_str->len;
+        } else {
+            *dest++ = *src++;
+        }
+    }
+    *dest = '\0';
+
+    result->len = new_len;
+    result->cap = new_len + 1;
+
+    trq_release(empty);
+    return result;
+}
+
+TrqString* trq_string_pad_left(TrqString* str, int64_t target_len, TrqString* pad) {
+    if (!str) {
+        return trq_string_new("", 0);
+    }
+
+    int64_t current_len = trq_string_len_chars(str);
+    if (current_len >= target_len) {
+        return trq_string_new(str->data, str->len);
+    }
+
+    char pad_char = ' ';
+    if (pad && pad->len > 0) {
+        pad_char = pad->data[0];
+    }
+
+    int64_t pad_count = target_len - current_len;
+    int64_t new_len = str->len + pad_count;
+
+    TrqString* result = (TrqString*)trq_alloc(sizeof(TrqString));
+    if (!result) {
+        return NULL;
+    }
+
+    result->data = (char*)malloc(new_len + 1);
+    if (!result->data) {
+        trq_free(result);
+        return NULL;
+    }
+
+    memset(result->data, pad_char, pad_count);
+    memcpy(result->data + pad_count, str->data, str->len);
+    result->data[new_len] = '\0';
+
+    result->len = new_len;
+    result->cap = new_len + 1;
+
+    return result;
+}
+
+TrqString* trq_string_pad_right(TrqString* str, int64_t target_len, TrqString* pad) {
+    if (!str) {
+        return trq_string_new("", 0);
+    }
+
+    int64_t current_len = trq_string_len_chars(str);
+    if (current_len >= target_len) {
+        return trq_string_new(str->data, str->len);
+    }
+
+    char pad_char = ' ';
+    if (pad && pad->len > 0) {
+        pad_char = pad->data[0];
+    }
+
+    int64_t pad_count = target_len - current_len;
+    int64_t new_len = str->len + pad_count;
+
+    TrqString* result = (TrqString*)trq_alloc(sizeof(TrqString));
+    if (!result) {
+        return NULL;
+    }
+
+    result->data = (char*)malloc(new_len + 1);
+    if (!result->data) {
+        trq_free(result);
+        return NULL;
+    }
+
+    memcpy(result->data, str->data, str->len);
+    memset(result->data + str->len, pad_char, pad_count);
+    result->data[new_len] = '\0';
+
+    result->len = new_len;
+    result->cap = new_len + 1;
+
+    return result;
+}
+
+bool trq_string_is_numeric(TrqString* str) {
+    if (!str || str->len == 0) {
+        return false;
+    }
+
+    for (int64_t i = 0; i < str->len; i++) {
+        char c = str->data[i];
+        if (c < '0' || c > '9') {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool trq_string_is_alpha(TrqString* str) {
+    if (!str || str->len == 0) {
+        return false;
+    }
+
+    const unsigned char* p = (const unsigned char*)str->data;
+    const unsigned char* end = p + str->len;
+
+    while (p < end) {
+        unsigned char c = *p;
+
+        // ASCII letters
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+            p++;
+            continue;
+        }
+
+        // UTF-8 multi-byte (includes Arabic and other scripts)
+        if ((c & 0x80) != 0) {
+            // Skip UTF-8 multi-byte character
+            if ((c & 0xE0) == 0xC0) {
+                p += 2;
+            } else if ((c & 0xF0) == 0xE0) {
+                p += 3;
+            } else if ((c & 0xF8) == 0xF0) {
+                p += 4;
+            } else {
+                return false;
+            }
+            continue;
+        }
+
+        return false;
+    }
+    return true;
+}
+
+bool trq_string_is_arabic(TrqString* str) {
+    if (!str || str->len == 0) {
+        return false;
+    }
+
+    const unsigned char* p = (const unsigned char*)str->data;
+    const unsigned char* end = p + str->len;
+
+    while (p < end) {
+        unsigned char c = *p;
+
+        // Arabic Unicode range: U+0600-U+06FF
+        // In UTF-8: 0xD8 0x80 to 0xDB 0xBF
+        if (c >= 0xD8 && c <= 0xDB) {
+            if (p + 1 < end) {
+                p += 2;
+                continue;
+            }
+        }
+
+        // Skip whitespace
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            p++;
+            continue;
+        }
+
+        return false;
+    }
+    return true;
+}
+
+TrqString* trq_string_char_at(TrqString* str, int64_t index) {
+    if (!str || index < 0) {
+        return trq_string_new("", 0);
+    }
+
+    const unsigned char* p = (const unsigned char*)str->data;
+    const unsigned char* end = p + str->len;
+    int64_t current = 0;
+
+    while (p < end) {
+        if (current == index) {
+            int char_len = 1;
+            unsigned char c = *p;
+            if ((c & 0x80) == 0) {
+                char_len = 1;
+            } else if ((c & 0xE0) == 0xC0) {
+                char_len = 2;
+            } else if ((c & 0xF0) == 0xE0) {
+                char_len = 3;
+            } else if ((c & 0xF8) == 0xF0) {
+                char_len = 4;
+            }
+            return trq_string_new((const char*)p, char_len);
+        }
+
+        // Advance to next character
+        unsigned char c = *p;
+        if ((c & 0x80) == 0) {
+            p++;
+        } else if ((c & 0xE0) == 0xC0) {
+            p += 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            p += 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            p += 4;
+        } else {
+            p++;
+        }
+        current++;
+    }
+
+    return trq_string_new("", 0);
+}
+
+TrqString* trq_string_substr_chars(TrqString* str, int64_t start, int64_t len) {
+    if (!str || start < 0 || len < 0) {
+        return trq_string_new("", 0);
+    }
+
+    const unsigned char* p = (const unsigned char*)str->data;
+    const unsigned char* end = p + str->len;
+    int64_t current = 0;
+
+    // Find start position
+    while (p < end && current < start) {
+        unsigned char c = *p;
+        if ((c & 0x80) == 0) {
+            p++;
+        } else if ((c & 0xE0) == 0xC0) {
+            p += 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            p += 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            p += 4;
+        } else {
+            p++;
+        }
+        current++;
+    }
+
+    if (p >= end) {
+        return trq_string_new("", 0);
+    }
+
+    const unsigned char* substr_start = p;
+
+    // Find end position
+    int64_t chars_collected = 0;
+    while (p < end && chars_collected < len) {
+        unsigned char c = *p;
+        if ((c & 0x80) == 0) {
+            p++;
+        } else if ((c & 0xE0) == 0xC0) {
+            p += 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            p += 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            p += 4;
+        } else {
+            p++;
+        }
+        chars_collected++;
+    }
+
+    return trq_string_new((const char*)substr_start, p - substr_start);
+}
+
+/*============================================================================
  * String Helper - Free String Data
  *============================================================================*/
 
