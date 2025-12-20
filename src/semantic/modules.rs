@@ -146,15 +146,36 @@ impl ModuleLoader {
             return with_arabic.canonicalize().ok();
         }
 
-        // Try as a directory with index file
+        // Try as a directory with module index file
+        // Support multiple patterns: فهرس (Arabic index), mod (module), index (English)
+        // Prefer Arabic extensions first
         if base.is_dir() {
+            // Arabic index patterns (preferred)
+            let index_arabic = base.join("فهرس.ترقيم");
+            if index_arabic.exists() {
+                return index_arabic.canonicalize().ok();
+            }
+            let index_arabic_trq = base.join("فهرس.trq");
+            if index_arabic_trq.exists() {
+                return index_arabic_trq.canonicalize().ok();
+            }
+            // Module patterns (mod.*)
+            let mod_arabic = base.join("mod.ترقيم");
+            if mod_arabic.exists() {
+                return mod_arabic.canonicalize().ok();
+            }
+            let mod_trq = base.join("mod.trq");
+            if mod_trq.exists() {
+                return mod_trq.canonicalize().ok();
+            }
+            // English index patterns (fallback)
             let index_trq = base.join("index.trq");
             if index_trq.exists() {
                 return index_trq.canonicalize().ok();
             }
-            let index_arabic = base.join("فهرس.ترقيم");
-            if index_arabic.exists() {
-                return index_arabic.canonicalize().ok();
+            let index_arabic_ext = base.join("index.ترقيم");
+            if index_arabic_ext.exists() {
+                return index_arabic_ext.canonicalize().ok();
             }
         }
 
@@ -315,9 +336,7 @@ impl ModuleLoader {
                             },
                         );
                     }
-                    StmtKind::VarDecl {
-                        name, mutable, ..
-                    } => {
+                    StmtKind::VarDecl { name, mutable, .. } => {
                         exports.insert(
                             name.clone(),
                             ExportedSymbol {
@@ -385,7 +404,11 @@ mod tests {
         let base_path = temp_dir.path();
 
         // Create a test module file
-        create_test_file(base_path, "math.trq", "صدّر دالة جمع(أ: عدد) -> عدد { أرجع أ }");
+        create_test_file(
+            base_path,
+            "math.trq",
+            "صدّر دالة جمع(أ: عدد) -> عدد { أرجع أ }",
+        );
 
         let loader = ModuleLoader::new();
         let main_file = base_path.join("main.trq");

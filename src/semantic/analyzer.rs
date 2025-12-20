@@ -720,8 +720,14 @@ impl Analyzer {
                 // Module not found - fall back to registering names as Any
                 // This allows compilation to proceed with unknown modules
                 self.warn(
-                    &format!("Module '{}' not found, imports will be typed as 'any'", from),
-                    &format!("الوحدة '{}' غير موجودة، سيتم تصنيف الاستيرادات كـ 'أي'", from),
+                    &format!(
+                        "Module '{}' not found, imports will be typed as 'any'",
+                        from
+                    ),
+                    &format!(
+                        "الوحدة '{}' غير موجودة، سيتم تصنيف الاستيرادات كـ 'أي'",
+                        from
+                    ),
                     span,
                 );
                 self.register_imports_as_any(items);
@@ -759,10 +765,7 @@ impl Analyzer {
                     } else {
                         self.error(
                             &format!("Module '{}' has no export named '{}'", from, import.name),
-                            &format!(
-                                "الوحدة '{}' لا تحتوي على تصدير باسم '{}'",
-                                from, import.name
-                            ),
+                            &format!("الوحدة '{}' لا تحتوي على تصدير باسم '{}'", from, import.name),
                             span,
                         );
                         // Still register as Any to allow compilation to continue
@@ -825,7 +828,8 @@ impl Analyzer {
 
     /// Add a warning diagnostic
     fn warn(&mut self, message: &str, message_ar: &str, span: Span) {
-        self.diagnostics.push(Diagnostic::warning(message, message_ar, span));
+        self.diagnostics
+            .push(Diagnostic::warning(message, message_ar, span));
     }
 
     /// Analyze a super constructor call: أساس(args)

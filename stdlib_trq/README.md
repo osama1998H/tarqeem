@@ -95,52 +95,52 @@ numbers.أضف(5)
 ```
 stdlib_trq/
 ├── مجموعات/                   # Collections
-│   ├── mod.trq               # Module re-exports
-│   ├── قائمة.trq              # List<T>
-│   ├── مجموعة.trq             # Set<T>
-│   ├── قاموس.trq              # Map<K,V>
-│   ├── طابور.trq              # Queue<T>
-│   ├── مكدس.trq               # Stack<T>
-│   └── متكرر.trq              # Iterator interface
+│   ├── فهرس.ترقيم            # Module re-exports
+│   ├── قائمة.ترقيم            # List<T>
+│   ├── مجموعة.ترقيم           # Set<T>
+│   ├── قاموس.ترقيم            # Map<K,V>
+│   ├── طابور.ترقيم            # Queue<T>
+│   ├── مكدس.ترقيم             # Stack<T>
+│   └── متكرر.ترقيم            # Iterator interface
 │
 ├── رياضيات/                   # Math
-│   ├── mod.trq
-│   ├── اساسي.trq              # Basic math functions
-│   ├── مثلثات.trq             # Trigonometry
-│   ├── عشوائي.trq             # Random numbers
-│   └── ثوابت.trq              # Mathematical constants
+│   ├── فهرس.ترقيم
+│   ├── اساسي.ترقيم            # Basic math functions
+│   ├── مثلثات.ترقيم           # Trigonometry
+│   ├── عشوائي.ترقيم           # Random numbers
+│   └── ثوابت.ترقيم            # Mathematical constants
 │
 ├── نص/                        # String utilities
-│   ├── mod.trq
-│   ├── اساسي.trq              # Basic string functions
-│   ├── بناء.trq               # StringBuilder
-│   └── تنسيق.trq              # Formatting
+│   ├── فهرس.ترقيم
+│   ├── اساسي.ترقيم            # Basic string functions
+│   ├── بناء.ترقيم             # StringBuilder
+│   └── تنسيق.ترقيم            # Formatting
 │
 ├── ملفات/                     # File system
-│   ├── mod.trq
-│   ├── ملف.trq                # File operations
-│   ├── مسار.trq               # Path handling
-│   └── مجلد.trq               # Directory operations
+│   ├── فهرس.ترقيم
+│   ├── ملف.ترقيم              # File operations
+│   ├── مسار.ترقيم             # Path handling
+│   └── مجلد.ترقيم             # Directory operations
 │
 ├── طرفية/                     # Console I/O
-│   ├── mod.trq
-│   ├── اساسي.trq              # Print and input functions
-│   ├── الوان.trq              # ANSI colors
-│   └── تنسيق.trq              # Console formatting
+│   ├── فهرس.ترقيم
+│   ├── اساسي.ترقيم            # Print and input functions
+│   ├── الوان.ترقيم            # ANSI colors
+│   └── تنسيق.ترقيم            # Console formatting
 │
 ├── وقت/                       # Date and Time
-│   ├── mod.trq
-│   ├── تاريخ.trq              # Date class with Arabic month/day names
-│   └── وقت.trq                # Time, DateTime, and Duration classes
+│   ├── فهرس.ترقيم
+│   ├── تاريخ.ترقيم            # Date class with Arabic month/day names
+│   └── وقت.ترقيم              # Time, DateTime, and Duration classes
 │
 ├── شبكة/                      # Networking
-│   ├── mod.trq
-│   ├── اتصال.trq              # TCP/UDP connections
-│   ├── خادم.trq               # TCP/UDP servers
-│   └── http.trq               # HTTP client
+│   ├── فهرس.ترقيم
+│   ├── اتصال.ترقيم            # TCP/UDP connections
+│   ├── خادم.ترقيم             # TCP/UDP servers
+│   └── http.ترقيم             # HTTP client
 │
 └── أخطاء/                     # Error handling
-    └── mod.trq                # Error types, Result<T,E>, Option<T>
+    └── فهرس.ترقيم             # Error types, Result<T,E>, Option<T>
 ```
 
 ### Development Status
