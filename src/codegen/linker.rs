@@ -144,7 +144,7 @@ impl Linker {
                 .arg(output)
                 .arg(&ir_path)
                 .arg(format!("-O{}", self.opt_level))
-                .arg("--target")
+                .arg("-target")
                 .arg(self.target.llvm_triple());
 
             if self.debug {
@@ -190,7 +190,7 @@ impl Linker {
             .arg(output)
             .arg(ir_path)
             .arg(format!("-O{}", self.opt_level))
-            .arg("--target")
+            .arg("-target")
             .arg(self.target.llvm_triple());
 
         if self.debug {
@@ -232,7 +232,7 @@ impl Linker {
             .arg(output)
             .arg(ir_path)
             .arg(format!("-O{}", self.opt_level))
-            .arg("--target")
+            .arg("-target")
             .arg(self.target.llvm_triple());
 
         if self.debug {

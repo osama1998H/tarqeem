@@ -12,6 +12,29 @@ use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
+/// Find the Tarqeem runtime library (libtrq.a)
+fn find_runtime() -> Option<PathBuf> {
+    // Try several locations
+    let search_paths = [
+        // Relative to executable
+        std::env::current_exe().ok()?.parent()?.join("runtime/libtrq.a"),
+        std::env::current_exe().ok()?.parent()?.join("../runtime/libtrq.a"),
+        // Relative to current directory
+        PathBuf::from("runtime/libtrq.a"),
+        // Standard install locations
+        PathBuf::from("/usr/local/lib/tarqeem/libtrq.a"),
+        PathBuf::from("/usr/lib/tarqeem/libtrq.a"),
+    ];
+
+    for path in &search_paths {
+        if path.exists() {
+            return Some(path.clone());
+        }
+    }
+
+    None
+}
+
 /// Run the CLI
 pub fn run(cli: Cli) -> Result<(), String> {
     let lang = if cli.english {
@@ -181,7 +204,13 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     .verbose(cli.verbose);
 
                 if linker.is_available() {
-                    linker.compile_to_executable(&llvm_ir, &output_path, None)
+                    // Find runtime library
+                    let runtime_path = find_runtime();
+                    if runtime_path.is_none() && cli.verbose {
+                        eprintln!("{}", "Warning: Runtime library not found. Executable may not link correctly. / تحذير: لم يتم العثور على مكتبة التشغيل.".yellow());
+                    }
+
+                    linker.compile_to_executable(&llvm_ir, &output_path, runtime_path.as_deref())
                         .map_err(|e| format!("Linking failed: {} / فشل الربط: {}", e.message, e.message_ar))?;
                     println!(
                         "{}",

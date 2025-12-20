@@ -34,8 +34,9 @@ impl TypeMapper {
                 // LLVM 15+ uses opaque pointers
                 "ptr".to_string()
             }
-            IrType::Array(elem, size) => {
-                format!("[{} x {}]", size, self.map_type(elem))
+            IrType::Array(_, _) => {
+                // Our runtime uses pointer-based dynamic arrays
+                "ptr".to_string()
             }
             IrType::Function { params, ret } => {
                 let param_types: Vec<String> = params.iter().map(|p| self.map_type(p)).collect();
@@ -150,7 +151,7 @@ mod tests {
         assert_eq!(mapper.map_type(&IrType::String), "ptr");
 
         let arr_ty = IrType::Array(Box::new(IrType::Int), 10);
-        assert_eq!(mapper.map_type(&arr_ty), "[10 x i64]");
+        assert_eq!(mapper.map_type(&arr_ty), "ptr"); // Runtime uses pointer-based arrays
 
         let class_ty = IrType::Struct(ClassId("Person".to_string()));
         assert_eq!(mapper.map_type(&class_ty), "%class.Person");

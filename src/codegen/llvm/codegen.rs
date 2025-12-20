@@ -23,6 +23,8 @@ pub struct LlvmCodegen {
     current_func: Option<String>,
     /// Variable name mapping (IR VarId -> LLVM name)
     var_map: HashMap<u32, String>,
+    /// Variable type mapping (IR VarId -> IrType)
+    var_types: HashMap<u32, IrType>,
     /// Block label mapping (IR BlockId -> LLVM label)
     block_map: HashMap<u32, String>,
     /// String literal table (index -> global name)
@@ -45,6 +47,7 @@ impl LlvmCodegen {
             output: String::new(),
             current_func: None,
             var_map: HashMap::new(),
+            var_types: HashMap::new(),
             block_map: HashMap::new(),
             string_globals: HashMap::new(),
             name_counter: 0,
@@ -230,6 +233,9 @@ impl LlvmCodegen {
         writeln!(self.output, "declare void @trq_throw(ptr)").unwrap();
         writeln!(self.output, "declare ptr @trq_get_exception()").unwrap();
 
+        // C standard library
+        writeln!(self.output, "declare i64 @strlen(ptr)").unwrap();
+
         writeln!(self.output).unwrap();
     }
 
@@ -380,6 +386,8 @@ impl LlvmCodegen {
             Instruction::Alloca { dest, ty } => {
                 let dest_name = self.get_or_create_var(*dest);
                 let llvm_ty = self.type_mapper.map_type(ty);
+                // Track the allocated pointer type
+                self.var_types.insert(dest.0, IrType::Ptr(Box::new(ty.clone())));
                 writeln!(self.output, "  {} = alloca {}", dest_name, llvm_ty).unwrap();
             }
 
@@ -387,6 +395,8 @@ impl LlvmCodegen {
                 let dest_name = self.get_or_create_var(*dest);
                 let ptr_name = self.get_var(*ptr)?;
                 let llvm_ty = self.type_mapper.map_type(ty);
+                // Track the loaded value type
+                self.var_types.insert(dest.0, ty.clone());
                 writeln!(
                     self.output,
                     "  {} = load {}, ptr {}",
@@ -398,11 +408,13 @@ impl LlvmCodegen {
             Instruction::Store { ptr, value } => {
                 let ptr_name = self.get_var(*ptr)?;
                 let value_name = self.get_var(*value)?;
-                // TODO: Need to know the type of value
+                // Look up the type of the value
+                let val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+                let llvm_ty = self.type_mapper.map_type(&val_type);
                 writeln!(
                     self.output,
-                    "  store i64 {}, ptr {}",
-                    value_name, ptr_name
+                    "  store {} {}, ptr {}",
+                    llvm_ty, value_name, ptr_name
                 )
                 .unwrap();
             }
@@ -595,11 +607,13 @@ impl LlvmCodegen {
                     ptr_name, struct_ty, obj_name, field.index
                 )
                 .unwrap();
-                // TODO: Need proper type for store
+                // Look up the type of the value
+                let val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+                let llvm_ty = self.type_mapper.map_type(&val_type);
                 writeln!(
                     self.output,
-                    "  store i64 {}, ptr {}",
-                    val_name, ptr_name
+                    "  store {} {}, ptr {}",
+                    llvm_ty, val_name, ptr_name
                 )
                 .unwrap();
             }
@@ -721,6 +735,9 @@ impl LlvmCodegen {
                 let elem_size = self.type_mapper.type_size(elem_ty);
                 let len = elements.len() as i64;
 
+                // Track the array type - it returns a pointer
+                self.var_types.insert(dest.0, IrType::Array(Box::new(elem_ty.clone()), len as usize));
+
                 // Allocate array
                 writeln!(
                     self.output,
@@ -732,6 +749,9 @@ impl LlvmCodegen {
                 // Initialize elements
                 for (i, elem) in elements.iter().enumerate() {
                     let elem_name = self.get_var(*elem)?;
+                    // Use the actual element type from var_types if available
+                    let actual_elem_ty = self.var_types.get(&elem.0).cloned().unwrap_or(elem_ty.clone());
+                    let llvm_elem_ty = self.type_mapper.map_type(&actual_elem_ty);
                     // Get element pointer
                     let elem_ptr = self.fresh_name("elem.ptr");
                     writeln!(
@@ -742,8 +762,8 @@ impl LlvmCodegen {
                     .unwrap();
                     writeln!(
                         self.output,
-                        "  store i64 {}, ptr {}",
-                        elem_name, elem_ptr
+                        "  store {} {}, ptr {}",
+                        llvm_elem_ty, elem_name, elem_ptr
                     )
                     .unwrap();
                 }
@@ -802,10 +822,13 @@ impl LlvmCodegen {
                     elem_ptr, array_name, index_name
                 )
                 .unwrap();
+                // Look up the type of the value
+                let val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+                let llvm_ty = self.type_mapper.map_type(&val_type);
                 writeln!(
                     self.output,
-                    "  store i64 {}, ptr {}",
-                    value_name, elem_ptr
+                    "  store {} {}, ptr {}",
+                    llvm_ty, value_name, elem_ptr
                 )
                 .unwrap();
             }
@@ -883,13 +906,65 @@ impl LlvmCodegen {
 
             Instruction::Print { value } => {
                 let val_name = self.get_var(*value)?;
-                // TODO: Dispatch based on type
-                writeln!(
-                    self.output,
-                    "  call void @trq_print_int(i64 {})",
-                    val_name
-                )
-                .unwrap();
+                // Dispatch based on type
+                let var_type = self.var_types.get(&value.0).cloned();
+                match &var_type {
+                    Some(IrType::String) | Some(IrType::Ptr(_)) => {
+                        // For strings/pointers, create a TrqString from the raw ptr
+                        // and then call trq_print
+                        let str_var = format!("%tmp_str_{}", self.name_counter);
+                        let len_var = format!("%tmp_len_{}", self.name_counter);
+                        self.name_counter += 1;
+                        // Get string length using strlen
+                        writeln!(
+                            self.output,
+                            "  {} = call i64 @strlen(ptr {})",
+                            len_var, val_name
+                        ).unwrap();
+                        // Create TrqString
+                        writeln!(
+                            self.output,
+                            "  {} = call ptr @trq_string_new(ptr {}, i64 {})",
+                            str_var, val_name, len_var
+                        ).unwrap();
+                        // Print the TrqString
+                        writeln!(
+                            self.output,
+                            "  call void @trq_print(ptr {})",
+                            str_var
+                        ).unwrap();
+                    }
+                    Some(IrType::Float) => {
+                        writeln!(
+                            self.output,
+                            "  call void @trq_print_float(double {})",
+                            val_name
+                        ).unwrap();
+                    }
+                    Some(IrType::Bool) => {
+                        writeln!(
+                            self.output,
+                            "  call void @trq_print_bool(i1 {})",
+                            val_name
+                        ).unwrap();
+                    }
+                    Some(IrType::Array(_, _)) => {
+                        // For arrays, print the array reference
+                        writeln!(
+                            self.output,
+                            "  call void @trq_print_int(i64 ptrtoint (ptr {} to i64))",
+                            val_name
+                        ).unwrap();
+                    }
+                    _ => {
+                        // Default to int
+                        writeln!(
+                            self.output,
+                            "  call void @trq_print_int(i64 {})",
+                            val_name
+                        ).unwrap();
+                    }
+                }
                 writeln!(self.output, "  call void @trq_print_newline()").unwrap();
             }
 
@@ -906,9 +981,11 @@ impl LlvmCodegen {
         &mut self,
         dest: VarId,
         value: &Constant,
-        _ty: &IrType,
+        ty: &IrType,
     ) -> Result<(), CodegenError> {
         let dest_name = self.get_or_create_var(dest);
+        // Track the type for later use (e.g., in Print)
+        self.var_types.insert(dest.0, ty.clone());
 
         match value {
             Constant::Null => {
