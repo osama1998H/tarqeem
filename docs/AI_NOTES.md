@@ -34,17 +34,17 @@ Phase 3: Standard Library - Planning Complete, Ready to Start
 - LLVM codegen: Complete (executables run)
 - Interpreter mode: Complete (IR-based execution)
 
-Phase 3 Prep: Module System (In Progress)
-- Module loader infrastructure: Complete
-- Export tracking: Complete
-- Import resolution: Complete
-- Super constructor call (أساس()): Fixed
+Phase 3: Standard Library (In Progress)
+- Milestone 3.0 (P1 Bug Fixes): ✅ Complete
+- Milestone 3.1 (Module System): ✅ Complete
+- Milestone 3.2 (Core Collections): ✅ Complete
 
 ### Known Issues
 - None critical. All P0/P1 bugs resolved.
 
 ### In-Progress Work
-- Standard library foundation (stdlib_trq/)
+- Milestone 3.3 (String Utilities) - Runtime bindings added
+- Milestone 3.4 (Math Library) - Pending
 
 ---
 
@@ -327,6 +327,98 @@ Use this section to summarize what was accomplished in each session.
 **See**: `docs/PHASE3_PLAN.md` for complete implementation plan
 >>>>>>> 6ed4d17 (docs: add Phase 3 (Standard Library) feasibility plan)
 
+### Session: 2025-12-20 - Phase 3 Milestones 3.0, 3.1, 3.2 Implementation
+
+**Goal**: Implement Phase 3 (Standard Library) milestones 3.0 (P1 Bug Fixes), 3.1 (Module System), and 3.2 (Core Collections)
+
+**Milestone 3.0: P1 Bug Fixes** - ✅ Complete
+- Verified all P1 bugs from Phase 2 are already fixed
+- Array indexing: Working
+- For-in iteration: Working
+- Empty array type inference: Working
+- Super constructor call (أساس()): Working
+- All 108 tests passing
+
+**Milestone 3.1: Module System** - ✅ Complete
+- Module loader infrastructure already implemented in previous session
+- Path resolution, export tracking, circular dependency detection all working
+- See `src/semantic/modules.rs`
+
+**Milestone 3.2: Core Collections** - ✅ Complete
+
+Created `stdlib_trq/مجموعات/` directory with:
+
+1. **mod.trq** - Module index that re-exports all collection types
+
+2. **قائمة.trq** (List<T>) - 270 lines
+   - Adding: أضف(), أضف_في(), أضف_كل()
+   - Removing: احذف(), احذف_اول(), احذف_اخير(), امسح()
+   - Access: احصل(), عيّن(), اول(), اخير()
+   - Search: يحتوي(), فهرس(), فهرس_اخير()
+   - Properties: طول(), فارغة()
+   - Conversion: الى_مصفوفة(), نسخة()
+   - Higher-order: لكل(), خريطة(), رشح(), اختزل(), اي(), كل(), جد()
+   - Sorting: اعكس()
+
+3. **مجموعة.trq** (Set<T>) - 200 lines
+   - Add/Remove: أضف(), احذف(), امسح()
+   - Query: يحتوي(), طول(), فارغة()
+   - Set operations: اتحاد(), تقاطع(), فرق(), فرق_متماثل()
+   - Subset/superset: مجموعة_جزئية(), مجموعة_شاملة(), منفصلة()
+   - Conversion: الى_مصفوفة(), الى_قائمة(), نسخة()
+
+4. **قاموس.trq** (Map<K,V>) - 180 lines
+   - Add/Modify: عيّن(), احصل(), احصل_او()
+   - Remove: احذف(), امسح()
+   - Query: يحتوي(), يحتوي_قيمة(), طول(), فارغ()
+   - Iteration: مفاتيح(), قيم(), عناصر(), لكل()
+   - Merge: ادمج(), نسخة()
+   - Also includes زوج<أ، ب> (Pair) type
+
+5. **طابور.trq** (Queue<T>) - 80 lines
+   - Operations: ادخل(), اخرج(), انظر()
+   - Query: طول(), فارغ(), امسح(), يحتوي()
+   - Conversion: الى_مصفوفة(), الى_قائمة()
+
+6. **مكدس.trq** (Stack<T>) - 90 lines
+   - Operations: ادفع(), انزع(), قمة()
+   - Query: طول(), فارغ(), امسح(), يحتوي()
+   - Conversion: الى_مصفوفة(), الى_قائمة(), اعكس()
+
+7. **متكرر.trq** (Iterator interface) - 80 lines
+   - متكرر<ن> interface: التالي(), يوجد_تالي()
+   - قابل_للتكرار<ن> interface: متكرر()
+   - متكرر_مصفوفة<ن> - Array iterator implementation
+   - متكرر_نطاق - Range iterator for numbers
+   - Helper functions: نطاق(), نطاق_بخطوة()
+
+**Runtime Enhancements**:
+Added string utility functions to C runtime (`runtime/tarqeem_rt.h`, `runtime/string.c`):
+- trq_string_contains()
+- trq_string_starts_with()
+- trq_string_ends_with()
+- trq_string_index_of()
+- trq_string_to_upper()
+- trq_string_to_lower()
+- trq_string_trim()
+- trq_string_repeat()
+- trq_string_replace()
+- trq_string_split()
+
+**Files Changed**:
+- Created: `stdlib_trq/مجموعات/mod.trq`
+- Created: `stdlib_trq/مجموعات/قائمة.trq`
+- Created: `stdlib_trq/مجموعات/مجموعة.trq`
+- Created: `stdlib_trq/مجموعات/قاموس.trq`
+- Created: `stdlib_trq/مجموعات/طابور.trq`
+- Created: `stdlib_trq/مجموعات/مكدس.trq`
+- Created: `stdlib_trq/مجموعات/متكرر.trq`
+- Removed: `stdlib_trq/مجموعات.trq` (replaced by directory)
+- Modified: `runtime/tarqeem_rt.h` (added string functions)
+- Modified: `runtime/string.c` (added string implementations)
+
+**Test Results**: All 108 tests passing
+
 ---
 
 ## TODOs
@@ -347,9 +439,22 @@ Track follow-up items here:
 - [x] Implement export tracking
 - [x] Implement import resolution
 
+**Completed (2025-12-20 Phase 3 Milestones 3.0-3.2)**:
+- [x] Verified all P1 bugs are fixed (108 tests passing)
+- [x] Created stdlib_trq/مجموعات/ directory structure
+- [x] Implemented قائمة<ن> (List) with full API
+- [x] Implemented مجموعة<ن> (Set) with set operations
+- [x] Implemented قاموس<م، ق> (Map/Dictionary)
+- [x] Implemented طابور<ن> (Queue - FIFO)
+- [x] Implemented مكدس<ن> (Stack - LIFO)
+- [x] Implemented متكرر interface and iterator types
+- [x] Added string utility runtime bindings (contains, starts_with, ends_with, etc.)
+
 **Pending**:
-- [ ] Create stdlib_trq/ directory structure
-- [ ] Implement core standard library modules
+- [ ] Complete string utilities (stdlib_trq/نص/)
+- [ ] Complete math library (stdlib_trq/رياضيات/)
+- [ ] Implement file system API (stdlib_trq/ملفات/)
+- [ ] Add integration tests for stdlib
 - [ ] Add more path-scoped rules as patterns emerge
 - [ ] Create integration tests for the compiler pipeline
 - [ ] Document common error patterns and solutions
