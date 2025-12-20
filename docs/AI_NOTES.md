@@ -1,364 +1,375 @@
 # AI Implementation Notes
 
-Persistent memory for AI agents working on Tarqeem. Update after significant changes.
+This file serves as persistent memory for AI agents working on the Tarqeem codebase. Update this file after each significant change to maintain context across sessions.
+
+---
+
+## How to Use This File
+
+AI agents MUST update this file:
+1. After completing any significant implementation
+2. When making architectural decisions
+3. When discovering important patterns or constraints
+4. When encountering and resolving issues
+
+Each entry should include:
+- Date and brief description
+- What was changed/decided
+- Why (rationale)
+- Any follow-ups or risks
 
 ---
 
 ## Current State
 
-**Last Updated**: 2025-12-21
-**Phase**: V1 Release Complete
-**Tests**: 921+ passing
-**Known Issues**: None critical
+### Last Updated
+2025-12-20
+
+### Project Phase
+Phase 2: Code Generation - ✅ COMPLETE
+Phase 3: Standard Library - Planning Complete, Ready to Start
+- IR infrastructure: Complete
+- Type system: Complete (generics, inheritance, vtables)
+- Code optimizer: Complete (const fold, DCE, CSE, inlining, loop opts)
+- LLVM codegen: Complete (executables run)
+- Interpreter mode: Complete (IR-based execution)
+
+Phase 3 Prep: Module System (In Progress)
+- Module loader infrastructure: Complete
+- Export tracking: Complete
+- Import resolution: Complete
+- Super constructor call (أساس()): Fixed
+
+### Known Issues
+- None critical. All P0/P1 bugs resolved.
+
+### In-Progress Work
+- Standard library foundation (stdlib_trq/)
+
+---
+
+## Implementation Log
+
+### 2024-12-20: Agent Context Awareness Implementation
+
+**What**: Added comprehensive agent context engineering infrastructure to prevent bugs from context rot.
+
+**Changes made**:
+1. Created `.claude/rules/` with modular rules:
+   - `00-operating-procedure.md` - Mandatory Explore→Plan→Implement→Verify workflow
+   - `architecture.md` - Layer boundaries and invariants
+   - `testing.md` - Testing requirements
+   - `rust-style.md` - Path-scoped Rust coding standards
+   - `arabic-support.md` - Arabic language handling rules
+
+2. Created `.claude/commands/` with reusable workflows:
+   - `safe-change.md` - Full safe change workflow
+   - `explore.md` - Read-only exploration
+   - `fix-issue.md` - Bug fix workflow
+   - `add-feature.md` - New feature workflow
+   - `review-code.md` - Code review checklist
+
+3. Updated `CLAUDE.md`:
+   - Added project map at the top
+   - Added mandatory workflow section
+   - Added critical invariants table
+   - Added modular rules and commands reference
+   - Added imports for ARCHITECTURE.md and README.md
+
+4. Created `docs/AI_NOTES.md` (this file):
+   - Persistent memory across sessions
+   - Implementation log
+   - Decision tracking
+
+**Why**: AI agents optimize locally while missing global constraints. This causes bugs. The solution is:
+- Mandatory workflow that forces exploration before coding
+- Modular rules that are always loaded
+- Structured notes that persist across sessions
+- Slash commands for consistent workflows
+
+**Risks**: None. This is additive documentation.
+
+**Follow-ups**:
+- Agents should follow the new workflow
+- Update this file after each significant change
 
 ---
 
 ## Architectural Decisions
 
-- **Layer Boundaries**: Lexer→Parser→Semantic→IR→Codegen (no reverse deps)
-- **Bilingual Messages**: All user-facing strings have Arabic + English
-- **NFC Normalization**: Arabic identifiers normalized before comparison
-- **Error Recovery**: Never panic/unwrap on user input
+### Decision: Layer Boundaries
+**Date**: Project inception
+**Decision**: Compiler layers (Lexer→Parser→Semantic→IR→Codegen) can only depend on layers before them.
+**Rationale**: Prevents circular dependencies and maintains clear separation of concerns.
+**See**: `.claude/rules/architecture.md`
+
+### Decision: Bilingual Error Messages
+**Date**: Project inception
+**Decision**: All user-facing messages must have both Arabic and English versions.
+**Rationale**: Tarqeem is Arabic-first but needs to be accessible to English speakers.
+**See**: `.claude/rules/arabic-support.md`
+
+### Decision: NFC Normalization
+**Date**: Project inception
+**Decision**: All Arabic identifiers must be NFC-normalized before comparison.
+**Rationale**: Arabic text can have multiple byte representations for the same visual characters.
+**See**: `.claude/rules/arabic-support.md`
 
 ---
 
-## Implementation Log (Outline)
+## Patterns Discovered
 
-### 2024-12-20: Agent Context Awareness
-- Created `.claude/rules/` modular rules system
-- Created `.claude/commands/` reusable workflows
-- Updated CLAUDE.md with project map
+### Pattern: Token with Span
+Every token must carry its source location. This is required for accurate error reporting.
+```rust
+pub struct Token {
+    pub kind: TokenKind,
+    pub span: Span,  // REQUIRED
+    pub lexeme: String,
+}
+```
 
-### 2025-12-20: Stress Test & Fixes
-- Created Conway's Game of Life stress test
-- Fixed empty else block bug
-- Fixed global constants visibility
-- Fixed C main entry point
-- Fixed void function handling
-- Fixed implicit returns
+### Pattern: Result Type Aliases
+Use type aliases for complex Result types:
+```rust
+pub type ParseResult<T> = Result<T, ParseError>;
+pub type TypeCheckResult<T> = Result<T, TypeError>;
+```
 
-### 2025-12-20: Phase 3 Standard Library
-- Implemented module system (استورد/صدّر)
-- Created مجموعات (Collections): قائمة, مجموعة, خريطة, طابور, مكدس
-- Created نص (String utilities)
-- Created رياضيات (Math library)
-- Created ملفات (File system)
-- Created طرفية (Console I/O)
-- Created شبكة (Networking)
-- Created وقت (Date/Time)
-- Created أخطاء (Error handling)
-
-### 2025-12-20: Parser Updates
-- Added generic type parameters for classes/interfaces
-- Added automatic semicolon insertion
-- Added generic type arguments in `new` expressions
-
-### 2025-12-20: Phase 4 Planning
-- Created comprehensive Phase 4 plan (Tooling)
-- Designed package manager (trqpm)
-- Planned LSP server, VS Code extension
-
-### 2025-12-21: Global Variables
-- Added GlobalLoad/GlobalStore IR instructions
-- Updated LLVM codegen for globals
-- Updated interpreter for globals
+### Pattern: Bilingual Diagnostic
+```rust
+Diagnostic {
+    message: "English message",
+    message_ar: "رسالة بالعربية",
+    span: Span,
+    level: DiagnosticLevel,
+}
+```
 
 ---
 
-## Key Patterns
+## Session Summaries
 
-- **Token with Span**: Every token carries source location
-- **Result Type Aliases**: `ParseResult<T>`, `TypeCheckResult<T>`
-- **Bilingual Diagnostic**: `message` + `message_ar` fields
+Use this section to summarize what was accomplished in each session.
+
+### Session: 2024-12-20 - Agent Context Awareness
+- Researched best practices from Anthropic documentation
+- Implemented modular rules system
+- Implemented slash commands
+- Updated CLAUDE.md with project map and workflow
+- Created this notes file
+
+### Session: 2025-12-20 - Conway's Game of Life Stress Test
+
+**Goal**: Stress test the Tarqeem compiler with a non-trivial program (Conway's Game of Life)
+
+**Test Files Created**:
+1. `examples/لعبة_الحياة.trq` - Full implementation (33 errors, exposed type system gaps)
+2. `examples/لعبة_الحياة_بسيط.trq` - Simplified without arrays (global constant issues)
+3. `examples/اختبار_بسيط.trq` - Minimal test (LLVM codegen bugs)
+
+**Findings**:
+| Component | Status |
+|-----------|--------|
+| Lexer | ✅ Working |
+| Parser | ✅ Working |
+| Semantic Analysis | ⚠️ Partial (arrays/generics broken) |
+| IR Generation | ⚠️ Partial (simple cases work) |
+| LLVM Codegen | ❌ Bugs (empty else blocks, type mismatches) |
+| Execution | ❌ Not implemented |
+
+**Critical Bugs Discovered**:
+1. Empty else block in LLVM IR causes clang to fail
+2. Global constants not visible in function scope during IR gen
+3. Type mismatch: double returned as i64
+4. Array indexing not implemented in type checker
+5. For-in iteration over arrays not implemented
+6. Generic types (مصفوفة<مصفوفة<منطقي>>) not fully supported
+
+**See**: `docs/STRESS_TEST_REPORT.md` for detailed analysis
+
+### Session: 2025-12-20 - Stress Test Bug Fixes (P0 Complete)
+
+**Goal**: Fix the critical P0 bugs identified in the stress test to enable code execution
+
+**Bugs Fixed**:
+
+1. **Empty else block bug** (`src/ir/builder.rs:build_if`)
+   - When `else_branch` is `None`, branch directly to `merge_block` instead of creating empty `else_block`
+   - Prevents LLVM error about blocks without terminators
+
+2. **Global constants visibility** (`src/ir/builder.rs`)
+   - Added `global_constants: HashMap<String, (Constant, IrType)>` field
+   - Added first pass in `build()` to collect global constants before processing functions
+   - Modified `build_identifier()` to check globals after local scope
+
+3. **C main entry point** (`src/codegen/llvm/codegen.rs`)
+   - Added `emit_c_main_entry()` function to generate C `main()` that calls `__main__()`
+   - Fixes "undefined reference to main" linking error
+
+4. **Void function call destination** (`src/codegen/llvm/codegen.rs`)
+   - Modified Call instruction handling to skip destination assignment for void returns
+   - Fixes type mismatch errors in LLVM IR
+
+5. **Unique block labels** (`src/codegen/llvm/codegen.rs`)
+   - Added block ID to label names: `format!("{}.{}", label, block.id.0)`
+   - Prevents duplicate label errors
+
+6. **Return type tracking** (`src/codegen/llvm/codegen.rs`)
+   - Added `current_return_type` field to track function return type
+   - Fixed Return instruction to use proper type instead of defaulting to i64
+
+7. **Variable type tracking** (`src/codegen/llvm/codegen.rs`)
+   - Added `var_types.insert()` for Binary, Unary, IntToFloat, FloatToInt operations
+   - Prevents "void parameter" errors in LLVM IR
+
+8. **Implicit return for void functions** (`src/ir/builder.rs:build_func_decl`)
+   - Changed from checking `func.blocks.last()` to checking current block
+   - Only adds implicit return for void functions
+   - Fixes functions ending with if-else that had unreachable merge blocks
+
+**Test Results**:
+- All 84 unit tests pass
+- 5/8 example files compile and run correctly:
+  - ✅ اختبار_بسيط.trq - arithmetic, factorial, recursion
+  - ✅ دوال.trq - function calls
+  - ✅ لعبة_الحياة_بسيط.trq - Game of Life (simplified)
+  - ✅ متغيرات.trq - variables and arrays
+  - ✅ مرحبا.trq - hello world
+- 3/8 examples need P1 features (array indexing, for-in, empty array inference)
+
+**Remaining P1 Work**:
+- Empty array type inference (`متغير arr: مصفوفة<عدد> = []`)
+- Array indexing IR generation (`arr[i]`)
+- For-in iteration over arrays (`لكل x في arr`)
+
+**See**: `docs/STRESS_TEST_FIX_PLAN.md` for detailed implementation plan
+
+<<<<<<< HEAD
+### Session: 2025-12-20 - Phase 3 Prerequisites
+
+**Goal**: Prepare for Phase 3 (Standard Library) by implementing module system infrastructure
+
+**What was validated**:
+- Array indexing: Already working (confirmed in test cases)
+- For-in iteration: Already working (confirmed in test cases)
+- Only real remaining issue: super constructor call (أساس())
+
+**Bugs Fixed**:
+
+1. **Super constructor call (أساس())** (`src/semantic/analyzer.rs`, `src/ir/builder.rs`)
+   - Added `analyze_super_constructor_call()` method to Analyzer
+   - Added special-case handling in `ExprKind::Call` for `ExprKind::Super` callee
+   - Added `build_super_constructor_call()` method to IrBuilder
+   - Validates: in class context, parent exists, correct argument count
+
+**Module System Implementation**:
+
+1. **Module Infrastructure (M1)** (`src/semantic/modules.rs`)
+   - `ModuleId`: Unique identifier based on canonical path
+   - `ModuleLoader`: Handles loading, caching, and cycle detection
+   - `LoadedModule`: Parsed module with AST and exports
+   - `ExportedSymbol`: Tracks exported functions, classes, interfaces, variables
+   - Path resolution supports: relative (`./`), absolute, search paths
+   - File extensions: `.trq` and `.ترقيم`
+   - Index files: `index.trq` and `فهرس.ترقيم`
+
+2. **Export Tracking (M2)** (`src/semantic/modules.rs`)
+   - `collect_exports()` scans AST for exported declarations
+   - Tracks export kind (Function, Class, Interface, Variable, Constant)
+
+3. **Import Resolution (M3)** (`src/semantic/analyzer.rs`)
+   - Full `analyze_import()` implementation
+   - Resolves module paths relative to current file
+   - Loads modules and imports symbols with correct types
+   - Handles named imports, aliases, and wildcard imports
+   - Circular dependency detection with helpful error messages
+
+**Files Changed**:
+- `src/semantic/analyzer.rs` - super constructor + module integration
+- `src/ir/builder.rs` - super constructor IR generation
+- `src/semantic/modules.rs` - new module system infrastructure
+- `src/semantic/mod.rs` - export new module types
+- `src/parser/parser.rs` - `from_tokens()` constructor
+
+**Test Results**: 108 tests passing (up from 101)
+
+**See**: `docs/PHASE3_PREP_PLAN.md` for detailed implementation plan
+=======
+### Session: 2025-12-20 - Phase 3 Feasibility Analysis and Planning
+
+**Goal**: Assess feasibility of Phase 3 (Standard Library) and create comprehensive implementation plan
+
+**Findings - Phase 2 Status**: ✅ COMPLETE
+- All 6 milestones (2.1-2.6) complete
+- 101 unit tests passing
+- 5/8 examples compile and run
+- LLVM codegen generates working executables
+- C runtime library (1231 LOC) with memory, strings, arrays, I/O
+
+**Phase 3 Prerequisites Identified**:
+1. Fix P1 bugs (array indexing, for-in iteration, empty array inference, super() calls)
+2. Implement module system (استورد/صدّر) - deferred from Phase 2
+3. stdlib_trq/ directory needs to be created (currently empty)
+
+**Phase 3 Plan Created** (`docs/PHASE3_PLAN.md`):
+- 10 milestones (3.0-3.9)
+- All stdlib classes/functions in Arabic (قائمة، مجموعة، قاموس، طابور، مكدس, etc.)
+- Covers: Collections, String Utils, Math, File System, I/O, Networking, Date/Time, Error Handling
+- Complete API definitions for all types
+
+**Key Design Decisions**:
+1. Standard library written in Tarqeem (stdlib_trq/), not Rust
+2. All public APIs have Arabic names (قائمة not List)
+3. Built on top of existing C runtime (libtrq.a)
+4. Module system required first (Milestone 3.1)
+
+**See**: `docs/PHASE3_PLAN.md` for complete implementation plan
+>>>>>>> 6ed4d17 (docs: add Phase 3 (Standard Library) feasibility plan)
 
 ---
 
 ## TODOs
 
-**Completed**:
-- [x] Phase 1-3 complete
-- [x] V1 release ready
-- [x] All critical bugs fixed
+Track follow-up items here:
+
+**Completed (2025-12-20)**:
+- [x] Fix empty else block bug in LLVM codegen
+- [x] Fix type mismatch in return statements
+- [x] Make global constants visible in IR generation
+- [x] Add C main entry point for executables
+- [x] Fix void function call destination
+- [x] Fix implicit return for void functions after if-else
+
+**Completed (2025-12-20 Phase 3 Prep)**:
+- [x] Fix super constructor call (أساس()) semantic issues
+- [x] Implement module system infrastructure
+- [x] Implement export tracking
+- [x] Implement import resolution
 
 **Pending**:
-- [ ] Phase 4: Tooling implementation
-- [ ] Package manager (trqpm)
-- [ ] LSP server
-- [ ] VS Code extension
+- [ ] Create stdlib_trq/ directory structure
+- [ ] Implement core standard library modules
+- [ ] Add more path-scoped rules as patterns emerge
+- [ ] Create integration tests for the compiler pipeline
+- [ ] Document common error patterns and solutions
 
 ---
 
-### 2025-12-23: Phase 1 Arabic Philosophy Audit
-
-**Task**: Remove `__xxx__` pattern from 170+ builtin functions
-
-**Architecture Insight**:
-- scope.rs: Registers builtin functions with Arabic names (type checking)
-- runtime/: C library with `trq_*` functions (actual implementation)
-- stdlib_trq/: Uses `__xxx__` pattern to call internal functions
-- codegen: Generates LLVM IR, needs mapping Arabic→trq_*
-
-**Solution Design**:
-1. Add function name mapping in codegen (Arabic → `trq_*`)
-2. Register all runtime functions in scope.rs
-3. Update stdlib_trq to use clean Arabic function names
-4. Update examples and tests
-
-**Files Modified**:
-- src/codegen/llvm/codegen.rs - Add runtime function mapping
-- src/semantic/scope.rs - Register additional builtin functions
-- stdlib_trq/**/*.ترقيم - Remove __xxx__ pattern
-- examples/ - Update function calls
-- tests/ - Update test code
-
----
-
----
-
-### 2025-12-23: Arabic File Extensions and Package Format
-
-**Task**: Implement fully Arabic file extensions and custom package configuration format
-
-**Problem**:
-- Current package manifest uses TOML format (`حزمة.toml`)
-- TOML is an English-based format with English syntax (`[section]`, `=`, `{}`)
-- This violates Arabic philosophy: "ترقيم ليست ترجمة - بل لغة برمجة عربية أصيلة"
-
-**Solution**: Create custom Arabic configuration format "صيغة حزمة"
-
-**New File Extensions**:
-| Extension | Purpose |
-|-----------|---------|
-| `.حزمة` | Package manifest (replaces .toml) |
-| `.قفل` | Lock file (replaces .trqlock) |
-
-**Format Design**:
-```
-# تعليق
-حزمة:
-    اسم: مكتبتي
-    نسخة: ١.٠.٠
-    رخصة: MIT
-
-اعتماديات:
-    json: ٢.٠.٠
-```
-
-**Key Features**:
-- Indentation-based (like YAML but Arabic)
-- Arabic numerals support (٠-٩)
-- Arabic booleans (نعم/لا)
-- Arabic comments (#)
-- No English syntax required
-
-**Implementation Phases**:
-1. Add extensions to `src/utils/extensions.rs`
-2. Create parser module `src/package/format/`
-3. Update manifest.rs for new format
-4. Update init.rs to generate new format
-5. Maintain TOML backward compatibility
-
-**Files to Create**:
-- `src/package/format/mod.rs`
-- `src/package/format/lexer.rs`
-- `src/package/format/parser.rs`
-- `src/package/format/value.rs`
-- `src/package/format/error.rs`
-
-**Files to Modify**:
-- `src/utils/extensions.rs`
-- `src/package/mod.rs`
-- `src/package/manifest.rs`
-- `src/package/lockfile.rs`
-- `src/cli/pm/init.rs`
-- `README.md`
-
----
-
----
-
-### 2025-12-23: Arabic Enums Implementation (تعداد)
-
-**Task**: Design and implement enums following Arabic philosophy
-
-## 1. Arabic Keyword Design
-
-Following the four rules from `arabic-philosophy.md`:
-
-| Rule | Application |
-|------|-------------|
-| **الوصف لا الترجمة** | "enum" = enumeration = تعداد (counting/listing items) |
-| **الصحة النحوية** | `تعداد الألوان { ... }` reads naturally in Arabic |
-| **الترتيب العربي** | Name follows keyword (like صنف، ميثاق) |
-| **الاكتمال الذاتي** | تعداد is a complete, self-explanatory word |
-
-**Chosen Keyword**: **تعداد** (ta'dād) - means "enumeration" or "numbered list"
-
-**Rationale**:
-- Proper Arabic word (not transliteration)
-- Describes exactly what an enum is
-- Flows naturally: `تعداد الحجم { صغير، متوسط، كبير }`
-- Similar structure to existing keywords (صنف، ميثاق)
-
-## 2. Proposed Syntax
-
-### Simple Enum (Unit Variants)
-```tarqeem
-تعداد اللون {
-    أحمر
-    أخضر
-    أزرق
-}
-```
-
-### Enum with Explicit Values
-```tarqeem
-تعداد الحجم {
-    صغير = 1
-    متوسط = 2
-    كبير = 3
-}
-```
-
-### Enum with Associated Data (Tagged Unions)
-```tarqeem
-تعداد الرسالة {
-    نص(محتوى: نص)
-    رقم(قيمة: عدد)
-    مركب(اسم: نص، عمر: عدد)
-    فارغ
-}
-```
-
-### Usage
-```tarqeem
-متغير لوني = اللون.أحمر
-متغير رسالتي = الرسالة.نص("مرحباً")
-
-تطابق (رسالتي) {
-    حالة الرسالة.نص(م) => اطبع(م)
-    حالة الرسالة.رقم(ق) => اطبع(ق)
-    حالة الرسالة.فارغ => اطبع("فارغ")
-}
-```
-
-## 3. Implementation Phases
-
-### Phase 1: Lexer
-- Add `Enum` to TokenKind in `src/lexer/token.rs`
-- Add `"تعداد" => TokenKind::Enum` in `src/lexer/keywords.rs`
-
-### Phase 2: Parser
-- Add `EnumDecl`, `EnumVariant`, `EnumVariantField` to `src/parser/ast.rs`
-- Add `parse_enum_declaration()` to `src/parser/parser.rs`
-
-### Phase 3: Semantic Analysis
-- Add `Type::Enum(String)` to `src/semantic/types.rs`
-- Create `src/semantic/enum_resolver.rs` with EnumInfo, EnumVariantInfo
-- Update `src/semantic/analyzer.rs` with enum handling
-
-### Phase 4: IR Generation
-- Add `EnumId`, `IrType::Enum` to `src/ir/instruction.rs`
-- Add `EnumVariant`, `EnumVariantData`, `EnumDiscriminant`, `EnumIs`, `EnumField` instructions
-- Update `src/ir/builder.rs`
-
-### Phase 5: Code Generation
-- Simple enums: represent as i64 discriminants
-- Tagged unions: struct with tag + max-size payload
-- Update `src/codegen/llvm/codegen.rs`
-
-### Phase 6: Testing
-- Lexer tests for keyword
-- Parser tests for all syntax forms
-- Semantic tests for type resolution
-- Integration tests for full programs
-
-## 4. Error Messages (Bilingual)
-
-| Scenario | English | Arabic |
-|----------|---------|--------|
-| Expected enum name | Expected enum name | متوقع اسم التعداد |
-| Duplicate variant | Duplicate enum variant '{name}' | حالة مكررة في التعداد '{name}' |
-| Unknown variant | Unknown variant '{variant}' in enum '{enum}' | حالة غير معروفة '{variant}' في التعداد '{enum}' |
-| Type mismatch | Expected enum type '{expected}' | النوع المتوقع '{expected}' |
-
-## 5. Files to Modify
-
-| File | Changes |
-|------|---------|
-| `src/lexer/token.rs` | Add `Enum` variant |
-| `src/lexer/keywords.rs` | Add `تعداد` mapping |
-| `src/parser/ast.rs` | Add EnumDecl, EnumVariant, EnumVariantField |
-| `src/parser/parser.rs` | Add parse_enum_declaration |
-| `src/semantic/types.rs` | Add Type::Enum |
-| `src/semantic/enum_resolver.rs` | NEW: EnumInfo, EnumResolver |
-| `src/semantic/analyzer.rs` | Add enum handling |
-| `src/ir/instruction.rs` | Add EnumId, IrType::Enum, instructions |
-| `src/ir/builder.rs` | Add enum IR generation |
-| `src/codegen/llvm/codegen.rs` | Add enum codegen |
-
----
-
-### 2025-12-24: DAP Server Implementation (Phase 1)
-
-**Task**: Implement Debug Adapter Protocol server transport layer
-
-**Context**:
-- Debugger was 95% complete (~5,100 lines in src/debug/)
-- DapAdapter existed with 20+ request handlers
-- Missing: TCP/stdio transport layer for IDE integration
-
-**Implementation**:
-
-**New Files**:
-| File | Lines | Purpose |
-|------|-------|---------|
-| `src/debug/server.rs` | ~500 | DAP server with TCP and stdio transports |
-
-**Key Components**:
-- `DapMessage`: Request/Response/Event envelope
-- `DapProtocol`: Synchronous wire protocol (Content-Length headers)
-- `DapProtocolAsync`: Async wire protocol for tokio
-- `DapServer`: Main server with run_tcp(), run_stdio(), run_tcp_async(), run_stdio_async()
-- `TransportError`: Bilingual error type (Arabic/English)
-
-**CLI Changes**:
-- Added `--dap-stdio` flag for VS Code integration
-- Replaced TODO with actual DAP server implementation
-- TCP mode: `tarqeem debug file.trq --dap-port 4711`
-- Stdio mode: `tarqeem debug file.trq --dap-stdio`
-
-**Files Modified**:
-- `src/debug/server.rs` - NEW: Transport layer
-- `src/debug/mod.rs` - Export server module
-- `src/cli/mod.rs` - Add --dap-stdio flag
-- `src/cli/commands.rs` - Implement DAP server startup
-
-**Testing**:
-- 10 new unit tests in server.rs
-- All 61 debug module tests pass
-- Full test suite passes (921+ tests)
-
-**Design Decisions**:
-- Followed LSP module patterns for consistency
-- Both sync and async transports for flexibility
-- Bilingual error messages throughout
-- Atomic shutdown flag for graceful termination
-
-**Next Steps (Phase 2)**:
-- Async execution in adapter (non-blocking continue)
-- Pause support
-- SetVariable support
-- VS Code extension scaffold
-
----
-
-## Session Template
+## Template for New Entries
 
 ```markdown
-### YYYY-MM-DD: Title
-- What was changed
-- Why
-- Files modified
-- Test results
+### YYYY-MM-DD: Brief Title
+
+**What**: One-line description of the change.
+
+**Changes made**:
+1. First change
+2. Second change
+
+**Why**: Rationale for the change.
+
+**Risks**: Any potential issues.
+
+**Follow-ups**: Future work needed.
 ```
