@@ -1,5 +1,8 @@
 //! Semantic analyzer for Tarqeem
 
+use super::class_resolver::ClassResolver;
+use super::generics::GenericResolver;
+use super::method_resolver::{MemberResolution, MethodResolver};
 use super::scope::{Scope, ScopeKind, Symbol, SymbolKind};
 use super::types::{parse_type_name, Type};
 use crate::error::{Diagnostic, Language, Span};
@@ -9,10 +12,17 @@ use crate::parser::*;
 pub struct Analyzer {
     /// Current scope
     scope: Scope,
+    /// Class resolver for OOP type checking
+    class_resolver: ClassResolver,
+    /// Generic type resolver (for future use with generics)
+    #[allow(dead_code)]
+    generic_resolver: GenericResolver,
     /// Collected diagnostics
     diagnostics: Vec<Diagnostic>,
     /// Language for error messages
     language: Language,
+    /// Current class being analyzed (if any)
+    current_class: Option<String>,
 }
 
 impl Analyzer {
@@ -20,9 +30,17 @@ impl Analyzer {
     pub fn new() -> Self {
         Self {
             scope: Scope::new_global(),
+            class_resolver: ClassResolver::new(),
+            generic_resolver: GenericResolver::new(),
             diagnostics: Vec::new(),
             language: Language::Arabic,
+            current_class: None,
         }
+    }
+
+    /// Get the class resolver
+    pub fn class_resolver(&self) -> &ClassResolver {
+        &self.class_resolver
     }
 
     /// Set the language for error messages
@@ -33,6 +51,25 @@ impl Analyzer {
 
     /// Analyze a program
     pub fn analyze(&mut self, ast: &Ast) -> Result<(), Vec<Diagnostic>> {
+        // First pass: Register all classes and interfaces
+        for stmt in &ast.statements {
+            self.register_types(stmt);
+        }
+
+        // Second pass: Add members to classes and interfaces
+        for stmt in &ast.statements {
+            self.add_type_members(stmt);
+        }
+
+        // Build vtables for class hierarchy
+        self.class_resolver.build_vtables();
+
+        // Validate class hierarchy (inheritance, interfaces, etc.)
+        if let Err(diags) = self.class_resolver.validate() {
+            self.diagnostics.extend(diags);
+        }
+
+        // Third pass: Full semantic analysis
         for stmt in &ast.statements {
             self.analyze_stmt(stmt);
         }
@@ -41,6 +78,46 @@ impl Analyzer {
             Ok(())
         } else {
             Err(std::mem::take(&mut self.diagnostics))
+        }
+    }
+
+    /// First pass: Register type declarations
+    fn register_types(&mut self, stmt: &Stmt) {
+        match &stmt.kind {
+            StmtKind::ClassDecl {
+                name,
+                extends,
+                implements,
+                ..
+            } => {
+                self.class_resolver.register_class(
+                    name,
+                    extends.as_deref(),
+                    implements,
+                    stmt.span,
+                );
+            }
+            StmtKind::InterfaceDecl { name, .. } => {
+                self.class_resolver
+                    .register_interface(name, &[], stmt.span);
+            }
+            _ => {}
+        }
+    }
+
+    /// Second pass: Add members to types
+    fn add_type_members(&mut self, stmt: &Stmt) {
+        match &stmt.kind {
+            StmtKind::ClassDecl { name, members, .. } => {
+                // We need to use a standalone function to avoid borrow conflicts
+                self.class_resolver
+                    .add_class_members(name, members, resolve_type_annotation);
+            }
+            StmtKind::InterfaceDecl { name, methods } => {
+                self.class_resolver
+                    .add_interface_methods(name, methods, resolve_type_annotation);
+            }
+            _ => {}
         }
     }
 
@@ -286,9 +363,11 @@ impl Analyzer {
         members: &[ClassMember],
         span: Span,
     ) {
-        // Check parent class exists
+        // Check parent class exists (using class resolver)
         if let Some(parent_name) = extends {
-            if self.scope.lookup(parent_name).is_none() {
+            if self.class_resolver.get_class(parent_name).is_none()
+                && self.scope.lookup(parent_name).is_none()
+            {
                 self.error(
                     &format!("Unknown superclass '{}'", parent_name),
                     &format!("صنف أب غير معروف '{}'", parent_name),
@@ -299,7 +378,9 @@ impl Analyzer {
 
         // Check interfaces exist
         for iface in implements {
-            if self.scope.lookup(iface).is_none() {
+            if self.class_resolver.get_interface(iface).is_none()
+                && self.scope.lookup(iface).is_none()
+            {
                 self.error(
                     &format!("Unknown interface '{}'", iface),
                     &format!("واجهة غير معروفة '{}'", iface),
@@ -308,7 +389,7 @@ impl Analyzer {
             }
         }
 
-        // Define the class
+        // Define the class in scope
         let symbol = Symbol::class(name);
         if !self.scope.define(symbol) {
             self.error(
@@ -318,12 +399,33 @@ impl Analyzer {
             );
         }
 
+        // Set current class context
+        let prev_class = self.current_class.take();
+        self.current_class = Some(name.to_string());
+
         // Analyze class members in a class scope
         self.push_scope(ScopeKind::Class);
 
+        // Define 'this' in class scope
+        self.scope.define(Symbol::variable(
+            "هذا",
+            Type::Class(name.to_string()),
+            false,
+        ));
+        self.scope.define(Symbol::variable(
+            "this",
+            Type::Class(name.to_string()),
+            false,
+        ));
+
         for member in members {
             match member {
-                ClassMember::Field { name, ty, init, .. } => {
+                ClassMember::Field {
+                    name: field_name,
+                    ty,
+                    init,
+                    ..
+                } => {
                     let field_type = ty
                         .as_ref()
                         .map(|t| self.resolve_type(t))
@@ -335,11 +437,11 @@ impl Analyzer {
                             self.error(
                                 &format!(
                                     "Type mismatch in field '{}': expected {}, got {}",
-                                    name, field_type, init_type
+                                    field_name, field_type, init_type
                                 ),
                                 &format!(
                                     "عدم تطابق الأنواع في الحقل '{}': متوقع {}، وُجد {}",
-                                    name,
+                                    field_name,
                                     field_type.arabic_name(),
                                     init_type.arabic_name()
                                 ),
@@ -348,18 +450,19 @@ impl Analyzer {
                         }
                     }
 
-                    self.scope.define(Symbol::variable(name, field_type, true));
+                    self.scope
+                        .define(Symbol::variable(field_name, field_type, true));
                 }
 
                 ClassMember::Method {
-                    name,
+                    name: method_name,
                     params,
                     return_type,
                     body,
                     ..
                 } => {
                     self.analyze_func_decl(
-                        name,
+                        method_name,
                         params,
                         return_type.as_ref(),
                         body,
@@ -391,6 +494,9 @@ impl Analyzer {
         }
 
         self.pop_scope();
+
+        // Restore previous class context
+        self.current_class = prev_class;
     }
 
     fn analyze_interface_decl(&mut self, name: &str, _methods: &[MethodSignature], span: Span) {
@@ -765,10 +871,9 @@ impl Analyzer {
                 }
             }
 
-            ExprKind::Member { object, property: _ } => {
-                let _object_type = self.infer_type(object);
-                // For now, return Any for member access
-                Type::Any
+            ExprKind::Member { object, property } => {
+                let object_type = self.infer_type(object);
+                self.resolve_member_type(&object_type, property, expr.span)
             }
 
             ExprKind::Index { object, index } => {
@@ -1011,8 +1116,12 @@ impl Analyzer {
                         "'هذا' خارج الصنف",
                         expr.span,
                     );
+                    Type::Error
+                } else if let Some(ref class_name) = self.current_class {
+                    Type::Class(class_name.clone())
+                } else {
+                    Type::Any
                 }
-                Type::Any
             }
 
             ExprKind::Super => {
@@ -1022,6 +1131,53 @@ impl Analyzer {
                         "'أساس' خارج الصنف",
                         expr.span,
                     );
+                    Type::Error
+                } else if let Some(ref class_name) = self.current_class {
+                    // Get the parent class type
+                    if let Some(class) = self.class_resolver.get_class(class_name) {
+                        if let Some(ref parent_name) = class.parent {
+                            Type::Class(parent_name.clone())
+                        } else {
+                            self.error(
+                                "Cannot use 'super' in a class without a parent",
+                                "لا يمكن استخدام 'أساس' في صنف بدون أب",
+                                expr.span,
+                            );
+                            Type::Error
+                        }
+                    } else {
+                        Type::Any
+                    }
+                } else {
+                    Type::Any
+                }
+            }
+        }
+    }
+
+    // ============ Member Resolution ============
+
+    /// Resolve the type of a member access
+    fn resolve_member_type(&mut self, object_type: &Type, property: &str, span: Span) -> Type {
+        let mut method_resolver = MethodResolver::new(&self.class_resolver);
+
+        match method_resolver.resolve_member(object_type, property) {
+            MemberResolution::Field(field) => field.ty.clone(),
+            MemberResolution::Method(method) => Type::Function {
+                params: method.params.iter().map(|(_, ty)| ty.clone()).collect(),
+                return_type: Box::new(method.return_type.clone()),
+            },
+            MemberResolution::BuiltinProperty { ty, .. } => ty,
+            MemberResolution::NotFound => {
+                // Check if it's a valid class type with unknown member
+                if let Type::Class(class_name) = object_type {
+                    if self.class_resolver.get_class(class_name).is_some() {
+                        self.error(
+                            &format!("Property '{}' not found on class '{}'", property, class_name),
+                            &format!("الخاصية '{}' غير موجودة في الصنف '{}'", property, class_name),
+                            span,
+                        );
+                    }
                 }
                 Type::Any
             }
@@ -1082,6 +1238,27 @@ impl Default for Analyzer {
     }
 }
 
+/// Standalone function for type resolution (used to avoid borrow conflicts)
+fn resolve_type_annotation(type_ann: &TypeAnnotation) -> Type {
+    match &type_ann.kind {
+        TypeKind::Simple(name) => parse_type_name(name),
+        TypeKind::Array(inner) => Type::Array(Box::new(resolve_type_annotation(inner))),
+        TypeKind::Map(k, v) => Type::Map(
+            Box::new(resolve_type_annotation(k)),
+            Box::new(resolve_type_annotation(v)),
+        ),
+        TypeKind::Function { params, return_type } => Type::Function {
+            params: params.iter().map(resolve_type_annotation).collect(),
+            return_type: Box::new(resolve_type_annotation(return_type)),
+        },
+        TypeKind::Generic { base, args: _ } => {
+            // For now, treat generics as the base type
+            parse_type_name(base)
+        }
+        TypeKind::Optional(inner) => Type::Optional(Box::new(resolve_type_annotation(inner))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1132,5 +1309,90 @@ mod tests {
     fn test_return_outside_function() {
         let result = analyze("أرجع 5;");
         assert!(result.is_err());
+    }
+
+    // ============ OOP Tests ============
+
+    #[test]
+    fn test_class_declaration() {
+        let result = analyze(r#"
+            صنف شخص {
+                عام الاسم: نص;
+            }
+        "#);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_class_with_methods() {
+        let result = analyze(r#"
+            صنف حساب {
+                خاص رصيد: عدد;
+
+                عام دالة أودع(مبلغ: عدد) {
+                    متغير س = مبلغ;
+                }
+            }
+        "#);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_class_inheritance() {
+        let result = analyze(r#"
+            صنف حيوان {
+                عام الاسم: نص;
+            }
+
+            صنف قط يرث حيوان {
+                عام اللون: نص;
+            }
+        "#);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_interface_declaration() {
+        let result = analyze(r#"
+            واجهة قابل_للطباعة {
+                دالة اطبع() -> نص
+            }
+        "#);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_this_outside_class() {
+        let result = analyze(r#"
+            متغير س = هذا.الاسم;
+        "#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_super_outside_class() {
+        // Test super usage outside class
+        let result = analyze(r#"
+            أساس;
+        "#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_array_length_property() {
+        let result = analyze(r#"
+            متغير أرقام = [1, 2, 3];
+            متغير ط = أرقام.طول;
+        "#);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_string_length_property() {
+        let result = analyze(r#"
+            متغير كلمة = "مرحبا";
+            متغير ط = كلمة.طول;
+        "#);
+        assert!(result.is_ok());
     }
 }
