@@ -153,7 +153,7 @@ impl DocumentState {
 
         for stmt in &ast.statements {
             match &stmt.kind {
-                StmtKind::VarDecl { name, mutable, ty, .. } => {
+                StmtKind::VarDecl { name, mutable, ty, doc_comment, .. } => {
                     let resolved_type = ty
                         .as_ref()
                         .map(|t| self.resolve_type_annotation(t))
@@ -166,7 +166,7 @@ impl DocumentState {
                             definition_span: stmt.span.clone(),
                             kind: SymbolKind::Variable,
                             mutable: *mutable,
-                            doc: None,
+                            doc: doc_comment.clone(),
                         },
                     );
                 }
@@ -175,6 +175,7 @@ impl DocumentState {
                     name,
                     params,
                     return_type,
+                    doc_comment,
                     ..
                 } => {
                     let param_types: Vec<Type> = params
@@ -201,7 +202,7 @@ impl DocumentState {
                             definition_span: stmt.span.clone(),
                             kind: SymbolKind::Function,
                             mutable: false,
-                            doc: None,
+                            doc: doc_comment.clone(),
                         },
                     );
 
@@ -226,7 +227,7 @@ impl DocumentState {
                     }
                 }
 
-                StmtKind::ClassDecl { name, members, .. } => {
+                StmtKind::ClassDecl { name, members, doc_comment, .. } => {
                     symbols.insert(
                         name.clone(),
                         SymbolInfo {
@@ -234,14 +235,14 @@ impl DocumentState {
                             definition_span: stmt.span.clone(),
                             kind: SymbolKind::Class,
                             mutable: false,
-                            doc: None,
+                            doc: doc_comment.clone(),
                         },
                     );
 
                     // Add class members
                     for member in members {
                         match member {
-                            ClassMember::Field { name: field_name, ty, .. } => {
+                            ClassMember::Field { name: field_name, ty, doc_comment: field_doc, .. } => {
                                 let field_type = ty
                                     .as_ref()
                                     .map(|t| self.resolve_type_annotation(t))
@@ -254,7 +255,7 @@ impl DocumentState {
                                         definition_span: stmt.span.clone(),
                                         kind: SymbolKind::Field,
                                         mutable: true,
-                                        doc: None,
+                                        doc: field_doc.clone(),
                                     },
                                 );
                             }
@@ -262,6 +263,7 @@ impl DocumentState {
                                 name: method_name,
                                 params,
                                 return_type,
+                                doc_comment: method_doc,
                                 ..
                             } => {
                                 let param_types: Vec<Type> = params
@@ -288,7 +290,7 @@ impl DocumentState {
                                         definition_span: stmt.span.clone(),
                                         kind: SymbolKind::Method,
                                         mutable: false,
-                                        doc: None,
+                                        doc: method_doc.clone(),
                                     },
                                 );
                             }
@@ -299,7 +301,7 @@ impl DocumentState {
                     }
                 }
 
-                StmtKind::InterfaceDecl { name, .. } => {
+                StmtKind::InterfaceDecl { name, doc_comment, .. } => {
                     symbols.insert(
                         name.clone(),
                         SymbolInfo {
@@ -307,7 +309,7 @@ impl DocumentState {
                             definition_span: stmt.span.clone(),
                             kind: SymbolKind::Interface,
                             mutable: false,
-                            doc: None,
+                            doc: doc_comment.clone(),
                         },
                     );
                 }
@@ -427,5 +429,23 @@ mod tests {
 
         let analysis = doc.get_analysis(Language::Arabic);
         assert!(analysis.symbols.contains_key("جمع"));
+    }
+
+    #[test]
+    fn test_symbol_with_doc_comment() {
+        let uri = Url::parse("file:///test.trq").unwrap();
+        let content = r#"
+/// دالة لجمع عددين
+دالة جمع(أ: عدد، ب: عدد) -> عدد {
+    أرجع أ + ب
+}
+"#.to_string();
+        let mut doc = DocumentState::new(uri, 1, content);
+
+        let analysis = doc.get_analysis(Language::Arabic);
+        assert!(analysis.symbols.contains_key("جمع"));
+        let symbol = analysis.symbols.get("جمع").unwrap();
+        assert!(symbol.doc.is_some());
+        assert!(symbol.doc.as_ref().unwrap().contains("لجمع عددين"));
     }
 }

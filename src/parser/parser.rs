@@ -18,6 +18,7 @@ impl Parser {
         let tokens: Vec<Token> = lexer
             .tokenize()
             .into_iter()
+            // Filter out newlines but keep doc comments
             .filter(|t| !matches!(t.kind, TokenKind::Newline))
             .collect();
 
@@ -31,6 +32,23 @@ impl Parser {
             .filter(|t| !matches!(t.kind, TokenKind::Newline))
             .collect();
         Self { tokens, current: 0 }
+    }
+
+    /// Consume any doc comment token and return its content
+    fn consume_doc_comment(&mut self) -> Option<String> {
+        match &self.peek().kind {
+            TokenKind::DocComment(content) => {
+                let content = content.clone();
+                self.advance();
+                Some(content)
+            }
+            TokenKind::BlockDocComment(content) => {
+                let content = content.clone();
+                self.advance();
+                Some(content)
+            }
+            _ => None,
+        }
     }
 
     /// Parse the entire program
@@ -47,17 +65,20 @@ impl Parser {
     // ============ Declaration Parsing ============
 
     fn parse_declaration(&mut self) -> Result<Stmt, Diagnostic> {
+        // Capture any doc comment before the declaration
+        let doc_comment = self.consume_doc_comment();
+
         let result = if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
-            self.parse_var_declaration()
+            self.parse_var_declaration(doc_comment)
         } else if self.check(&TokenKind::Function) {
-            self.parse_function_declaration(false)
+            self.parse_function_declaration(false, doc_comment)
         } else if self.check(&TokenKind::Async) {
             self.advance();
-            self.parse_function_declaration(true)
+            self.parse_function_declaration(true, doc_comment)
         } else if self.check(&TokenKind::Class) {
-            self.parse_class_declaration()
+            self.parse_class_declaration(doc_comment)
         } else if self.check(&TokenKind::Interface) {
-            self.parse_interface_declaration()
+            self.parse_interface_declaration(doc_comment)
         } else if self.check(&TokenKind::Import) {
             self.parse_import_statement()
         } else if self.check(&TokenKind::Export) {
@@ -69,7 +90,7 @@ impl Parser {
         result
     }
 
-    fn parse_var_declaration(&mut self) -> Result<Stmt, Diagnostic> {
+    fn parse_var_declaration(&mut self, doc_comment: Option<String>) -> Result<Stmt, Diagnostic> {
         let start = self.current_span();
         let mutable = self.check(&TokenKind::Let);
         self.advance(); // consume 'let' or 'const'
@@ -97,12 +118,17 @@ impl Parser {
                 mutable,
                 ty,
                 init,
+                doc_comment,
             },
             span,
         ))
     }
 
-    fn parse_function_declaration(&mut self, is_async: bool) -> Result<Stmt, Diagnostic> {
+    fn parse_function_declaration(
+        &mut self,
+        is_async: bool,
+        doc_comment: Option<String>,
+    ) -> Result<Stmt, Diagnostic> {
         let start = self.current_span();
         self.expect(&TokenKind::Function, "Expected 'function' / متوقع 'دالة'")?;
 
@@ -128,12 +154,13 @@ impl Parser {
                 return_type,
                 body,
                 is_async,
+                doc_comment,
             },
             span,
         ))
     }
 
-    fn parse_class_declaration(&mut self) -> Result<Stmt, Diagnostic> {
+    fn parse_class_declaration(&mut self, doc_comment: Option<String>) -> Result<Stmt, Diagnostic> {
         let start = self.current_span();
         self.advance(); // consume 'class'
 
@@ -191,6 +218,7 @@ impl Parser {
                 extends,
                 implements,
                 members,
+                doc_comment,
             },
             span,
         ))
@@ -224,6 +252,9 @@ impl Parser {
         let mut members = Vec::new();
 
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // Capture any doc comment before the member
+            let member_doc = self.consume_doc_comment();
+
             let visibility = self.parse_visibility();
             let is_static = self.match_token(&TokenKind::Static);
 
@@ -233,7 +264,11 @@ impl Parser {
                 let params = self.parse_parameters()?;
                 self.expect(&TokenKind::RightParen, "Expected ')' / متوقع ')'")?;
                 let body = self.parse_block()?;
-                members.push(ClassMember::Constructor { params, body });
+                members.push(ClassMember::Constructor {
+                    params,
+                    body,
+                    doc_comment: member_doc,
+                });
             } else if self.check(&TokenKind::Function) || self.check(&TokenKind::Async) {
                 let is_async = self.match_token(&TokenKind::Async);
                 self.expect(&TokenKind::Function, "Expected 'function' / متوقع 'دالة'")?;
@@ -258,6 +293,7 @@ impl Parser {
                     body,
                     is_static,
                     is_async,
+                    doc_comment: member_doc,
                 });
             } else {
                 // Field
@@ -280,6 +316,7 @@ impl Parser {
                     ty,
                     init,
                     is_static,
+                    doc_comment: member_doc,
                 });
             }
         }
@@ -299,7 +336,10 @@ impl Parser {
         }
     }
 
-    fn parse_interface_declaration(&mut self) -> Result<Stmt, Diagnostic> {
+    fn parse_interface_declaration(
+        &mut self,
+        doc_comment: Option<String>,
+    ) -> Result<Stmt, Diagnostic> {
         let start = self.current_span();
         self.advance(); // consume 'interface'
 
@@ -312,6 +352,9 @@ impl Parser {
 
         let mut methods = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // Capture any doc comment before the method signature
+            let method_doc = self.consume_doc_comment();
+
             self.expect(&TokenKind::Function, "Expected 'function' / متوقع 'دالة'")?;
             let method_name = self.expect_identifier("Expected method name / متوقع اسم الدالة")?;
             self.expect(&TokenKind::LeftParen, "Expected '(' / متوقع '('")?;
@@ -328,6 +371,7 @@ impl Parser {
                 name: method_name,
                 params,
                 return_type,
+                doc_comment: method_doc,
             });
         }
 
@@ -339,6 +383,7 @@ impl Parser {
                 name,
                 type_params,
                 methods,
+                doc_comment,
             },
             span,
         ))
@@ -503,7 +548,7 @@ impl Parser {
         let init = if self.check(&TokenKind::Semicolon) || self.check(&TokenKind::ArabicSemicolon) {
             None
         } else if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
-            Some(Box::new(self.parse_var_declaration()?))
+            Some(Box::new(self.parse_var_declaration(None)?))
         } else {
             let expr = self.parse_expression()?;
             self.consume_semicolon()?;
@@ -1480,6 +1525,88 @@ mod tests {
                 _ => panic!("Expected Array"),
             },
             _ => panic!("Expected Expr"),
+        }
+    }
+
+    #[test]
+    fn test_parse_doc_comment_on_function() {
+        let source = r#"
+            /// دالة لحساب مجموع عددين
+            دالة جمع(أ: عدد، ب: عدد) -> عدد {
+                أرجع أ + ب;
+            }
+        "#;
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(ast.statements.len(), 1);
+        match &ast.statements[0].kind {
+            StmtKind::FuncDecl {
+                name, doc_comment, ..
+            } => {
+                assert_eq!(name, "جمع");
+                assert!(doc_comment.is_some());
+                assert!(doc_comment.as_ref().unwrap().contains("دالة لحساب مجموع عددين"));
+            }
+            _ => panic!("Expected FuncDecl"),
+        }
+    }
+
+    #[test]
+    fn test_parse_doc_comment_on_class() {
+        let source = r#"
+            /**
+             * صنف لتمثيل شخص
+             * @معامل اسم - اسم الشخص
+             */
+            صنف شخص {
+                /// اسم الشخص
+                خاص اسم: نص;
+
+                /// دالة للحصول على الاسم
+                عام دالة احصل_اسم() -> نص {
+                    أرجع هذا.اسم;
+                }
+            }
+        "#;
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(ast.statements.len(), 1);
+        match &ast.statements[0].kind {
+            StmtKind::ClassDecl {
+                name,
+                doc_comment,
+                members,
+                ..
+            } => {
+                assert_eq!(name, "شخص");
+                assert!(doc_comment.is_some());
+                assert!(doc_comment.as_ref().unwrap().contains("صنف لتمثيل شخص"));
+
+                // Check field has doc comment
+                match &members[0] {
+                    ClassMember::Field {
+                        name, doc_comment, ..
+                    } => {
+                        assert_eq!(name, "اسم");
+                        assert!(doc_comment.is_some());
+                    }
+                    _ => panic!("Expected Field"),
+                }
+
+                // Check method has doc comment
+                match &members[1] {
+                    ClassMember::Method {
+                        name, doc_comment, ..
+                    } => {
+                        assert_eq!(name, "احصل_اسم");
+                        assert!(doc_comment.is_some());
+                    }
+                    _ => panic!("Expected Method"),
+                }
+            }
+            _ => panic!("Expected ClassDecl"),
         }
     }
 }

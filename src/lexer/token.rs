@@ -244,6 +244,12 @@ pub enum TokenKind {
     /// ؛ (Arabic semicolon)
     ArabicSemicolon,
 
+    // ============ Documentation Comments ============
+    /// Single-line doc comment: /// comment
+    DocComment(String),
+    /// Block doc comment: /** comment */
+    BlockDocComment(String),
+
     // ============ Special ============
     /// End of file
     Eof,
@@ -326,6 +332,14 @@ impl TokenKind {
                 | TokenKind::TypeMap
                 | TokenKind::TypeVoid
                 | TokenKind::TypeAny
+        )
+    }
+
+    /// Check if this token is a documentation comment
+    pub fn is_doc_comment(&self) -> bool {
+        matches!(
+            self,
+            TokenKind::DocComment(_) | TokenKind::BlockDocComment(_)
         )
     }
 

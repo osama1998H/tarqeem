@@ -44,7 +44,10 @@ impl Lexer {
 
     /// Get the next token
     pub fn next_token(&mut self) -> Token {
-        self.skip_whitespace_and_comments();
+        // Check for doc comments first
+        if let Some(doc_token) = self.skip_whitespace_and_comments() {
+            return doc_token;
+        }
 
         self.token_start = self.position;
         self.token_start_line = self.line;
@@ -234,7 +237,9 @@ impl Lexer {
 
     // ============ Whitespace and Comments ============
 
-    fn skip_whitespace_and_comments(&mut self) {
+    /// Skip whitespace and regular comments, but return doc comments as tokens
+    /// Returns Some(Token) if a doc comment was found, None otherwise
+    fn skip_whitespace_and_comments(&mut self) -> Option<Token> {
         loop {
             if self.is_at_end() {
                 break;
@@ -246,7 +251,12 @@ impl Lexer {
                     self.advance();
                 }
                 '/' if self.peek_next() == '/' => {
-                    // Single-line comment
+                    // Check if it's a doc comment ///
+                    if self.position + 2 < self.source.len() && self.source[self.position + 2] == '/' {
+                        // Doc comment - don't skip, return as token
+                        return Some(self.scan_doc_comment());
+                    }
+                    // Regular single-line comment - skip it
                     self.advance(); // consume first /
                     self.advance(); // consume second /
                     while !self.is_at_end() && self.peek() != '\n' {
@@ -254,7 +264,15 @@ impl Lexer {
                     }
                 }
                 '/' if self.peek_next() == '*' => {
-                    // Multi-line comment
+                    // Check if it's a block doc comment /**
+                    if self.position + 2 < self.source.len() && self.source[self.position + 2] == '*' {
+                        // Check it's not /*** (which is not a doc comment)
+                        if self.position + 3 >= self.source.len() || self.source[self.position + 3] != '*' {
+                            // Block doc comment - don't skip, return as token
+                            return Some(self.scan_block_doc_comment());
+                        }
+                    }
+                    // Regular multi-line comment - skip it
                     self.advance(); // consume /
                     self.advance(); // consume *
                     let mut depth = 1;
@@ -275,6 +293,117 @@ impl Lexer {
                 _ => break,
             }
         }
+        None
+    }
+
+    /// Scan a single-line doc comment (///)
+    fn scan_doc_comment(&mut self) -> Token {
+        self.token_start = self.position;
+        self.token_start_line = self.line;
+        self.token_start_column = self.column;
+
+        // Skip the /// prefix
+        self.advance(); // first /
+        self.advance(); // second /
+        self.advance(); // third /
+
+        // Collect the content
+        let mut content = String::new();
+
+        // Handle multiple consecutive doc comment lines
+        loop {
+            // Skip leading space after ///
+            if self.peek() == ' ' {
+                self.advance();
+            }
+
+            // Collect the rest of the line
+            while !self.is_at_end() && self.peek() != '\n' {
+                content.push(self.advance());
+            }
+
+            // Check if the next line is also a doc comment
+            if self.is_at_end() {
+                break;
+            }
+
+            // Skip the newline
+            let newline_pos = self.position;
+            self.advance();
+
+            // Skip whitespace
+            while !self.is_at_end() && (self.peek() == ' ' || self.peek() == '\t') {
+                self.advance();
+            }
+
+            // Check if next line is also a doc comment
+            if self.peek() == '/' && self.peek_next() == '/' {
+                if self.position + 2 < self.source.len() && self.source[self.position + 2] == '/' {
+                    // Another doc comment line - add newline and continue
+                    content.push('\n');
+                    self.advance(); // first /
+                    self.advance(); // second /
+                    self.advance(); // third /
+                    continue;
+                }
+            }
+
+            // Not a doc comment line - backtrack to after the newline
+            // We need to reset position to just after the newline we consumed
+            self.position = newline_pos + 1;
+            self.line = self.token_start_line + content.matches('\n').count() + 1;
+            self.column = 1;
+            break;
+        }
+
+        self.make_token(TokenKind::DocComment(content.trim_end().to_string()))
+    }
+
+    /// Scan a block doc comment (/** ... */)
+    fn scan_block_doc_comment(&mut self) -> Token {
+        self.token_start = self.position;
+        self.token_start_line = self.line;
+        self.token_start_column = self.column;
+
+        // Skip the /** prefix
+        self.advance(); // /
+        self.advance(); // *
+        self.advance(); // *
+
+        let mut content = String::new();
+        let mut depth = 1;
+
+        while !self.is_at_end() && depth > 0 {
+            if self.peek() == '*' && self.peek_next() == '/' {
+                self.advance();
+                self.advance();
+                depth -= 1;
+            } else if self.peek() == '/' && self.peek_next() == '*' {
+                content.push(self.advance());
+                content.push(self.advance());
+                depth += 1;
+            } else {
+                content.push(self.advance());
+            }
+        }
+
+        // Clean up the content: remove leading * from each line (common doc style)
+        let cleaned = content
+            .lines()
+            .map(|line| {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with('*') && !trimmed.starts_with("*/") {
+                    trimmed[1..].trim_start()
+                } else {
+                    line.trim()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string();
+
+        self.make_token(TokenKind::BlockDocComment(cleaned))
     }
 
     // ============ Token Scanners ============
@@ -637,5 +766,58 @@ mod tests {
         // tokens[4] = const, tokens[5] = userAge
         assert_eq!(tokens[4].kind, TokenKind::Const);
         assert!(matches!(&tokens[5].kind, TokenKind::Identifier(s) if s == "userAge"));
+    }
+
+    #[test]
+    fn test_doc_comment_single_line() {
+        let source = r#"/// هذا تعليق توثيقي
+دالة اختبار() {}"#;
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        assert!(matches!(&tokens[0].kind, TokenKind::DocComment(s) if s == "هذا تعليق توثيقي"));
+        // Next token should be Newline (doc comment stops before it) or Function
+        // depending on how we handle the newline after doc comment
+        assert_eq!(tokens[1].kind, TokenKind::Function);
+    }
+
+    #[test]
+    fn test_doc_comment_multi_line() {
+        let source = r#"/// سطر أول
+/// سطر ثاني
+دالة اختبار() {}"#;
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        assert!(
+            matches!(&tokens[0].kind, TokenKind::DocComment(s) if s == "سطر أول\nسطر ثاني")
+        );
+    }
+
+    #[test]
+    fn test_block_doc_comment() {
+        let source = r#"/**
+ * دالة لحساب المضروب
+ * @معامل ن - العدد المدخل
+ */
+دالة عاملي(ن: عدد) {}"#;
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        assert!(matches!(&tokens[0].kind, TokenKind::BlockDocComment(s) if s.contains("دالة لحساب المضروب")));
+        assert_eq!(tokens[1].kind, TokenKind::Newline);
+        assert_eq!(tokens[2].kind, TokenKind::Function);
+    }
+
+    #[test]
+    fn test_regular_comment_skipped() {
+        let source = r#"// هذا تعليق عادي
+متغير س = 5"#;
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        // Regular comment should be skipped
+        assert_eq!(tokens[0].kind, TokenKind::Newline);
+        assert_eq!(tokens[1].kind, TokenKind::Let);
     }
 }

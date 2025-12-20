@@ -131,6 +131,25 @@ pub enum Commands {
     /// Start the Language Server Protocol server / بدء خادم LSP
     #[command(aliases = ["خادم"])]
     Lsp,
+
+    /// Generate documentation / توليد التوثيق
+    #[command(aliases = ["توثيق", "وثق"])]
+    Doc {
+        /// Source file or directory to document
+        path: PathBuf,
+
+        /// Output directory for generated docs
+        #[arg(long, short = 'o')]
+        output: Option<PathBuf>,
+
+        /// Documentation format (html, markdown, json) / صيغة التوثيق
+        #[arg(long, short = 'f', default_value = "html")]
+        format: String,
+
+        /// Generate single file instead of directory / ملف واحد بدلاً من مجلد
+        #[arg(long)]
+        single_file: bool,
+    },
 }
 
 /// Package manager subcommands / أوامر مدير الحزم

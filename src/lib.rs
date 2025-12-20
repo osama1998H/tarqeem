@@ -10,6 +10,7 @@
 
 pub mod cli;
 pub mod codegen;
+pub mod doc;
 pub mod error;
 pub mod interpreter;
 pub mod ir;

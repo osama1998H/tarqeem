@@ -123,6 +123,7 @@ impl IrBuilder {
                 mutable: false,
                 ty,
                 init,
+                ..
             } = &stmt.kind
             {
                 if let Some(init_expr) = init {
@@ -535,6 +536,7 @@ impl IrBuilder {
                 return_type,
                 body,
                 is_async,
+                ..
             } => self.build_func_decl(name, params, return_type.as_ref(), body, *is_async),
             StmtKind::ClassDecl {
                 name,
@@ -932,7 +934,7 @@ impl IrBuilder {
                     self.current_function = saved_function;
                     self.variables = saved_variables;
                 }
-                ClassMember::Constructor { params, body } => {
+                ClassMember::Constructor { params, body, .. } => {
                     // Constructor is a special method
                     let mangled_name = format!("{}::منشئ", name);
 

@@ -390,6 +390,7 @@ impl ClassResolver {
                     ty,
                     init,
                     is_static,
+                    ..
                 } => {
                     let field_type = ty.as_ref().map(|t| resolve_type(t)).unwrap_or(Type::Any);
 
