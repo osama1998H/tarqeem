@@ -416,6 +416,52 @@ Added string utility functions to C runtime (`runtime/tarqeem_rt.h`, `runtime/st
 
 **Test Results**: All 108 tests passing
 
+### Session: 2025-12-20 - Parser Updates for Generic Types and Semicolon Insertion
+
+**Goal**: Fix parser issues discovered while testing stdlib collection files
+
+**Parser Updates Made**:
+
+1. **Generic type parameters for classes/interfaces** (`src/parser/parser.rs`)
+   - Added `type_params: Vec<String>` to ClassDecl and InterfaceDecl AST nodes
+   - Added `parse_type_parameters()` function to parse `<T, U, ...>` syntax
+   - Updated `parse_class_declaration()` and `parse_interface_declaration()`
+   - Fixed pattern matching in `src/ir/builder.rs` and `src/semantic/analyzer.rs`
+
+2. **Automatic semicolon insertion** (`src/parser/parser.rs`)
+   - Modified `consume_semicolon()` to allow newlines as statement terminators
+   - Semicolons now optional when statements are on different lines (like Go/Kotlin/Swift)
+   - Makes Tarqeem more user-friendly for Arabic speakers
+
+3. **Generic type arguments in `new` expressions** (`src/parser/parser.rs`)
+   - Added parsing for `جديد قائمة<ن>()` syntax
+   - Skips over generic type arguments between class name and constructor args
+
+4. **Generic type arguments in `implements` clause** (`src/parser/parser.rs`)
+   - Added parsing for `صنف X يطبق واجهة<ن>` syntax
+   - Skips over generic type arguments on implemented interface names
+
+5. **Renamed Dictionary class** (`stdlib_trq/مجموعات/قاموس.trq`)
+   - Renamed from `قاموس` to `خريطة` because `قاموس` is a reserved type keyword
+   - Updated mod.trq to export `خريطة` instead of `قاموس`
+
+6. **Removed higher-order functions** (temporary)
+   - Removed functions taking function type parameters (like `لكل(دالة: (ن) => فراغ)`)
+   - Parser doesn't yet support function types in type annotations
+   - Will be added when function type parsing is implemented
+
+**Files Modified**:
+- `src/parser/ast.rs` - added type_params to ClassDecl/InterfaceDecl
+- `src/parser/parser.rs` - generic type parsing, ASI, implements generics
+- `src/ir/builder.rs` - fixed ClassDecl pattern matching
+- `src/semantic/analyzer.rs` - fixed ClassDecl/InterfaceDecl pattern matching
+- `stdlib_trq/مجموعات/قائمة.trq` - removed higher-order functions
+- `stdlib_trq/مجموعات/مجموعة.trq` - removed higher-order functions
+- `stdlib_trq/مجموعات/قاموس.trq` - renamed class to خريطة, removed higher-order functions
+- `stdlib_trq/مجموعات/mod.trq` - updated to export خريطة
+
+**Test Results**: All 108 tests passing, all stdlib files parse correctly
+
 ---
 
 ## TODOs

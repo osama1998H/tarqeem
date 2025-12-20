@@ -141,7 +141,7 @@ impl Analyzer {
                 self.class_resolver
                     .add_class_members(name, members, resolve_type_annotation);
             }
-            StmtKind::InterfaceDecl { name, methods } => {
+            StmtKind::InterfaceDecl { name, methods, .. } => {
                 self.class_resolver
                     .add_interface_methods(name, methods, resolve_type_annotation);
             }
@@ -189,11 +189,12 @@ impl Analyzer {
                 extends,
                 implements,
                 members,
+                ..
             } => {
                 self.analyze_class_decl(name, extends.as_ref(), implements, members, stmt.span);
             }
 
-            StmtKind::InterfaceDecl { name, methods } => {
+            StmtKind::InterfaceDecl { name, methods, .. } => {
                 self.analyze_interface_decl(name, methods, stmt.span);
             }
 
