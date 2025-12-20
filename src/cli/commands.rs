@@ -1,6 +1,6 @@
 //! CLI command implementations
 
-use super::{Cli, Commands};
+use super::{Cli, Commands, PkgCommands};
 use crate::codegen::{target::TargetTriple, Linker, LlvmCodegen, Target};
 use crate::error::Language;
 use crate::interpreter::Interpreter;
@@ -648,6 +648,25 @@ pub fn run(cli: Cli) -> Result<(), String> {
             }
 
             Ok(())
+        }
+
+        Commands::Pkg { command } => {
+            use super::pm;
+
+            let result = match command {
+                PkgCommands::Init { name, lib } => pm::init(name, lib),
+                PkgCommands::Add { package, dev, path } => pm::add(package, dev, path),
+                PkgCommands::Remove { package } => pm::remove(package),
+                PkgCommands::Install { force } => pm::install(force),
+                PkgCommands::Update { package } => pm::update(package),
+                PkgCommands::Build { release } => pm::build(release),
+                PkgCommands::Run { args } => pm::pkg_run(args),
+                PkgCommands::Test { filter } => pm::test(filter),
+                PkgCommands::Info => pm::info(),
+                PkgCommands::Clean => pm::clean(),
+            };
+
+            result.map_err(|e| format!("{}", e))
         }
     }
 }

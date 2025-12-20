@@ -1,6 +1,7 @@
 //! Command Line Interface for Tarqeem
 
 mod commands;
+pub mod pm;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -119,4 +120,93 @@ pub enum Commands {
         /// Source file to parse
         file: PathBuf,
     },
+
+    /// Package management / إدارة الحزم
+    #[command(aliases = ["حزم", "pm"])]
+    Pkg {
+        #[command(subcommand)]
+        command: PkgCommands,
+    },
+}
+
+/// Package manager subcommands / أوامر مدير الحزم
+#[derive(Subcommand, Debug)]
+pub enum PkgCommands {
+    /// Initialize a new package / تهيئة حزمة جديدة
+    #[command(aliases = ["هيئ", "أنشئ"])]
+    Init {
+        /// Package name (defaults to directory name)
+        name: Option<String>,
+
+        /// Create library package instead of binary / إنشاء مكتبة
+        #[arg(long, short = 'l', aliases = ["مكتبة"])]
+        lib: bool,
+    },
+
+    /// Add a dependency / إضافة اعتمادية
+    #[command(aliases = ["أضف"])]
+    Add {
+        /// Package name with optional version (e.g., "json" or "json@1.0")
+        package: String,
+
+        /// Add as dev dependency / إضافة كاعتمادية تطوير
+        #[arg(long, short = 'd', aliases = ["تطوير"])]
+        dev: bool,
+
+        /// Path to local package / مسار لحزمة محلية
+        #[arg(long, short = 'p', aliases = ["مسار"])]
+        path: Option<PathBuf>,
+    },
+
+    /// Remove a dependency / إزالة اعتمادية
+    #[command(aliases = ["احذف", "أزل"])]
+    Remove {
+        /// Package name to remove
+        package: String,
+    },
+
+    /// Install dependencies / تثبيت الاعتماديات
+    #[command(aliases = ["ثبت"])]
+    Install {
+        /// Force reinstall / إعادة التثبيت
+        #[arg(long, short = 'f', aliases = ["أجبر"])]
+        force: bool,
+    },
+
+    /// Update dependencies / تحديث الاعتماديات
+    #[command(aliases = ["حدث"])]
+    Update {
+        /// Specific package to update (updates all if not specified)
+        package: Option<String>,
+    },
+
+    /// Build the package / بناء الحزمة
+    #[command(aliases = ["ابنِ"])]
+    Build {
+        /// Build in release mode / بناء بوضع الإصدار
+        #[arg(long, short = 'r', aliases = ["إصدار"])]
+        release: bool,
+    },
+
+    /// Run the package / تشغيل الحزمة
+    #[command(aliases = ["شغّل"])]
+    Run {
+        /// Arguments to pass to the program
+        args: Vec<String>,
+    },
+
+    /// Run tests / تشغيل الاختبارات
+    #[command(aliases = ["اختبر"])]
+    Test {
+        /// Test filter
+        filter: Option<String>,
+    },
+
+    /// Show package info / عرض معلومات الحزمة
+    #[command(aliases = ["معلومات"])]
+    Info,
+
+    /// Clean build artifacts / تنظيف مخلفات البناء
+    #[command(aliases = ["نظف"])]
+    Clean,
 }
