@@ -1,0 +1,10 @@
+//! LLVM IR Code Generation
+//!
+//! This module generates LLVM IR text format from Tarqeem IR.
+//! The generated IR can be compiled using llc or clang.
+
+mod codegen;
+mod types;
+
+pub use codegen::LlvmCodegen;
+pub use types::TypeMapper;

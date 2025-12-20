@@ -1,6 +1,7 @@
 //! CLI command implementations
 
 use super::{Cli, Commands};
+use crate::codegen::{Linker, LlvmCodegen, Target, target::TargetTriple};
 use crate::error::Language;
 use crate::ir::{IrBuilder, OptLevel, Optimizer};
 use crate::lexer::Lexer;
@@ -9,6 +10,7 @@ use crate::semantic::Analyzer;
 use colored::Colorize;
 use std::fs;
 use std::io::{self, BufRead, Write};
+use std::path::PathBuf;
 
 /// Run the CLI
 pub fn run(cli: Cli) -> Result<(), String> {
@@ -23,6 +25,10 @@ pub fn run(cli: Cli) -> Result<(), String> {
             file,
             output,
             opt_level,
+            emit_llvm,
+            emit_asm,
+            emit_obj,
+            target,
             dump_tokens,
             dump_ast,
             dump_ir,
@@ -103,7 +109,102 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 return Ok(());
             }
 
-            // TODO: Code generation (LLVM)
+            // LLVM Code Generation
+            let target_config = if let Some(ref triple_str) = target {
+                TargetTriple::parse(triple_str)
+                    .map(Target::from_triple)
+                    .ok_or_else(|| format!("Invalid target triple: {} / هدف غير صالح: {}", triple_str, triple_str))?
+            } else {
+                Target::native()
+            };
+
+            let mut codegen = LlvmCodegen::new(target_config.clone());
+            let llvm_ir = codegen.generate(&ir_module).map_err(|e| {
+                format!("Code generation error: {} / خطأ في توليد الكود: {}", e.message, e.message_ar)
+            })?;
+
+            // Determine output path
+            let output_path = output.unwrap_or_else(|| {
+                let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
+                if emit_llvm {
+                    PathBuf::from(format!("{}.ll", stem))
+                } else if emit_asm {
+                    PathBuf::from(format!("{}.s", stem))
+                } else if emit_obj {
+                    PathBuf::from(format!("{}.o", stem))
+                } else {
+                    PathBuf::from(stem)
+                }
+            });
+
+            // Handle different emit modes
+            if emit_llvm {
+                // Write LLVM IR directly
+                fs::write(&output_path, &llvm_ir)
+                    .map_err(|e| format!("Could not write output: {} / لا يمكن كتابة الملف: {}", e, e))?;
+                println!(
+                    "{}",
+                    format!("LLVM IR written to: {} / تم كتابة LLVM IR إلى: {}",
+                        output_path.display(), output_path.display()).green()
+                );
+            } else if emit_asm || emit_obj {
+                // Use linker to compile
+                let linker = Linker::new(target_config)
+                    .optimization_level(opt_level as u32)
+                    .verbose(cli.verbose);
+
+                if !linker.is_available() {
+                    return Err("No compiler (clang/llc) found. Install LLVM or use --emit-llvm / لم يتم العثور على مترجم. ثبّت LLVM أو استخدم --emit-llvm".to_string());
+                }
+
+                if emit_asm {
+                    linker.compile_to_assembly(&llvm_ir, &output_path)
+                        .map_err(|e| format!("Assembly generation failed: {} / فشل توليد التجميع: {}", e.message, e.message_ar))?;
+                    println!(
+                        "{}",
+                        format!("Assembly written to: {} / تم كتابة التجميع إلى: {}",
+                            output_path.display(), output_path.display()).green()
+                    );
+                } else {
+                    linker.compile_to_object(&llvm_ir, &output_path)
+                        .map_err(|e| format!("Object compilation failed: {} / فشل ترجمة الكائن: {}", e.message, e.message_ar))?;
+                    println!(
+                        "{}",
+                        format!("Object file written to: {} / تم كتابة ملف الكائن إلى: {}",
+                            output_path.display(), output_path.display()).green()
+                    );
+                }
+            } else {
+                // Compile to executable
+                let linker = Linker::new(target_config)
+                    .optimization_level(opt_level as u32)
+                    .verbose(cli.verbose);
+
+                if linker.is_available() {
+                    linker.compile_to_executable(&llvm_ir, &output_path, None)
+                        .map_err(|e| format!("Linking failed: {} / فشل الربط: {}", e.message, e.message_ar))?;
+                    println!(
+                        "{}",
+                        format!("Executable created: {} / تم إنشاء الملف التنفيذي: {}",
+                            output_path.display(), output_path.display()).green()
+                    );
+                } else {
+                    // Fallback: just write LLVM IR
+                    let ll_path = output_path.with_extension("ll");
+                    fs::write(&ll_path, &llvm_ir)
+                        .map_err(|e| format!("Could not write output: {} / لا يمكن كتابة الملف: {}", e, e))?;
+                    println!(
+                        "{}",
+                        "Note: No compiler found. LLVM IR written instead. / ملاحظة: لم يتم العثور على مترجم. تم كتابة LLVM IR بدلاً من ذلك.".yellow()
+                    );
+                    println!(
+                        "  You can compile with: clang {} -o {} / يمكنك الترجمة بـ: clang {} -o {}",
+                        ll_path.display(), output_path.display(),
+                        ll_path.display(), output_path.display()
+                    );
+                }
+            }
+
             if cli.verbose {
                 println!("{}", "Compilation successful! / تمت الترجمة بنجاح!".green().bold());
                 println!(
@@ -122,18 +223,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                         opt, opt
                     );
                 }
-            }
-
-            if let Some(output_path) = output {
-                // For now, write IR as output
-                let ir_output = format!("{}", ir_module);
-                fs::write(&output_path, ir_output)
-                    .map_err(|e| format!("Could not write output: {}", e))?;
-                println!(
-                    "Output written to: {} / تم الكتابة إلى: {}",
-                    output_path.display(),
-                    output_path.display()
-                );
             }
 
             Ok(())

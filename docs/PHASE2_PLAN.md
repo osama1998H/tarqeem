@@ -134,63 +134,62 @@ Phase 2 transforms Tarqeem from a compiler frontend into a fully functional comp
 
 ---
 
-### Milestone 2.4: LLVM Code Generation
+### Milestone 2.4: LLVM Code Generation ✅ COMPLETE
 **Goal:** Generate native code via LLVM
 
-#### Dependencies:
-- Add `inkwell` crate to Cargo.toml
+#### Implementation Notes:
+- Uses LLVM IR text generation (no inkwell dependency required)
+- Generated IR can be compiled with clang/llc to native code
+- Supports x86_64 and aarch64 targets
 
 #### Tasks:
-- [ ] LLVM context setup (`src/codegen/llvm/context.rs`)
-  - Module creation
-  - Target machine configuration
+- [x] Target configuration (`src/codegen/target.rs`)
+  - Target triple handling
   - Data layout setup
+  - Native platform detection
 
-- [ ] Type mapping (`src/codegen/llvm/types.rs`)
-  - Primitive types → LLVM types
+- [x] Type mapping (`src/codegen/llvm/types.rs`)
+  - Primitive types → LLVM types (i64, double, i1, ptr)
   - Array types → LLVM array/pointer
   - Class types → LLVM struct
   - Function types → LLVM function types
+  - Zero initializers
 
-- [ ] Expression codegen (`src/codegen/llvm/expr.rs`)
-  - Literals → LLVM constants
-  - Arithmetic → LLVM instructions
-  - Comparisons → LLVM icmp/fcmp
-  - Function calls → LLVM call
+- [x] LLVM IR codegen (`src/codegen/llvm/codegen.rs`)
+  - Module header generation
+  - String literal table
+  - Runtime type definitions
+  - All IR instruction conversion
+  - Function name mangling for Arabic
 
-- [ ] Statement codegen (`src/codegen/llvm/stmt.rs`)
-  - Variable declarations → alloca + store
-  - Assignments → store
-  - Control flow → br/switch
-  - Returns → ret
-
-- [ ] Function codegen (`src/codegen/llvm/function.rs`)
-  - Function declaration
+- [x] Function codegen (integrated in codegen.rs)
+  - Function declaration with return types
   - Parameter handling
-  - Local variable allocation
+  - Local variable allocation (alloca)
   - Return value handling
 
-- [ ] Class codegen (`src/codegen/llvm/class.rs`)
+- [x] Class codegen (integrated in codegen.rs)
   - Struct type generation
   - VTable generation
-  - Constructor generation
-  - Method generation
-  - Field access
+  - Field access (GEP instructions)
+  - Method calls (direct and virtual)
 
-- [ ] Object file emission (`src/codegen/llvm/emit.rs`)
-  - Object file generation (.o)
+- [x] Object file emission (`src/codegen/linker.rs`)
+  - Object file generation via clang/llc (.o)
   - Assembly output (--emit-asm)
   - LLVM IR output (--emit-llvm)
 
-- [ ] Linker integration (`src/codegen/linker.rs`)
-  - System linker invocation (ld/lld)
-  - Runtime library linking
+- [x] Linker integration (`src/codegen/linker.rs`)
+  - System linker invocation (clang/ld/lld)
+  - Fallback to LLVM IR when no compiler available
   - Executable generation
 
 **Deliverables:**
-- `tarqeem compile برنامج.trq -o برنامج` produces working executable
-- Support for x86_64-linux target
-- `--emit-llvm` and `--emit-asm` flags
+- ✅ `tarqeem compile برنامج.trq --emit-llvm` generates LLVM IR
+- ✅ `tarqeem compile برنامج.trq --emit-asm` generates assembly (requires clang/llc)
+- ✅ `tarqeem compile برنامج.trq -o برنامج` produces executable (requires clang)
+- ✅ Support for x86_64-linux and other targets
+- ✅ `--emit-llvm`, `--emit-asm`, and `--emit-obj` flags
 
 ---
 
