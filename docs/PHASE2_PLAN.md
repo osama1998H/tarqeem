@@ -117,127 +117,132 @@ Phase 2 transforms Tarqeem from a compiler frontend into a fully functional comp
   - Recursion detection
   - Variable/block renumbering
 
-- [ ] Loop optimizations (`src/ir/opt/loop.rs`) - *Deferred*
-  - Loop-invariant code motion
+- [x] Loop optimizations (`src/ir/opt/loop_opt.rs`)
+  - Loop detection and analysis
+  - Loop-invariant code motion (LICM)
   - Strength reduction
-  - Loop unrolling (optional)
+  - Loop unrolling (optional, O3 only)
+  - Induction variable analysis
 
 - [x] Optimization pipeline (`src/ir/opt/mod.rs`)
   - Configurable optimization levels (-O0, -O1, -O2, -O3)
   - Fixed-point iteration for multi-pass optimization
   - Statistics collection (OptStats)
+  - Loop optimizations integrated at O2+
 
 **Deliverables:**
 - ✅ `-O` CLI flag with levels 0-3
 - ✅ `--dump-opt-stats` flag for optimization statistics
-- ✅ Four optimization passes working and tested
+- ✅ Five optimization passes working and tested (including loop optimizations)
 
 ---
 
-### Milestone 2.4: LLVM Code Generation
+### Milestone 2.4: LLVM Code Generation ✅ COMPLETE
 **Goal:** Generate native code via LLVM
 
-#### Dependencies:
-- Add `inkwell` crate to Cargo.toml
+#### Implementation Notes:
+- Uses LLVM IR text generation (no inkwell dependency required)
+- Generated IR can be compiled with clang/llc to native code
+- Supports x86_64 and aarch64 targets
 
 #### Tasks:
-- [ ] LLVM context setup (`src/codegen/llvm/context.rs`)
-  - Module creation
-  - Target machine configuration
+- [x] Target configuration (`src/codegen/target.rs`)
+  - Target triple handling
   - Data layout setup
+  - Native platform detection
 
-- [ ] Type mapping (`src/codegen/llvm/types.rs`)
-  - Primitive types → LLVM types
+- [x] Type mapping (`src/codegen/llvm/types.rs`)
+  - Primitive types → LLVM types (i64, double, i1, ptr)
   - Array types → LLVM array/pointer
   - Class types → LLVM struct
   - Function types → LLVM function types
+  - Zero initializers
 
-- [ ] Expression codegen (`src/codegen/llvm/expr.rs`)
-  - Literals → LLVM constants
-  - Arithmetic → LLVM instructions
-  - Comparisons → LLVM icmp/fcmp
-  - Function calls → LLVM call
+- [x] LLVM IR codegen (`src/codegen/llvm/codegen.rs`)
+  - Module header generation
+  - String literal table
+  - Runtime type definitions
+  - All IR instruction conversion
+  - Function name mangling for Arabic
 
-- [ ] Statement codegen (`src/codegen/llvm/stmt.rs`)
-  - Variable declarations → alloca + store
-  - Assignments → store
-  - Control flow → br/switch
-  - Returns → ret
-
-- [ ] Function codegen (`src/codegen/llvm/function.rs`)
-  - Function declaration
+- [x] Function codegen (integrated in codegen.rs)
+  - Function declaration with return types
   - Parameter handling
-  - Local variable allocation
+  - Local variable allocation (alloca)
   - Return value handling
 
-- [ ] Class codegen (`src/codegen/llvm/class.rs`)
+- [x] Class codegen (integrated in codegen.rs)
   - Struct type generation
   - VTable generation
-  - Constructor generation
-  - Method generation
-  - Field access
+  - Field access (GEP instructions)
+  - Method calls (direct and virtual)
 
-- [ ] Object file emission (`src/codegen/llvm/emit.rs`)
-  - Object file generation (.o)
+- [x] Object file emission (`src/codegen/linker.rs`)
+  - Object file generation via clang/llc (.o)
   - Assembly output (--emit-asm)
   - LLVM IR output (--emit-llvm)
 
-- [ ] Linker integration (`src/codegen/linker.rs`)
-  - System linker invocation (ld/lld)
-  - Runtime library linking
+- [x] Linker integration (`src/codegen/linker.rs`)
+  - System linker invocation (clang/ld/lld)
+  - Fallback to LLVM IR when no compiler available
   - Executable generation
 
 **Deliverables:**
-- `tarqeem compile برنامج.trq -o برنامج` produces working executable
-- Support for x86_64-linux target
-- `--emit-llvm` and `--emit-asm` flags
+- ✅ `tarqeem compile برنامج.trq --emit-llvm` generates LLVM IR
+- ✅ `tarqeem compile برنامج.trq --emit-asm` generates assembly (requires clang/llc)
+- ✅ `tarqeem compile برنامج.trq -o برنامج` produces executable (requires clang)
+- ✅ Support for x86_64-linux and other targets
+- ✅ `--emit-llvm`, `--emit-asm`, and `--emit-obj` flags
 
 ---
 
-### Milestone 2.5: Runtime Library
+### Milestone 2.5: Runtime Library ✅ COMPLETE
 **Goal:** Implement core runtime functions
 
+#### Implementation Notes:
+- Runtime implemented in C (not Rust) for simpler ABI compatibility with LLVM IR
+- Compiles to static library (libtrq.a) that links with generated code
+- All functions use the `trq_` prefix
+
 #### Tasks:
-- [ ] Memory management (`src/runtime/memory.rs`)
-  - Allocation functions (trq_alloc, trq_realloc, trq_free)
-  - Reference counting (trq_retain, trq_release)
-  - Cycle detection (optional)
+- [x] Memory management (`runtime/memory.c`)
+  - Reference-counted allocation (trq_alloc, trq_realloc, trq_free)
+  - Retain/release functions (trq_retain, trq_release)
+  - Reference count header attached to all allocations
 
-- [ ] String runtime (`src/runtime/string.rs`)
-  - String allocation with UTF-8 support
-  - String concatenation
-  - String comparison
-  - String to number conversion
-  - Unicode normalization
+- [x] String runtime (`runtime/string.c`)
+  - TrqString structure with UTF-8 support
+  - String creation, concatenation, comparison
+  - String to/from number conversion
+  - Unicode code point counting
 
-- [ ] Array runtime (`src/runtime/array.rs`)
-  - Dynamic array allocation
-  - Bounds checking
-  - Array growth
-  - Array iteration support
+- [x] Array runtime (`runtime/array.c`)
+  - TrqArray structure with dynamic sizing
+  - Bounds-checked access (get/set)
+  - Push/pop operations
+  - Array slicing and cloning
 
-- [ ] I/O runtime (`src/runtime/io.rs`)
-  - Print functions (اطبع/print)
-  - Input functions (ادخل/input)
-  - File operations (basic)
+- [x] I/O runtime (`runtime/io.c`)
+  - Print functions (trq_print, trq_print_int, etc.)
+  - Input functions (trq_input, trq_input_prompt)
+  - File operations (open, read, write, close)
 
-- [ ] Error runtime (`src/runtime/error.rs`)
-  - Exception object structure
-  - Stack trace capture
-  - Exception throwing
-  - Exception catching
+- [x] Built-in functions (`runtime/builtins.c`)
+  - Math operations (pow, abs, sqrt, sin, cos, etc.)
+  - Exception handling (trq_throw, trq_get_exception)
+  - Runtime init/cleanup (trq_runtime_init/cleanup)
+  - Program entry point (main wrapper)
 
-- [ ] Built-in functions (`src/runtime/builtins.rs`)
-  - `len()` / `طول()`
-  - `type()` / `نوع()`
-  - `str()` / `نص()`
-  - `int()` / `عدد()`
-  - `float()` / `عدد_عشري()`
+- [x] Build system (`runtime/Makefile`)
+  - Compiles to libtrq.a static library
+  - Debug and release modes
+  - Install target
 
 **Deliverables:**
-- All built-in functions callable from Tarqeem
-- Memory-safe string operations
-- Working exception handling
+- ✅ Runtime library compiles with standard C compiler
+- ✅ All runtime functions available for linking
+- ✅ Bilingual error messages (Arabic/English)
+- ✅ Memory-safe reference counting
 
 ---
 
@@ -267,58 +272,45 @@ Phase 2 transforms Tarqeem from a compiler frontend into a fully functional comp
 
 ```
 src/
-├── ir/                          # NEW: Intermediate Representation
+├── ir/                          # Intermediate Representation ✅
 │   ├── mod.rs
 │   ├── instruction.rs           # IR instruction definitions
 │   ├── builder.rs               # AST → IR conversion
-│   ├── cfg.rs                   # Control flow graph
-│   ├── printer.rs               # IR pretty-printing
 │   └── opt/                     # Optimizations
 │       ├── mod.rs               # Optimization pipeline
 │       ├── const_fold.rs        # Constant folding
 │       ├── dce.rs               # Dead code elimination
 │       ├── cse.rs               # Common subexpression elimination
 │       ├── inline.rs            # Function inlining
-│       └── loop.rs              # Loop optimizations
+│       └── loop_opt.rs          # Loop optimizations
 │
-├── codegen/                     # NEW: Code Generation
+├── codegen/                     # Code Generation ✅
 │   ├── mod.rs
-│   ├── llvm/                    # LLVM backend
-│   │   ├── mod.rs
-│   │   ├── context.rs           # LLVM context/module
-│   │   ├── types.rs             # Type mapping
-│   │   ├── expr.rs              # Expression codegen
-│   │   ├── stmt.rs              # Statement codegen
-│   │   ├── function.rs          # Function codegen
-│   │   ├── class.rs             # Class/OOP codegen
-│   │   └── emit.rs              # Object file emission
-│   ├── linker.rs                # Linker integration
-│   └── target.rs                # Target configuration
+│   ├── target.rs                # Target triple configuration
+│   ├── linker.rs                # Linker integration (clang/llc)
+│   └── llvm/                    # LLVM IR text generation
+│       ├── mod.rs
+│       ├── types.rs             # Type mapping (IR → LLVM)
+│       └── codegen.rs           # Main IR → LLVM conversion
 │
-├── runtime/                     # NEW: Runtime Library
+├── semantic/                    # Enhanced ✅
 │   ├── mod.rs
-│   ├── memory.rs                # Memory management
-│   ├── string.rs                # String operations
-│   ├── array.rs                 # Array operations
-│   ├── io.rs                    # I/O operations
-│   ├── error.rs                 # Exception handling
-│   └── builtins.rs              # Built-in functions
+│   ├── analyzer.rs              # Main semantic analyzer
+│   ├── types.rs                 # Type definitions
+│   ├── scope.rs                 # Scope management
+│   ├── class_resolver.rs        # Class hierarchy resolution
+│   ├── generics.rs              # Generic type resolution
+│   └── method_resolver.rs       # Method lookup
 │
-├── semantic/                    # ENHANCED
-│   ├── mod.rs
-│   ├── analyzer.rs              # (existing)
-│   ├── types.rs                 # (existing)
-│   ├── scope.rs                 # (existing)
-│   ├── class_resolver.rs        # NEW: Class hierarchy
-│   ├── generics.rs              # NEW: Generic resolution
-│   ├── method_resolver.rs       # NEW: Method lookup
-│   └── modules.rs               # NEW: Module system
-│
-├── interpreter/                 # NEW: Optional interpreter
-│   ├── mod.rs
-│   ├── evaluator.rs
-│   └── environment.rs
-│
+runtime/                         # C Runtime Library ✅
+├── tarqeem_rt.h                 # Header file with all declarations
+├── memory.c                     # Reference-counted allocation
+├── string.c                     # UTF-8 string operations
+├── array.c                      # Dynamic array operations
+├── io.c                         # I/O and file operations
+├── builtins.c                   # Math, exceptions, entry point
+└── Makefile                     # Builds libtrq.a
+
 └── ... (existing modules unchanged)
 ```
 

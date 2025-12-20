@@ -10,16 +10,19 @@
 //! - **Dead Code Elimination**: Remove unused variables and unreachable blocks
 //! - **Common Subexpression Elimination**: Cache and reuse repeated computations
 //! - **Function Inlining**: Replace function calls with function bodies
+//! - **Loop Optimizations**: LICM, strength reduction, loop unrolling
 
 mod const_fold;
 mod cse;
 mod dce;
 mod inline;
+pub mod loop_opt;
 
 pub use const_fold::ConstantFolder;
 pub use cse::CommonSubexprElim;
 pub use dce::DeadCodeEliminator;
 pub use inline::FunctionInliner;
+pub use loop_opt::{LoopOptimizer, LoopAnalysis};
 
 use super::Module;
 
@@ -80,6 +83,10 @@ pub struct OptStats {
     pub cse_hits: usize,
     /// Number of functions inlined
     pub functions_inlined: usize,
+    /// Number of loop-invariant instructions hoisted
+    pub loop_invariants_hoisted: usize,
+    /// Number of loops detected
+    pub loops_detected: usize,
 }
 
 impl OptStats {
@@ -95,6 +102,8 @@ impl OptStats {
         self.dead_blocks_removed += other.dead_blocks_removed;
         self.cse_hits += other.cse_hits;
         self.functions_inlined += other.functions_inlined;
+        self.loop_invariants_hoisted += other.loop_invariants_hoisted;
+        self.loops_detected += other.loops_detected;
     }
 
     /// Check if any optimizations were performed
@@ -104,6 +113,7 @@ impl OptStats {
             || self.dead_blocks_removed > 0
             || self.cse_hits > 0
             || self.functions_inlined > 0
+            || self.loop_invariants_hoisted > 0
     }
 }
 
@@ -119,6 +129,14 @@ impl std::fmt::Display for OptStats {
         writeln!(f, "  Dead blocks removed: {}", self.dead_blocks_removed)?;
         writeln!(f, "  CSE hits: {}", self.cse_hits)?;
         writeln!(f, "  Functions inlined: {}", self.functions_inlined)?;
+        if self.loops_detected > 0 {
+            writeln!(f, "  Loops detected: {}", self.loops_detected)?;
+            writeln!(
+                f,
+                "  Loop invariants hoisted: {}",
+                self.loop_invariants_hoisted
+            )?;
+        }
         Ok(())
     }
 }
@@ -197,6 +215,16 @@ impl Optimizer {
                 }
             }
 
+            // O2+: Loop optimizations (LICM, strength reduction)
+            if self.level >= OptLevel::O2 {
+                let mut loop_opt = LoopOptimizer::new();
+                loop_opt.run(module);
+                if loop_opt.stats().any_changes() {
+                    changed = true;
+                    self.stats.merge(loop_opt.stats());
+                }
+            }
+
             // O3: Function inlining
             if self.level >= OptLevel::O3 {
                 let mut inliner = FunctionInliner::new();
@@ -204,6 +232,17 @@ impl Optimizer {
                 if inliner.stats().functions_inlined > 0 {
                     changed = true;
                     self.stats.merge(inliner.stats());
+                }
+            }
+
+            // O3: Loop unrolling (more aggressive)
+            if self.level >= OptLevel::O3 {
+                let mut loop_opt = LoopOptimizer::new();
+                loop_opt.enable_unrolling(true);
+                loop_opt.run(module);
+                if loop_opt.stats().any_changes() {
+                    changed = true;
+                    self.stats.merge(loop_opt.stats());
                 }
             }
 

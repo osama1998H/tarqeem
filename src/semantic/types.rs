@@ -146,8 +146,14 @@ impl Type {
             (Type::Int, "**", Type::Int) => Some(Type::Int),
             (Type::Float, "**", _) | (_, "**", Type::Float) => Some(Type::Float),
 
-            // String concatenation
+            // String concatenation (with implicit type coercion)
             (Type::String, "+", Type::String) => Some(Type::String),
+            (Type::String, "+", Type::Int) => Some(Type::String),
+            (Type::String, "+", Type::Float) => Some(Type::String),
+            (Type::String, "+", Type::Bool) => Some(Type::String),
+            (Type::Int, "+", Type::String) => Some(Type::String),
+            (Type::Float, "+", Type::String) => Some(Type::String),
+            (Type::Bool, "+", Type::String) => Some(Type::String),
 
             // Comparisons
             (Type::Int, "<", Type::Int)

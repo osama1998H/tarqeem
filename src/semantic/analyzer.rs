@@ -1058,12 +1058,82 @@ impl Analyzer {
             }
 
             ExprKind::New { class, args } => {
-                // Check class exists
-                let class_type = self.infer_type(class);
-                for arg in args {
-                    self.infer_type(arg);
+                // Extract class name from identifier
+                let class_name = match &class.kind {
+                    ExprKind::Identifier(name) => name.clone(),
+                    _ => {
+                        self.error(
+                            "New expression requires a class name",
+                            "تعبير جديد يتطلب اسم صنف",
+                            class.span,
+                        );
+                        return Type::Error;
+                    }
+                };
+
+                // Extract constructor info from class resolver (clone to avoid borrow issues)
+                let ctor_info = self
+                    .class_resolver
+                    .get_class(&class_name)
+                    .and_then(|ci| ci.constructor.as_ref())
+                    .map(|ctor| ctor.params.clone());
+                let class_exists = self.class_resolver.get_class(&class_name).is_some();
+
+                if class_exists {
+                    // Validate constructor arguments
+                    if let Some(expected_params) = ctor_info {
+                        // Check argument count
+                        if args.len() != expected_params.len() {
+                            self.error(
+                                &format!(
+                                    "Constructor expects {} arguments, got {}",
+                                    expected_params.len(),
+                                    args.len()
+                                ),
+                                &format!(
+                                    "المنشئ يتوقع {} معاملات، وُجد {}",
+                                    expected_params.len(),
+                                    args.len()
+                                ),
+                                expr.span,
+                            );
+                        }
+
+                        // Type-check each argument
+                        for (arg, (_, param_type)) in args.iter().zip(expected_params.iter()) {
+                            let arg_type = self.infer_type(arg);
+                            if !arg_type.is_compatible_with(param_type) {
+                                self.error(
+                                    &format!(
+                                        "Wrong argument type: expected {}, got {}",
+                                        param_type, arg_type
+                                    ),
+                                    &format!(
+                                        "نوع المعامل خاطئ: متوقع {}، وُجد {}",
+                                        param_type.arabic_name(),
+                                        arg_type.arabic_name()
+                                    ),
+                                    arg.span,
+                                );
+                            }
+                        }
+                    } else if !args.is_empty() {
+                        self.error(
+                            &format!("Class '{}' has no constructor", class_name),
+                            &format!("الصنف '{}' ليس له منشئ", class_name),
+                            expr.span,
+                        );
+                    }
+
+                    Type::Class(class_name)
+                } else {
+                    self.error(
+                        &format!("Unknown class '{}'", class_name),
+                        &format!("صنف غير معروف '{}'", class_name),
+                        class.span,
+                    );
+                    Type::Error
                 }
-                class_type
             }
 
             ExprKind::Await(inner) => {

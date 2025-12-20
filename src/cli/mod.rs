@@ -44,6 +44,22 @@ pub enum Commands {
         #[arg(short = 'O', value_name = "LEVEL", default_value = "0")]
         opt_level: u8,
 
+        /// Emit LLVM IR instead of object code / إخراج LLVM IR
+        #[arg(long)]
+        emit_llvm: bool,
+
+        /// Emit assembly instead of object code / إخراج التجميع
+        #[arg(long)]
+        emit_asm: bool,
+
+        /// Emit object file only (don't link) / إخراج ملف كائن فقط
+        #[arg(long, short = 'c')]
+        emit_obj: bool,
+
+        /// Target triple (e.g. x86_64-unknown-linux-gnu)
+        #[arg(long)]
+        target: Option<String>,
+
         /// Dump tokens (for debugging)
         #[arg(long)]
         dump_tokens: bool,

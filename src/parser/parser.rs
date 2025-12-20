@@ -784,9 +784,11 @@ impl Parser {
                 ))
             }
 
-            // new expression
+            // new expression: جديد ClassName(args)
             TokenKind::New => {
-                let class = self.parse_precedence(Precedence::Call)?;
+                // Parse class name at Primary level to avoid parsing args as a call
+                let class = self.parse_precedence(Precedence::Primary)?;
+                // Args must follow immediately with parentheses
                 let args = if self.match_token(&TokenKind::LeftParen) {
                     let args = self.parse_arguments()?;
                     self.expect(&TokenKind::RightParen, "Expected ')' / متوقع ')'")?;

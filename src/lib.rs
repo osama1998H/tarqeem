@@ -9,12 +9,14 @@
 //! JavaScript into a cohesive, type-safe language.
 
 pub mod cli;
+pub mod codegen;
 pub mod error;
 pub mod ir;
 pub mod lexer;
 pub mod parser;
 pub mod semantic;
 
+pub use codegen::{Linker, LlvmCodegen, Target};
 pub use error::{Diagnostic, DiagnosticLevel, Span};
 pub use ir::{IrBuilder, Module as IrModule};
 pub use lexer::{Lexer, Token, TokenKind};
