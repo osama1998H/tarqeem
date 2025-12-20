@@ -24,6 +24,15 @@ impl Parser {
         Self { tokens, current: 0 }
     }
 
+    /// Create a new parser from pre-lexed tokens
+    pub fn from_tokens(tokens: Vec<Token>) -> Self {
+        let tokens: Vec<Token> = tokens
+            .into_iter()
+            .filter(|t| !matches!(t.kind, TokenKind::Newline))
+            .collect();
+        Self { tokens, current: 0 }
+    }
+
     /// Parse the entire program
     pub fn parse(&mut self) -> Result<Ast, Diagnostic> {
         let mut statements = Vec::new();
