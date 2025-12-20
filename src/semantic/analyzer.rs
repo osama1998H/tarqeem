@@ -3,10 +3,13 @@
 use super::class_resolver::ClassResolver;
 use super::generics::GenericResolver;
 use super::method_resolver::{MemberResolution, MethodResolver};
+use super::modules::{ExportKind, ModuleLoader};
 use super::scope::{Scope, ScopeKind, Symbol, SymbolKind};
 use super::types::{parse_type_name, Type};
 use crate::error::{Diagnostic, Language, Span};
 use crate::parser::*;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// The semantic analyzer
 pub struct Analyzer {
@@ -17,6 +20,12 @@ pub struct Analyzer {
     /// Generic type resolver (for future use with generics)
     #[allow(dead_code)]
     generic_resolver: GenericResolver,
+    /// Module loader for handling imports
+    module_loader: ModuleLoader,
+    /// Current file being analyzed
+    current_file: Option<PathBuf>,
+    /// Exported symbols from this module
+    exports: HashMap<String, Type>,
     /// Collected diagnostics
     diagnostics: Vec<Diagnostic>,
     /// Language for error messages
@@ -35,11 +44,31 @@ impl Analyzer {
             scope: Scope::new_global(),
             class_resolver: ClassResolver::new(),
             generic_resolver: GenericResolver::new(),
+            module_loader: ModuleLoader::new(),
+            current_file: None,
+            exports: HashMap::new(),
             diagnostics: Vec::new(),
             language: Language::Arabic,
             current_class: None,
             expected_type: None,
         }
+    }
+
+    /// Create a new analyzer for a specific file
+    pub fn for_file(path: PathBuf) -> Self {
+        let mut analyzer = Self::new();
+        analyzer.current_file = Some(path);
+        analyzer
+    }
+
+    /// Add a module search path
+    pub fn add_search_path(&mut self, path: PathBuf) {
+        self.module_loader.add_search_path(path);
+    }
+
+    /// Get exported symbols from this module
+    pub fn exports(&self) -> &HashMap<String, Type> {
+        &self.exports
     }
 
     /// Get the class resolver
@@ -677,8 +706,93 @@ impl Analyzer {
         }
     }
 
-    fn analyze_import(&mut self, items: &ImportItems, _from: &str, _span: Span) {
-        // For now, just register the imported names
+    fn analyze_import(&mut self, items: &ImportItems, from: &str, span: Span) {
+        // Try to resolve and load the module
+        let current_file = self
+            .current_file
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let module_path = match self.module_loader.resolve_path(&current_file, from) {
+            Some(path) => path,
+            None => {
+                // Module not found - fall back to registering names as Any
+                // This allows compilation to proceed with unknown modules
+                self.warn(
+                    &format!("Module '{}' not found, imports will be typed as 'any'", from),
+                    &format!("الوحدة '{}' غير موجودة، سيتم تصنيف الاستيرادات كـ 'أي'", from),
+                    span,
+                );
+                self.register_imports_as_any(items);
+                return;
+            }
+        };
+
+        // Load the module and clone exports to avoid borrow issues
+        let module_exports = match self.module_loader.load_module(&module_path, span) {
+            Ok(loaded_module) => {
+                // Clone the exports we need
+                loaded_module.exports.clone()
+            }
+            Err(()) => {
+                // Module loading failed - diagnostics already added by loader
+                // Merge loader diagnostics
+                let loader_diagnostics = self.module_loader.take_diagnostics();
+                self.diagnostics.extend(loader_diagnostics);
+
+                // Fall back to registering names as Any
+                self.register_imports_as_any(items);
+                return;
+            }
+        };
+
+        // Import symbols from the loaded module
+        match items {
+            ImportItems::Named(imports) => {
+                for import in imports {
+                    let name = import.alias.as_ref().unwrap_or(&import.name);
+                    if let Some(exported) = module_exports.get(&import.name) {
+                        // Convert ExportKind to Type
+                        let ty = self.export_kind_to_type(&exported.kind, &import.name);
+                        self.scope.define(Symbol::variable(name, ty, false));
+                    } else {
+                        self.error(
+                            &format!("Module '{}' has no export named '{}'", from, import.name),
+                            &format!(
+                                "الوحدة '{}' لا تحتوي على تصدير باسم '{}'",
+                                from, import.name
+                            ),
+                            span,
+                        );
+                        // Still register as Any to allow compilation to continue
+                        self.scope.define(Symbol::variable(name, Type::Any, false));
+                    }
+                }
+            }
+            ImportItems::Wildcard(alias) => {
+                // Create a namespace object with all exports
+                // For now, just register as Any
+                self.scope.define(Symbol::variable(alias, Type::Any, false));
+            }
+            ImportItems::Default(name) => {
+                // Look for default export
+                if let Some(exported) = module_exports.get("default") {
+                    let ty = self.export_kind_to_type(&exported.kind, "default");
+                    self.scope.define(Symbol::variable(name, ty, false));
+                } else {
+                    self.warn(
+                        &format!("Module '{}' has no default export", from),
+                        &format!("الوحدة '{}' لا تحتوي على تصدير افتراضي", from),
+                        span,
+                    );
+                    self.scope.define(Symbol::variable(name, Type::Any, false));
+                }
+            }
+        }
+    }
+
+    /// Helper to register imports as Type::Any when module loading fails
+    fn register_imports_as_any(&mut self, items: &ImportItems) {
         match items {
             ImportItems::Named(imports) => {
                 for import in imports {
@@ -693,6 +807,24 @@ impl Analyzer {
                 self.scope.define(Symbol::variable(name, Type::Any, false));
             }
         }
+    }
+
+    /// Convert ExportKind to Type
+    fn export_kind_to_type(&self, kind: &ExportKind, name: &str) -> Type {
+        match kind {
+            ExportKind::Function => Type::Function {
+                params: vec![],
+                return_type: Box::new(Type::Any),
+            },
+            ExportKind::Class => Type::Class(name.to_string()),
+            ExportKind::Interface => Type::Interface(name.to_string()),
+            ExportKind::Variable | ExportKind::Constant => Type::Any,
+        }
+    }
+
+    /// Add a warning diagnostic
+    fn warn(&mut self, message: &str, message_ar: &str, span: Span) {
+        self.diagnostics.push(Diagnostic::warning(message, message_ar, span));
     }
 
     /// Analyze a super constructor call: أساس(args)
