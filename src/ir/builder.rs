@@ -61,6 +61,9 @@ pub struct IrBuilder {
     /// Variable name to VarId mapping (for current scope)
     variables: HashMap<String, VarId>,
 
+    /// Variable type tracking - maps VarId to its IrType
+    var_types: HashMap<u32, IrType>,
+
     /// Stack of variable scopes
     scope_stack: Vec<HashMap<String, VarId>>,
 
@@ -70,8 +73,15 @@ pub struct IrBuilder {
     /// Class field information
     class_fields: HashMap<String, Vec<(String, IrType)>>,
 
+    /// Method return types: (ClassName::MethodName) -> IrType
+    method_return_types: HashMap<String, IrType>,
+
     /// Known function names for identifier resolution
     function_names: HashSet<String>,
+
+    /// Track which VarIds are function parameters (not allocas)
+    /// Parameters are passed by value and don't need Load instructions
+    parameters: HashSet<u32>,
 }
 
 impl IrBuilder {
@@ -84,10 +94,13 @@ impl IrBuilder {
             var_counter: 0,
             block_counter: 0,
             variables: HashMap::new(),
+            var_types: HashMap::new(),
             scope_stack: Vec::new(),
             loop_stack: Vec::new(),
             class_fields: HashMap::new(),
+            method_return_types: HashMap::new(),
             function_names: HashSet::new(),
+            parameters: HashSet::new(),
         }
     }
 
@@ -150,12 +163,24 @@ impl IrBuilder {
         let mut fields = Vec::new();
 
         for member in members {
-            if let ClassMember::Field { name: field_name, ty, .. } = member {
-                let ir_type = ty
-                    .as_ref()
-                    .map(|t| self.convert_type(t))
-                    .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
-                fields.push((field_name.clone(), ir_type));
+            match member {
+                ClassMember::Field { name: field_name, ty, .. } => {
+                    let ir_type = ty
+                        .as_ref()
+                        .map(|t| self.convert_type(t))
+                        .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+                    fields.push((field_name.clone(), ir_type));
+                }
+                ClassMember::Method { name: method_name, return_type, .. } => {
+                    // Store method return type
+                    let ret_ty = return_type
+                        .as_ref()
+                        .map(|t| self.convert_type(t))
+                        .unwrap_or(IrType::Void);
+                    let full_name = format!("{}::{}", name, method_name);
+                    self.method_return_types.insert(full_name, ret_ty);
+                }
+                _ => {}
             }
         }
 
@@ -206,8 +231,13 @@ impl IrBuilder {
         // Clear variables to prevent leakage from previous scopes into function
         self.push_scope();
         self.variables.clear();
+        self.parameters.clear();
         for param in &params {
             self.variables.insert(param.name.clone(), param.id);
+            // Mark this VarId as a parameter (passed by value, not an alloca)
+            self.parameters.insert(param.id.0);
+            // Track the parameter's type
+            self.var_types.insert(param.id.0, param.ty.clone());
         }
 
         self.current_function = Some(func);
@@ -416,9 +446,14 @@ impl IrBuilder {
         ty: Option<&TypeAnnotation>,
         init: Option<&Expr>,
     ) -> Result<()> {
-        let ir_type = ty
-            .map(|t| self.convert_type(t))
-            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+        // Determine the type from annotation or infer from initializer
+        let ir_type = if let Some(t) = ty {
+            self.convert_type(t)
+        } else if let Some(init_expr) = init {
+            self.infer_expr_type(init_expr)
+        } else {
+            IrType::Ptr(Box::new(IrType::Void))
+        };
 
         // Allocate space for the variable
         let ptr = self.new_var();
@@ -426,6 +461,9 @@ impl IrBuilder {
             dest: ptr,
             ty: ir_type.clone(),
         });
+
+        // Track the variable's type
+        self.var_types.insert(ptr.0, ir_type.clone());
 
         // If there's an initializer, evaluate and store it
         if let Some(init_expr) = init {
@@ -437,6 +475,124 @@ impl IrBuilder {
         self.variables.insert(name.to_string(), ptr);
 
         Ok(())
+    }
+
+    /// Infer IR type from an expression (simplified)
+    fn infer_expr_type(&self, expr: &Expr) -> IrType {
+        match &expr.kind {
+            ExprKind::Literal(lit) => match lit {
+                Literal::Int(_) => IrType::Int,
+                Literal::Float(_) => IrType::Float,
+                Literal::String(_) => IrType::String,
+                Literal::Bool(_) => IrType::Bool,
+                Literal::Null => IrType::Ptr(Box::new(IrType::Void)),
+            },
+            ExprKind::Array(elements) => {
+                // Infer element type from first element
+                let elem_ty = if let Some(first) = elements.first() {
+                    self.infer_expr_type(first)
+                } else {
+                    IrType::Ptr(Box::new(IrType::Void))
+                };
+                IrType::Array(Box::new(elem_ty), elements.len())
+            }
+            ExprKind::Binary { op, left, right } => match op {
+                AstBinaryOp::Eq | AstBinaryOp::NotEq |
+                AstBinaryOp::Lt | AstBinaryOp::LtEq |
+                AstBinaryOp::Gt | AstBinaryOp::GtEq |
+                AstBinaryOp::And | AstBinaryOp::Or => IrType::Bool,
+                AstBinaryOp::Add => {
+                    // Handle string concatenation
+                    let left_ty = self.infer_expr_type(left);
+                    let right_ty = self.infer_expr_type(right);
+                    if matches!(left_ty, IrType::String) || matches!(right_ty, IrType::String) {
+                        IrType::String
+                    } else if matches!(left_ty, IrType::Float) || matches!(right_ty, IrType::Float) {
+                        IrType::Float
+                    } else {
+                        IrType::Int
+                    }
+                }
+                AstBinaryOp::Sub | AstBinaryOp::Mul | AstBinaryOp::Div | AstBinaryOp::Mod => {
+                    // Float if either operand is float
+                    let left_ty = self.infer_expr_type(left);
+                    let right_ty = self.infer_expr_type(right);
+                    if matches!(left_ty, IrType::Float) || matches!(right_ty, IrType::Float) {
+                        IrType::Float
+                    } else {
+                        IrType::Int
+                    }
+                }
+                _ => IrType::Int, // Default for other operations
+            },
+            ExprKind::Unary { op, operand } => match op {
+                AstUnaryOp::Not => IrType::Bool,
+                AstUnaryOp::Neg | AstUnaryOp::PreInc | AstUnaryOp::PreDec |
+                AstUnaryOp::PostInc | AstUnaryOp::PostDec => {
+                    // Preserve operand type (Int or Float)
+                    let operand_ty = self.infer_expr_type(operand);
+                    match operand_ty {
+                        IrType::Float => IrType::Float,
+                        _ => IrType::Int,
+                    }
+                }
+            },
+            ExprKind::New { class, .. } => {
+                // New returns a pointer to a heap-allocated object
+                if let ExprKind::Identifier(name) = &class.kind {
+                    IrType::Ptr(Box::new(IrType::Struct(ClassId(name.clone()))))
+                } else {
+                    IrType::Ptr(Box::new(IrType::Void))
+                }
+            }
+            ExprKind::Identifier(name) => {
+                // Look up the variable's type
+                if let Some(ptr) = self.lookup_var(name) {
+                    self.var_types.get(&ptr.0).cloned().unwrap_or(IrType::Ptr(Box::new(IrType::Void)))
+                } else {
+                    IrType::Ptr(Box::new(IrType::Void))
+                }
+            }
+            ExprKind::Index { object, .. } => {
+                // Get element type from array
+                let obj_ty = self.infer_expr_type(object);
+                if let IrType::Array(elem, _) = obj_ty {
+                    (*elem).clone()
+                } else {
+                    IrType::Ptr(Box::new(IrType::Void))
+                }
+            }
+            ExprKind::Member { object, property } => {
+                // Get field type from class if known
+                let obj_ty = self.infer_expr_type(object);
+                if let IrType::Struct(class_id) = obj_ty {
+                    self.get_field_type(&class_id.0, property)
+                } else {
+                    IrType::Ptr(Box::new(IrType::Void))
+                }
+            }
+            ExprKind::Call { callee, .. } => {
+                // Get function return type if known
+                if let ExprKind::Identifier(name) = &callee.kind {
+                    self.get_function_return_type(name)
+                } else {
+                    IrType::Ptr(Box::new(IrType::Void))
+                }
+            }
+            ExprKind::Ternary { then_expr, .. } => {
+                // Return type of the 'then' branch
+                self.infer_expr_type(then_expr)
+            }
+            ExprKind::This => {
+                // Look up the type of 'this' from the first parameter (which is always 'this')
+                if let Some(var_id) = self.lookup_var("هذا").or_else(|| self.lookup_var("this")) {
+                    self.var_types.get(&var_id.0).cloned().unwrap_or(IrType::Ptr(Box::new(IrType::Void)))
+                } else {
+                    IrType::Ptr(Box::new(IrType::Void))
+                }
+            }
+            _ => IrType::Ptr(Box::new(IrType::Void)),
+        }
     }
 
     /// Build IR for a function declaration
@@ -1232,20 +1388,38 @@ impl IrBuilder {
             Literal::Null => (Constant::Null, IrType::Ptr(Box::new(IrType::Void))),
         };
 
+        // Track the literal's type
+        self.var_types.insert(dest.0, ty.clone());
+
         self.emit(Instruction::Const { dest, value, ty });
         Ok(dest)
     }
 
     /// Build IR for an identifier
     fn build_identifier(&mut self, name: &str) -> Result<VarId> {
-        if let Some(var_ptr) = self.lookup_var(name) {
-            // Load the value from the variable's location
+        if let Some(var_id) = self.lookup_var(name) {
+            // Check if this is a function parameter (passed by value)
+            if self.parameters.contains(&var_id.0) {
+                // Parameters are values, not pointers - return directly
+                return Ok(var_id);
+            }
+
+            // Get the actual type from tracking (for local variables)
+            let var_type = self.var_types.get(&var_id.0)
+                .cloned()
+                .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+
+            // Load the value from the variable's location (alloca)
             let dest = self.new_var();
             self.emit(Instruction::Load {
                 dest,
-                ptr: var_ptr,
-                ty: IrType::Ptr(Box::new(IrType::Void)), // Will be refined by type info
+                ptr: var_id,
+                ty: var_type.clone(),
             });
+
+            // Track the loaded value's type
+            self.var_types.insert(dest.0, var_type);
+
             Ok(dest)
         } else if self.function_names.contains(name) {
             // Function reference - emit a function pointer constant
@@ -1270,6 +1444,41 @@ impl IrBuilder {
         let left_var = self.build_expr(left)?;
         let right_var = self.build_expr(right)?;
 
+        // Get operand types for better type inference
+        let left_ty = self.var_types.get(&left_var.0).cloned().unwrap_or(IrType::Int);
+        let right_ty = self.var_types.get(&right_var.0).cloned().unwrap_or(IrType::Int);
+
+        // Handle string concatenation with type coercion
+        if matches!(op, AstBinaryOp::Add) {
+            let is_left_string = matches!(left_ty, IrType::String);
+            let is_right_string = matches!(right_ty, IrType::String);
+
+            if is_left_string || is_right_string {
+                // Convert non-string operands to strings
+                let left_str = if is_left_string {
+                    left_var
+                } else {
+                    self.convert_to_string(left_var, &left_ty)?
+                };
+
+                let right_str = if is_right_string {
+                    right_var
+                } else {
+                    self.convert_to_string(right_var, &right_ty)?
+                };
+
+                // Emit string concatenation
+                let dest = self.new_var();
+                self.emit(Instruction::StringConcat {
+                    dest,
+                    left: left_str,
+                    right: right_str,
+                });
+                self.var_types.insert(dest.0, IrType::String);
+                return Ok(dest);
+            }
+        }
+
         let ir_op = match op {
             AstBinaryOp::Add => BinaryOp::Add,
             AstBinaryOp::Sub => BinaryOp::Sub,
@@ -1287,11 +1496,19 @@ impl IrBuilder {
             AstBinaryOp::Or => BinaryOp::Or,
         };
 
-        // Determine result type (simplified)
+        // Determine result type based on operation and operand types
         let result_ty = match ir_op {
             BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt
             | BinaryOp::Ge | BinaryOp::And | BinaryOp::Or => IrType::Bool,
-            _ => IrType::Int, // Default to int for arithmetic
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod | BinaryOp::Pow => {
+                // Promote to Float if either operand is Float
+                if matches!(left_ty, IrType::Float) || matches!(right_ty, IrType::Float) {
+                    IrType::Float
+                } else {
+                    IrType::Int
+                }
+            }
+            _ => IrType::Int,
         };
 
         let dest = self.new_var();
@@ -1300,28 +1517,59 @@ impl IrBuilder {
             op: ir_op,
             left: left_var,
             right: right_var,
-            ty: result_ty,
+            ty: result_ty.clone(),
         });
 
+        // Track the result type
+        self.var_types.insert(dest.0, result_ty);
+
+        Ok(dest)
+    }
+
+    /// Convert a value to a string for concatenation
+    fn convert_to_string(&mut self, var: VarId, ty: &IrType) -> Result<VarId> {
+        let dest = self.new_var();
+        let func_name = match ty {
+            IrType::Int => "trq_int_to_string".to_string(),
+            IrType::Float => "trq_float_to_string".to_string(),
+            IrType::Bool => "trq_bool_to_string".to_string(),
+            _ => "trq_int_to_string".to_string(), // Default fallback
+        };
+
+        self.emit(Instruction::Call {
+            dest: Some(dest),
+            func: FuncId(func_name),
+            args: vec![var],
+            ret_ty: IrType::String,
+        });
+        self.var_types.insert(dest.0, IrType::String);
         Ok(dest)
     }
 
     /// Build IR for a unary expression
     fn build_unary(&mut self, op: AstUnaryOp, operand: &Expr) -> Result<VarId> {
-        let operand_var = self.build_expr(operand)?;
-
         match op {
             AstUnaryOp::Neg => {
+                // Negation: get operand type and value
+                let operand_type = self.infer_expr_type(operand);
+                let operand_var = self.build_expr(operand)?;
+
+                let result_ty = match operand_type {
+                    IrType::Float => IrType::Float,
+                    _ => IrType::Int,
+                };
                 let dest = self.new_var();
                 self.emit(Instruction::Unary {
                     dest,
                     op: UnaryOp::Neg,
                     operand: operand_var,
-                    ty: IrType::Int,
+                    ty: result_ty.clone(),
                 });
+                self.var_types.insert(dest.0, result_ty);
                 Ok(dest)
             }
             AstUnaryOp::Not => {
+                let operand_var = self.build_expr(operand)?;
                 let dest = self.new_var();
                 self.emit(Instruction::Unary {
                     dest,
@@ -1329,45 +1577,82 @@ impl IrBuilder {
                     operand: operand_var,
                     ty: IrType::Bool,
                 });
+                self.var_types.insert(dest.0, IrType::Bool);
                 Ok(dest)
             }
-            AstUnaryOp::PreInc | AstUnaryOp::PostInc => {
-                // x++ or ++x
-                let one = self.new_var();
-                self.emit(Instruction::Const {
-                    dest: one,
-                    value: Constant::Int(1),
-                    ty: IrType::Int,
-                });
-                let dest = self.new_var();
-                self.emit(Instruction::Binary {
-                    dest,
-                    op: BinaryOp::Add,
-                    left: operand_var,
-                    right: one,
-                    ty: IrType::Int,
-                });
-                Ok(dest)
-            }
-            AstUnaryOp::PreDec | AstUnaryOp::PostDec => {
-                // x-- or --x
-                let one = self.new_var();
-                self.emit(Instruction::Const {
-                    dest: one,
-                    value: Constant::Int(1),
-                    ty: IrType::Int,
-                });
-                let dest = self.new_var();
-                self.emit(Instruction::Binary {
-                    dest,
-                    op: BinaryOp::Sub,
-                    left: operand_var,
-                    right: one,
-                    ty: IrType::Int,
-                });
-                Ok(dest)
-            }
+            AstUnaryOp::PreInc => self.build_increment(operand, true, true),
+            AstUnaryOp::PreDec => self.build_increment(operand, false, true),
+            AstUnaryOp::PostInc => self.build_increment(operand, true, false),
+            AstUnaryOp::PostDec => self.build_increment(operand, false, false),
         }
+    }
+
+    /// Build increment/decrement with store-back
+    fn build_increment(&mut self, operand: &Expr, is_increment: bool, is_prefix: bool) -> Result<VarId> {
+        // Get variable pointer - must be an lvalue
+        let ptr = match &operand.kind {
+            ExprKind::Identifier(name) => {
+                self.lookup_var(name).ok_or_else(|| IrError::new(
+                    format!("Cannot modify undefined variable '{}'", name),
+                    format!("لا يمكن تعديل متغير غير معرّف '{}'", name),
+                ))?
+            }
+            _ => return Err(IrError::new(
+                "Increment/decrement requires a variable",
+                "الزيادة/النقصان تتطلب متغيراً",
+            )),
+        };
+
+        // Get variable type
+        let var_type = self.var_types.get(&ptr.0).cloned().unwrap_or(IrType::Int);
+        let result_ty = match var_type {
+            IrType::Float => IrType::Float,
+            _ => IrType::Int,
+        };
+
+        // Load current value
+        let old_val = self.new_var();
+        self.emit(Instruction::Load {
+            dest: old_val,
+            ptr,
+            ty: result_ty.clone(),
+        });
+        self.var_types.insert(old_val.0, result_ty.clone());
+
+        // Create constant 1
+        let one = self.new_var();
+        let const_val = if matches!(result_ty, IrType::Float) {
+            Constant::Float(1.0)
+        } else {
+            Constant::Int(1)
+        };
+        self.emit(Instruction::Const {
+            dest: one,
+            value: const_val,
+            ty: result_ty.clone(),
+        });
+        self.var_types.insert(one.0, result_ty.clone());
+
+        // Compute new value: old_val +/- 1
+        let new_val = self.new_var();
+        let op = if is_increment { BinaryOp::Add } else { BinaryOp::Sub };
+        self.emit(Instruction::Binary {
+            dest: new_val,
+            op,
+            left: old_val,
+            right: one,
+            ty: result_ty.clone(),
+        });
+        self.var_types.insert(new_val.0, result_ty);
+
+        // Store new value back to the variable
+        self.emit(Instruction::Store {
+            ptr,
+            value: new_val,
+        });
+
+        // Return appropriate value: new_val for prefix, old_val for postfix
+        Ok(if is_prefix { new_val } else { old_val })
     }
 
     /// Build IR for a function call
@@ -1392,8 +1677,12 @@ impl IrBuilder {
                     value: Constant::Null,
                     ty: IrType::Void,
                 });
+                self.var_types.insert(dest.0, IrType::Void);
                 return Ok(dest);
             }
+
+            // Look up function return type if available
+            let ret_ty = self.get_function_return_type(name);
 
             // Regular function call
             let dest = self.new_var();
@@ -1401,14 +1690,36 @@ impl IrBuilder {
                 dest: Some(dest),
                 func: FuncId(name.clone()),
                 args: arg_vars,
-                ret_ty: IrType::Ptr(Box::new(IrType::Void)),
+                ret_ty: ret_ty.clone(),
             });
+            self.var_types.insert(dest.0, ret_ty);
             return Ok(dest);
         }
 
         // Method call or indirect call
         if let ExprKind::Member { object, property } = &callee.kind {
+            // Get object type to find class name
+            let obj_type = self.infer_expr_type(object);
             let obj_var = self.build_expr(object)?;
+
+            // Extract class ID from type (handle both Struct and Ptr(Struct))
+            let class_id = match &obj_type {
+                IrType::Struct(class_id) => class_id.clone(),
+                IrType::Ptr(inner) => {
+                    if let IrType::Struct(class_id) = inner.as_ref() {
+                        class_id.clone()
+                    } else {
+                        ClassId("".to_string())
+                    }
+                }
+                _ => ClassId("".to_string()),
+            };
+
+            // Look up method return type
+            let full_method_name = format!("{}::{}", class_id.0, property);
+            let ret_ty = self.method_return_types.get(&full_method_name)
+                .cloned()
+                .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
 
             // Method call
             let dest = self.new_var();
@@ -1416,61 +1727,133 @@ impl IrBuilder {
                 dest: Some(dest),
                 object: obj_var,
                 method: MethodId {
-                    class: ClassId("".to_string()), // Will be resolved later
+                    class: class_id,
                     name: property.clone(),
                 },
                 args: arg_vars,
-                ret_ty: IrType::Ptr(Box::new(IrType::Void)),
+                ret_ty: ret_ty.clone(),
             });
+            self.var_types.insert(dest.0, ret_ty);
             return Ok(dest);
         }
 
         // Generic indirect call
         let callee_var = self.build_expr(callee)?;
+        let ret_ty = IrType::Ptr(Box::new(IrType::Void));
         let dest = self.new_var();
         self.emit(Instruction::CallIndirect {
             dest: Some(dest),
             func_ptr: callee_var,
             args: arg_vars,
-            ret_ty: IrType::Ptr(Box::new(IrType::Void)),
+            ret_ty: ret_ty.clone(),
         });
+        self.var_types.insert(dest.0, ret_ty);
         Ok(dest)
+    }
+
+    /// Get the return type of a function by name
+    fn get_function_return_type(&self, name: &str) -> IrType {
+        // Look up in module functions if available
+        for func in &self.module.functions {
+            if func.name == name || func.id.0 == name {
+                return func.return_type.clone();
+            }
+        }
+        // Default to void pointer for unknown functions
+        IrType::Ptr(Box::new(IrType::Void))
     }
 
     /// Build IR for member access
     fn build_member(&mut self, object: &Expr, property: &str) -> Result<VarId> {
+        let obj_type = self.infer_expr_type(object);
         let obj_var = self.build_expr(object)?;
         let dest = self.new_var();
 
-        // For now, assume it's a field access
-        // In a full implementation, we'd need type information
+        // Extract class ID from type (handle both Struct and Ptr(Struct))
+        let class_id_opt = match &obj_type {
+            IrType::Struct(class_id) => Some(class_id.clone()),
+            IrType::Ptr(inner) => {
+                if let IrType::Struct(class_id) = inner.as_ref() {
+                    Some(class_id.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        // Get field info from class fields if available
+        let (field_ty, field_index, class_id) = if let Some(class_id) = class_id_opt {
+            if let Some((idx, ty)) = self.get_field_info(&class_id.0, property) {
+                (ty, idx, class_id)
+            } else {
+                (IrType::Ptr(Box::new(IrType::Void)), 0, class_id)
+            }
+        } else {
+            (IrType::Ptr(Box::new(IrType::Void)), 0, ClassId("".to_string()))
+        };
+
         self.emit(Instruction::GetField {
             dest,
             object: obj_var,
             field: FieldId {
-                class: ClassId("".to_string()), // Will be resolved later
+                class: class_id,
                 name: property.to_string(),
-                index: 0,
+                index: field_index,
             },
-            ty: IrType::Ptr(Box::new(IrType::Void)),
+            ty: field_ty.clone(),
         });
 
+        self.var_types.insert(dest.0, field_ty);
         Ok(dest)
+    }
+
+    /// Get field type from class definition
+    fn get_field_type(&self, class_name: &str, field_name: &str) -> IrType {
+        if let Some(fields) = self.class_fields.get(class_name) {
+            for (name, ty) in fields {
+                if name == field_name {
+                    return ty.clone();
+                }
+            }
+        }
+        IrType::Ptr(Box::new(IrType::Void))
+    }
+
+    /// Get field info (index, type) from class definition
+    fn get_field_info(&self, class_name: &str, field_name: &str) -> Option<(u32, IrType)> {
+        if let Some(fields) = self.class_fields.get(class_name) {
+            for (idx, (name, ty)) in fields.iter().enumerate() {
+                if name == field_name {
+                    return Some((idx as u32, ty.clone()));
+                }
+            }
+        }
+        None
     }
 
     /// Build IR for index access
     fn build_index(&mut self, object: &Expr, index: &Expr) -> Result<VarId> {
+        let obj_type = self.infer_expr_type(object);
         let obj_var = self.build_expr(object)?;
         let idx_var = self.build_expr(index)?;
         let dest = self.new_var();
+
+        // Get element type from array type if available
+        let elem_ty = if let IrType::Array(elem, _) = &obj_type {
+            (**elem).clone()
+        } else {
+            IrType::Ptr(Box::new(IrType::Void))
+        };
 
         self.emit(Instruction::ArrayGet {
             dest,
             array: obj_var,
             index: idx_var,
-            elem_ty: IrType::Ptr(Box::new(IrType::Void)),
+            elem_ty: elem_ty.clone(),
         });
 
+        self.var_types.insert(dest.0, elem_ty);
         Ok(dest)
     }
 
@@ -1493,13 +1876,39 @@ impl IrBuilder {
                 }
             }
             ExprKind::Member { object, property } => {
+                // Get object type to find class info
+                let obj_type = self.infer_expr_type(object);
                 let obj_var = self.build_expr(object)?;
+
+                // Extract class ID from type (handle both Struct and Ptr(Struct))
+                let class_id_opt = match &obj_type {
+                    IrType::Struct(class_id) => Some(class_id.clone()),
+                    IrType::Ptr(inner) => {
+                        if let IrType::Struct(class_id) = inner.as_ref() {
+                            Some(class_id.clone())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+
+                // Look up class and field index
+                let (class_id, field_index) = if let Some(class_id) = class_id_opt {
+                    let index = self.get_field_info(&class_id.0, property)
+                        .map(|(idx, _)| idx)
+                        .unwrap_or(0);
+                    (class_id, index)
+                } else {
+                    (ClassId("".to_string()), 0)
+                };
+
                 self.emit(Instruction::SetField {
                     object: obj_var,
                     field: FieldId {
-                        class: ClassId("".to_string()),
+                        class: class_id,
                         name: property.clone(),
-                        index: 0,
+                        index: field_index,
                     },
                     value: value_var,
                 });
@@ -1600,18 +2009,27 @@ impl IrBuilder {
 
     /// Build IR for array literal
     fn build_array(&mut self, elements: &[Expr]) -> Result<VarId> {
+        // Infer element type from first element
+        let elem_ty = if let Some(first) = elements.first() {
+            self.infer_expr_type(first)
+        } else {
+            IrType::Ptr(Box::new(IrType::Void))
+        };
+
         let elem_vars: Vec<VarId> = elements
             .iter()
             .map(|e| self.build_expr(e))
             .collect::<Result<Vec<_>>>()?;
 
         let dest = self.new_var();
+        let array_ty = IrType::Array(Box::new(elem_ty.clone()), elem_vars.len());
         self.emit(Instruction::NewArray {
             dest,
-            elem_ty: IrType::Ptr(Box::new(IrType::Void)),
+            elem_ty,
             elements: elem_vars,
         });
 
+        self.var_types.insert(dest.0, array_ty);
         Ok(dest)
     }
 
@@ -1619,9 +2037,10 @@ impl IrBuilder {
     fn build_object(&mut self, fields: &[(String, Expr)]) -> Result<VarId> {
         // Objects are represented as anonymous structs for now
         let dest = self.new_var();
+        let class_id = ClassId("__anonymous__".to_string());
         self.emit(Instruction::NewObject {
             dest,
-            class: ClassId("__anonymous__".to_string()),
+            class: class_id.clone(),
         });
 
         for (name, expr) in fields {
@@ -1629,7 +2048,7 @@ impl IrBuilder {
             self.emit(Instruction::SetField {
                 object: dest,
                 field: FieldId {
-                    class: ClassId("__anonymous__".to_string()),
+                    class: class_id.clone(),
                     name: name.clone(),
                     index: 0,
                 },
@@ -1637,6 +2056,7 @@ impl IrBuilder {
             });
         }
 
+        self.var_types.insert(dest.0, IrType::Struct(class_id));
         Ok(dest)
     }
 
@@ -1724,12 +2144,17 @@ impl IrBuilder {
             "__dynamic__".to_string()
         };
 
+        let class_id = ClassId(class_name.clone());
+
         // Allocate object
         let dest = self.new_var();
         self.emit(Instruction::NewObject {
             dest,
-            class: ClassId(class_name.clone()),
+            class: class_id.clone(),
         });
+
+        // Track the object type
+        self.var_types.insert(dest.0, IrType::Struct(class_id));
 
         // Build constructor arguments
         let arg_vars: Vec<VarId> = args

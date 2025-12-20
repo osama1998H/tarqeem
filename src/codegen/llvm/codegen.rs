@@ -27,8 +27,8 @@ pub struct LlvmCodegen {
     var_types: HashMap<u32, IrType>,
     /// Block label mapping (IR BlockId -> LLVM label)
     block_map: HashMap<u32, String>,
-    /// String literal table (index -> global name)
-    string_globals: HashMap<u32, String>,
+    /// String literal table (index -> (global name, byte length))
+    string_globals: HashMap<u32, (String, usize)>,
     /// Counter for unique names
     name_counter: u32,
     /// Class definitions for field access
@@ -141,7 +141,7 @@ impl LlvmCodegen {
                 escaped
             )
             .unwrap();
-            self.string_globals.insert(idx, global_name);
+            self.string_globals.insert(idx, (global_name, len));
         }
         writeln!(self.output).unwrap();
     }
@@ -171,13 +171,18 @@ impl LlvmCodegen {
 
     /// Emit vtable for a class
     fn emit_vtable(&mut self, class: &Class) -> Result<(), CodegenError> {
-        let vtable_name = format!("@vtable.{}", class.id.0);
+        let mangled_class = mangle_class_name(&class.id.0);
+        let vtable_name = format!("@vtable.{}", mangled_class);
 
         // VTable is an array of function pointers
         let vtable_entries: Vec<String> = class
             .vtable
             .iter()
-            .map(|method| format!("ptr @{}_{}", method.class.0, method.name))
+            .map(|method| {
+                let mangled_method_class = mangle_class_name(&method.class.0);
+                let mangled_method_name = mangle_function_name(&method.name);
+                format!("ptr @{}_{}", mangled_method_class, mangled_method_name)
+            })
             .collect();
 
         writeln!(
@@ -223,6 +228,7 @@ impl LlvmCodegen {
         writeln!(self.output, "declare void @trq_print_int(i64)").unwrap();
         writeln!(self.output, "declare void @trq_print_float(double)").unwrap();
         writeln!(self.output, "declare void @trq_print_bool(i1)").unwrap();
+        writeln!(self.output, "declare void @trq_print_array(ptr)").unwrap();
         writeln!(self.output, "declare void @trq_print_newline()").unwrap();
 
         // Math operations
@@ -475,11 +481,15 @@ impl LlvmCodegen {
                 ret_ty,
             } => {
                 let func_name = mangle_function_name(&func.0);
+
+                // Get proper argument types from var_types - use map_param_type for args
                 let args_str: Vec<String> = args
                     .iter()
                     .map(|a| {
                         let name = self.get_var(*a).unwrap_or("undef".to_string());
-                        format!("i64 {}", name) // TODO: Proper types
+                        let arg_ty = self.var_types.get(&a.0).cloned().unwrap_or(IrType::Int);
+                        let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
+                        format!("{} {}", llvm_ty, name)
                     })
                     .collect();
                 let ret_type = self.type_mapper.map_type(ret_ty);
@@ -495,6 +505,8 @@ impl LlvmCodegen {
                         args_str.join(", ")
                     )
                     .unwrap();
+                    // Track return type
+                    self.var_types.insert(d.0, ret_ty.clone());
                 } else {
                     writeln!(
                         self.output,
@@ -562,6 +574,8 @@ impl LlvmCodegen {
                     dest_name, size
                 )
                 .unwrap();
+                // Track that result is a pointer to the struct
+                self.var_types.insert(dest.0, IrType::Ptr(Box::new(IrType::Struct(class.clone()))));
             }
 
             Instruction::GetField {
@@ -573,7 +587,7 @@ impl LlvmCodegen {
                 let dest_name = self.get_or_create_var(*dest);
                 let obj_name = self.get_var(*object)?;
                 let llvm_ty = self.type_mapper.map_type(ty);
-                let struct_ty = format!("%class.{}", field.class.0);
+                let struct_ty = format!("%class.{}", mangle_class_name(&field.class.0));
 
                 // Get element pointer then load
                 let ptr_name = self.fresh_name("field.ptr");
@@ -598,7 +612,7 @@ impl LlvmCodegen {
             } => {
                 let obj_name = self.get_var(*object)?;
                 let val_name = self.get_var(*value)?;
-                let struct_ty = format!("%class.{}", field.class.0);
+                let struct_ty = format!("%class.{}", mangle_class_name(&field.class.0));
 
                 let ptr_name = self.fresh_name("field.ptr");
                 writeln!(
@@ -627,7 +641,9 @@ impl LlvmCodegen {
             } => {
                 // Direct method call (non-virtual)
                 let obj_name = self.get_var(*object)?;
-                let method_name = format!("{}_{}", method.class.0, method.name);
+                // Method name format: ClassName::MethodName (same as how methods are defined)
+                let full_method_name = format!("{}::{}", method.class.0, method.name);
+                let method_name = mangle_function_name(&full_method_name);
 
                 let mut all_args = vec![format!("ptr {}", obj_name)];
                 for arg in args {
@@ -843,6 +859,8 @@ impl LlvmCodegen {
                     dest_name, left_name, right_name
                 )
                 .unwrap();
+                // Track that result is a String
+                self.var_types.insert(dest.0, IrType::String);
             }
 
             Instruction::TryBegin { catch_block } => {
@@ -910,28 +928,11 @@ impl LlvmCodegen {
                 let var_type = self.var_types.get(&value.0).cloned();
                 match &var_type {
                     Some(IrType::String) | Some(IrType::Ptr(_)) => {
-                        // For strings/pointers, create a TrqString from the raw ptr
-                        // and then call trq_print
-                        let str_var = format!("%tmp_str_{}", self.name_counter);
-                        let len_var = format!("%tmp_len_{}", self.name_counter);
-                        self.name_counter += 1;
-                        // Get string length using strlen
-                        writeln!(
-                            self.output,
-                            "  {} = call i64 @strlen(ptr {})",
-                            len_var, val_name
-                        ).unwrap();
-                        // Create TrqString
-                        writeln!(
-                            self.output,
-                            "  {} = call ptr @trq_string_new(ptr {}, i64 {})",
-                            str_var, val_name, len_var
-                        ).unwrap();
-                        // Print the TrqString
+                        // Strings are already TrqString*, pass directly to trq_print
                         writeln!(
                             self.output,
                             "  call void @trq_print(ptr {})",
-                            str_var
+                            val_name
                         ).unwrap();
                     }
                     Some(IrType::Float) => {
@@ -949,10 +950,10 @@ impl LlvmCodegen {
                         ).unwrap();
                     }
                     Some(IrType::Array(_, _)) => {
-                        // For arrays, print the array reference
+                        // For arrays, call trq_print_array
                         writeln!(
                             self.output,
-                            "  call void @trq_print_int(i64 ptrtoint (ptr {} to i64))",
+                            "  call void @trq_print_array(ptr {})",
                             val_name
                         ).unwrap();
                     }
@@ -1020,18 +1021,29 @@ impl LlvmCodegen {
                 .unwrap();
             }
             Constant::String(idx) => {
-                // Get pointer to string literal
-                if let Some(global) = self.string_globals.get(idx) {
+                // Create a TrqString from the string literal
+                if let Some((global, len)) = self.string_globals.get(idx) {
+                    // Get char* pointer to the string literal
+                    let tmp_ptr = format!("%tmp_strptr_{}", self.name_counter);
+                    self.name_counter += 1;
                     writeln!(
                         self.output,
                         "  {} = getelementptr [0 x i8], ptr {}, i64 0, i64 0",
-                        dest_name, global
+                        tmp_ptr, global
+                    )
+                    .unwrap();
+                    // Create TrqString from the char* and known length
+                    writeln!(
+                        self.output,
+                        "  {} = call ptr @trq_string_new(ptr {}, i64 {})",
+                        dest_name, tmp_ptr, len
                     )
                     .unwrap();
                 } else {
+                    // Empty string
                     writeln!(
                         self.output,
-                        "  {} = bitcast ptr null to ptr",
+                        "  {} = call ptr @trq_string_new(ptr null, i64 0)",
                         dest_name
                     )
                     .unwrap();
@@ -1258,9 +1270,9 @@ impl std::fmt::Display for CodegenError {
 
 impl std::error::Error for CodegenError {}
 
-/// Mangle a function name to be valid for LLVM
-fn mangle_function_name(name: &str) -> String {
-    // For now, just replace non-ASCII with hex encoding
+/// Mangle a name to be valid for LLVM (works for functions and classes)
+fn mangle_name(name: &str) -> String {
+    // Replace non-ASCII with hex encoding
     let mut result = String::new();
     for ch in name.chars() {
         if ch.is_ascii_alphanumeric() || ch == '_' {
@@ -1271,6 +1283,16 @@ fn mangle_function_name(name: &str) -> String {
         }
     }
     result
+}
+
+/// Mangle a function name to be valid for LLVM
+fn mangle_function_name(name: &str) -> String {
+    mangle_name(name)
+}
+
+/// Mangle a class name to be valid for LLVM
+fn mangle_class_name(name: &str) -> String {
+    mangle_name(name)
 }
 
 /// Sanitize a block label

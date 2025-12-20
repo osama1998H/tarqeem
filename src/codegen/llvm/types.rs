@@ -43,7 +43,7 @@ impl TypeMapper {
                 format!("{} ({})", self.map_type(ret), param_types.join(", "))
             }
             IrType::Struct(class_id) => {
-                format!("%class.{}", class_id.0)
+                format!("%class.{}", mangle_name(&class_id.0))
             }
         }
     }
@@ -98,10 +98,11 @@ impl TypeMapper {
 
     /// Generate LLVM struct type definition for a class
     pub fn generate_struct_type(&mut self, class_id: &ClassId, fields: &[(String, IrType)]) -> String {
+        let mangled_name = mangle_name(&class_id.0);
         let field_types: Vec<String> = fields.iter().map(|(_, ty)| self.map_type(ty)).collect();
         let type_def = format!(
             "%class.{} = type {{ {} }}",
-            class_id.0,
+            mangled_name,
             field_types.join(", ")
         );
         self.struct_types.insert(class_id.0.clone(), type_def.clone());
@@ -134,6 +135,20 @@ impl TypeMapper {
             IrType::Struct(_) => "zeroinitializer".to_string(),
         }
     }
+}
+
+/// Mangle a name to be valid for LLVM (no non-ASCII characters)
+fn mangle_name(name: &str) -> String {
+    let mut result = String::new();
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            result.push(ch);
+        } else {
+            // Encode as _U followed by hex codepoint
+            result.push_str(&format!("_U{:04X}_", ch as u32));
+        }
+    }
+    result
 }
 
 #[cfg(test)]

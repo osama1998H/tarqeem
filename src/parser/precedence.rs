@@ -52,6 +52,9 @@ impl Precedence {
 
             TokenKind::Bang => Precedence::Unary,
 
+            // Postfix operators (++, --) have high precedence
+            TokenKind::PlusPlus | TokenKind::MinusMinus => Precedence::Call,
+
             TokenKind::LeftParen | TokenKind::LeftBracket | TokenKind::Dot => Precedence::Call,
 
             _ => Precedence::None,

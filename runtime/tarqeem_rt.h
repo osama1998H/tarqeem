@@ -266,6 +266,12 @@ void trq_print_bool(bool value);
 void trq_print_newline(void);
 
 /**
+ * Print an array to stdout.
+ * @param arr Array to print
+ */
+void trq_print_array(TrqArray* arr);
+
+/**
  * Read a line from stdin.
  * @return String containing the line (without newline)
  */

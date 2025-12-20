@@ -43,6 +43,26 @@ void trq_print_newline(void) {
     fflush(stdout);
 }
 
+void trq_print_array(TrqArray* arr) {
+    if (!arr) {
+        printf("[null]");
+        return;
+    }
+    printf("[");
+    for (int64_t i = 0; i < arr->len; i++) {
+        if (i > 0) {
+            printf("، ");
+        }
+        // Print element as integer by default
+        // A more complete implementation would handle different element types
+        if (arr->data) {
+            int64_t* int_data = (int64_t*)arr->data;
+            printf("%ld", (long)int_data[i]);
+        }
+    }
+    printf("]");
+}
+
 /*============================================================================
  * Input Functions
  *============================================================================*/
