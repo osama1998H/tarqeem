@@ -9,7 +9,7 @@ use crate::lsp::handlers::{
     handle_code_actions, handle_completion, handle_definition, handle_document_symbol,
     handle_folding_ranges, handle_formatting, handle_hover, handle_inlay_hints,
     handle_prepare_rename, handle_references, handle_rename, handle_semantic_tokens_full,
-    publish_diagnostics,
+    handle_signature_help, publish_diagnostics,
 };
 use crate::lsp::state::ServerState;
 use async_trait::async_trait;
@@ -154,6 +154,19 @@ impl LanguageServer for TarqeemLanguageServer {
 
         if let Some(mut doc) = self.documents.get_mut(&uri) {
             Ok(handle_hover(&mut doc, position, language))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Handle signature help request
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let language = self.get_language().await;
+
+        if let Some(mut doc) = self.documents.get_mut(&uri) {
+            Ok(handle_signature_help(&mut doc, position, language))
         } else {
             Ok(None)
         }
@@ -338,6 +351,7 @@ mod tests {
         assert!(caps.hover_provider.is_some());
         assert!(caps.completion_provider.is_some());
         assert!(caps.definition_provider.is_some());
+        assert!(caps.signature_help_provider.is_some());
         // P1 features
         assert!(caps.references_provider.is_some());
         assert!(caps.rename_provider.is_some());

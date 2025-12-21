@@ -14,6 +14,7 @@ mod inlay_hints;
 mod references;
 mod rename;
 mod semantic_tokens;
+mod signature_help;
 
 pub use code_actions::handle_code_actions;
 pub use completion::handle_completion;
@@ -27,3 +28,4 @@ pub use inlay_hints::handle_inlay_hints;
 pub use references::handle_references;
 pub use rename::{handle_prepare_rename, handle_rename};
 pub use semantic_tokens::{get_semantic_tokens_legend, handle_semantic_tokens_full};
+pub use signature_help::handle_signature_help;

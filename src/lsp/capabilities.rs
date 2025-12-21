@@ -7,8 +7,8 @@ use tower_lsp::lsp_types::{
     CodeActionProviderCapability, CompletionOptions, FoldingRangeProviderCapability,
     HoverProviderCapability, InlayHintOptions, InlayHintServerCapabilities, OneOf, RenameOptions,
     SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensServerCapabilities,
-    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
-    WorkDoneProgressOptions,
+    ServerCapabilities, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, WorkDoneProgressOptions,
 };
 
 /// Get the server capabilities
@@ -104,8 +104,21 @@ pub fn server_capabilities() -> ServerCapabilities {
             },
         ))),
 
-        // Signature help (not yet implemented)
-        signature_help_provider: None,
+        // Signature help (مساعدة التوقيع)
+        signature_help_provider: Some(SignatureHelpOptions {
+            trigger_characters: Some(vec![
+                "(".to_string(), // Opening paren
+                "،".to_string(), // Arabic comma
+                ",".to_string(), // English comma
+            ]),
+            retrigger_characters: Some(vec![
+                "،".to_string(), // Arabic comma
+                ",".to_string(), // English comma
+            ]),
+            work_done_progress_options: WorkDoneProgressOptions {
+                work_done_progress: Some(false),
+            },
+        }),
 
         // Type definition
         type_definition_provider: None,
