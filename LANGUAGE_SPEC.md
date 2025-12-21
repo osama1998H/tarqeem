@@ -1045,48 +1045,127 @@ import { List, Map } from "collections"
 
 ## 11. Error Handling
 
-### 11.1 Try-Catch-Finally
+### 11.1 Error Objects
+
+Tarqeem uses a structured error handling model. **Only error objects can be thrown** - strings, numbers, and other primitive types cannot be thrown directly.
+
+> **Note:** The word `خطأ` is reserved for the boolean value `false`. The base exception class is named `استثناء` (exception).
+
+#### Base Exception Class
+
+The base exception class `استثناء` provides the foundation for all throwable types:
+
+```tarqeem
+صنف استثناء {
+    عام رسالة: نص              // Error message
+    عام رسالة_عربية: نص        // Arabic error message (optional)
+
+    منشئ(رسالة: نص) {
+        هذا.رسالة = رسالة
+        هذا.رسالة_عربية = رسالة
+    }
+
+    منشئ(رسالة: نص، رسالة_عربية: نص) {
+        هذا.رسالة = رسالة
+        هذا.رسالة_عربية = رسالة_عربية
+    }
+}
+```
+
+#### Standard Exception Types
+
+The standard library provides specialized exception classes:
+
+| Arabic | English | Description |
+|--------|---------|-------------|
+| `استثناء_قيمة` | `ValueError` | Invalid value |
+| `استثناء_نوع` | `TypeError` | Type mismatch |
+| `استثناء_فهرس` | `IndexError` | Index out of bounds |
+| `استثناء_ملف` | `FileError` | File operation error |
+| `استثناء_شبكة` | `NetworkError` | Network error |
+| `استثناء_قسمة` | `DivisionError` | Division by zero |
+
+#### Custom Exception Classes
+
+Create custom exception types by extending `استثناء`:
+
+```tarqeem
+صنف استثناء_تحقق يرث استثناء {
+    عام الحقل: نص
+
+    منشئ(الحقل: نص، رسالة: نص) {
+        أساس(رسالة)
+        هذا.الحقل = الحقل
+    }
+}
+```
+
+### 11.2 Try-Catch-Finally
 
 ```tarqeem
 حاول {
     // Code that might throw
     متغير نتيجة = عملية_خطرة()
-} التقط (خطأ) {
-    // Handle error
-    اطبع("حدث خطأ: " + خطأ.رسالة)
+} التقط (خ) {
+    // Handle exception - 'خ' is typed as the base exception class
+    اطبع("حدث استثناء: " + خ.رسالة)
 } أخيراً {
-    // Always executed
+    // Always executed (cleanup)
     تنظيف()
 }
 ```
 
-### 11.2 Throw Statement
+**Note:** The catch parameter is automatically typed as `استثناء`, which provides access to the `.رسالة` property and other exception fields.
+
+### 11.3 Throw Statement
+
+The `ارمِ` (throw) statement **requires an exception object**:
 
 ```tarqeem
 دالة قسمة(أ: عدد، ب: عدد) -> عدد {
     إذا (ب == 0) {
-        ارمِ "لا يمكن القسمة على صفر"
+        // Correct: throw an exception object
+        ارمِ جديد استثناء_قسمة("لا يمكن القسمة على صفر")
     }
     أرجع أ / ب
 }
+
+// Using a helper function
+دالة استثناء_جديد(رسالة: نص) -> استثناء {
+    أرجع جديد استثناء(رسالة)
+}
+
+دالة ف() {
+    ارمِ استثناء_جديد("حدث استثناء")
+}
 ```
 
-### 11.3 Error Propagation
+**Invalid throws (compile-time errors):**
+```tarqeem
+// These will cause compile-time errors:
+ارمِ "نص"           // ❌ Cannot throw string
+ارمِ 42              // ❌ Cannot throw number
+ارمِ صحيح           // ❌ Cannot throw boolean
+ارمِ جديد شخص()    // ❌ Cannot throw non-exception class
+```
 
-Errors propagate up the call stack until caught:
+### 11.4 Error Propagation
+
+Exceptions propagate up the call stack until caught:
+
 ```tarqeem
 دالة أ() {
-    ب()  // Error from ب() propagates if not caught
+    ب()  // Exception from ب() propagates if not caught
 }
 
 دالة ب() {
-    ارمِ "خطأ"
+    ارمِ جديد استثناء("استثناء من ب")
 }
 
 حاول {
     أ()
 } التقط (خ) {
-    اطبع(خ)  // Catches error from ب()
+    اطبع(خ.رسالة)  // Catches exception from ب()
 }
 ```
 

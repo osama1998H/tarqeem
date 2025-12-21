@@ -262,7 +262,7 @@ impl Analyzer {
             }
 
             StmtKind::Throw(expr) => {
-                self.analyze_expr(expr);
+                self.analyze_throw(expr, stmt.span);
             }
 
             StmtKind::Import { items, from } => {
@@ -694,8 +694,13 @@ impl Analyzer {
 
         if let Some(catch_clause) = catch {
             self.push_scope(ScopeKind::Block);
-            self.scope
-                .define(Symbol::variable(&catch_clause.param, Type::Any, false));
+            // The catch parameter is typed as the base error class (استثناء)
+            // This ensures .رسالة (message) property access works correctly
+            self.scope.define(Symbol::variable(
+                &catch_clause.param,
+                Type::Class("استثناء".to_string()),
+                false,
+            ));
 
             for stmt in &catch_clause.body.statements {
                 self.analyze_stmt(stmt);
@@ -706,6 +711,26 @@ impl Analyzer {
 
         if let Some(finally_block) = finally {
             self.analyze_block(finally_block, ScopeKind::Block);
+        }
+    }
+
+    /// Analyze a throw statement - requires an error object
+    fn analyze_throw(&mut self, expr: &Expr, span: Span) {
+        let expr_type = self.analyze_expr(expr);
+
+        // Check that the thrown expression is an error type
+        if !self.is_error_type(&expr_type) {
+            self.error(
+                &format!(
+                    "Cannot throw non-error type '{}'. Only error objects (خطأ or subclasses) can be thrown",
+                    expr_type
+                ),
+                &format!(
+                    "لا يمكن رمي نوع غير خطأ '{}'. يمكن رمي كائنات الخطأ (خطأ أو أصنافه الفرعية) فقط",
+                    expr_type.arabic_name()
+                ),
+                span,
+            );
         }
     }
 
@@ -832,6 +857,33 @@ impl Analyzer {
     fn warn(&mut self, message: &str, message_ar: &str, span: Span) {
         self.diagnostics
             .push(Diagnostic::warning(message, message_ar, span));
+    }
+
+    // ============ Error Type Checking ============
+
+    /// Base error class names (Arabic and English)
+    /// Note: "خطأ" is reserved for the `false` boolean, so we use "استثناء" (exception)
+    const ERROR_BASE_CLASSES: &'static [&'static str] = &["استثناء", "Exception", "Error"];
+
+    /// Check if a type is an error type (is استثناء or inherits from it)
+    fn is_error_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Class(class_name) => {
+                // Check if it's a base error class
+                if Self::ERROR_BASE_CLASSES.contains(&class_name.as_str()) {
+                    return true;
+                }
+                // Check if it inherits from a base error class
+                for base_error in Self::ERROR_BASE_CLASSES {
+                    if self.class_resolver.is_subclass(class_name, base_error) {
+                        return true;
+                    }
+                }
+                false
+            }
+            Type::Any => true, // Allow Any for backwards compatibility
+            _ => false,
+        }
     }
 
     /// Analyze a super constructor call: أساس(args)
@@ -1858,6 +1910,141 @@ mod tests {
             r#"
             متغير كلمة = "مرحبا";
             متغير ط = كلمة.طول;
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    // ============ Error Handling Tests ============
+
+    #[test]
+    fn test_throw_error_object() {
+        // Throwing an error object should succeed
+        // Note: "خطأ" is reserved for `false`, so we use "استثناء" (exception)
+        let result = analyze(
+            r#"
+            صنف استثناء {
+                عام رسالة: نص;
+                منشئ(رسالة: نص) {
+                    هذا.رسالة = رسالة;
+                }
+            }
+            دالة ف() {
+                ارمِ جديد استثناء("حدث خطأ");
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_throw_error_subclass() {
+        // Throwing a subclass of استثناء should succeed
+        let result = analyze(
+            r#"
+            صنف استثناء {
+                عام رسالة: نص;
+            }
+            صنف استثناء_قيمة يرث استثناء {
+                عام القيمة: عدد;
+            }
+            دالة ف() {
+                ارمِ جديد استثناء_قيمة();
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_throw_string_fails() {
+        // Throwing a string should fail
+        let result = analyze(
+            r#"
+            دالة ف() {
+                ارمِ "رسالة";
+            }
+        "#,
+        );
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("non-error type")));
+    }
+
+    #[test]
+    fn test_throw_number_fails() {
+        // Throwing a number should fail
+        let result = analyze(
+            r#"
+            دالة ف() {
+                ارمِ 42;
+            }
+        "#,
+        );
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("non-error type")));
+    }
+
+    #[test]
+    fn test_throw_non_error_class_fails() {
+        // Throwing a non-error class should fail
+        let result = analyze(
+            r#"
+            صنف شخص {
+                عام الاسم: نص;
+            }
+            دالة ف() {
+                ارمِ جديد شخص();
+            }
+        "#,
+        );
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("non-error type")));
+    }
+
+    #[test]
+    fn test_catch_parameter_typed_as_error() {
+        // Catch parameter should be typed as استثناء
+        // This test validates that we can access .رسالة on the catch parameter
+        let result = analyze(
+            r#"
+            صنف استثناء {
+                عام رسالة: نص;
+            }
+            دالة ف() {
+                حاول {
+                    متغير س = 1;
+                } التقط (خ) {
+                    متغير م = خ.رسالة;
+                }
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_try_catch_finally() {
+        // Complete try-catch-finally block should work
+        let result = analyze(
+            r#"
+            صنف استثناء {
+                عام رسالة: نص;
+                منشئ(رسالة: نص) {
+                    هذا.رسالة = رسالة;
+                }
+            }
+            دالة ف() {
+                حاول {
+                    ارمِ جديد استثناء("حدث استثناء");
+                } التقط (خ) {
+                    متغير م = خ.رسالة;
+                } أخيراً {
+                    متغير ن = 1;
+                }
+            }
         "#,
         );
         assert!(result.is_ok());
