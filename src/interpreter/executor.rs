@@ -979,12 +979,12 @@ impl Interpreter {
             | "pow" | "قوة"
             | "sqrt" | "جذر" | "cbrt" | "جذر_تكعيبي"
             // Math - Logarithms
-            | "log" | "لوغاريتم" | "log10" | "لوغ10" | "log2" | "لوغ2"
-            | "exp" | "أس"
+            | "log" | "لوغاريتم" | "log10" | "لوغ10" | "لوغاريتم10" | "log2" | "لوغ2"
+            | "exp" | "أس" | "أسي"
             // Math - Rounding
-            | "floor" | "أرضية" | "ceil" | "سقف" | "round" | "قرب" | "trunc" | "اقتطع"
+            | "floor" | "أرضية" | "ceil" | "سقف" | "round" | "قرب" | "تقريب" | "trunc" | "اقتطع"
             // Math - Comparison
-            | "min" | "أقل" | "max" | "أكبر" | "clamp" | "حصر"
+            | "min" | "أقل" | "أدنى" | "max" | "أكبر" | "أقصى" | "clamp" | "حصر"
             | "sign" | "علامة"
             // Math - Number theory
             | "gcd" | "قاسم_مشترك" | "lcm" | "مضاعف_مشترك"
@@ -994,7 +994,7 @@ impl Interpreter {
             | "cot" | "ظتا" | "sec" | "قا" | "csc" | "قتا"
             | "asin" | "جا_عكسي" | "acos" | "جتا_عكسي" | "atan" | "ظا_عكسي" | "atan2" | "ظا_عكسي2"
             | "sinh" | "جا_زائدي" | "cosh" | "جتا_زائدي" | "tanh" | "ظا_زائدي"
-            | "to_radians" | "الى_راديان" | "to_degrees" | "الى_درجات"
+            | "to_radians" | "الى_راديان" | "راديان" | "to_degrees" | "الى_درجات" | "درجات"
             // Random
             | "random" | "عشوائي" | "random_int"
             | "random_range" | "عشوائي_بين"
@@ -1219,7 +1219,7 @@ impl Interpreter {
                 Ok(Value::Float(f.ln()))
             }
 
-            "log10" | "لوغ10" => {
+            "log10" | "لوغ10" | "لوغاريتم10" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "log10() requires 1 argument",
@@ -1245,7 +1245,7 @@ impl Interpreter {
                 Ok(Value::Float(f.log2()))
             }
 
-            "exp" | "أس" => {
+            "exp" | "أس" | "أسي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "exp() requires 1 argument",
@@ -1285,7 +1285,7 @@ impl Interpreter {
                 Ok(Value::Float(f.ceil()))
             }
 
-            "round" | "قرب" => {
+            "round" | "قرب" | "تقريب" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "round() requires 1 argument",
@@ -1312,7 +1312,7 @@ impl Interpreter {
             }
 
             // ============ Math - Comparison ============
-            "min" | "أقل" => {
+            "min" | "أقل" | "أدنى" => {
                 let a = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "min() requires 2 arguments",
@@ -1335,7 +1335,7 @@ impl Interpreter {
                 }
             }
 
-            "max" | "أكبر" => {
+            "max" | "أكبر" | "أقصى" => {
                 let a = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "max() requires 2 arguments",
@@ -1704,7 +1704,7 @@ impl Interpreter {
                 Ok(Value::Float(f.tanh()))
             }
 
-            "to_radians" | "الى_راديان" => {
+            "to_radians" | "الى_راديان" | "راديان" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "to_radians() requires 1 argument",
@@ -1717,7 +1717,7 @@ impl Interpreter {
                 Ok(Value::Float(f.to_radians()))
             }
 
-            "to_degrees" | "الى_درجات" => {
+            "to_degrees" | "الى_درجات" | "درجات" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "to_degrees() requires 1 argument",

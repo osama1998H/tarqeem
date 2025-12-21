@@ -203,12 +203,14 @@ impl Scope {
         scope.define(Symbol::function("لوغاريتم", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("log", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("لوغ10", vec![Type::Float], Type::Float));
+        scope.define(Symbol::function("لوغاريتم10", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("log10", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("لوغ2", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("log2", vec![Type::Float], Type::Float));
 
         // Exponential
         scope.define(Symbol::function("أس", vec![Type::Float], Type::Float));
+        scope.define(Symbol::function("أسي", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("exp", vec![Type::Float], Type::Float));
 
         // Rounding
@@ -217,6 +219,7 @@ impl Scope {
         scope.define(Symbol::function("سقف", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("ceil", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("قرب", vec![Type::Float], Type::Float));
+        scope.define(Symbol::function("تقريب", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("round", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("اقتطع", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("trunc", vec![Type::Float], Type::Float));
@@ -228,12 +231,22 @@ impl Scope {
             Type::Any,
         ));
         scope.define(Symbol::function(
+            "أدنى",
+            vec![Type::Any, Type::Any],
+            Type::Any,
+        ));
+        scope.define(Symbol::function(
             "min",
             vec![Type::Any, Type::Any],
             Type::Any,
         ));
         scope.define(Symbol::function(
             "أكبر",
+            vec![Type::Any, Type::Any],
+            Type::Any,
+        ));
+        scope.define(Symbol::function(
+            "أقصى",
             vec![Type::Any, Type::Any],
             Type::Any,
         ));
@@ -350,12 +363,22 @@ impl Scope {
             Type::Float,
         ));
         scope.define(Symbol::function(
+            "راديان",
+            vec![Type::Float],
+            Type::Float,
+        ));
+        scope.define(Symbol::function(
             "to_radians",
             vec![Type::Float],
             Type::Float,
         ));
         scope.define(Symbol::function(
             "الى_درجات",
+            vec![Type::Float],
+            Type::Float,
+        ));
+        scope.define(Symbol::function(
+            "درجات",
             vec![Type::Float],
             Type::Float,
         ));
