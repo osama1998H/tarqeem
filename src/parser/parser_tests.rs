@@ -1,0 +1,1484 @@
+//! Comprehensive tests for the Parser module
+//!
+//! These tests verify correct parsing of all Tarqeem syntax constructs
+//! including loops, match statements, imports/exports, and complex expressions.
+
+use super::ast::*;
+use super::parser::Parser;
+
+// =============================================================================
+// Loop Statement Tests
+// =============================================================================
+
+#[test]
+fn test_parse_while_loop() {
+    let source = r#"
+        طالما (س < 10) {
+            س = س + 1;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    assert_eq!(ast.statements.len(), 1);
+    match &ast.statements[0].kind {
+        StmtKind::While { condition, body } => {
+            assert!(!body.statements.is_empty());
+            match &condition.kind {
+                ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Lt),
+                _ => panic!("Expected binary expression"),
+            }
+        }
+        _ => panic!("Expected While statement"),
+    }
+}
+
+#[test]
+fn test_parse_while_loop_english() {
+    let source = r#"
+        while (x < 10) {
+            x = x + 1;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    assert_eq!(ast.statements.len(), 1);
+    assert!(matches!(&ast.statements[0].kind, StmtKind::While { .. }));
+}
+
+#[test]
+fn test_parse_for_loop_c_style() {
+    let source = r#"
+        لكل (متغير ع = 0؛ ع < 10؛ ع++) {
+            اطبع(ع);
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    assert_eq!(ast.statements.len(), 1);
+    match &ast.statements[0].kind {
+        StmtKind::For { init, condition, update, body } => {
+            assert!(init.is_some());
+            assert!(condition.is_some());
+            assert!(update.is_some());
+            assert!(!body.statements.is_empty());
+        }
+        _ => panic!("Expected For statement"),
+    }
+}
+
+#[test]
+fn test_parse_for_loop_english() {
+    let source = r#"
+        for (let i = 0; i < 10; i++) {
+            print(i);
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    assert_eq!(ast.statements.len(), 1);
+    assert!(matches!(&ast.statements[0].kind, StmtKind::For { .. }));
+}
+
+#[test]
+fn test_parse_for_in_loop() {
+    let source = r#"
+        لكل عنصر في قائمة_أرقام {
+            اطبع(عنصر);
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    assert_eq!(ast.statements.len(), 1);
+    match &ast.statements[0].kind {
+        StmtKind::ForIn { variable, iterable, body } => {
+            assert_eq!(variable, "عنصر");
+            assert!(!body.statements.is_empty());
+            match &iterable.kind {
+                ExprKind::Identifier(name) => assert_eq!(name, "قائمة_أرقام"),
+                _ => panic!("Expected identifier"),
+            }
+        }
+        _ => panic!("Expected ForIn statement"),
+    }
+}
+
+#[test]
+fn test_parse_for_in_loop_english() {
+    let source = r#"
+        for item in items {
+            print(item);
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    assert_eq!(ast.statements.len(), 1);
+    match &ast.statements[0].kind {
+        StmtKind::ForIn { variable, .. } => {
+            assert_eq!(variable, "item");
+        }
+        _ => panic!("Expected ForIn statement"),
+    }
+}
+
+#[test]
+fn test_parse_for_loop_no_init() {
+    let source = r#"
+        for (; i < 10; i++) {
+            x = x + 1;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::For { init, condition, update, .. } => {
+            assert!(init.is_none());
+            assert!(condition.is_some());
+            assert!(update.is_some());
+        }
+        _ => panic!("Expected For statement"),
+    }
+}
+
+#[test]
+fn test_parse_for_loop_no_update() {
+    let source = r#"
+        for (let i = 0; i < 10;) {
+            i = i + 2;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::For { init, condition, update, .. } => {
+            assert!(init.is_some());
+            assert!(condition.is_some());
+            assert!(update.is_none());
+        }
+        _ => panic!("Expected For statement"),
+    }
+}
+
+// =============================================================================
+// Match Statement Tests
+// =============================================================================
+
+#[test]
+fn test_parse_match_statement() {
+    let source = r#"
+        تطابق (يوم) {
+            حالة 1 => اطبع("الأحد")
+            حالة 2 => اطبع("الاثنين")
+            غير_ذلك => اطبع("يوم آخر")
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    assert_eq!(ast.statements.len(), 1);
+    match &ast.statements[0].kind {
+        StmtKind::Match { expr, arms } => {
+            assert_eq!(arms.len(), 3);
+            match &expr.kind {
+                ExprKind::Identifier(name) => assert_eq!(name, "يوم"),
+                _ => panic!("Expected identifier"),
+            }
+        }
+        _ => panic!("Expected Match statement"),
+    }
+}
+
+#[test]
+fn test_parse_match_with_multiple_patterns() {
+    let source = r#"
+        match (day) {
+            case 1, 2, 3 => print("weekday")
+            case 6, 7 => print("weekend")
+            default => print("unknown")
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Match { arms, .. } => {
+            assert_eq!(arms.len(), 3);
+            // First arm should have 3 patterns
+            assert_eq!(arms[0].patterns.len(), 3);
+            // Second arm should have 2 patterns
+            assert_eq!(arms[1].patterns.len(), 2);
+        }
+        _ => panic!("Expected Match statement"),
+    }
+}
+
+#[test]
+fn test_parse_match_with_block_body() {
+    let source = r#"
+        match (x) {
+            case 1 => {
+                y = 10;
+                z = 20;
+            }
+            default => {
+                y = 0;
+            }
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Match { arms, .. } => {
+            assert_eq!(arms[0].body.statements.len(), 2);
+            assert_eq!(arms[1].body.statements.len(), 1);
+        }
+        _ => panic!("Expected Match statement"),
+    }
+}
+
+// =============================================================================
+// Import/Export Tests
+// =============================================================================
+
+#[test]
+fn test_parse_named_import() {
+    let source = r#"
+        استورد { مساعد، أداة } من "مجموعات";
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Import { items, from } => {
+            match items {
+                ImportItems::Named(imports) => {
+                    assert_eq!(imports.len(), 2);
+                    assert_eq!(imports[0].name, "مساعد");
+                    assert_eq!(imports[1].name, "أداة");
+                }
+                _ => panic!("Expected named imports"),
+            }
+            assert_eq!(from, "مجموعات");
+        }
+        _ => panic!("Expected Import statement"),
+    }
+}
+
+#[test]
+fn test_parse_named_import_with_alias() {
+    let source = r#"
+        import { List as MyList, Map as MyMap } from "collections";
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Import { items, .. } => {
+            match items {
+                ImportItems::Named(imports) => {
+                    assert_eq!(imports[0].name, "List");
+                    assert_eq!(imports[0].alias, Some("MyList".to_string()));
+                    assert_eq!(imports[1].name, "Map");
+                    assert_eq!(imports[1].alias, Some("MyMap".to_string()));
+                }
+                _ => panic!("Expected named imports"),
+            }
+        }
+        _ => panic!("Expected Import statement"),
+    }
+}
+
+#[test]
+fn test_parse_wildcard_import() {
+    let source = r#"
+        استورد * كـ رياضيات من "رياضيات";
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Import { items, from } => {
+            match items {
+                ImportItems::Wildcard(alias) => {
+                    assert_eq!(alias, "رياضيات");
+                }
+                _ => panic!("Expected wildcard import"),
+            }
+            assert_eq!(from, "رياضيات");
+        }
+        _ => panic!("Expected Import statement"),
+    }
+}
+
+#[test]
+fn test_parse_default_import() {
+    let source = r#"
+        import MyModule from "module";
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Import { items, .. } => {
+            match items {
+                ImportItems::Default(name) => {
+                    assert_eq!(name, "MyModule");
+                }
+                _ => panic!("Expected default import"),
+            }
+        }
+        _ => panic!("Expected Import statement"),
+    }
+}
+
+#[test]
+fn test_parse_export_function() {
+    let source = r#"
+        صدّر دالة مساعدة() {
+            أرجع 42;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Export(inner) => {
+            match &inner.kind {
+                StmtKind::FuncDecl { name, .. } => {
+                    assert_eq!(name, "مساعدة");
+                }
+                _ => panic!("Expected FuncDecl inside export"),
+            }
+        }
+        _ => panic!("Expected Export statement"),
+    }
+}
+
+#[test]
+fn test_parse_export_class() {
+    let source = r#"
+        export class Helper {
+            public function help() {
+                return 1;
+            }
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Export(inner) => {
+            match &inner.kind {
+                StmtKind::ClassDecl { name, .. } => {
+                    assert_eq!(name, "Helper");
+                }
+                _ => panic!("Expected ClassDecl inside export"),
+            }
+        }
+        _ => panic!("Expected Export statement"),
+    }
+}
+
+// =============================================================================
+// Try-Catch-Finally Tests
+// =============================================================================
+
+#[test]
+fn test_parse_try_catch() {
+    let source = r#"
+        حاول {
+            خطر();
+        } التقط (استثناء) {
+            اطبع(استثناء);
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Try { body, catch, finally } => {
+            assert!(!body.statements.is_empty());
+            assert!(catch.is_some());
+            assert!(finally.is_none());
+
+            let catch_clause = catch.as_ref().unwrap();
+            assert_eq!(catch_clause.param, "استثناء");
+        }
+        _ => panic!("Expected Try statement"),
+    }
+}
+
+#[test]
+fn test_parse_try_catch_finally() {
+    let source = r#"
+        try {
+            dangerous();
+        } catch (error) {
+            log(error);
+        } finally {
+            cleanup();
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Try { body, catch, finally } => {
+            assert!(!body.statements.is_empty());
+            assert!(catch.is_some());
+            assert!(finally.is_some());
+        }
+        _ => panic!("Expected Try statement"),
+    }
+}
+
+#[test]
+fn test_parse_try_finally_no_catch() {
+    let source = r#"
+        try {
+            action();
+        } finally {
+            cleanup();
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Try { catch, finally, .. } => {
+            assert!(catch.is_none());
+            assert!(finally.is_some());
+        }
+        _ => panic!("Expected Try statement"),
+    }
+}
+
+#[test]
+fn test_parse_throw_statement() {
+    let source = r#"
+        ارمِ "خطأ في البرنامج";
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Throw(expr) => {
+            match &expr.kind {
+                ExprKind::Literal(Literal::String(s)) => {
+                    assert_eq!(s, "خطأ في البرنامج");
+                }
+                _ => panic!("Expected string literal"),
+            }
+        }
+        _ => panic!("Expected Throw statement"),
+    }
+}
+
+// =============================================================================
+// Break and Continue Tests
+// =============================================================================
+
+#[test]
+fn test_parse_break_statement() {
+    let source = r#"
+        while (true) {
+            break;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::While { body, .. } => {
+            assert!(matches!(&body.statements[0].kind, StmtKind::Break));
+        }
+        _ => panic!("Expected While statement"),
+    }
+}
+
+#[test]
+fn test_parse_continue_statement() {
+    let source = r#"
+        طالما (صحيح) {
+            استمر;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::While { body, .. } => {
+            assert!(matches!(&body.statements[0].kind, StmtKind::Continue));
+        }
+        _ => panic!("Expected While statement"),
+    }
+}
+
+// =============================================================================
+// Operator Precedence Tests
+// =============================================================================
+
+#[test]
+fn test_precedence_multiplication_over_addition() {
+    let source = "1 + 2 * 3;";
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    // Should parse as 1 + (2 * 3)
+    match &ast.statements[0].kind {
+        StmtKind::Expr(expr) => {
+            match &expr.kind {
+                ExprKind::Binary { left, op, right } => {
+                    assert_eq!(*op, BinaryOp::Add);
+                    // Left should be 1
+                    match &left.kind {
+                        ExprKind::Literal(Literal::Int(1)) => {}
+                        _ => panic!("Expected literal 1"),
+                    }
+                    // Right should be 2 * 3
+                    match &right.kind {
+                        ExprKind::Binary { op, .. } => {
+                            assert_eq!(*op, BinaryOp::Mul);
+                        }
+                        _ => panic!("Expected multiplication"),
+                    }
+                }
+                _ => panic!("Expected binary expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_precedence_power_right_associative() {
+    let source = "2 ** 3 ** 2;";
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    // Should parse as 2 ** (3 ** 2) due to right associativity
+    match &ast.statements[0].kind {
+        StmtKind::Expr(expr) => {
+            match &expr.kind {
+                ExprKind::Binary { left, op, right } => {
+                    assert_eq!(*op, BinaryOp::Pow);
+                    // Left should be 2
+                    match &left.kind {
+                        ExprKind::Literal(Literal::Int(2)) => {}
+                        _ => panic!("Expected literal 2"),
+                    }
+                    // Right should be 3 ** 2
+                    match &right.kind {
+                        ExprKind::Binary { left, op, right } => {
+                            assert_eq!(*op, BinaryOp::Pow);
+                            match &left.kind {
+                                ExprKind::Literal(Literal::Int(3)) => {}
+                                _ => panic!("Expected literal 3"),
+                            }
+                            match &right.kind {
+                                ExprKind::Literal(Literal::Int(2)) => {}
+                                _ => panic!("Expected literal 2"),
+                            }
+                        }
+                        _ => panic!("Expected power expression"),
+                    }
+                }
+                _ => panic!("Expected binary expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_precedence_comparison_and_logical() {
+    let source = "a > b && c < d;";
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    // Should parse as (a > b) && (c < d)
+    match &ast.statements[0].kind {
+        StmtKind::Expr(expr) => {
+            match &expr.kind {
+                ExprKind::Binary { op, left, right } => {
+                    assert_eq!(*op, BinaryOp::And);
+                    // Left should be a > b
+                    match &left.kind {
+                        ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Gt),
+                        _ => panic!("Expected comparison"),
+                    }
+                    // Right should be c < d
+                    match &right.kind {
+                        ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Lt),
+                        _ => panic!("Expected comparison"),
+                    }
+                }
+                _ => panic!("Expected binary expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_precedence_parentheses() {
+    let source = "(1 + 2) * 3;";
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    // Should parse as (1 + 2) * 3
+    match &ast.statements[0].kind {
+        StmtKind::Expr(expr) => {
+            match &expr.kind {
+                ExprKind::Binary { op, left, .. } => {
+                    assert_eq!(*op, BinaryOp::Mul);
+                    // Left should be grouped (1 + 2)
+                    match &left.kind {
+                        ExprKind::Grouping(inner) => {
+                            match &inner.kind {
+                                ExprKind::Binary { op, .. } => {
+                                    assert_eq!(*op, BinaryOp::Add);
+                                }
+                                _ => panic!("Expected addition inside grouping"),
+                            }
+                        }
+                        _ => panic!("Expected grouping"),
+                    }
+                }
+                _ => panic!("Expected binary expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+// =============================================================================
+// Complex Expression Tests
+// =============================================================================
+
+#[test]
+fn test_parse_ternary_expression() {
+    let source = "x > 0 ? 1 : -1;";
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Expr(expr) => {
+            match &expr.kind {
+                ExprKind::Ternary { condition, then_expr, else_expr } => {
+                    match &condition.kind {
+                        ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Gt),
+                        _ => panic!("Expected comparison"),
+                    }
+                    match &then_expr.kind {
+                        ExprKind::Literal(Literal::Int(1)) => {}
+                        _ => panic!("Expected literal 1"),
+                    }
+                    match &else_expr.kind {
+                        ExprKind::Unary { op: UnaryOp::Neg, .. } => {}
+                        _ => panic!("Expected negation"),
+                    }
+                }
+                _ => panic!("Expected ternary expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_member_access() {
+    let source = "obj.field.subfield;";
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Expr(expr) => {
+            match &expr.kind {
+                ExprKind::Member { object, property } => {
+                    assert_eq!(property, "subfield");
+                    match &object.kind {
+                        ExprKind::Member { property, .. } => {
+                            assert_eq!(property, "field");
+                        }
+                        _ => panic!("Expected member access"),
+                    }
+                }
+                _ => panic!("Expected member access"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_index_access() {
+    let source = "arr[0][1];";
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Expr(expr) => {
+            match &expr.kind {
+                ExprKind::Index { object, index } => {
+                    match &index.kind {
+                        ExprKind::Literal(Literal::Int(1)) => {}
+                        _ => panic!("Expected literal 1"),
+                    }
+                    match &object.kind {
+                        ExprKind::Index { index, .. } => {
+                            match &index.kind {
+                                ExprKind::Literal(Literal::Int(0)) => {}
+                                _ => panic!("Expected literal 0"),
+                            }
+                        }
+                        _ => panic!("Expected index access"),
+                    }
+                }
+                _ => panic!("Expected index access"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_function_call_chain() {
+    let source = "a().b().c();";
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Expr(expr) => {
+            match &expr.kind {
+                ExprKind::Call { callee, .. } => {
+                    match &callee.kind {
+                        ExprKind::Member { property, .. } => {
+                            assert_eq!(property, "c");
+                        }
+                        _ => panic!("Expected member access"),
+                    }
+                }
+                _ => panic!("Expected call expression"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_compound_assignment() {
+    let source = "x += 5;";
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Expr(expr) => {
+            match &expr.kind {
+                ExprKind::CompoundAssignment { target, op, value } => {
+                    assert_eq!(*op, BinaryOp::Add);
+                    match &target.kind {
+                        ExprKind::Identifier(name) => assert_eq!(name, "x"),
+                        _ => panic!("Expected identifier"),
+                    }
+                    match &value.kind {
+                        ExprKind::Literal(Literal::Int(5)) => {}
+                        _ => panic!("Expected literal 5"),
+                    }
+                }
+                _ => panic!("Expected compound assignment"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_all_compound_assignments() {
+    let operators = vec![
+        ("x += 1;", BinaryOp::Add),
+        ("x -= 1;", BinaryOp::Sub),
+        ("x *= 1;", BinaryOp::Mul),
+        ("x /= 1;", BinaryOp::Div),
+        ("x %= 1;", BinaryOp::Mod),
+    ];
+
+    for (source, expected_op) in operators {
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().unwrap();
+
+        match &ast.statements[0].kind {
+            StmtKind::Expr(expr) => {
+                match &expr.kind {
+                    ExprKind::CompoundAssignment { op, .. } => {
+                        assert_eq!(*op, expected_op, "Failed for: {}", source);
+                    }
+                    _ => panic!("Expected compound assignment for: {}", source),
+                }
+            }
+            _ => panic!("Expected expression statement"),
+        }
+    }
+}
+
+#[test]
+fn test_parse_prefix_increment() {
+    let source = "++x;";
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Expr(expr) => {
+            match &expr.kind {
+                ExprKind::Unary { op: UnaryOp::PreInc, .. } => {}
+                _ => panic!("Expected prefix increment"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_postfix_increment() {
+    let source = "x++;";
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Expr(expr) => {
+            match &expr.kind {
+                ExprKind::Unary { op: UnaryOp::PostInc, .. } => {}
+                _ => panic!("Expected postfix increment"),
+            }
+        }
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+// =============================================================================
+// Class and Interface Tests
+// =============================================================================
+
+#[test]
+fn test_parse_class_with_inheritance() {
+    let source = r#"
+        صنف طالب يرث شخص {
+            خاص معدل: عدد_عشري;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { name, extends, .. } => {
+            assert_eq!(name, "طالب");
+            assert_eq!(extends, &Some("شخص".to_string()));
+        }
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+#[test]
+fn test_parse_class_with_interface() {
+    let source = r#"
+        class Dog implements Animal {
+            public function speak() {
+                print("Woof");
+            }
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { name, implements, .. } => {
+            assert_eq!(name, "Dog");
+            assert_eq!(implements.len(), 1);
+            assert_eq!(implements[0], "Animal");
+        }
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+#[test]
+fn test_parse_class_with_multiple_interfaces() {
+    let source = r#"
+        class MyClass implements Interface1, Interface2, Interface3 {
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { implements, .. } => {
+            assert_eq!(implements.len(), 3);
+        }
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+#[test]
+fn test_parse_interface_with_methods() {
+    let source = r#"
+        واجهة قابل_للمقارنة {
+            دالة قارن(آخر: قابل_للمقارنة) -> عدد
+            دالة يساوي(آخر: قابل_للمقارنة) -> منطقي
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::InterfaceDecl { name, methods, .. } => {
+            assert_eq!(name, "قابل_للمقارنة");
+            assert_eq!(methods.len(), 2);
+            assert_eq!(methods[0].name, "قارن");
+            assert_eq!(methods[1].name, "يساوي");
+        }
+        _ => panic!("Expected InterfaceDecl"),
+    }
+}
+
+#[test]
+fn test_parse_class_static_members() {
+    let source = r#"
+        class Counter {
+            static count: int;
+
+            static function increment() {
+                Counter.count = Counter.count + 1;
+            }
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => {
+            match &members[0] {
+                ClassMember::Field { is_static, name, .. } => {
+                    assert!(*is_static);
+                    assert_eq!(name, "count");
+                }
+                _ => panic!("Expected static field"),
+            }
+            match &members[1] {
+                ClassMember::Method { is_static, name, .. } => {
+                    assert!(*is_static);
+                    assert_eq!(name, "increment");
+                }
+                _ => panic!("Expected static method"),
+            }
+        }
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+// =============================================================================
+// Generic Type Tests
+// =============================================================================
+
+#[test]
+fn test_parse_generic_class() {
+    let source = r#"
+        صنف قائمة<ن> {
+            خاص عناصر: مصفوفة<ن>;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { name, type_params, .. } => {
+            assert_eq!(name, "قائمة");
+            assert_eq!(type_params.len(), 1);
+            assert_eq!(type_params[0], "ن");
+        }
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+#[test]
+fn test_parse_generic_class_multiple_params() {
+    let source = r#"
+        class Map<K, V> {
+            private keys: Array<K>;
+            private values: Array<V>;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { type_params, .. } => {
+            assert_eq!(type_params.len(), 2);
+            assert_eq!(type_params[0], "K");
+            assert_eq!(type_params[1], "V");
+        }
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+#[test]
+fn test_parse_generic_interface() {
+    let source = r#"
+        interface Comparable<T> {
+            function compare(other: T) -> int
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::InterfaceDecl { type_params, .. } => {
+            assert_eq!(type_params.len(), 1);
+            assert_eq!(type_params[0], "T");
+        }
+        _ => panic!("Expected InterfaceDecl"),
+    }
+}
+
+#[test]
+fn test_parse_new_expression_with_generics() {
+    let source = r#"
+        متغير قائمة = جديد قائمة<عدد>();
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init_expr = init.as_ref().unwrap();
+            match &init_expr.kind {
+                ExprKind::New { class, args } => {
+                    match &class.kind {
+                        ExprKind::Identifier(name) => assert_eq!(name, "قائمة"),
+                        _ => panic!("Expected identifier"),
+                    }
+                    assert!(args.is_empty());
+                }
+                _ => panic!("Expected new expression"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+// =============================================================================
+// Async/Await Tests
+// =============================================================================
+
+#[test]
+fn test_parse_async_function() {
+    let source = r#"
+        غير_متزامن دالة احضر_بيانات() {
+            أرجع 42;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { is_async, name, .. } => {
+            assert!(*is_async);
+            assert_eq!(name, "احضر_بيانات");
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_await_expression() {
+    let source = r#"
+        async function fetchData() {
+            let data = await getData();
+            return data;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, is_async, .. } => {
+            assert!(*is_async);
+            match &body.statements[0].kind {
+                StmtKind::VarDecl { init, .. } => {
+                    let init_expr = init.as_ref().unwrap();
+                    assert!(matches!(&init_expr.kind, ExprKind::Await(_)));
+                }
+                _ => panic!("Expected VarDecl"),
+            }
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+// =============================================================================
+// Object Literal Tests
+// =============================================================================
+
+#[test]
+fn test_parse_object_literal() {
+    let source = r#"
+        متغير شخص = { اسم: "أحمد"، عمر: 25 };
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init_expr = init.as_ref().unwrap();
+            match &init_expr.kind {
+                ExprKind::Object(pairs) => {
+                    assert_eq!(pairs.len(), 2);
+                    assert_eq!(pairs[0].0, "اسم");
+                    assert_eq!(pairs[1].0, "عمر");
+                }
+                _ => panic!("Expected object literal"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_empty_object_literal() {
+    let source = "let obj = {};";
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init_expr = init.as_ref().unwrap();
+            match &init_expr.kind {
+                ExprKind::Object(pairs) => {
+                    assert!(pairs.is_empty());
+                }
+                _ => panic!("Expected object literal"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+// =============================================================================
+// Type Annotation Tests
+// =============================================================================
+
+#[test]
+fn test_parse_optional_type() {
+    let source = r#"
+        متغير اسم: نص?;
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { ty, .. } => {
+            let type_ann = ty.as_ref().unwrap();
+            match &type_ann.kind {
+                TypeKind::Optional(_) => {}
+                _ => panic!("Expected optional type"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_generic_type() {
+    let source = r#"
+        let items: Array<int>;
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { ty, .. } => {
+            let type_ann = ty.as_ref().unwrap();
+            match &type_ann.kind {
+                TypeKind::Generic { base, args } => {
+                    assert_eq!(base, "Array");
+                    assert_eq!(args.len(), 1);
+                }
+                _ => panic!("Expected generic type"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_nested_generic_type() {
+    let source = r#"
+        let data: Map<string, Array<int>>;
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { ty, .. } => {
+            let type_ann = ty.as_ref().unwrap();
+            match &type_ann.kind {
+                TypeKind::Generic { base, args } => {
+                    assert_eq!(base, "Map");
+                    assert_eq!(args.len(), 2);
+                    match &args[1].kind {
+                        TypeKind::Generic { base, .. } => {
+                            assert_eq!(base, "Array");
+                        }
+                        _ => panic!("Expected nested generic type"),
+                    }
+                }
+                _ => panic!("Expected generic type"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+// =============================================================================
+// This and Super Tests
+// =============================================================================
+
+#[test]
+fn test_parse_this_expression() {
+    let source = r#"
+        class Person {
+            private name: string;
+
+            public function getName() -> string {
+                return this.name;
+            }
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => {
+            match &members[1] {
+                ClassMember::Method { body, .. } => {
+                    match &body.statements[0].kind {
+                        StmtKind::Return(Some(expr)) => {
+                            match &expr.kind {
+                                ExprKind::Member { object, property } => {
+                                    assert!(matches!(&object.kind, ExprKind::This));
+                                    assert_eq!(property, "name");
+                                }
+                                _ => panic!("Expected member access"),
+                            }
+                        }
+                        _ => panic!("Expected return"),
+                    }
+                }
+                _ => panic!("Expected method"),
+            }
+        }
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+#[test]
+fn test_parse_super_expression() {
+    let source = r#"
+        صنف طالب يرث شخص {
+            منشئ(اسم: نص) {
+                أساس(اسم);
+            }
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => {
+            match &members[0] {
+                ClassMember::Constructor { body, .. } => {
+                    match &body.statements[0].kind {
+                        StmtKind::Expr(expr) => {
+                            match &expr.kind {
+                                ExprKind::Call { callee, args } => {
+                                    assert!(matches!(&callee.kind, ExprKind::Super));
+                                    assert_eq!(args.len(), 1);
+                                }
+                                _ => panic!("Expected call"),
+                            }
+                        }
+                        _ => panic!("Expected expression"),
+                    }
+                }
+                _ => panic!("Expected constructor"),
+            }
+        }
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+// =============================================================================
+// Visibility Tests
+// =============================================================================
+
+#[test]
+fn test_parse_visibility_modifiers() {
+    let source = r#"
+        class MyClass {
+            public x: int;
+            private y: int;
+            protected z: int;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => {
+            match &members[0] {
+                ClassMember::Field { visibility, .. } => {
+                    assert_eq!(*visibility, Visibility::Public);
+                }
+                _ => panic!("Expected field"),
+            }
+            match &members[1] {
+                ClassMember::Field { visibility, .. } => {
+                    assert_eq!(*visibility, Visibility::Private);
+                }
+                _ => panic!("Expected field"),
+            }
+            match &members[2] {
+                ClassMember::Field { visibility, .. } => {
+                    assert_eq!(*visibility, Visibility::Protected);
+                }
+                _ => panic!("Expected field"),
+            }
+        }
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+// =============================================================================
+// Edge Cases and Error Handling
+// =============================================================================
+
+#[test]
+fn test_parse_empty_block() {
+    let source = r#"
+        function empty() {
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => {
+            assert!(body.statements.is_empty());
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_semicolon_insertion() {
+    // Semicolons should be optional at end of lines
+    let source = r#"
+        let x = 1
+        let y = 2
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    assert_eq!(ast.statements.len(), 2);
+}
+
+#[test]
+fn test_parse_return_without_value() {
+    let source = r#"
+        function doNothing() {
+            return;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => {
+            match &body.statements[0].kind {
+                StmtKind::Return(value) => {
+                    assert!(value.is_none());
+                }
+                _ => panic!("Expected return"),
+            }
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_function_with_default_params() {
+    let source = r#"
+        function greet(name: string = "World") {
+            print("Hello, " + name);
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { params, .. } => {
+            assert_eq!(params.len(), 1);
+            assert!(params[0].default.is_some());
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_const_declaration() {
+    let source = "ثابت PI = 3.14159;";
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { mutable, name, .. } => {
+            assert!(!*mutable);
+            assert_eq!(name, "PI");
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_if_else_if() {
+    let source = r#"
+        if (x > 10) {
+            y = 1;
+        } else if (x > 5) {
+            y = 2;
+        } else if (x > 0) {
+            y = 3;
+        } else {
+            y = 0;
+        }
+    "#;
+    let mut parser = Parser::new(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::If { else_branch, .. } => {
+            assert!(else_branch.is_some());
+            let else_block = else_branch.as_ref().unwrap();
+            assert_eq!(else_block.statements.len(), 1);
+            // The else if should be an If statement
+            assert!(matches!(&else_block.statements[0].kind, StmtKind::If { .. }));
+        }
+        _ => panic!("Expected If statement"),
+    }
+}

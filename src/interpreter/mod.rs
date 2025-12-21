@@ -26,6 +26,9 @@ mod error;
 mod executor;
 mod value;
 
+#[cfg(test)]
+mod executor_tests;
+
 pub use error::{RuntimeError, RuntimeResult};
 pub use executor::Interpreter;
 pub use value::Value;
