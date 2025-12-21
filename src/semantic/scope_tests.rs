@@ -41,7 +41,10 @@ fn test_symbol_function() {
     assert!(!symbol.mutable);
 
     match symbol.ty {
-        Type::Function { params, return_type } => {
+        Type::Function {
+            params,
+            return_type,
+        } => {
             assert_eq!(params.len(), 2);
             assert_eq!(params[0], Type::Int);
             assert_eq!(params[1], Type::Int);
@@ -55,7 +58,10 @@ fn test_symbol_function() {
 fn test_symbol_function_no_params() {
     let symbol = Symbol::function("greet", vec![], Type::Void);
     match symbol.ty {
-        Type::Function { params, return_type } => {
+        Type::Function {
+            params,
+            return_type,
+        } => {
             assert!(params.is_empty());
             assert_eq!(*return_type, Type::Void);
         }

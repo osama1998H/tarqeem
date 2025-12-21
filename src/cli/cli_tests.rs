@@ -120,14 +120,23 @@ fn test_cli_parse_compile_optimization_levels() {
 #[test]
 fn test_cli_parse_compile_dump_flags() {
     let args = Cli::try_parse_from([
-        "tarqeem", "compile", "test.trq",
-        "--dump-tokens", "--dump-ast", "--dump-ir"
+        "tarqeem",
+        "compile",
+        "test.trq",
+        "--dump-tokens",
+        "--dump-ast",
+        "--dump-ir",
     ]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Compile { dump_tokens, dump_ast, dump_ir, .. } => {
+        Commands::Compile {
+            dump_tokens,
+            dump_ast,
+            dump_ir,
+            ..
+        } => {
             assert!(dump_tokens);
             assert!(dump_ast);
             assert!(dump_ir);
@@ -139,8 +148,11 @@ fn test_cli_parse_compile_dump_flags() {
 #[test]
 fn test_cli_parse_compile_target() {
     let args = Cli::try_parse_from([
-        "tarqeem", "compile", "test.trq",
-        "--target", "x86_64-unknown-linux-gnu"
+        "tarqeem",
+        "compile",
+        "test.trq",
+        "--target",
+        "x86_64-unknown-linux-gnu",
     ]);
     assert!(args.is_ok());
 
@@ -371,7 +383,9 @@ fn test_cli_parse_pkg_init() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Init { name, lib } } => {
+        Commands::Pkg {
+            command: PkgCommands::Init { name, lib },
+        } => {
             assert!(name.is_none());
             assert!(!lib);
         }
@@ -386,7 +400,9 @@ fn test_cli_parse_pkg_init_with_name() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Init { name, .. } } => {
+        Commands::Pkg {
+            command: PkgCommands::Init { name, .. },
+        } => {
             assert_eq!(name, Some("my-project".to_string()));
         }
         _ => panic!("Expected Pkg Init command"),
@@ -400,7 +416,9 @@ fn test_cli_parse_pkg_init_lib() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Init { lib, .. } } => {
+        Commands::Pkg {
+            command: PkgCommands::Init { lib, .. },
+        } => {
             assert!(lib);
         }
         _ => panic!("Expected Pkg Init command"),
@@ -414,7 +432,9 @@ fn test_cli_parse_pkg_add() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Add { package, dev, path } } => {
+        Commands::Pkg {
+            command: PkgCommands::Add { package, dev, path },
+        } => {
             assert_eq!(package, "json");
             assert!(!dev);
             assert!(path.is_none());
@@ -430,7 +450,9 @@ fn test_cli_parse_pkg_add_dev() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Add { dev, .. } } => {
+        Commands::Pkg {
+            command: PkgCommands::Add { dev, .. },
+        } => {
             assert!(dev);
         }
         _ => panic!("Expected Pkg Add command"),
@@ -444,7 +466,9 @@ fn test_cli_parse_pkg_add_path() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Add { path, .. } } => {
+        Commands::Pkg {
+            command: PkgCommands::Add { path, .. },
+        } => {
             assert_eq!(path, Some(PathBuf::from("../lib")));
         }
         _ => panic!("Expected Pkg Add command"),
@@ -458,7 +482,9 @@ fn test_cli_parse_pkg_remove() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Remove { package } } => {
+        Commands::Pkg {
+            command: PkgCommands::Remove { package },
+        } => {
             assert_eq!(package, "json");
         }
         _ => panic!("Expected Pkg Remove command"),
@@ -472,7 +498,9 @@ fn test_cli_parse_pkg_install() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Install { force } } => {
+        Commands::Pkg {
+            command: PkgCommands::Install { force },
+        } => {
             assert!(!force);
         }
         _ => panic!("Expected Pkg Install command"),
@@ -486,7 +514,9 @@ fn test_cli_parse_pkg_install_force() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Install { force } } => {
+        Commands::Pkg {
+            command: PkgCommands::Install { force },
+        } => {
             assert!(force);
         }
         _ => panic!("Expected Pkg Install command"),
@@ -500,7 +530,9 @@ fn test_cli_parse_pkg_update() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Update { package } } => {
+        Commands::Pkg {
+            command: PkgCommands::Update { package },
+        } => {
             assert!(package.is_none());
         }
         _ => panic!("Expected Pkg Update command"),
@@ -514,7 +546,9 @@ fn test_cli_parse_pkg_update_specific() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Update { package } } => {
+        Commands::Pkg {
+            command: PkgCommands::Update { package },
+        } => {
             assert_eq!(package, Some("json".to_string()));
         }
         _ => panic!("Expected Pkg Update command"),
@@ -528,7 +562,9 @@ fn test_cli_parse_pkg_build() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Build { release } } => {
+        Commands::Pkg {
+            command: PkgCommands::Build { release },
+        } => {
             assert!(!release);
         }
         _ => panic!("Expected Pkg Build command"),
@@ -542,7 +578,9 @@ fn test_cli_parse_pkg_build_release() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Build { release } } => {
+        Commands::Pkg {
+            command: PkgCommands::Build { release },
+        } => {
             assert!(release);
         }
         _ => panic!("Expected Pkg Build command"),
@@ -556,7 +594,9 @@ fn test_cli_parse_pkg_run() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Run { args } } => {
+        Commands::Pkg {
+            command: PkgCommands::Run { args },
+        } => {
             assert!(args.is_empty());
         }
         _ => panic!("Expected Pkg Run command"),
@@ -570,7 +610,9 @@ fn test_cli_parse_pkg_run_with_args() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Run { args } } => {
+        Commands::Pkg {
+            command: PkgCommands::Run { args },
+        } => {
             assert_eq!(args, vec!["arg1", "arg2"]);
         }
         _ => panic!("Expected Pkg Run command"),
@@ -584,7 +626,9 @@ fn test_cli_parse_pkg_test() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Test { filter } } => {
+        Commands::Pkg {
+            command: PkgCommands::Test { filter },
+        } => {
             assert!(filter.is_none());
         }
         _ => panic!("Expected Pkg Test command"),
@@ -598,7 +642,9 @@ fn test_cli_parse_pkg_test_filter() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Test { filter } } => {
+        Commands::Pkg {
+            command: PkgCommands::Test { filter },
+        } => {
             assert_eq!(filter, Some("test_add".to_string()));
         }
         _ => panic!("Expected Pkg Test command"),
@@ -612,7 +658,9 @@ fn test_cli_parse_pkg_info() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Info } => {}
+        Commands::Pkg {
+            command: PkgCommands::Info,
+        } => {}
         _ => panic!("Expected Pkg Info command"),
     }
 }
@@ -624,7 +672,9 @@ fn test_cli_parse_pkg_clean() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Pkg { command: PkgCommands::Clean } => {}
+        Commands::Pkg {
+            command: PkgCommands::Clean,
+        } => {}
         _ => panic!("Expected Pkg Clean command"),
     }
 }
@@ -653,7 +703,12 @@ fn test_cli_parse_doc_basic() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Doc { path, output, format, single_file } => {
+        Commands::Doc {
+            path,
+            output,
+            format,
+            single_file,
+        } => {
             assert_eq!(path, PathBuf::from("src/"));
             assert!(output.is_none());
             assert_eq!(format, "html");
@@ -844,7 +899,9 @@ fn test_cli_pkg_alias_pm() {
     assert!(args.is_ok());
 
     match args.unwrap().command {
-        Commands::Pkg { command: PkgCommands::Init { .. } } => {}
+        Commands::Pkg {
+            command: PkgCommands::Init { .. },
+        } => {}
         _ => panic!("Expected Pkg Init command"),
     }
 }
@@ -940,11 +997,17 @@ fn test_cli_run_arabic_file() {
 #[test]
 fn test_cli_compile_full_options() {
     let args = Cli::try_parse_from([
-        "tarqeem", "--verbose", "--english",
-        "compile", "program.trq",
-        "-o", "output",
-        "-O", "2",
-        "--target", "aarch64-apple-darwin",
+        "tarqeem",
+        "--verbose",
+        "--english",
+        "compile",
+        "program.trq",
+        "-o",
+        "output",
+        "-O",
+        "2",
+        "--target",
+        "aarch64-apple-darwin",
         "--dump-ir",
     ]);
     assert!(args.is_ok());
@@ -975,9 +1038,13 @@ fn test_cli_compile_full_options() {
 #[test]
 fn test_cli_doc_full_options() {
     let args = Cli::try_parse_from([
-        "tarqeem", "doc", "src/",
-        "-o", "documentation/",
-        "-f", "markdown",
+        "tarqeem",
+        "doc",
+        "src/",
+        "-o",
+        "documentation/",
+        "-f",
+        "markdown",
         "--single-file",
     ]);
     assert!(args.is_ok());
