@@ -15,6 +15,3 @@ Thumbs.db
 
 # Debug files
 *.pdb
-
-# Sahari editor (VS Code fork) - separate repository
-/sahari/
