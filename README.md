@@ -1,4 +1,6 @@
 <div dir="rtl" align="right">
+<img width="592" height="634" alt="Tarqeem programming language overview diagram" src="https://github.com/user-attachments/assets/04c5d884-7bcd-496a-a4d1-cfd67a2d9708" />
+
 
 # ترقيم
 
