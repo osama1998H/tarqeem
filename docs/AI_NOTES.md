@@ -1277,6 +1277,270 @@ hex = "0.4"
 
 ---
 
+### Session: 2025-12-21 - Calculator Example Issues Analysis and Fix Plan
+
+**Goal**: Analyze and plan fixes for issues discovered while developing the scientific calculator example
+
+**Issue Source**: `examples/حاسبة/ISSUES.md`
+
+**Issues Analyzed**:
+
+| # | Category | Issue | Priority |
+|---|----------|-------|----------|
+| 2.1 | Runtime | Math functions defined in scope.rs but not implemented in executor.rs | P0 |
+| 4.1 | Lexer | Integer overflow parsing large numbers (9223372036854775807) | P0 |
+| 1.2 | Parser | Match statement doesn't allow `أرجع` without braces | P1 |
+| 1.3 | Parser | Doc comments `///` cause errors in some contexts | P1 |
+| 3.1 | IR | Global variables can't be assigned inside functions | P2 |
+| 4.2 | Stdlib | `تأكيد` function not implemented | P2 |
+| 5.1 | Runtime | Comparison errors with null values | P2 |
+
+---
+
+## Implementation Plan: Fix Calculator Issues
+
+### Phase 1: Runtime Math Functions (P0)
+
+**Problem**: Many math functions are registered in `src/semantic/scope.rs:109-562` for type checking but are not implemented in `src/interpreter/executor.rs:964-1229`.
+
+**Current State Analysis**:
+- `is_builtin()` at line 964 only recognizes ~25 functions
+- `call_builtin()` at line 998 implements those 25 functions
+- `scope.rs` registers 100+ functions for type checking
+- Gap: ~75 functions are type-checked but cause "Undefined function" at runtime
+
+**Functions Missing from Interpreter** (partial list):
+
+| Arabic | English | Status |
+|--------|---------|--------|
+| `مطلق` | - | Missing Arabic alias for `abs` |
+| `قوة` | `pow` | Not implemented |
+| `جذر_تكعيبي` | `cbrt` | Not implemented |
+| `لوغاريتم` | `log` | Not implemented |
+| `أرضية` | - | Missing Arabic alias for `floor` |
+| `سقف` | - | Missing Arabic alias for `ceil` |
+| `قرب` | - | Missing Arabic alias for `round` |
+| `أقل` | `min` | Not implemented |
+| `أكبر` | `max` | Not implemented |
+| `قاسم_مشترك` | `gcd` | Not implemented |
+| `مضاعف_مشترك` | `lcm` | Not implemented |
+| `عاملي` | `factorial` | Not implemented |
+| `جا` | - | Missing Arabic alias for `sin` |
+| `جتا` | - | Missing Arabic alias for `cos` |
+| `ظا` | - | Missing Arabic alias for `tan` |
+| `الى_راديان` | `to_radians` | Not implemented |
+| `الى_درجات` | `to_degrees` | Not implemented |
+| `تأكد` | `assert` | Not implemented |
+| `توقف` | `panic` | Not implemented |
+
+**Files to Modify**:
+- `src/interpreter/executor.rs`
+
+**Implementation Steps**:
+
+1. Update `is_builtin()` to recognize all Arabic aliases:
+```rust
+fn is_builtin(&self, name: &str) -> bool {
+    matches!(
+        name,
+        // I/O
+        "print" | "اطبع" | "println" | "طباعة" | "اطبع_سطر"
+        | "input" | "ادخل" | "ادخل_رسالة" | "ادخل_عدد" | "ادخل_عشري"
+        // Introspection
+        | "len" | "طول" | "length"
+        | "type" | "نوع" | "typeof"
+        // Type conversion
+        | "int" | "عدد" | "float" | "عدد_عشري" | "str" | "نص" | "bool" | "منطقي"
+        // Math - Basic
+        | "abs" | "مطلق"
+        | "pow" | "قوة"
+        | "sqrt" | "جذر" | "cbrt" | "جذر_تكعيبي"
+        // Math - Logarithms
+        | "log" | "لوغاريتم" | "log10" | "لوغ10" | "log2" | "لوغ2"
+        | "exp" | "أس"
+        // Math - Rounding
+        | "floor" | "أرضية" | "ceil" | "سقف" | "round" | "قرب" | "trunc" | "اقتطع"
+        // Math - Comparison
+        | "min" | "أقل" | "max" | "أكبر" | "clamp" | "حصر"
+        | "sign" | "علامة" | "mod" | "باقي"
+        // Math - Number theory
+        | "gcd" | "قاسم_مشترك" | "lcm" | "مضاعف_مشترك"
+        | "factorial" | "عاملي"
+        // Trigonometry
+        | "sin" | "جا" | "cos" | "جتا" | "tan" | "ظا"
+        | "cot" | "ظتا" | "sec" | "قا" | "csc" | "قتا"
+        | "asin" | "جا_عكسي" | "acos" | "جتا_عكسي" | "atan" | "ظا_عكسي" | "atan2" | "ظا_عكسي2"
+        | "sinh" | "جا_زائدي" | "cosh" | "جتا_زائدي" | "tanh" | "ظا_زائدي"
+        | "to_radians" | "الى_راديان" | "to_degrees" | "الى_درجات"
+        // Random
+        | "random" | "عشوائي" | "random_seed" | "بذرة_عشوائية"
+        | "random_range" | "عشوائي_بين" | "random_float" | "عشوائي_عشري"
+        | "random_bool" | "عشوائي_منطقي"
+        // Assertion
+        | "assert" | "تأكد" | "assert_msg" | "تأكد_رسالة"
+        | "panic" | "توقف"
+        // Time
+        | "sleep" | "نم" | "time_now" | "وقت_الآن"
+    )
+}
+```
+
+2. Implement each missing function in `call_builtin()`:
+```rust
+"pow" | "قوة" => {
+    let base = args.get(0).ok_or_else(|| ...)?;
+    let exp = args.get(1).ok_or_else(|| ...)?;
+    let b = base.as_float().ok_or_else(|| ...)?;
+    let e = exp.as_float().ok_or_else(|| ...)?;
+    Ok(Value::Float(b.powf(e)))
+}
+
+"gcd" | "قاسم_مشترك" => {
+    let a = args.get(0).ok_or_else(|| ...)?.as_int().ok_or_else(|| ...)?;
+    let b = args.get(1).ok_or_else(|| ...)?.as_int().ok_or_else(|| ...)?;
+    fn gcd(mut a: i64, mut b: i64) -> i64 {
+        a = a.abs(); b = b.abs();
+        while b != 0 { let t = b; b = a % b; a = t; }
+        a
+    }
+    Ok(Value::Int(gcd(a, b)))
+}
+// ... etc for all missing functions
+```
+
+**Estimated Effort**: 3-4 hours
+
+---
+
+### Phase 2: Lexer Integer Overflow (P0)
+
+**Problem**: Parsing `9223372036854775807` (i64::MAX) causes overflow at line 423:
+```rust
+value = value * 10 + self.digit_value(c) as i64;
+```
+
+**Files to Modify**:
+- `src/lexer/lexer.rs`
+
+**Solution**: Use checked arithmetic:
+
+```rust
+fn scan_number(&mut self, first: char) -> Token {
+    let mut value: i64 = self.digit_value(first) as i64;
+    let mut overflowed = false;
+
+    while !self.is_at_end() && self.is_digit(self.peek()) {
+        let c = self.advance();
+        let digit = self.digit_value(c) as i64;
+
+        match value.checked_mul(10).and_then(|v| v.checked_add(digit)) {
+            Some(v) => value = v,
+            None => {
+                overflowed = true;
+                // Continue consuming digits but mark as overflowed
+            }
+        }
+    }
+
+    // If overflowed, return as float or error
+    if overflowed {
+        // Option 1: Convert to float (loses precision but works)
+        // Option 2: Return error token with bilingual message
+        return self.make_token(TokenKind::Error(
+            "Integer literal too large / العدد الصحيح كبير جداً".to_string()
+        ));
+    }
+
+    // ... rest of function unchanged
+}
+```
+
+**Estimated Effort**: 1 hour
+
+---
+
+### Phase 3: Parser Match Statement (P1)
+
+**Problem**: `حالة 0 => أرجع;` fails because parser expects expression, not statement.
+
+**Location**: `src/parser/parser.rs:631-639`
+
+```rust
+let body = if self.check(&TokenKind::LeftBrace) {
+    self.parse_block()?
+} else {
+    let expr = self.parse_expression()?;  // Can't handle أرجع
+    Block::new(...)
+};
+```
+
+**Solution**: Parse as statement instead of expression:
+
+```rust
+let body = if self.check(&TokenKind::LeftBrace) {
+    self.parse_block()?
+} else {
+    // Allow single statements (return, break, continue, expression)
+    let stmt = self.parse_statement()?;
+    Block::new(vec![stmt], self.previous_span())
+};
+```
+
+**Estimated Effort**: 30 minutes
+
+---
+
+### Phase 4: Doc Comments (P1)
+
+**Problem**: Doc comments `///` before functions in middle of file cause errors.
+
+**Analysis**: Lexer correctly produces `TokenKind::DocComment`. Parser has `consume_doc_comment()` but may not call it everywhere.
+
+**Files to Investigate**:
+- `src/parser/parser.rs` - Check where `consume_doc_comment()` is called
+
+**Solution**: Ensure `consume_doc_comment()` is called before all declaration types.
+
+**Estimated Effort**: 30 minutes
+
+---
+
+### Phase 5: Global Variables (P2)
+
+**Problem**: Global variables can't be assigned inside functions.
+
+**Workaround Documented**: Use local variables only (as calculator example does).
+
+**Long-term Fix**: Requires IR-level changes to support global variable store instructions.
+
+**Status**: Deferred - complex change, workaround exists.
+
+---
+
+## Implementation Order
+
+| Phase | Task | Effort | Files |
+|-------|------|--------|-------|
+| 1 | Implement missing builtins in interpreter | 3-4 hours | executor.rs |
+| 2 | Fix lexer integer overflow | 1 hour | lexer.rs |
+| 3 | Fix match statement parsing | 30 min | parser.rs |
+| 4 | Fix doc comment handling | 30 min | parser.rs |
+| 5 | Global variables | Deferred | - |
+
+**Total Estimated Effort**: 5-6 hours
+
+---
+
+## Verification
+
+After implementation:
+1. Run `cargo test` - all tests pass
+2. Run `cargo clippy` - no new warnings
+3. Run `cargo run -- run examples/حاسبة/مصدر/رئيسي.ترقيم` - calculator works
+4. Test stdlib constants file parses without overflow
+
+---
+
 ## Template for New Entries
 
 ```markdown
