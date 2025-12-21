@@ -90,6 +90,25 @@ pub enum Commands {
         file: PathBuf,
     },
 
+    /// Debug a Tarqeem source file / تصحيح ملف ترقيم
+    #[command(aliases = ["صحح", "dbg"])]
+    Debug {
+        /// Source file to debug
+        file: PathBuf,
+
+        /// Stop at program entry / التوقف عند بداية البرنامج
+        #[arg(long, short = 's', aliases = ["توقف"])]
+        stop_on_entry: bool,
+
+        /// Start DAP server on specified port / بدء خادم DAP على منفذ معين
+        #[arg(long, short = 'p', aliases = ["منفذ"])]
+        dap_port: Option<u16>,
+
+        /// Use Arabic interface / استخدام الواجهة العربية
+        #[arg(long, aliases = ["عربي"])]
+        arabic: bool,
+    },
+
     /// Check a Tarqeem source file for errors / فحص ملف ترقيم
     #[command(aliases = ["افحص", "ch"])]
     Check {

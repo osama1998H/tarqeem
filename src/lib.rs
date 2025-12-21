@@ -10,6 +10,7 @@
 
 pub mod cli;
 pub mod codegen;
+pub mod debug;
 pub mod doc;
 pub mod error;
 pub mod fmt;
@@ -23,6 +24,7 @@ pub mod semantic;
 pub mod utils;
 
 pub use codegen::{Linker, LlvmCodegen, Target};
+pub use debug::{DebugContext, DebugInterpreter, DebugState, SourceMap};
 pub use error::{Diagnostic, DiagnosticLevel, Span};
 pub use fmt::{format_source, FormatConfig, FormatError, Formatter};
 pub use ir::{IrBuilder, Module as IrModule};
