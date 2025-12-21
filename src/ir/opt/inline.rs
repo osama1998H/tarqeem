@@ -652,6 +652,17 @@ impl FunctionInliner {
                 dest: map_var(dest),
             },
 
+            Instruction::GlobalLoad { dest, name, ty } => Instruction::GlobalLoad {
+                dest: map_var(dest),
+                name: name.clone(),
+                ty: ty.clone(),
+            },
+
+            Instruction::GlobalStore { name, value } => Instruction::GlobalStore {
+                name: name.clone(),
+                value: map_var(value),
+            },
+
             Instruction::Nop => Instruction::Nop,
         }
     }
@@ -676,7 +687,8 @@ impl FunctionInliner {
             | Instruction::ToString { dest, .. }
             | Instruction::Bitcast { dest, .. }
             | Instruction::GetException { dest }
-            | Instruction::Phi { dest, .. } => Some(*dest),
+            | Instruction::Phi { dest, .. }
+            | Instruction::GlobalLoad { dest, .. } => Some(*dest),
 
             Instruction::Call { dest, .. }
             | Instruction::CallIndirect { dest, .. }
@@ -732,6 +744,7 @@ impl FunctionInliner {
             Instruction::Print { value } => vec![*value],
             Instruction::Throw { exception } => vec![*exception],
             Instruction::Phi { incoming, .. } => incoming.iter().map(|(v, _)| *v).collect(),
+            Instruction::GlobalStore { value, .. } => vec![*value],
             _ => vec![],
         }
     }

@@ -90,6 +90,14 @@ pub struct IrBuilder {
     /// Global constants: name -> (value, type)
     /// These are constants declared at module level that are visible in all functions
     global_constants: HashMap<String, (Constant, IrType)>,
+
+    /// Global variable names (both mutable and immutable)
+    /// Used to distinguish global vs local variables during code generation
+    global_variables: HashSet<String>,
+
+    /// Global variable types: name -> IrType
+    /// Used for type information when loading/storing globals
+    global_var_types: HashMap<String, IrType>,
 }
 
 impl IrBuilder {
@@ -111,28 +119,54 @@ impl IrBuilder {
             function_return_types: HashMap::new(),
             parameters: HashSet::new(),
             global_constants: HashMap::new(),
+            global_variables: HashSet::new(),
+            global_var_types: HashMap::new(),
         }
     }
 
     /// Build IR from an AST
     pub fn build(mut self, ast: &Ast) -> Result<Module> {
-        // First pass: collect global constants (immutable VarDecls at module level)
+        // First pass: collect global variables (VarDecls at module level)
         for stmt in &ast.statements {
             if let StmtKind::VarDecl {
                 name,
-                mutable: false,
+                mutable,
                 ty,
                 init,
                 ..
             } = &stmt.kind
             {
-                if let Some(init_expr) = init {
+                // Determine the IR type
+                let ir_type = if let Some(t) = ty {
+                    self.convert_type(t)
+                } else if let Some(init_expr) = init {
                     if let Some(const_val) = self.try_evaluate_const(init_expr) {
-                        let ir_type = if let Some(t) = ty {
-                            self.convert_type(t)
-                        } else {
-                            self.const_to_type(&const_val)
-                        };
+                        self.const_to_type(&const_val)
+                    } else {
+                        // Default type for non-constant expressions
+                        IrType::Int
+                    }
+                } else {
+                    // No type annotation and no initializer - default to Int
+                    IrType::Int
+                };
+
+                // Try to get constant initializer value
+                let init_val = init.as_ref().and_then(|e| self.try_evaluate_const(e));
+
+                // Add to module globals
+                self.module
+                    .globals
+                    .push((name.clone(), ir_type.clone(), init_val.clone()));
+
+                // Track as global variable
+                self.global_variables.insert(name.clone());
+                self.global_var_types.insert(name.clone(), ir_type.clone());
+
+                // For immutable globals with constant initializers, also keep in global_constants
+                // This allows them to be inlined as constants for optimization
+                if !mutable {
+                    if let Some(const_val) = init_val {
                         self.global_constants
                             .insert(name.clone(), (const_val, ir_type));
                     }
@@ -596,6 +630,26 @@ impl IrBuilder {
         ty: Option<&TypeAnnotation>,
         init: Option<&Expr>,
     ) -> Result<()> {
+        // Check if this is a global variable (already collected in first pass)
+        if self.global_variables.contains(name) {
+            // Global variables are handled separately - they're stored in module.globals
+            // However, if there's a non-constant initializer, we need to emit runtime init code
+            if let Some(init_expr) = init {
+                // Check if this is NOT a constant expression (can't be evaluated at compile time)
+                if self.try_evaluate_const(init_expr).is_none() {
+                    // Non-constant initializer - emit GlobalStore at runtime
+                    let value = self.build_expr(init_expr)?;
+                    self.emit(Instruction::GlobalStore {
+                        name: name.to_string(),
+                        value,
+                    });
+                }
+            }
+            // Don't create local variable for globals
+            return Ok(());
+        }
+
+        // Local variable handling (existing logic)
         // Determine the type from annotation or infer from initializer
         let ir_type = if let Some(t) = ty {
             self.convert_type(t)
@@ -1636,7 +1690,7 @@ impl IrBuilder {
             });
             Ok(dest)
         } else if let Some((const_val, const_ty)) = self.global_constants.get(name).cloned() {
-            // Global constant - emit the constant value directly
+            // Global constant - emit the constant value directly (inlined for optimization)
             let dest = self.new_var();
             self.emit(Instruction::Const {
                 dest,
@@ -1644,6 +1698,16 @@ impl IrBuilder {
                 ty: const_ty.clone(),
             });
             self.var_types.insert(dest.0, const_ty);
+            Ok(dest)
+        } else if let Some(var_ty) = self.global_var_types.get(name).cloned() {
+            // Mutable global variable - emit GlobalLoad
+            let dest = self.new_var();
+            self.emit(Instruction::GlobalLoad {
+                dest,
+                name: name.to_string(),
+                ty: var_ty.clone(),
+            });
+            self.var_types.insert(dest.0, var_ty);
             Ok(dest)
         } else {
             // Undefined identifier - report error
@@ -2180,8 +2244,15 @@ impl IrBuilder {
         match &target.kind {
             ExprKind::Identifier(name) => {
                 if let Some(ptr) = self.lookup_var(name) {
+                    // Local variable assignment
                     self.emit(Instruction::Store {
                         ptr,
+                        value: value_var,
+                    });
+                } else if self.global_variables.contains(name) {
+                    // Global variable assignment
+                    self.emit(Instruction::GlobalStore {
+                        name: name.clone(),
                         value: value_var,
                     });
                 } else {
@@ -2284,7 +2355,14 @@ impl IrBuilder {
         match &target.kind {
             ExprKind::Identifier(name) => {
                 if let Some(ptr) = self.lookup_var(name) {
+                    // Local variable
                     self.emit(Instruction::Store { ptr, value: result });
+                } else if self.global_variables.contains(name) {
+                    // Global variable
+                    self.emit(Instruction::GlobalStore {
+                        name: name.clone(),
+                        value: result,
+                    });
                 } else {
                     return Err(IrError::new(
                         format!("Cannot assign to undefined variable: '{}'", name),
@@ -2663,9 +2741,12 @@ mod tests {
     fn test_simple_var_decl() {
         let source = "متغير س = 5";
         let module = build_ir(source).expect("Failed to build IR");
-        assert_eq!(module.functions.len(), 1); // __main__
-        let main = &module.functions[0];
-        assert!(main.blocks[0].instructions.len() >= 2);
+        // Top-level variable declarations are now global variables
+        assert_eq!(module.globals.len(), 1);
+        let (name, ty, init) = &module.globals[0];
+        assert_eq!(name, "س");
+        assert!(matches!(ty, IrType::Int));
+        assert!(matches!(init, Some(Constant::Int(5))));
     }
 
     #[test]
@@ -2728,5 +2809,125 @@ mod tests {
         let module = build_ir(source).expect("Failed to build IR");
         let output = format!("{}", module);
         assert!(output.contains("Module: test"));
+    }
+
+    #[test]
+    fn test_global_constant() {
+        let source = "ثابت PI = 3";
+        let module = build_ir(source).expect("Failed to build IR");
+        // Should have one global variable
+        assert_eq!(module.globals.len(), 1);
+        let (name, ty, init) = &module.globals[0];
+        assert_eq!(name, "PI");
+        assert!(matches!(ty, IrType::Int));
+        assert!(matches!(init, Some(Constant::Int(3))));
+    }
+
+    #[test]
+    fn test_global_mutable_variable() {
+        let source = "متغير counter = 0";
+        let module = build_ir(source).expect("Failed to build IR");
+        assert_eq!(module.globals.len(), 1);
+        let (name, ty, init) = &module.globals[0];
+        assert_eq!(name, "counter");
+        assert!(matches!(ty, IrType::Int));
+        assert!(matches!(init, Some(Constant::Int(0))));
+    }
+
+    #[test]
+    fn test_multiple_globals() {
+        let source = r#"
+            متغير x = 10
+            ثابت Y = 20
+            متغير z = 30
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+        assert_eq!(module.globals.len(), 3);
+
+        // Check all globals are present
+        let names: Vec<&String> = module.globals.iter().map(|(n, _, _)| n).collect();
+        assert!(names.contains(&&"x".to_string()));
+        assert!(names.contains(&&"Y".to_string()));
+        assert!(names.contains(&&"z".to_string()));
+    }
+
+    #[test]
+    fn test_global_access_in_function() {
+        let source = r#"
+            متغير counter = 0
+
+            دالة increment() {
+                counter = counter + 1
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+
+        // Should have one global
+        assert_eq!(module.globals.len(), 1);
+
+        // Should have the increment function
+        let increment_fn = module.functions.iter().find(|f| f.name == "increment");
+        assert!(increment_fn.is_some());
+
+        let func = increment_fn.unwrap();
+        // Function should have GlobalLoad and GlobalStore instructions
+        let has_global_load = func.blocks.iter().any(|block| {
+            block.instructions.iter().any(
+                |inst| matches!(inst, Instruction::GlobalLoad { name, .. } if name == "counter"),
+            )
+        });
+        let has_global_store = func.blocks.iter().any(|block| {
+            block.instructions.iter().any(
+                |inst| matches!(inst, Instruction::GlobalStore { name, .. } if name == "counter"),
+            )
+        });
+        assert!(has_global_load, "Should have GlobalLoad for counter");
+        assert!(has_global_store, "Should have GlobalStore for counter");
+    }
+
+    #[test]
+    fn test_global_with_arabic_name() {
+        let source = "متغير العداد = 100";
+        let module = build_ir(source).expect("Failed to build IR");
+        assert_eq!(module.globals.len(), 1);
+        let (name, _, _) = &module.globals[0];
+        assert_eq!(name, "العداد");
+    }
+
+    #[test]
+    fn test_global_boolean() {
+        let source = "متغير flag = صحيح";
+        let module = build_ir(source).expect("Failed to build IR");
+        assert_eq!(module.globals.len(), 1);
+        let (_, ty, init) = &module.globals[0];
+        assert!(matches!(ty, IrType::Bool));
+        assert!(matches!(init, Some(Constant::Bool(true))));
+    }
+
+    #[test]
+    fn test_local_variable_in_function() {
+        let source = r#"
+            دالة test() {
+                متغير local = 5
+                أرجع local
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+
+        // No globals - local variable stays local
+        assert_eq!(module.globals.len(), 0);
+
+        // Function should exist with Alloca for local variable
+        let test_fn = module.functions.iter().find(|f| f.name == "test");
+        assert!(test_fn.is_some());
+
+        let func = test_fn.unwrap();
+        let has_alloca = func.blocks.iter().any(|block| {
+            block
+                .instructions
+                .iter()
+                .any(|inst| matches!(inst, Instruction::Alloca { .. }))
+        });
+        assert!(has_alloca, "Local variable should use Alloca");
     }
 }
