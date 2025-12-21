@@ -637,7 +637,32 @@ Explicit type annotations use colon syntax:
 ثابت قائمة: مصفوفة<عدد> = [1, 2, 3]
 ```
 
-### 7.2 Expression Statement
+### 7.2 Global Variables
+
+Variables declared at the top level (outside any function) are **global variables**. They are accessible from all functions in the module.
+
+```tarqeem
+// Global mutable variable
+متغير counter = 0
+
+// Global constant (inlined at compile time)
+ثابت MAX_SIZE = 100
+
+دالة increment() {
+    counter = counter + 1  // Access global variable
+}
+
+دالة reset() {
+    counter = 0  // Modify global variable
+}
+```
+
+**Key behaviors**:
+- Global constants with compile-time values are inlined for optimization
+- Mutable globals use load/store operations at runtime
+- Local variables in functions shadow global variables of the same name
+
+### 7.3 Expression Statement
 
 ```tarqeem
 اطبع("مرحبا");        // Function call
@@ -645,7 +670,7 @@ Explicit type annotations use colon syntax:
 س++;                  // Increment
 ```
 
-### 7.3 Block Statement
+### 7.4 Block Statement
 
 ```tarqeem
 {
@@ -654,7 +679,7 @@ Explicit type annotations use colon syntax:
 }
 ```
 
-### 7.4 If Statement
+### 7.5 If Statement
 
 ```tarqeem
 // Simple if
@@ -679,7 +704,7 @@ Explicit type annotations use colon syntax:
 }
 ```
 
-### 7.5 While Loop
+### 7.6 While Loop
 
 ```tarqeem
 طالما (شرط) {
@@ -702,7 +727,7 @@ Explicit type annotations use colon syntax:
 }
 ```
 
-### 7.6 For Loop
+### 7.7 For Loop
 
 ```tarqeem
 // C-style for
@@ -716,7 +741,7 @@ Explicit type annotations use colon syntax:
 }
 ```
 
-### 7.7 Do-While Loop
+### 7.8 Do-While Loop
 
 ```tarqeem
 افعل {
@@ -724,7 +749,7 @@ Explicit type annotations use colon syntax:
 } طالما (شرط)
 ```
 
-### 7.8 Match Statement
+### 7.9 Match Statement
 
 ```tarqeem
 تطابق (قيمة) {
@@ -738,7 +763,7 @@ Explicit type annotations use colon syntax:
 }
 ```
 
-### 7.9 Return Statement
+### 7.10 Return Statement
 
 ```tarqeem
 أرجع                  // Return void
@@ -746,7 +771,7 @@ Explicit type annotations use colon syntax:
 ارجع نتيجة            // Alternative spelling
 ```
 
-### 7.10 Break and Continue
+### 7.11 Break and Continue
 
 ```tarqeem
 أوقف                  // Break loop
