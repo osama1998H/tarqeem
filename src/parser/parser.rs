@@ -631,11 +631,22 @@ impl Parser {
             let body = if self.check(&TokenKind::LeftBrace) {
                 self.parse_block()?
             } else {
-                let expr = self.parse_expression()?;
-                Block::new(
-                    vec![Stmt::new(StmtKind::Expr(expr), self.previous_span())],
-                    self.previous_span(),
-                )
+                // Allow single statements (return, break, continue) without braces
+                // Check for statement keywords first
+                if self.check(&TokenKind::Return)
+                    || self.check(&TokenKind::Break)
+                    || self.check(&TokenKind::Continue)
+                {
+                    let stmt = self.parse_statement()?;
+                    Block::new(vec![stmt], self.previous_span())
+                } else {
+                    // Otherwise parse as expression statement
+                    let expr = self.parse_expression()?;
+                    Block::new(
+                        vec![Stmt::new(StmtKind::Expr(expr), self.previous_span())],
+                        self.previous_span(),
+                    )
+                }
             };
 
             arms.push(MatchArm {
