@@ -21,7 +21,8 @@ fn create_test_function(name: &str, params: Vec<Parameter>, return_type: IrType)
         params,
         return_type,
     );
-    func.blocks.push(BasicBlock::with_label(BlockId(0), "entry".to_string()));
+    func.blocks
+        .push(BasicBlock::with_label(BlockId(0), "entry".to_string()));
     func
 }
 
@@ -89,7 +90,9 @@ fn test_const_int_generation() {
         value: Constant::Int(42),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -109,7 +112,9 @@ fn test_const_float_generation() {
         value: Constant::Float(3.14),
         ty: IrType::Float,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -130,7 +135,9 @@ fn test_const_bool_true_generation() {
         value: Constant::Bool(true),
         ty: IrType::Bool,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -149,7 +156,9 @@ fn test_const_bool_false_generation() {
         value: Constant::Bool(false),
         ty: IrType::Bool,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -168,7 +177,9 @@ fn test_const_null_generation() {
         value: Constant::Null,
         ty: IrType::Ptr(Box::new(IrType::Int)),
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -190,7 +201,9 @@ fn test_const_string_generation() {
         value: Constant::String(str_idx),
         ty: IrType::String,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -212,8 +225,16 @@ fn test_binary_add_int() {
     let mut func = create_test_function(
         "add_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Int,
     );
@@ -224,7 +245,9 @@ fn test_binary_add_int() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -240,8 +263,16 @@ fn test_binary_sub_int() {
     let mut func = create_test_function(
         "sub_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Int,
     );
@@ -252,7 +283,9 @@ fn test_binary_sub_int() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -268,8 +301,16 @@ fn test_binary_mul_int() {
     let mut func = create_test_function(
         "mul_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Int,
     );
@@ -280,7 +321,9 @@ fn test_binary_mul_int() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -296,8 +339,16 @@ fn test_binary_div_int() {
     let mut func = create_test_function(
         "div_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Int,
     );
@@ -308,7 +359,9 @@ fn test_binary_div_int() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -324,8 +377,16 @@ fn test_binary_mod_int() {
     let mut func = create_test_function(
         "mod_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Int,
     );
@@ -336,7 +397,9 @@ fn test_binary_mod_int() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -352,8 +415,16 @@ fn test_binary_pow_int() {
     let mut func = create_test_function(
         "pow_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Int,
     );
@@ -364,7 +435,9 @@ fn test_binary_pow_int() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -381,8 +454,16 @@ fn test_binary_fadd() {
     let mut func = create_test_function(
         "fadd_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Float },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Float },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Float,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Float,
+            },
         ],
         IrType::Float,
     );
@@ -393,7 +474,9 @@ fn test_binary_fadd() {
         right: VarId(1),
         ty: IrType::Float,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -409,8 +492,16 @@ fn test_binary_fsub() {
     let mut func = create_test_function(
         "fsub_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Float },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Float },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Float,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Float,
+            },
         ],
         IrType::Float,
     );
@@ -421,7 +512,9 @@ fn test_binary_fsub() {
         right: VarId(1),
         ty: IrType::Float,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -437,8 +530,16 @@ fn test_binary_fmul() {
     let mut func = create_test_function(
         "fmul_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Float },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Float },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Float,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Float,
+            },
         ],
         IrType::Float,
     );
@@ -449,7 +550,9 @@ fn test_binary_fmul() {
         right: VarId(1),
         ty: IrType::Float,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -465,8 +568,16 @@ fn test_binary_fdiv() {
     let mut func = create_test_function(
         "fdiv_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Float },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Float },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Float,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Float,
+            },
         ],
         IrType::Float,
     );
@@ -477,7 +588,9 @@ fn test_binary_fdiv() {
         right: VarId(1),
         ty: IrType::Float,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -493,8 +606,16 @@ fn test_binary_pow_float() {
     let mut func = create_test_function(
         "fpow_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Float },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Float },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Float,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Float,
+            },
         ],
         IrType::Float,
     );
@@ -505,7 +626,9 @@ fn test_binary_pow_float() {
         right: VarId(1),
         ty: IrType::Float,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -526,8 +649,16 @@ fn test_comparison_eq_int() {
     let mut func = create_test_function(
         "eq_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Bool,
     );
@@ -538,7 +669,9 @@ fn test_comparison_eq_int() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -554,8 +687,16 @@ fn test_comparison_ne_int() {
     let mut func = create_test_function(
         "ne_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Bool,
     );
@@ -566,7 +707,9 @@ fn test_comparison_ne_int() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -582,8 +725,16 @@ fn test_comparison_lt_int() {
     let mut func = create_test_function(
         "lt_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Bool,
     );
@@ -594,7 +745,9 @@ fn test_comparison_lt_int() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -610,8 +763,16 @@ fn test_comparison_le_int() {
     let mut func = create_test_function(
         "le_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Bool,
     );
@@ -622,7 +783,9 @@ fn test_comparison_le_int() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -638,8 +801,16 @@ fn test_comparison_gt_int() {
     let mut func = create_test_function(
         "gt_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Bool,
     );
@@ -650,7 +821,9 @@ fn test_comparison_gt_int() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -666,8 +839,16 @@ fn test_comparison_ge_int() {
     let mut func = create_test_function(
         "ge_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Bool,
     );
@@ -678,7 +859,9 @@ fn test_comparison_ge_int() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -694,8 +877,16 @@ fn test_comparison_float_eq() {
     let mut func = create_test_function(
         "feq_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Float },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Float },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Float,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Float,
+            },
         ],
         IrType::Bool,
     );
@@ -706,7 +897,9 @@ fn test_comparison_float_eq() {
         right: VarId(1),
         ty: IrType::Float,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -722,8 +915,16 @@ fn test_comparison_float_lt() {
     let mut func = create_test_function(
         "flt_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Float },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Float },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Float,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Float,
+            },
         ],
         IrType::Bool,
     );
@@ -734,7 +935,9 @@ fn test_comparison_float_lt() {
         right: VarId(1),
         ty: IrType::Float,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -754,8 +957,16 @@ fn test_logical_and() {
     let mut func = create_test_function(
         "and_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Bool },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Bool },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Bool,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Bool,
+            },
         ],
         IrType::Bool,
     );
@@ -766,7 +977,9 @@ fn test_logical_and() {
         right: VarId(1),
         ty: IrType::Bool,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -782,8 +995,16 @@ fn test_logical_or() {
     let mut func = create_test_function(
         "or_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Bool },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Bool },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Bool,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Bool,
+            },
         ],
         IrType::Bool,
     );
@@ -794,7 +1015,9 @@ fn test_logical_or() {
         right: VarId(1),
         ty: IrType::Bool,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -814,8 +1037,16 @@ fn test_bitwise_and() {
     let mut func = create_test_function(
         "bitand_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Int,
     );
@@ -826,7 +1057,9 @@ fn test_bitwise_and() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -842,8 +1075,16 @@ fn test_bitwise_or() {
     let mut func = create_test_function(
         "bitor_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Int,
     );
@@ -854,7 +1095,9 @@ fn test_bitwise_or() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -870,8 +1113,16 @@ fn test_bitwise_xor() {
     let mut func = create_test_function(
         "bitxor_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Int,
     );
@@ -882,7 +1133,9 @@ fn test_bitwise_xor() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -898,8 +1151,16 @@ fn test_shift_left() {
     let mut func = create_test_function(
         "shl_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Int,
     );
@@ -910,7 +1171,9 @@ fn test_shift_left() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -926,8 +1189,16 @@ fn test_shift_right() {
     let mut func = create_test_function(
         "shr_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Int,
     );
@@ -938,7 +1209,9 @@ fn test_shift_right() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -957,7 +1230,11 @@ fn test_unary_neg_int() {
 
     let mut func = create_test_function(
         "neg_test",
-        vec![Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int }],
+        vec![Parameter {
+            id: VarId(0),
+            name: "a".to_string(),
+            ty: IrType::Int,
+        }],
         IrType::Int,
     );
     func.blocks[0].instructions.push(Instruction::Unary {
@@ -966,7 +1243,9 @@ fn test_unary_neg_int() {
         operand: VarId(0),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -981,7 +1260,11 @@ fn test_unary_neg_float() {
 
     let mut func = create_test_function(
         "fneg_test",
-        vec![Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Float }],
+        vec![Parameter {
+            id: VarId(0),
+            name: "a".to_string(),
+            ty: IrType::Float,
+        }],
         IrType::Float,
     );
     func.blocks[0].instructions.push(Instruction::Unary {
@@ -990,7 +1273,9 @@ fn test_unary_neg_float() {
         operand: VarId(0),
         ty: IrType::Float,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1005,7 +1290,11 @@ fn test_unary_not() {
 
     let mut func = create_test_function(
         "not_test",
-        vec![Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Bool }],
+        vec![Parameter {
+            id: VarId(0),
+            name: "a".to_string(),
+            ty: IrType::Bool,
+        }],
         IrType::Bool,
     );
     func.blocks[0].instructions.push(Instruction::Unary {
@@ -1014,7 +1303,9 @@ fn test_unary_not() {
         operand: VarId(0),
         ty: IrType::Bool,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1030,7 +1321,11 @@ fn test_unary_bitnot() {
 
     let mut func = create_test_function(
         "bitnot_test",
-        vec![Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int }],
+        vec![Parameter {
+            id: VarId(0),
+            name: "a".to_string(),
+            ty: IrType::Int,
+        }],
         IrType::Int,
     );
     func.blocks[0].instructions.push(Instruction::Unary {
@@ -1039,7 +1334,9 @@ fn test_unary_bitnot() {
         operand: VarId(0),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1059,14 +1356,20 @@ fn test_int_to_float_conversion() {
 
     let mut func = create_test_function(
         "convert_test",
-        vec![Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int }],
+        vec![Parameter {
+            id: VarId(0),
+            name: "a".to_string(),
+            ty: IrType::Int,
+        }],
         IrType::Float,
     );
     func.blocks[0].instructions.push(Instruction::IntToFloat {
         dest: VarId(1),
         src: VarId(0),
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1082,14 +1385,20 @@ fn test_float_to_int_conversion() {
 
     let mut func = create_test_function(
         "convert_test",
-        vec![Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Float }],
+        vec![Parameter {
+            id: VarId(0),
+            name: "a".to_string(),
+            ty: IrType::Float,
+        }],
         IrType::Int,
     );
     func.blocks[0].instructions.push(Instruction::FloatToInt {
         dest: VarId(1),
         src: VarId(0),
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1108,10 +1417,14 @@ fn test_unconditional_jump() {
     let mut module = create_test_module("test");
 
     let mut func = create_test_function("jump_test", vec![], IrType::Void);
-    func.blocks[0].instructions.push(Instruction::Jump { target: BlockId(1) });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Jump { target: BlockId(1) });
 
     let mut block1 = BasicBlock::new(BlockId(1));
-    block1.instructions.push(Instruction::Return { value: None });
+    block1
+        .instructions
+        .push(Instruction::Return { value: None });
     func.blocks.push(block1);
 
     module.functions.push(func);
@@ -1128,7 +1441,11 @@ fn test_conditional_branch() {
 
     let mut func = create_test_function(
         "branch_test",
-        vec![Parameter { id: VarId(0), name: "cond".to_string(), ty: IrType::Bool }],
+        vec![Parameter {
+            id: VarId(0),
+            name: "cond".to_string(),
+            ty: IrType::Bool,
+        }],
         IrType::Void,
     );
     func.blocks[0].instructions.push(Instruction::Branch {
@@ -1138,11 +1455,15 @@ fn test_conditional_branch() {
     });
 
     let mut then_block = BasicBlock::with_label(BlockId(1), "then".to_string());
-    then_block.instructions.push(Instruction::Return { value: None });
+    then_block
+        .instructions
+        .push(Instruction::Return { value: None });
     func.blocks.push(then_block);
 
     let mut else_block = BasicBlock::with_label(BlockId(2), "else".to_string());
-    else_block.instructions.push(Instruction::Return { value: None });
+    else_block
+        .instructions
+        .push(Instruction::Return { value: None });
     func.blocks.push(else_block);
 
     module.functions.push(func);
@@ -1159,7 +1480,9 @@ fn test_return_void() {
     let mut module = create_test_module("test");
 
     let mut func = create_test_function("void_test", vec![], IrType::Void);
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1174,10 +1497,16 @@ fn test_return_value() {
 
     let mut func = create_test_function(
         "ret_test",
-        vec![Parameter { id: VarId(0), name: "x".to_string(), ty: IrType::Int }],
+        vec![Parameter {
+            id: VarId(0),
+            name: "x".to_string(),
+            ty: IrType::Int,
+        }],
         IrType::Int,
     );
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(0)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(0)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1199,7 +1528,9 @@ fn test_alloca_instruction() {
         dest: VarId(0),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1240,7 +1571,9 @@ fn test_load_store_instructions() {
         ty: IrType::Int,
     });
 
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1280,7 +1613,9 @@ fn test_new_array() {
         elements: vec![VarId(0), VarId(1)],
     });
 
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1295,7 +1630,11 @@ fn test_array_len() {
 
     let mut func = create_test_function(
         "array_len_test",
-        vec![Parameter { id: VarId(0), name: "arr".to_string(), ty: IrType::Array(Box::new(IrType::Int), 0) }],
+        vec![Parameter {
+            id: VarId(0),
+            name: "arr".to_string(),
+            ty: IrType::Array(Box::new(IrType::Int), 0),
+        }],
         IrType::Int,
     );
 
@@ -1304,7 +1643,9 @@ fn test_array_len() {
         array: VarId(0),
     });
 
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1320,8 +1661,16 @@ fn test_array_get() {
     let mut func = create_test_function(
         "array_get_test",
         vec![
-            Parameter { id: VarId(0), name: "arr".to_string(), ty: IrType::Array(Box::new(IrType::Int), 0) },
-            Parameter { id: VarId(1), name: "idx".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "arr".to_string(),
+                ty: IrType::Array(Box::new(IrType::Int), 0),
+            },
+            Parameter {
+                id: VarId(1),
+                name: "idx".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Int,
     );
@@ -1333,7 +1682,9 @@ fn test_array_get() {
         elem_ty: IrType::Int,
     });
 
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1354,8 +1705,16 @@ fn test_string_concat() {
     let mut func = create_test_function(
         "concat_test",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::String },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::String },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::String,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::String,
+            },
         ],
         IrType::String,
     );
@@ -1366,7 +1725,9 @@ fn test_string_concat() {
         right: VarId(1),
     });
 
-    func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1387,8 +1748,16 @@ fn test_function_call() {
     let mut add_func = create_test_function(
         "add",
         vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ],
         IrType::Int,
     );
@@ -1399,7 +1768,9 @@ fn test_function_call() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    add_func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    add_func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(add_func);
 
     // Define a main function that calls add
@@ -1420,7 +1791,9 @@ fn test_function_call() {
         args: vec![VarId(0), VarId(1)],
         ret_ty: IrType::Int,
     });
-    main_func.blocks[0].instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    main_func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
     module.functions.push(main_func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1435,7 +1808,9 @@ fn test_void_function_call() {
 
     // Define a void function
     let mut void_func = create_test_function("do_nothing", vec![], IrType::Void);
-    void_func.blocks[0].instructions.push(Instruction::Return { value: None });
+    void_func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(void_func);
 
     // Call it from main
@@ -1446,7 +1821,9 @@ fn test_void_function_call() {
         args: vec![],
         ret_ty: IrType::Void,
     });
-    main_func.blocks[0].instructions.push(Instruction::Return { value: None });
+    main_func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(main_func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1470,7 +1847,9 @@ fn test_class_definition() {
     module.classes.push(class);
 
     let mut func = create_test_function("main", vec![], IrType::Void);
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1495,7 +1874,9 @@ fn test_new_object() {
         dest: VarId(0),
         class: ClassId("Point".to_string()),
     });
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1518,8 +1899,12 @@ fn test_print_int() {
         value: Constant::Int(42),
         ty: IrType::Int,
     });
-    func.blocks[0].instructions.push(Instruction::Print { value: VarId(0) });
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Print { value: VarId(0) });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1541,8 +1926,12 @@ fn test_print_string() {
         value: Constant::String(str_idx),
         ty: IrType::String,
     });
-    func.blocks[0].instructions.push(Instruction::Print { value: VarId(0) });
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Print { value: VarId(0) });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1566,8 +1955,12 @@ fn test_c_main_entry_point() {
         vec![],
         IrType::Void,
     );
-    main_func.blocks.push(BasicBlock::with_label(BlockId(0), "entry".to_string()));
-    main_func.blocks[0].instructions.push(Instruction::Return { value: None });
+    main_func
+        .blocks
+        .push(BasicBlock::with_label(BlockId(0), "entry".to_string()));
+    main_func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(main_func);
 
     let result = codegen.generate(&module).unwrap();
@@ -1594,15 +1987,18 @@ fn test_arabic_function_name_mangling() {
         vec![],
         IrType::Void,
     );
-    func.blocks.push(BasicBlock::with_label(BlockId(0), "entry".to_string()));
-    func.blocks[0].instructions.push(Instruction::Return { value: None });
+    func.blocks
+        .push(BasicBlock::with_label(BlockId(0), "entry".to_string()));
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
     module.functions.push(func);
 
     let result = codegen.generate(&module).unwrap();
 
     // Arabic name should be mangled (not appear directly)
     assert!(!result.contains("define void @اطبع"));
-    assert!(result.contains("_U"));  // Mangled encoding
+    assert!(result.contains("_U")); // Mangled encoding
 }
 
 // =============================================================================
@@ -1616,7 +2012,11 @@ fn test_phi_function() {
 
     let mut func = create_test_function(
         "phi_test",
-        vec![Parameter { id: VarId(0), name: "cond".to_string(), ty: IrType::Bool }],
+        vec![Parameter {
+            id: VarId(0),
+            name: "cond".to_string(),
+            ty: IrType::Bool,
+        }],
         IrType::Int,
     );
 
@@ -1634,7 +2034,9 @@ fn test_phi_function() {
         value: Constant::Int(1),
         ty: IrType::Int,
     });
-    then_block.instructions.push(Instruction::Jump { target: BlockId(3) });
+    then_block
+        .instructions
+        .push(Instruction::Jump { target: BlockId(3) });
     func.blocks.push(then_block);
 
     // Else block
@@ -1644,7 +2046,9 @@ fn test_phi_function() {
         value: Constant::Int(0),
         ty: IrType::Int,
     });
-    else_block.instructions.push(Instruction::Jump { target: BlockId(3) });
+    else_block
+        .instructions
+        .push(Instruction::Jump { target: BlockId(3) });
     func.blocks.push(else_block);
 
     // Merge block with phi
@@ -1654,7 +2058,9 @@ fn test_phi_function() {
         ty: IrType::Int,
         incoming: vec![(VarId(1), BlockId(1)), (VarId(2), BlockId(2))],
     });
-    merge_block.instructions.push(Instruction::Return { value: Some(VarId(3)) });
+    merge_block.instructions.push(Instruction::Return {
+        value: Some(VarId(3)),
+    });
     func.blocks.push(merge_block);
 
     module.functions.push(func);

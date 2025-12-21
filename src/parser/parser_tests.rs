@@ -59,7 +59,12 @@ fn test_parse_for_loop_c_style() {
 
     assert_eq!(ast.statements.len(), 1);
     match &ast.statements[0].kind {
-        StmtKind::For { init, condition, update, body } => {
+        StmtKind::For {
+            init,
+            condition,
+            update,
+            body,
+        } => {
             assert!(init.is_some());
             assert!(condition.is_some());
             assert!(update.is_some());
@@ -95,7 +100,11 @@ fn test_parse_for_in_loop() {
 
     assert_eq!(ast.statements.len(), 1);
     match &ast.statements[0].kind {
-        StmtKind::ForIn { variable, iterable, body } => {
+        StmtKind::ForIn {
+            variable,
+            iterable,
+            body,
+        } => {
             assert_eq!(variable, "عنصر");
             assert!(!body.statements.is_empty());
             match &iterable.kind {
@@ -137,7 +146,12 @@ fn test_parse_for_loop_no_init() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::For { init, condition, update, .. } => {
+        StmtKind::For {
+            init,
+            condition,
+            update,
+            ..
+        } => {
             assert!(init.is_none());
             assert!(condition.is_some());
             assert!(update.is_some());
@@ -157,7 +171,12 @@ fn test_parse_for_loop_no_update() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::For { init, condition, update, .. } => {
+        StmtKind::For {
+            init,
+            condition,
+            update,
+            ..
+        } => {
             assert!(init.is_some());
             assert!(condition.is_some());
             assert!(update.is_none());
@@ -281,17 +300,15 @@ fn test_parse_named_import_with_alias() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Import { items, .. } => {
-            match items {
-                ImportItems::Named(imports) => {
-                    assert_eq!(imports[0].name, "List");
-                    assert_eq!(imports[0].alias, Some("MyList".to_string()));
-                    assert_eq!(imports[1].name, "Map");
-                    assert_eq!(imports[1].alias, Some("MyMap".to_string()));
-                }
-                _ => panic!("Expected named imports"),
+        StmtKind::Import { items, .. } => match items {
+            ImportItems::Named(imports) => {
+                assert_eq!(imports[0].name, "List");
+                assert_eq!(imports[0].alias, Some("MyList".to_string()));
+                assert_eq!(imports[1].name, "Map");
+                assert_eq!(imports[1].alias, Some("MyMap".to_string()));
             }
-        }
+            _ => panic!("Expected named imports"),
+        },
         _ => panic!("Expected Import statement"),
     }
 }
@@ -327,14 +344,12 @@ fn test_parse_default_import() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Import { items, .. } => {
-            match items {
-                ImportItems::Default(name) => {
-                    assert_eq!(name, "MyModule");
-                }
-                _ => panic!("Expected default import"),
+        StmtKind::Import { items, .. } => match items {
+            ImportItems::Default(name) => {
+                assert_eq!(name, "MyModule");
             }
-        }
+            _ => panic!("Expected default import"),
+        },
         _ => panic!("Expected Import statement"),
     }
 }
@@ -350,14 +365,12 @@ fn test_parse_export_function() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Export(inner) => {
-            match &inner.kind {
-                StmtKind::FuncDecl { name, .. } => {
-                    assert_eq!(name, "مساعدة");
-                }
-                _ => panic!("Expected FuncDecl inside export"),
+        StmtKind::Export(inner) => match &inner.kind {
+            StmtKind::FuncDecl { name, .. } => {
+                assert_eq!(name, "مساعدة");
             }
-        }
+            _ => panic!("Expected FuncDecl inside export"),
+        },
         _ => panic!("Expected Export statement"),
     }
 }
@@ -375,14 +388,12 @@ fn test_parse_export_class() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Export(inner) => {
-            match &inner.kind {
-                StmtKind::ClassDecl { name, .. } => {
-                    assert_eq!(name, "Helper");
-                }
-                _ => panic!("Expected ClassDecl inside export"),
+        StmtKind::Export(inner) => match &inner.kind {
+            StmtKind::ClassDecl { name, .. } => {
+                assert_eq!(name, "Helper");
             }
-        }
+            _ => panic!("Expected ClassDecl inside export"),
+        },
         _ => panic!("Expected Export statement"),
     }
 }
@@ -404,7 +415,11 @@ fn test_parse_try_catch() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Try { body, catch, finally } => {
+        StmtKind::Try {
+            body,
+            catch,
+            finally,
+        } => {
             assert!(!body.statements.is_empty());
             assert!(catch.is_some());
             assert!(finally.is_none());
@@ -431,7 +446,11 @@ fn test_parse_try_catch_finally() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Try { body, catch, finally } => {
+        StmtKind::Try {
+            body,
+            catch,
+            finally,
+        } => {
             assert!(!body.statements.is_empty());
             assert!(catch.is_some());
             assert!(finally.is_some());
@@ -470,14 +489,12 @@ fn test_parse_throw_statement() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Throw(expr) => {
-            match &expr.kind {
-                ExprKind::Literal(Literal::String(s)) => {
-                    assert_eq!(s, "خطأ في البرنامج");
-                }
-                _ => panic!("Expected string literal"),
+        StmtKind::Throw(expr) => match &expr.kind {
+            ExprKind::Literal(Literal::String(s)) => {
+                assert_eq!(s, "خطأ في البرنامج");
             }
-        }
+            _ => panic!("Expected string literal"),
+        },
         _ => panic!("Expected Throw statement"),
     }
 }
@@ -642,14 +659,12 @@ fn test_precedence_parentheses() {
                     assert_eq!(*op, BinaryOp::Mul);
                     // Left should be grouped (1 + 2)
                     match &left.kind {
-                        ExprKind::Grouping(inner) => {
-                            match &inner.kind {
-                                ExprKind::Binary { op, .. } => {
-                                    assert_eq!(*op, BinaryOp::Add);
-                                }
-                                _ => panic!("Expected addition inside grouping"),
+                        ExprKind::Grouping(inner) => match &inner.kind {
+                            ExprKind::Binary { op, .. } => {
+                                assert_eq!(*op, BinaryOp::Add);
                             }
-                        }
+                            _ => panic!("Expected addition inside grouping"),
+                        },
                         _ => panic!("Expected grouping"),
                     }
                 }
@@ -671,25 +686,29 @@ fn test_parse_ternary_expression() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Expr(expr) => {
-            match &expr.kind {
-                ExprKind::Ternary { condition, then_expr, else_expr } => {
-                    match &condition.kind {
-                        ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Gt),
-                        _ => panic!("Expected comparison"),
-                    }
-                    match &then_expr.kind {
-                        ExprKind::Literal(Literal::Int(1)) => {}
-                        _ => panic!("Expected literal 1"),
-                    }
-                    match &else_expr.kind {
-                        ExprKind::Unary { op: UnaryOp::Neg, .. } => {}
-                        _ => panic!("Expected negation"),
-                    }
+        StmtKind::Expr(expr) => match &expr.kind {
+            ExprKind::Ternary {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                match &condition.kind {
+                    ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Gt),
+                    _ => panic!("Expected comparison"),
                 }
-                _ => panic!("Expected ternary expression"),
+                match &then_expr.kind {
+                    ExprKind::Literal(Literal::Int(1)) => {}
+                    _ => panic!("Expected literal 1"),
+                }
+                match &else_expr.kind {
+                    ExprKind::Unary {
+                        op: UnaryOp::Neg, ..
+                    } => {}
+                    _ => panic!("Expected negation"),
+                }
             }
-        }
+            _ => panic!("Expected ternary expression"),
+        },
         _ => panic!("Expected expression statement"),
     }
 }
@@ -701,20 +720,18 @@ fn test_parse_member_access() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Expr(expr) => {
-            match &expr.kind {
-                ExprKind::Member { object, property } => {
-                    assert_eq!(property, "subfield");
-                    match &object.kind {
-                        ExprKind::Member { property, .. } => {
-                            assert_eq!(property, "field");
-                        }
-                        _ => panic!("Expected member access"),
+        StmtKind::Expr(expr) => match &expr.kind {
+            ExprKind::Member { object, property } => {
+                assert_eq!(property, "subfield");
+                match &object.kind {
+                    ExprKind::Member { property, .. } => {
+                        assert_eq!(property, "field");
                     }
+                    _ => panic!("Expected member access"),
                 }
-                _ => panic!("Expected member access"),
             }
-        }
+            _ => panic!("Expected member access"),
+        },
         _ => panic!("Expected expression statement"),
     }
 }
@@ -726,26 +743,22 @@ fn test_parse_index_access() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Expr(expr) => {
-            match &expr.kind {
-                ExprKind::Index { object, index } => {
-                    match &index.kind {
-                        ExprKind::Literal(Literal::Int(1)) => {}
-                        _ => panic!("Expected literal 1"),
-                    }
-                    match &object.kind {
-                        ExprKind::Index { index, .. } => {
-                            match &index.kind {
-                                ExprKind::Literal(Literal::Int(0)) => {}
-                                _ => panic!("Expected literal 0"),
-                            }
-                        }
-                        _ => panic!("Expected index access"),
-                    }
+        StmtKind::Expr(expr) => match &expr.kind {
+            ExprKind::Index { object, index } => {
+                match &index.kind {
+                    ExprKind::Literal(Literal::Int(1)) => {}
+                    _ => panic!("Expected literal 1"),
                 }
-                _ => panic!("Expected index access"),
+                match &object.kind {
+                    ExprKind::Index { index, .. } => match &index.kind {
+                        ExprKind::Literal(Literal::Int(0)) => {}
+                        _ => panic!("Expected literal 0"),
+                    },
+                    _ => panic!("Expected index access"),
+                }
             }
-        }
+            _ => panic!("Expected index access"),
+        },
         _ => panic!("Expected expression statement"),
     }
 }
@@ -757,19 +770,15 @@ fn test_parse_function_call_chain() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Expr(expr) => {
-            match &expr.kind {
-                ExprKind::Call { callee, .. } => {
-                    match &callee.kind {
-                        ExprKind::Member { property, .. } => {
-                            assert_eq!(property, "c");
-                        }
-                        _ => panic!("Expected member access"),
-                    }
+        StmtKind::Expr(expr) => match &expr.kind {
+            ExprKind::Call { callee, .. } => match &callee.kind {
+                ExprKind::Member { property, .. } => {
+                    assert_eq!(property, "c");
                 }
-                _ => panic!("Expected call expression"),
-            }
-        }
+                _ => panic!("Expected member access"),
+            },
+            _ => panic!("Expected call expression"),
+        },
         _ => panic!("Expected expression statement"),
     }
 }
@@ -781,22 +790,20 @@ fn test_parse_compound_assignment() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Expr(expr) => {
-            match &expr.kind {
-                ExprKind::CompoundAssignment { target, op, value } => {
-                    assert_eq!(*op, BinaryOp::Add);
-                    match &target.kind {
-                        ExprKind::Identifier(name) => assert_eq!(name, "x"),
-                        _ => panic!("Expected identifier"),
-                    }
-                    match &value.kind {
-                        ExprKind::Literal(Literal::Int(5)) => {}
-                        _ => panic!("Expected literal 5"),
-                    }
+        StmtKind::Expr(expr) => match &expr.kind {
+            ExprKind::CompoundAssignment { target, op, value } => {
+                assert_eq!(*op, BinaryOp::Add);
+                match &target.kind {
+                    ExprKind::Identifier(name) => assert_eq!(name, "x"),
+                    _ => panic!("Expected identifier"),
                 }
-                _ => panic!("Expected compound assignment"),
+                match &value.kind {
+                    ExprKind::Literal(Literal::Int(5)) => {}
+                    _ => panic!("Expected literal 5"),
+                }
             }
-        }
+            _ => panic!("Expected compound assignment"),
+        },
         _ => panic!("Expected expression statement"),
     }
 }
@@ -816,14 +823,12 @@ fn test_parse_all_compound_assignments() {
         let ast = parser.parse().unwrap();
 
         match &ast.statements[0].kind {
-            StmtKind::Expr(expr) => {
-                match &expr.kind {
-                    ExprKind::CompoundAssignment { op, .. } => {
-                        assert_eq!(*op, expected_op, "Failed for: {}", source);
-                    }
-                    _ => panic!("Expected compound assignment for: {}", source),
+            StmtKind::Expr(expr) => match &expr.kind {
+                ExprKind::CompoundAssignment { op, .. } => {
+                    assert_eq!(*op, expected_op, "Failed for: {}", source);
                 }
-            }
+                _ => panic!("Expected compound assignment for: {}", source),
+            },
             _ => panic!("Expected expression statement"),
         }
     }
@@ -836,12 +841,13 @@ fn test_parse_prefix_increment() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Expr(expr) => {
-            match &expr.kind {
-                ExprKind::Unary { op: UnaryOp::PreInc, .. } => {}
-                _ => panic!("Expected prefix increment"),
-            }
-        }
+        StmtKind::Expr(expr) => match &expr.kind {
+            ExprKind::Unary {
+                op: UnaryOp::PreInc,
+                ..
+            } => {}
+            _ => panic!("Expected prefix increment"),
+        },
         _ => panic!("Expected expression statement"),
     }
 }
@@ -853,12 +859,13 @@ fn test_parse_postfix_increment() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Expr(expr) => {
-            match &expr.kind {
-                ExprKind::Unary { op: UnaryOp::PostInc, .. } => {}
-                _ => panic!("Expected postfix increment"),
-            }
-        }
+        StmtKind::Expr(expr) => match &expr.kind {
+            ExprKind::Unary {
+                op: UnaryOp::PostInc,
+                ..
+            } => {}
+            _ => panic!("Expected postfix increment"),
+        },
         _ => panic!("Expected expression statement"),
     }
 }
@@ -899,7 +906,9 @@ fn test_parse_class_with_interface() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::ClassDecl { name, implements, .. } => {
+        StmtKind::ClassDecl {
+            name, implements, ..
+        } => {
             assert_eq!(name, "Dog");
             assert_eq!(implements.len(), 1);
             assert_eq!(implements[0], "Animal");
@@ -964,14 +973,18 @@ fn test_parse_class_static_members() {
     match &ast.statements[0].kind {
         StmtKind::ClassDecl { members, .. } => {
             match &members[0] {
-                ClassMember::Field { is_static, name, .. } => {
+                ClassMember::Field {
+                    is_static, name, ..
+                } => {
                     assert!(*is_static);
                     assert_eq!(name, "count");
                 }
                 _ => panic!("Expected static field"),
             }
             match &members[1] {
-                ClassMember::Method { is_static, name, .. } => {
+                ClassMember::Method {
+                    is_static, name, ..
+                } => {
                     assert!(*is_static);
                     assert_eq!(name, "increment");
                 }
@@ -997,7 +1010,9 @@ fn test_parse_generic_class() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::ClassDecl { name, type_params, .. } => {
+        StmtKind::ClassDecl {
+            name, type_params, ..
+        } => {
             assert_eq!(name, "قائمة");
             assert_eq!(type_params.len(), 1);
             assert_eq!(type_params[0], "ن");
@@ -1264,25 +1279,19 @@ fn test_parse_this_expression() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::ClassDecl { members, .. } => {
-            match &members[1] {
-                ClassMember::Method { body, .. } => {
-                    match &body.statements[0].kind {
-                        StmtKind::Return(Some(expr)) => {
-                            match &expr.kind {
-                                ExprKind::Member { object, property } => {
-                                    assert!(matches!(&object.kind, ExprKind::This));
-                                    assert_eq!(property, "name");
-                                }
-                                _ => panic!("Expected member access"),
-                            }
-                        }
-                        _ => panic!("Expected return"),
+        StmtKind::ClassDecl { members, .. } => match &members[1] {
+            ClassMember::Method { body, .. } => match &body.statements[0].kind {
+                StmtKind::Return(Some(expr)) => match &expr.kind {
+                    ExprKind::Member { object, property } => {
+                        assert!(matches!(&object.kind, ExprKind::This));
+                        assert_eq!(property, "name");
                     }
-                }
-                _ => panic!("Expected method"),
-            }
-        }
+                    _ => panic!("Expected member access"),
+                },
+                _ => panic!("Expected return"),
+            },
+            _ => panic!("Expected method"),
+        },
         _ => panic!("Expected ClassDecl"),
     }
 }
@@ -1300,25 +1309,19 @@ fn test_parse_super_expression() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::ClassDecl { members, .. } => {
-            match &members[0] {
-                ClassMember::Constructor { body, .. } => {
-                    match &body.statements[0].kind {
-                        StmtKind::Expr(expr) => {
-                            match &expr.kind {
-                                ExprKind::Call { callee, args } => {
-                                    assert!(matches!(&callee.kind, ExprKind::Super));
-                                    assert_eq!(args.len(), 1);
-                                }
-                                _ => panic!("Expected call"),
-                            }
-                        }
-                        _ => panic!("Expected expression"),
+        StmtKind::ClassDecl { members, .. } => match &members[0] {
+            ClassMember::Constructor { body, .. } => match &body.statements[0].kind {
+                StmtKind::Expr(expr) => match &expr.kind {
+                    ExprKind::Call { callee, args } => {
+                        assert!(matches!(&callee.kind, ExprKind::Super));
+                        assert_eq!(args.len(), 1);
                     }
-                }
-                _ => panic!("Expected constructor"),
-            }
-        }
+                    _ => panic!("Expected call"),
+                },
+                _ => panic!("Expected expression"),
+            },
+            _ => panic!("Expected constructor"),
+        },
         _ => panic!("Expected ClassDecl"),
     }
 }
@@ -1409,14 +1412,12 @@ fn test_parse_return_without_value() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::FuncDecl { body, .. } => {
-            match &body.statements[0].kind {
-                StmtKind::Return(value) => {
-                    assert!(value.is_none());
-                }
-                _ => panic!("Expected return"),
+        StmtKind::FuncDecl { body, .. } => match &body.statements[0].kind {
+            StmtKind::Return(value) => {
+                assert!(value.is_none());
             }
-        }
+            _ => panic!("Expected return"),
+        },
         _ => panic!("Expected FuncDecl"),
     }
 }
@@ -1477,7 +1478,10 @@ fn test_parse_if_else_if() {
             let else_block = else_branch.as_ref().unwrap();
             assert_eq!(else_block.statements.len(), 1);
             // The else if should be an If statement
-            assert!(matches!(&else_block.statements[0].kind, StmtKind::If { .. }));
+            assert!(matches!(
+                &else_block.statements[0].kind,
+                StmtKind::If { .. }
+            ));
         }
         _ => panic!("Expected If statement"),
     }

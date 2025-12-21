@@ -541,7 +541,13 @@ fn test_instruction_binary() {
     };
 
     match inst {
-        Instruction::Binary { dest, op, left, right, ty } => {
+        Instruction::Binary {
+            dest,
+            op,
+            left,
+            right,
+            ty,
+        } => {
             assert_eq!(dest, VarId(2));
             assert_eq!(op, BinaryOp::Add);
             assert_eq!(left, VarId(0));
@@ -562,7 +568,12 @@ fn test_instruction_unary() {
     };
 
     match inst {
-        Instruction::Unary { dest, op, operand, ty } => {
+        Instruction::Unary {
+            dest,
+            op,
+            operand,
+            ty,
+        } => {
             assert_eq!(dest, VarId(1));
             assert_eq!(op, UnaryOp::Neg);
             assert_eq!(operand, VarId(0));
@@ -672,9 +683,7 @@ fn test_instruction_store() {
 
 #[test]
 fn test_instruction_jump() {
-    let inst = Instruction::Jump {
-        target: BlockId(1),
-    };
+    let inst = Instruction::Jump { target: BlockId(1) };
 
     match inst {
         Instruction::Jump { target } => {
@@ -693,7 +702,11 @@ fn test_instruction_branch() {
     };
 
     match inst {
-        Instruction::Branch { cond, then_block, else_block } => {
+        Instruction::Branch {
+            cond,
+            then_block,
+            else_block,
+        } => {
             assert_eq!(cond, VarId(0));
             assert_eq!(then_block, BlockId(1));
             assert_eq!(else_block, BlockId(2));
@@ -738,7 +751,12 @@ fn test_instruction_call() {
     };
 
     match inst {
-        Instruction::Call { dest, func, args, ret_ty } => {
+        Instruction::Call {
+            dest,
+            func,
+            args,
+            ret_ty,
+        } => {
             assert_eq!(dest, Some(VarId(2)));
             assert_eq!(func, FuncId("add".to_string()));
             assert_eq!(args.len(), 2);
@@ -758,7 +776,12 @@ fn test_instruction_call_void() {
     };
 
     match inst {
-        Instruction::Call { dest, func, args, ret_ty } => {
+        Instruction::Call {
+            dest,
+            func,
+            args,
+            ret_ty,
+        } => {
             assert!(dest.is_none());
             assert_eq!(func, FuncId("print".to_string()));
             assert_eq!(args.len(), 1);
