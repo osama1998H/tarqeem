@@ -343,11 +343,32 @@ sahari/
 - VS Code now uses npm (not yarn) for package management
 - Required system packages: `libxkbfile-dev`, `libx11-dev`, `libsecret-1-dev`, `libkrb5-dev`
 
-### Next Steps (Phase 2)
+### Phase 2: RTL Enhancement & Branding ✅ COMPLETE (December 21, 2025)
 
-1. [ ] Implement auto-RTL detection for Arabic content
-2. [ ] Add Sahari-specific editor settings
-3. [ ] Begin branding changes (product.json)
+- [x] Implement auto-RTL detection for Arabic content
+  - Created `RTLDetectionController` contribution
+  - Auto-detects Arabic/Hebrew content per line
+  - Uses first-strong-character algorithm
+- [x] Add Sahari-specific editor settings
+  - `editor.autoRTL`: Global RTL auto-detection toggle
+  - `sahari.editor.autoRTL`: Sahari-specific setting
+  - `sahari.editor.arabicFontFamily`: Arabic font configuration
+- [x] Update product.json with Sahari branding
+  - Name: صحاري - Sahari Editor
+  - URL protocol: sahari://
+  - All identifiers updated
+- [x] Update Linux desktop entry with Arabic translations
+- [x] Compile and verify (0 errors)
+
+**New Files:**
+- `src/vs/editor/contrib/rtlDetection/browser/rtlDetection.ts`
+
+### Next Steps (Phase 3)
+
+1. [ ] Bundle Tarqeem extension
+2. [ ] Bundle Arabic fonts (Amiri, Noto Sans Arabic)
+3. [ ] Create application icons
+4. [ ] Build distribution packages
 
 ---
 
