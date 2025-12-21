@@ -283,7 +283,11 @@ impl DeadCodeEliminator {
                     used.insert(*val);
                 }
             }
-            Instruction::NewObject { .. }
+            Instruction::GlobalStore { value, .. } => {
+                used.insert(*value);
+            }
+            Instruction::GlobalLoad { .. }
+            | Instruction::NewObject { .. }
             | Instruction::Const { .. }
             | Instruction::Alloca { .. }
             | Instruction::Jump { .. }
@@ -314,7 +318,8 @@ impl DeadCodeEliminator {
             | Instruction::ArrayGet { dest, .. }
             | Instruction::StringConcat { dest, .. }
             | Instruction::GetException { dest }
-            | Instruction::Phi { dest, .. } => Some(*dest),
+            | Instruction::Phi { dest, .. }
+            | Instruction::GlobalLoad { dest, .. } => Some(*dest),
 
             Instruction::Call { dest, .. }
             | Instruction::CallIndirect { dest, .. }
@@ -330,6 +335,7 @@ impl DeadCodeEliminator {
         matches!(
             inst,
             Instruction::Store { .. }
+                | Instruction::GlobalStore { .. }
                 | Instruction::SetField { .. }
                 | Instruction::ArraySet { .. }
                 | Instruction::Call { .. }

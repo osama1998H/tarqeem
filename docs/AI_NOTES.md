@@ -1275,6 +1275,76 @@ hex = "0.4"
 **Files Created**:
 - `docs/PHASE4_MILESTONE_4.1_PLAN.md` - Complete implementation plan (~600 lines)
 
+### Session: 2025-12-21 - Global Variables Implementation
+
+**Goal**: Implement full global variable support for top-level variable declarations
+
+**What Was Implemented**:
+
+1. **New IR Instructions** (`src/ir/instruction.rs`)
+   - `GlobalLoad { dest: VarId, name: String, ty: IrType }` - Load from global variable
+   - `GlobalStore { name: String, value: VarId }` - Store to global variable
+   - Updated Display implementation for new instructions
+   - Added to all optimizer match statements (DCE, inliner)
+
+2. **IR Builder Changes** (`src/ir/builder.rs`)
+   - Added `global_variables: HashSet<String>` to track global variable names
+   - Added `global_var_types: HashMap<String, IrType>` for type information
+   - Modified first pass to collect ALL global variables (mutable and immutable)
+   - Now populates `module.globals` vector properly
+   - `build_var_decl()` skips local allocation for globals, emits GlobalStore for non-constant init
+   - `build_identifier()` emits GlobalLoad for mutable globals
+   - `build_assignment()` and `build_compound_assignment()` use GlobalStore for globals
+
+3. **LLVM Codegen Changes** (`src/codegen/llvm/codegen.rs`)
+   - Added `global_vars: HashMap<String, String>` for name tracking
+   - Added `emit_global_variables()` to emit global variable definitions
+   - Added `zero_initializer()` helper for default values
+   - Added `GlobalLoad` handler - emits `load` from global address
+   - Added `GlobalStore` handler - emits `store` to global address
+
+4. **Interpreter Changes** (`src/interpreter/executor.rs`, `src/debug/interpreter.rs`)
+   - Added `GlobalLoad` handler - reads from `self.globals` HashMap
+   - Added `GlobalStore` handler - writes to `self.globals` HashMap
+
+**Tests Added** (`src/ir/builder.rs`):
+- `test_global_constant()` - Tests `ثابت PI = 3`
+- `test_global_mutable_variable()` - Tests `متغير counter = 0`
+- `test_multiple_globals()` - Tests multiple global variables
+- `test_global_access_in_function()` - Tests GlobalLoad/GlobalStore in functions
+- `test_global_with_arabic_name()` - Tests Arabic global variable names
+- `test_global_boolean()` - Tests boolean global variables
+- `test_local_variable_in_function()` - Ensures local variables still work correctly
+
+**Key Design Decisions**:
+1. Immutable globals with constant initializers are still inlined (optimization)
+2. Mutable globals use GlobalLoad/GlobalStore at runtime
+3. Top-level VarDecls are always global, function-level are always local
+4. Non-constant initializers emit GlobalStore in __main__ function
+
+**Files Modified**:
+- `src/ir/instruction.rs` - New instructions + Display
+- `src/ir/builder.rs` - Global tracking + instruction emission
+- `src/ir/opt/inline.rs` - Pattern matching for new instructions
+- `src/ir/opt/dce.rs` - Pattern matching for new instructions
+- `src/codegen/llvm/codegen.rs` - Global emission + instruction handling
+- `src/interpreter/executor.rs` - Instruction execution
+- `src/debug/interpreter.rs` - Instruction execution
+- `docs/GLOBAL_VARIABLES_PLAN.md` - Implementation plan
+
+**Test Results**: All 857 tests passing (850 existing + 7 new)
+
+**LLVM IR Generated** (example):
+```llvm
+; Global variables
+@counter = global i64 0
+
+; In function body:
+%0 = load i64, ptr @counter
+%1 = add i64 %0, 1
+store i64 %1, ptr @counter
+```
+
 ---
 
 ## Template for New Entries

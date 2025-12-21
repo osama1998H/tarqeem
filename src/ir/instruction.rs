@@ -292,6 +292,18 @@ pub enum Instruction {
     /// store value -> ptr
     Store { ptr: VarId, value: VarId },
 
+    /// Load a value from a global variable
+    /// dest = global_load @name
+    GlobalLoad {
+        dest: VarId,
+        name: String,
+        ty: IrType,
+    },
+
+    /// Store a value to a global variable
+    /// global_store @name, value
+    GlobalStore { name: String, value: VarId },
+
     /// Get pointer to array element
     /// dest = gep ptr, index
     GetElementPtr {
@@ -495,6 +507,12 @@ impl fmt::Display for Instruction {
             }
             Instruction::Store { ptr, value } => {
                 write!(f, "store {}, {}", value, ptr)
+            }
+            Instruction::GlobalLoad { dest, name, ty } => {
+                write!(f, "{}: {} = global_load @{}", dest, ty, name)
+            }
+            Instruction::GlobalStore { name, value } => {
+                write!(f, "global_store @{}, {}", name, value)
             }
             Instruction::GetElementPtr {
                 dest,

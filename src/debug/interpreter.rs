@@ -754,6 +754,18 @@ impl DebugInterpreter {
                 Ok(InstructionResult::Continue)
             }
 
+            Instruction::GlobalLoad { dest, name, .. } => {
+                let val = self.globals.get(name).cloned().unwrap_or(Value::Null);
+                self.set_local(*dest, val);
+                Ok(InstructionResult::Continue)
+            }
+
+            Instruction::GlobalStore { name, value } => {
+                let val = self.get_local(*value)?;
+                self.globals.insert(name.clone(), val);
+                Ok(InstructionResult::Continue)
+            }
+
             Instruction::GetElementPtr {
                 dest, ptr, index, ..
             } => {

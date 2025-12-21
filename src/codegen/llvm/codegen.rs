@@ -37,6 +37,8 @@ pub struct LlvmCodegen {
     vtable_globals: HashMap<String, String>,
     /// Current function's return type (for Return instruction)
     current_return_type: IrType,
+    /// Global variable names (name -> mangled LLVM name)
+    global_vars: HashMap<String, String>,
 }
 
 impl LlvmCodegen {
@@ -56,6 +58,7 @@ impl LlvmCodegen {
             class_defs: HashMap::new(),
             vtable_globals: HashMap::new(),
             current_return_type: IrType::Void,
+            global_vars: HashMap::new(),
         }
     }
 
@@ -71,6 +74,9 @@ impl LlvmCodegen {
 
         // String literals
         self.emit_string_table(module);
+
+        // Global variables
+        self.emit_global_variables(module);
 
         // Class definitions
         for class in &module.classes {
@@ -155,6 +161,75 @@ impl LlvmCodegen {
             self.string_globals.insert(idx, (global_name, len));
         }
         writeln!(self.output).unwrap();
+    }
+
+    /// Emit global variable definitions
+    fn emit_global_variables(&mut self, module: &Module) {
+        if module.globals.is_empty() {
+            return;
+        }
+
+        writeln!(self.output, "; Global variables").unwrap();
+        for (name, ty, init) in &module.globals {
+            let llvm_type = self.type_mapper.map_type(ty);
+            let global_name = mangle_name(name);
+
+            // Determine initial value
+            let init_val = match init {
+                Some(Constant::Int(n)) => n.to_string(),
+                Some(Constant::Float(f)) => {
+                    // Use hex format for floats to preserve precision
+                    format!("{:e}", f)
+                }
+                Some(Constant::Bool(b)) => {
+                    if *b {
+                        "1".to_string()
+                    } else {
+                        "0".to_string()
+                    }
+                }
+                Some(Constant::Null) => "null".to_string(),
+                Some(Constant::String(idx)) => {
+                    // String global - get pointer to the string data
+                    if let Some((str_global, len)) = self.string_globals.get(idx) {
+                        format!(
+                            "getelementptr ([{} x i8], ptr {}, i64 0, i64 0)",
+                            len + 1,
+                            str_global
+                        )
+                    } else {
+                        "null".to_string()
+                    }
+                }
+                None => self.zero_initializer(ty),
+            };
+
+            writeln!(
+                self.output,
+                "@{} = global {} {}",
+                global_name, llvm_type, init_val
+            )
+            .unwrap();
+
+            // Track the global variable for later use
+            self.global_vars.insert(name.clone(), global_name);
+        }
+        writeln!(self.output).unwrap();
+    }
+
+    /// Get zero initializer for a type
+    fn zero_initializer(&self, ty: &IrType) -> String {
+        match ty {
+            IrType::Int => "0".to_string(),
+            IrType::Float => "0.0".to_string(),
+            IrType::Bool => "0".to_string(),
+            IrType::String => "null".to_string(),
+            IrType::Ptr(_) => "null".to_string(),
+            IrType::Array(_, _) => "zeroinitializer".to_string(),
+            IrType::Struct(_) => "zeroinitializer".to_string(),
+            IrType::Void => "zeroinitializer".to_string(),
+            IrType::Function { .. } => "null".to_string(),
+        }
     }
 
     /// Emit class/struct definition
@@ -1059,6 +1134,32 @@ impl LlvmCodegen {
                     }
                 }
                 writeln!(self.output, "  call void @trq_print_newline()").unwrap();
+            }
+
+            Instruction::GlobalLoad { dest, name, ty } => {
+                let dest_name = self.get_or_create_var(*dest);
+                let llvm_type = self.type_mapper.map_type(ty);
+                let global_name = mangle_name(name);
+                writeln!(
+                    self.output,
+                    "  {} = load {}, ptr @{}",
+                    dest_name, llvm_type, global_name
+                )
+                .unwrap();
+                self.var_types.insert(dest.0, ty.clone());
+            }
+
+            Instruction::GlobalStore { name, value } => {
+                let value_name = self.get_var(*value)?;
+                let value_ty = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+                let llvm_type = self.type_mapper.map_type(&value_ty);
+                let global_name = mangle_name(name);
+                writeln!(
+                    self.output,
+                    "  store {} {}, ptr @{}",
+                    llvm_type, value_name, global_name
+                )
+                .unwrap();
             }
 
             Instruction::Nop => {
