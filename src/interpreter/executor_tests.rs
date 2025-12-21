@@ -4,7 +4,10 @@
 //! arithmetic, control flow, arrays, strings, objects, and built-in functions.
 
 use super::*;
-use crate::ir::{BasicBlock, BinaryOp, BlockId, Class, ClassId, Constant, FuncId, Function, Instruction, IrType, Module, Parameter, UnaryOp, VarId};
+use crate::ir::{
+    BasicBlock, BinaryOp, BlockId, Class, ClassId, Constant, FuncId, Function, Instruction, IrType,
+    Module, Parameter, UnaryOp, VarId,
+};
 
 // =============================================================================
 // Test Helpers
@@ -62,7 +65,9 @@ fn test_add_integers() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -93,7 +98,9 @@ fn test_subtract_integers() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -124,7 +131,9 @@ fn test_multiply_integers() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -155,7 +164,9 @@ fn test_divide_integers() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -186,7 +197,9 @@ fn test_modulo_integers() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -217,7 +230,9 @@ fn test_power_integers() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -248,7 +263,9 @@ fn test_division_by_zero_error() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -280,7 +297,9 @@ fn test_negative_numbers() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -316,7 +335,9 @@ fn test_add_floats() {
         right: VarId(1),
         ty: IrType::Float,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -348,7 +369,9 @@ fn test_float_division() {
         right: VarId(1),
         ty: IrType::Float,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -380,7 +403,9 @@ fn test_mixed_int_float_arithmetic() {
         right: VarId(1),
         ty: IrType::Float,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -416,7 +441,9 @@ fn test_equals_true() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -448,7 +475,9 @@ fn test_equals_false() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -480,7 +509,9 @@ fn test_less_than() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -512,7 +543,9 @@ fn test_greater_than_or_equal() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -548,7 +581,9 @@ fn test_logical_and_true() {
         right: VarId(1),
         ty: IrType::Bool,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -580,7 +615,9 @@ fn test_logical_and_false() {
         right: VarId(1),
         ty: IrType::Bool,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -612,7 +649,9 @@ fn test_logical_or() {
         right: VarId(1),
         ty: IrType::Bool,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -647,7 +686,9 @@ fn test_bitwise_and() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -678,7 +719,9 @@ fn test_bitwise_or() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -709,7 +752,9 @@ fn test_bitwise_xor() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -740,7 +785,9 @@ fn test_shift_left() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -771,7 +818,9 @@ fn test_shift_right() {
         right: VarId(1),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -800,7 +849,9 @@ fn test_unary_neg_int() {
         operand: VarId(0),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -826,7 +877,9 @@ fn test_unary_neg_float() {
         operand: VarId(0),
         ty: IrType::Float,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -852,7 +905,9 @@ fn test_unary_not() {
         operand: VarId(0),
         ty: IrType::Bool,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -877,7 +932,9 @@ fn test_unary_bitnot() {
         operand: VarId(0),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -905,7 +962,9 @@ fn test_int_to_float() {
         dest: VarId(1),
         src: VarId(0),
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -928,7 +987,9 @@ fn test_float_to_int() {
         dest: VarId(1),
         src: VarId(0),
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -952,7 +1013,9 @@ fn test_to_string() {
         dest: VarId(1),
         src: VarId(0),
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -990,7 +1053,9 @@ fn test_string_concat() {
         left: VarId(0),
         right: VarId(1),
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -1013,7 +1078,9 @@ fn test_string_arabic() {
         value: Constant::String(0),
         ty: IrType::String,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(0)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(0)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -1056,7 +1123,9 @@ fn test_array_creation() {
         dest: VarId(4),
         array: VarId(3),
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(4)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(4)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -1104,7 +1173,9 @@ fn test_array_get() {
         index: VarId(4),
         elem_ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(5)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(5)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -1164,7 +1235,9 @@ fn test_array_set() {
         index: VarId(4),
         elem_ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(6)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(6)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -1212,7 +1285,9 @@ fn test_array_push() {
         dest: VarId(4),
         array: VarId(2),
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(4)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(4)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -1250,7 +1325,9 @@ fn test_array_index_out_of_bounds() {
         index: VarId(2),
         elem_ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(3)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(3)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -1288,7 +1365,9 @@ fn test_branch_true() {
         value: Constant::Int(1),
         ty: IrType::Int,
     });
-    then_block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    then_block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     // Else block - return 0
     let mut else_block = BasicBlock::new(BlockId(2));
@@ -1297,7 +1376,9 @@ fn test_branch_true() {
         value: Constant::Int(0),
         ty: IrType::Int,
     });
-    else_block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    else_block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(entry);
     func.blocks.push(then_block);
@@ -1332,7 +1413,9 @@ fn test_branch_false() {
         value: Constant::Int(1),
         ty: IrType::Int,
     });
-    then_block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    then_block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     // Else block - return 0
     let mut else_block = BasicBlock::new(BlockId(2));
@@ -1341,7 +1424,9 @@ fn test_branch_false() {
         value: Constant::Int(0),
         ty: IrType::Int,
     });
-    else_block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    else_block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(entry);
     func.blocks.push(then_block);
@@ -1371,7 +1456,9 @@ fn test_loop_with_jump() {
         ptr: VarId(0),
         value: VarId(1),
     });
-    entry.instructions.push(Instruction::Jump { target: BlockId(1) });
+    entry
+        .instructions
+        .push(Instruction::Jump { target: BlockId(1) });
 
     // Loop: while i < 5
     let mut loop_block = BasicBlock::new(BlockId(1));
@@ -1421,7 +1508,8 @@ fn test_loop_with_jump() {
         ptr: VarId(0),
         value: VarId(7),
     });
-    body.instructions.push(Instruction::Jump { target: BlockId(1) });
+    body.instructions
+        .push(Instruction::Jump { target: BlockId(1) });
 
     // Exit: return i
     let mut exit = BasicBlock::new(BlockId(3));
@@ -1430,7 +1518,9 @@ fn test_loop_with_jump() {
         ptr: VarId(0),
         ty: IrType::Int,
     });
-    exit.instructions.push(Instruction::Return { value: Some(VarId(8)) });
+    exit.instructions.push(Instruction::Return {
+        value: Some(VarId(8)),
+    });
 
     func.blocks.push(entry);
     func.blocks.push(loop_block);
@@ -1475,7 +1565,9 @@ fn test_builtin_len_array() {
         args: vec![VarId(2)],
         ret_ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(3)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(3)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -1502,7 +1594,9 @@ fn test_builtin_len_string() {
         args: vec![VarId(0)],
         ret_ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -1527,7 +1621,9 @@ fn test_builtin_abs() {
         args: vec![VarId(0)],
         ret_ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -1553,7 +1649,9 @@ fn test_builtin_sqrt() {
         args: vec![VarId(0)],
         ret_ty: IrType::Float,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -1578,7 +1676,9 @@ fn test_builtin_int_conversion() {
         args: vec![VarId(0)],
         ret_ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -1628,7 +1728,11 @@ fn test_recursive_factorial() {
     let mut factorial = Function::new(
         FuncId("factorial".to_string()),
         "factorial".to_string(),
-        vec![Parameter { id: VarId(0), name: "n".to_string(), ty: IrType::Int }],
+        vec![Parameter {
+            id: VarId(0),
+            name: "n".to_string(),
+            ty: IrType::Int,
+        }],
         IrType::Int,
     );
 
@@ -1654,7 +1758,9 @@ fn test_recursive_factorial() {
 
     // Base case: return 1
     let mut base = BasicBlock::new(BlockId(1));
-    base.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    base.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     // Recursive case: return n * factorial(n - 1)
     let mut recursive = BasicBlock::new(BlockId(2));
@@ -1678,7 +1784,9 @@ fn test_recursive_factorial() {
         right: VarId(4),
         ty: IrType::Int,
     });
-    recursive.instructions.push(Instruction::Return { value: Some(VarId(5)) });
+    recursive.instructions.push(Instruction::Return {
+        value: Some(VarId(5)),
+    });
 
     factorial.blocks.push(entry);
     factorial.blocks.push(base);
@@ -1699,7 +1807,9 @@ fn test_recursive_factorial() {
         args: vec![VarId(0)],
         ret_ty: IrType::Int,
     });
-    main_block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+    main_block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
 
     main_func.blocks.push(main_block);
     module.functions.push(main_func);
@@ -1801,7 +1911,9 @@ fn test_alloca_load_store() {
         ptr: VarId(0),
         ty: IrType::Int,
     });
-    block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);
@@ -1820,7 +1932,9 @@ fn test_undefined_variable_error() {
     let mut block = BasicBlock::new(BlockId(0));
 
     // Try to use undefined variable
-    block.instructions.push(Instruction::Return { value: Some(VarId(999)) });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(999)),
+    });
 
     func.blocks.push(block);
     module.functions.push(func);

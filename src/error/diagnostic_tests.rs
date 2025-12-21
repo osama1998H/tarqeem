@@ -83,10 +83,7 @@ fn test_note_with_span() {
 
 #[test]
 fn test_note_bilingual_messages() {
-    let note = Note::new(
-        "Variable 'x' is not used",
-        "المتغير 'x' غير مستخدم",
-    );
+    let note = Note::new("Variable 'x' is not used", "المتغير 'x' غير مستخدم");
 
     assert!(note.message.contains("not used"));
     assert!(note.message_ar.contains("غير مستخدم"));
@@ -133,11 +130,7 @@ fn test_suggestion_with_code_replacement() {
 #[test]
 fn test_diagnostic_error_creation() {
     let span = Span::new(0, 10, 1, 1);
-    let diag = Diagnostic::error(
-        "Undefined variable 'x'",
-        "متغير غير معرف 'x'",
-        span,
-    );
+    let diag = Diagnostic::error("Undefined variable 'x'", "متغير غير معرف 'x'", span);
 
     assert_eq!(diag.level, DiagnosticLevel::Error);
     assert_eq!(diag.message, "Undefined variable 'x'");
@@ -151,11 +144,7 @@ fn test_diagnostic_error_creation() {
 #[test]
 fn test_diagnostic_warning_creation() {
     let span = Span::new(5, 15, 2, 3);
-    let diag = Diagnostic::warning(
-        "Unused variable 'y'",
-        "متغير غير مستخدم 'y'",
-        span,
-    );
+    let diag = Diagnostic::warning("Unused variable 'y'", "متغير غير مستخدم 'y'", span);
 
     assert_eq!(diag.level, DiagnosticLevel::Warning);
     assert_eq!(diag.message, "Unused variable 'y'");
@@ -166,11 +155,7 @@ fn test_diagnostic_with_note() {
     let span = Span::new(0, 10, 1, 1);
     let note = Note::new("Previously defined here", "تم تعريفه سابقاً هنا");
 
-    let diag = Diagnostic::error(
-        "Duplicate definition",
-        "تعريف مكرر",
-        span,
-    ).with_note(note);
+    let diag = Diagnostic::error("Duplicate definition", "تعريف مكرر", span).with_note(note);
 
     assert_eq!(diag.notes.len(), 1);
     assert_eq!(diag.notes[0].message, "Previously defined here");
@@ -191,18 +176,14 @@ fn test_diagnostic_with_multiple_notes() {
 #[test]
 fn test_diagnostic_with_suggestion() {
     let span = Span::new(0, 10, 1, 1);
-    let suggestion = Suggestion::new(
-        "Did you mean 'متغير'?",
-        "هل تقصد 'متغير'؟",
-        "متغير",
-        span,
-    );
+    let suggestion = Suggestion::new("Did you mean 'متغير'?", "هل تقصد 'متغير'؟", "متغير", span);
 
     let diag = Diagnostic::error(
         "Unknown keyword 'متغبر'",
         "كلمة مفتاحية غير معروفة 'متغبر'",
         span,
-    ).with_suggestion(suggestion);
+    )
+    .with_suggestion(suggestion);
 
     assert_eq!(diag.suggestions.len(), 1);
     assert_eq!(diag.suggestions[0].replacement, "متغير");
@@ -211,8 +192,7 @@ fn test_diagnostic_with_suggestion() {
 #[test]
 fn test_diagnostic_with_code() {
     let span = Span::new(0, 10, 1, 1);
-    let diag = Diagnostic::error("Type mismatch", "عدم تطابق الأنماط", span)
-        .with_code("E0308");
+    let diag = Diagnostic::error("Type mismatch", "عدم تطابق الأنماط", span).with_code("E0308");
 
     assert_eq!(diag.code, Some("E0308".to_string()));
 }
@@ -248,11 +228,7 @@ fn test_diagnostic_chained_builders() {
 #[test]
 fn test_diagnostic_display() {
     let span = Span::new(0, 5, 1, 1);
-    let diag = Diagnostic::error(
-        "Test error",
-        "خطأ اختباري",
-        span,
-    );
+    let diag = Diagnostic::error("Test error", "خطأ اختباري", span);
 
     let display = format!("{}", diag);
     assert!(display.contains("error"));
@@ -294,11 +270,7 @@ fn test_bilingual_syntax_error() {
 #[test]
 fn test_bilingual_undefined_variable() {
     let span = Span::new(0, 5, 1, 1);
-    let diag = Diagnostic::error(
-        "Undefined variable 'اسم'",
-        "متغير غير معرف 'اسم'",
-        span,
-    );
+    let diag = Diagnostic::error("Undefined variable 'اسم'", "متغير غير معرف 'اسم'", span);
 
     // Both messages should reference the Arabic variable name
     assert!(diag.message.contains("اسم"));
@@ -314,18 +286,16 @@ fn test_common_error_codes() {
     let span = Span::new(0, 5, 1, 1);
 
     // Type mismatch error
-    let type_error = Diagnostic::error("Type mismatch", "عدم تطابق الأنماط", span)
-        .with_code("E0308");
+    let type_error =
+        Diagnostic::error("Type mismatch", "عدم تطابق الأنماط", span).with_code("E0308");
     assert_eq!(type_error.code, Some("E0308".to_string()));
 
     // Undefined variable
-    let undef_error = Diagnostic::error("Undefined", "غير معرف", span)
-        .with_code("E0425");
+    let undef_error = Diagnostic::error("Undefined", "غير معرف", span).with_code("E0425");
     assert_eq!(undef_error.code, Some("E0425".to_string()));
 
     // Parse error
-    let parse_error = Diagnostic::error("Parse error", "خطأ تحليل", span)
-        .with_code("E0001");
+    let parse_error = Diagnostic::error("Parse error", "خطأ تحليل", span).with_code("E0001");
     assert_eq!(parse_error.code, Some("E0001".to_string()));
 }
 
@@ -355,10 +325,9 @@ fn test_function_signature_mismatch() {
         call_span,
     )
     .with_code("E0061")
-    .with_note(Note::new(
-        "Function 'add' is defined here",
-        "الدالة 'add' معرفة هنا",
-    ).with_span(def_span));
+    .with_note(
+        Note::new("Function 'add' is defined here", "الدالة 'add' معرفة هنا").with_span(def_span),
+    );
 
     assert_eq!(diag.level, DiagnosticLevel::Error);
     assert!(diag.code.is_some());
@@ -376,10 +345,7 @@ fn test_class_inheritance_error() {
         span,
     )
     .with_code("E0578")
-    .with_note(Note::new(
-        "Class 'شخص' is sealed",
-        "الصنف 'شخص' مختوم",
-    ))
+    .with_note(Note::new("Class 'شخص' is sealed", "الصنف 'شخص' مختوم"))
     .with_suggestion(Suggestion::new(
         "Consider using composition instead",
         "فكر في استخدام التركيب بدلاً من الوراثة",

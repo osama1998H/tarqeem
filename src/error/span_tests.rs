@@ -267,7 +267,7 @@ fn test_span_inequality_column() {
 #[test]
 fn test_span_clone() {
     let original = Span::new(10, 20, 5, 3);
-    let cloned = original;  // Span is Copy
+    let cloned = original; // Span is Copy
 
     assert_eq!(original, cloned);
 }
@@ -337,7 +337,7 @@ fn test_span_first_position() {
 fn test_span_arabic_identifier() {
     // Span for an Arabic identifier "متغير" (6 characters, variable byte length)
     // In UTF-8, Arabic characters are typically 2 bytes each
-    let span = Span::new(0, 12, 1, 1);  // 6 chars * 2 bytes = 12 bytes
+    let span = Span::new(0, 12, 1, 1); // 6 chars * 2 bytes = 12 bytes
 
     assert_eq!(span.len(), 12);
     assert!(!span.is_empty());
@@ -361,10 +361,10 @@ fn test_span_token_positions() {
     // Simulating token spans in source code:
     // "متغير س = 5"
 
-    let var_keyword_span = Span::new(0, 10, 1, 1);    // "متغير"
-    let var_name_span = Span::new(11, 13, 1, 7);      // "س"
-    let equals_span = Span::new(14, 15, 1, 9);        // "="
-    let number_span = Span::new(16, 17, 1, 11);       // "5"
+    let var_keyword_span = Span::new(0, 10, 1, 1); // "متغير"
+    let var_name_span = Span::new(11, 13, 1, 7); // "س"
+    let equals_span = Span::new(14, 15, 1, 9); // "="
+    let number_span = Span::new(16, 17, 1, 11); // "5"
 
     // Merge all for full statement span
     let full_span = var_keyword_span
@@ -395,7 +395,7 @@ fn test_span_error_underline_calculation() {
     // For error reporting, we need to calculate underline length
     let span = Span::new(10, 25, 3, 5);
 
-    let underline_start = span.column - 1;  // 0-indexed for spacing
+    let underline_start = span.column - 1; // 0-indexed for spacing
     let underline_length = span.len();
 
     assert_eq!(underline_start, 4);

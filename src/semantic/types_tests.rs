@@ -316,11 +316,26 @@ fn test_binary_add_float() {
 
 #[test]
 fn test_binary_mixed_int_float() {
-    assert_eq!(Type::Int.binary_result_type("+", &Type::Float), Some(Type::Float));
-    assert_eq!(Type::Float.binary_result_type("+", &Type::Int), Some(Type::Float));
-    assert_eq!(Type::Int.binary_result_type("-", &Type::Float), Some(Type::Float));
-    assert_eq!(Type::Int.binary_result_type("*", &Type::Float), Some(Type::Float));
-    assert_eq!(Type::Int.binary_result_type("/", &Type::Float), Some(Type::Float));
+    assert_eq!(
+        Type::Int.binary_result_type("+", &Type::Float),
+        Some(Type::Float)
+    );
+    assert_eq!(
+        Type::Float.binary_result_type("+", &Type::Int),
+        Some(Type::Float)
+    );
+    assert_eq!(
+        Type::Int.binary_result_type("-", &Type::Float),
+        Some(Type::Float)
+    );
+    assert_eq!(
+        Type::Int.binary_result_type("*", &Type::Float),
+        Some(Type::Float)
+    );
+    assert_eq!(
+        Type::Int.binary_result_type("/", &Type::Float),
+        Some(Type::Float)
+    );
 }
 
 #[test]
@@ -331,8 +346,14 @@ fn test_binary_power_int() {
 
 #[test]
 fn test_binary_power_float() {
-    assert_eq!(Type::Float.binary_result_type("**", &Type::Int), Some(Type::Float));
-    assert_eq!(Type::Int.binary_result_type("**", &Type::Float), Some(Type::Float));
+    assert_eq!(
+        Type::Float.binary_result_type("**", &Type::Int),
+        Some(Type::Float)
+    );
+    assert_eq!(
+        Type::Int.binary_result_type("**", &Type::Float),
+        Some(Type::Float)
+    );
 }
 
 #[test]
@@ -343,53 +364,122 @@ fn test_binary_string_concat() {
 
 #[test]
 fn test_binary_string_concat_coercion() {
-    assert_eq!(Type::String.binary_result_type("+", &Type::Int), Some(Type::String));
-    assert_eq!(Type::String.binary_result_type("+", &Type::Float), Some(Type::String));
-    assert_eq!(Type::String.binary_result_type("+", &Type::Bool), Some(Type::String));
-    assert_eq!(Type::Int.binary_result_type("+", &Type::String), Some(Type::String));
-    assert_eq!(Type::Float.binary_result_type("+", &Type::String), Some(Type::String));
-    assert_eq!(Type::Bool.binary_result_type("+", &Type::String), Some(Type::String));
+    assert_eq!(
+        Type::String.binary_result_type("+", &Type::Int),
+        Some(Type::String)
+    );
+    assert_eq!(
+        Type::String.binary_result_type("+", &Type::Float),
+        Some(Type::String)
+    );
+    assert_eq!(
+        Type::String.binary_result_type("+", &Type::Bool),
+        Some(Type::String)
+    );
+    assert_eq!(
+        Type::Int.binary_result_type("+", &Type::String),
+        Some(Type::String)
+    );
+    assert_eq!(
+        Type::Float.binary_result_type("+", &Type::String),
+        Some(Type::String)
+    );
+    assert_eq!(
+        Type::Bool.binary_result_type("+", &Type::String),
+        Some(Type::String)
+    );
 }
 
 #[test]
 fn test_binary_comparison_int() {
-    assert_eq!(Type::Int.binary_result_type("<", &Type::Int), Some(Type::Bool));
-    assert_eq!(Type::Int.binary_result_type("<=", &Type::Int), Some(Type::Bool));
-    assert_eq!(Type::Int.binary_result_type(">", &Type::Int), Some(Type::Bool));
-    assert_eq!(Type::Int.binary_result_type(">=", &Type::Int), Some(Type::Bool));
+    assert_eq!(
+        Type::Int.binary_result_type("<", &Type::Int),
+        Some(Type::Bool)
+    );
+    assert_eq!(
+        Type::Int.binary_result_type("<=", &Type::Int),
+        Some(Type::Bool)
+    );
+    assert_eq!(
+        Type::Int.binary_result_type(">", &Type::Int),
+        Some(Type::Bool)
+    );
+    assert_eq!(
+        Type::Int.binary_result_type(">=", &Type::Int),
+        Some(Type::Bool)
+    );
 }
 
 #[test]
 fn test_binary_comparison_float() {
-    assert_eq!(Type::Float.binary_result_type("<", &Type::Float), Some(Type::Bool));
-    assert_eq!(Type::Float.binary_result_type("<=", &Type::Float), Some(Type::Bool));
-    assert_eq!(Type::Float.binary_result_type(">", &Type::Float), Some(Type::Bool));
-    assert_eq!(Type::Float.binary_result_type(">=", &Type::Float), Some(Type::Bool));
+    assert_eq!(
+        Type::Float.binary_result_type("<", &Type::Float),
+        Some(Type::Bool)
+    );
+    assert_eq!(
+        Type::Float.binary_result_type("<=", &Type::Float),
+        Some(Type::Bool)
+    );
+    assert_eq!(
+        Type::Float.binary_result_type(">", &Type::Float),
+        Some(Type::Bool)
+    );
+    assert_eq!(
+        Type::Float.binary_result_type(">=", &Type::Float),
+        Some(Type::Bool)
+    );
 }
 
 #[test]
 fn test_binary_comparison_string() {
-    assert_eq!(Type::String.binary_result_type("<", &Type::String), Some(Type::Bool));
-    assert_eq!(Type::String.binary_result_type("<=", &Type::String), Some(Type::Bool));
-    assert_eq!(Type::String.binary_result_type(">", &Type::String), Some(Type::Bool));
-    assert_eq!(Type::String.binary_result_type(">=", &Type::String), Some(Type::Bool));
+    assert_eq!(
+        Type::String.binary_result_type("<", &Type::String),
+        Some(Type::Bool)
+    );
+    assert_eq!(
+        Type::String.binary_result_type("<=", &Type::String),
+        Some(Type::Bool)
+    );
+    assert_eq!(
+        Type::String.binary_result_type(">", &Type::String),
+        Some(Type::Bool)
+    );
+    assert_eq!(
+        Type::String.binary_result_type(">=", &Type::String),
+        Some(Type::Bool)
+    );
 }
 
 #[test]
 fn test_binary_equality() {
-    assert_eq!(Type::Int.binary_result_type("==", &Type::Int), Some(Type::Bool));
-    assert_eq!(Type::String.binary_result_type("==", &Type::String), Some(Type::Bool));
-    assert_eq!(Type::Bool.binary_result_type("!=", &Type::Bool), Some(Type::Bool));
+    assert_eq!(
+        Type::Int.binary_result_type("==", &Type::Int),
+        Some(Type::Bool)
+    );
+    assert_eq!(
+        Type::String.binary_result_type("==", &Type::String),
+        Some(Type::Bool)
+    );
+    assert_eq!(
+        Type::Bool.binary_result_type("!=", &Type::Bool),
+        Some(Type::Bool)
+    );
 }
 
 #[test]
 fn test_binary_logical_and() {
-    assert_eq!(Type::Bool.binary_result_type("&&", &Type::Bool), Some(Type::Bool));
+    assert_eq!(
+        Type::Bool.binary_result_type("&&", &Type::Bool),
+        Some(Type::Bool)
+    );
 }
 
 #[test]
 fn test_binary_logical_or() {
-    assert_eq!(Type::Bool.binary_result_type("||", &Type::Bool), Some(Type::Bool));
+    assert_eq!(
+        Type::Bool.binary_result_type("||", &Type::Bool),
+        Some(Type::Bool)
+    );
 }
 
 #[test]
@@ -461,8 +551,14 @@ fn test_parse_type_name_english() {
 
 #[test]
 fn test_parse_type_name_class() {
-    assert_eq!(parse_type_name("MyClass"), Type::Class("MyClass".to_string()));
-    assert_eq!(parse_type_name("صنف_مخصص"), Type::Class("صنف_مخصص".to_string()));
+    assert_eq!(
+        parse_type_name("MyClass"),
+        Type::Class("MyClass".to_string())
+    );
+    assert_eq!(
+        parse_type_name("صنف_مخصص"),
+        Type::Class("صنف_مخصص".to_string())
+    );
 }
 
 // =============================================================================
@@ -471,7 +567,10 @@ fn test_parse_type_name_class() {
 
 #[test]
 fn test_type_clone() {
-    let ty = Type::Array(Box::new(Type::Map(Box::new(Type::String), Box::new(Type::Int))));
+    let ty = Type::Array(Box::new(Type::Map(
+        Box::new(Type::String),
+        Box::new(Type::Int),
+    )));
     let cloned = ty.clone();
     assert_eq!(ty, cloned);
 }
