@@ -6,5 +6,8 @@
 mod codegen;
 mod types;
 
+#[cfg(test)]
+mod codegen_tests;
+
 pub use codegen::LlvmCodegen;
 pub use types::{mangle_name, TypeMapper};

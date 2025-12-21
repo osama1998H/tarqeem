@@ -19,6 +19,11 @@ mod modules;
 mod scope;
 mod types;
 
+#[cfg(test)]
+mod scope_tests;
+#[cfg(test)]
+mod types_tests;
+
 pub use analyzer::Analyzer;
 pub use class_resolver::{ClassInfo, ClassResolver, FieldInfo, InterfaceInfo, MethodInfo};
 pub use generics::{GenericContext, GenericResolver};

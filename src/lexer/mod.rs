@@ -10,6 +10,9 @@ mod keywords;
 mod lexer;
 mod token;
 
+#[cfg(test)]
+mod token_tests;
+
 pub use keywords::KEYWORDS;
 pub use lexer::Lexer;
 pub use token::{Token, TokenKind};
