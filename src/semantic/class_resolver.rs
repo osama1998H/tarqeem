@@ -839,8 +839,15 @@ impl ClassResolver {
             // Collect all abstract methods from parent chain
             let mut abstract_methods: Vec<(String, String)> = Vec::new(); // (method_name, defining_class)
             let mut current_parent = class.parent.clone();
+            let mut visited_parents = HashSet::new();
 
             while let Some(parent_name) = current_parent {
+                // Cycle detection - prevent infinite loop on circular inheritance
+                if visited_parents.contains(&parent_name) {
+                    break;
+                }
+                visited_parents.insert(parent_name.clone());
+
                 if let Some(parent_class) = self.classes.get(&parent_name) {
                     for (method_name, method) in &parent_class.methods {
                         if method.is_abstract {
@@ -883,13 +890,30 @@ impl ClassResolver {
 
     /// Check if a class is a subclass of another
     pub fn is_subclass(&self, class_name: &str, potential_parent: &str) -> bool {
+        let mut visited = HashSet::new();
+        self.is_subclass_with_cycle_check(class_name, potential_parent, &mut visited)
+    }
+
+    /// Internal helper with cycle detection
+    fn is_subclass_with_cycle_check(
+        &self,
+        class_name: &str,
+        potential_parent: &str,
+        visited: &mut HashSet<String>,
+    ) -> bool {
         if class_name == potential_parent {
             return true;
         }
 
+        // Cycle detection
+        if visited.contains(class_name) {
+            return false;
+        }
+        visited.insert(class_name.to_string());
+
         if let Some(class) = self.classes.get(class_name) {
             if let Some(parent_name) = &class.parent {
-                return self.is_subclass(parent_name, potential_parent);
+                return self.is_subclass_with_cycle_check(parent_name, potential_parent, visited);
             }
         }
 
@@ -898,6 +922,23 @@ impl ClassResolver {
 
     /// Check if a class implements an interface
     pub fn implements_interface(&self, class_name: &str, interface_name: &str) -> bool {
+        let mut visited = HashSet::new();
+        self.implements_interface_with_cycle_check(class_name, interface_name, &mut visited)
+    }
+
+    /// Internal helper with cycle detection
+    fn implements_interface_with_cycle_check(
+        &self,
+        class_name: &str,
+        interface_name: &str,
+        visited: &mut HashSet<String>,
+    ) -> bool {
+        // Cycle detection
+        if visited.contains(class_name) {
+            return false;
+        }
+        visited.insert(class_name.to_string());
+
         if let Some(class) = self.classes.get(class_name) {
             // Check direct implementation
             if class.interfaces.contains(&interface_name.to_string()) {
@@ -906,7 +947,11 @@ impl ClassResolver {
 
             // Check parent
             if let Some(parent_name) = &class.parent {
-                return self.implements_interface(parent_name, interface_name);
+                return self.implements_interface_with_cycle_check(
+                    parent_name,
+                    interface_name,
+                    visited,
+                );
             }
         }
 
