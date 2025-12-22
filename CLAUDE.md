@@ -21,7 +21,7 @@ See @README.md for user documentation and syntax examples.
 src/
 ├── main.rs              # CLI entry point
 ├── lib.rs               # Library root
-├── lexer/               # Tokenization (Arabic + English)
+├── lexer/               # Tokenization (Arabic only)
 ├── parser/              # Recursive descent + Pratt parsing
 ├── semantic/            # Type checking, scope, generics
 ├── ir/                  # Three-address code, SSA, optimizations
@@ -113,10 +113,10 @@ Tarqeem (ترقيم) is an Arabic programming language compiler written in Rust.
 
 ## Key Design Principles
 
-### 1. Arabic-First, But Bilingual
+### 1. Arabic-Only Language
 
-- All keywords have Arabic primary forms with English aliases
-- Error messages must be available in both Arabic and English
+- All keywords and identifiers must be in Arabic (English is NOT supported)
+- Error messages are available in both Arabic and English for accessibility
 - Comments and documentation support both languages
 - RTL text handling is a first-class concern
 
@@ -173,15 +173,15 @@ Diagnostic {
 
 - Write tests for all new features
 - Include Arabic source code in tests
-- Test edge cases with mixed Arabic/English code
+- Test that English identifiers produce appropriate errors
 
 ```rust
 #[test]
-fn test_mixed_language_identifiers() {
+fn test_arabic_identifiers() {
     let source = r#"
-        متغير userName = "أحمد"
-        متغير userAge = 25
-        اطبع(userName + " عمره " + userAge)
+        متغير اسم_المستخدم = "أحمد"
+        متغير عمر_المستخدم = 25
+        اطبع(اسم_المستخدم + " عمره " + عمر_المستخدم)
     "#;
     // ...
 }
@@ -370,7 +370,7 @@ cargo run -- compile test.trq --emit-llvm
 ### 1. RTL Text Rendering
 
 - IDE/editor support varies
-- Mixed Arabic/English in identifiers
+- Arabic-only identifiers require proper RTL support
 - Solution: LSP server with proper bidirectional text handling
 
 ### 2. Unicode Identifiers
