@@ -396,7 +396,7 @@ impl LlvmCodegen {
 
     /// Emit a basic block
     fn emit_block(&mut self, block: &BasicBlock) -> Result<(), CodegenError> {
-        let label = self.block_map.get(&block.id.0).unwrap().clone();
+        let label = self.get_block(block.id)?;
         writeln!(self.output, "{}:", label).unwrap();
 
         for inst in &block.instructions {
@@ -532,8 +532,23 @@ impl LlvmCodegen {
             Instruction::Store { ptr, value } => {
                 let ptr_name = self.get_var(*ptr)?;
                 let value_name = self.get_var(*value)?;
-                // Look up the type of the value
-                let val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+                // Look up the type of the value - use ptr type info if value type unknown
+                let val_type = self
+                    .var_types
+                    .get(&value.0)
+                    .cloned()
+                    .or_else(|| {
+                        // Try to infer from ptr type (strip pointer wrapper)
+                        self.var_types.get(&ptr.0).and_then(|t| {
+                            if let IrType::Ptr(inner) = t {
+                                Some((**inner).clone())
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                    // Use opaque pointer (ptr) for unknown types
+                    .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                 let llvm_ty = self.type_mapper.map_type(&val_type);
                 writeln!(
                     self.output,
@@ -601,11 +616,17 @@ impl LlvmCodegen {
                 let func_name = mangle_function_name(&func.0);
 
                 // Get proper argument types from var_types - use map_param_type for args
+                // Fall back to Any for unknown types (more compatible than Int for polymorphic code)
                 let args_str: Vec<String> = args
                     .iter()
                     .map(|a| {
                         let name = self.get_var(*a).unwrap_or("undef".to_string());
-                        let arg_ty = self.var_types.get(&a.0).cloned().unwrap_or(IrType::Int);
+                        // Use opaque pointer (ptr) for unknown argument types
+                        let arg_ty = self
+                            .var_types
+                            .get(&a.0)
+                            .cloned()
+                            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                         let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
                         format!("{} {}", llvm_ty, name)
                     })
@@ -664,7 +685,12 @@ impl LlvmCodegen {
                     .iter()
                     .map(|a| {
                         let name = self.get_var(*a).unwrap_or("undef".to_string());
-                        let arg_ty = self.var_types.get(&a.0).cloned().unwrap_or(IrType::Int);
+                        // Use opaque pointer (ptr) for unknown argument types
+                        let arg_ty = self
+                            .var_types
+                            .get(&a.0)
+                            .cloned()
+                            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                         let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
                         format!("{} {}", llvm_ty, name)
                     })

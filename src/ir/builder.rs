@@ -2662,9 +2662,23 @@ impl IrBuilder {
         // Merge with phi
         self.switch_to_block(merge_block);
         let result = self.new_var();
+
+        // Infer the Phi node type from the incoming values
+        // Use the type of the first branch, or fall back to the else branch type
+        let phi_type = self
+            .var_types
+            .get(&then_var.0)
+            .cloned()
+            .or_else(|| self.var_types.get(&else_var.0).cloned())
+            // Use opaque pointer (ptr) for unknown types
+            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+
+        // Track the result type
+        self.var_types.insert(result.0, phi_type.clone());
+
         self.emit(Instruction::Phi {
             dest: result,
-            ty: IrType::Ptr(Box::new(IrType::Void)),
+            ty: phi_type,
             incoming: vec![(then_var, then_exit_block), (else_var, else_exit_block)],
         });
 
