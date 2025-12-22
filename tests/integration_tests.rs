@@ -240,8 +240,8 @@ mod builtins {
     #[test]
     fn test_len_builtin() {
         let source = r#"
-متغير arr = [1، 2، 3]
-متغير ط = طول(arr)
+متغير قائمة = [1، 2، 3]
+متغير ط = طول(قائمة)
 "#;
         assert!(analyzes_ok(source));
     }
@@ -526,31 +526,19 @@ mod bilingual {
     }
 
     #[test]
-    fn test_english_keywords() {
+    fn test_english_keywords_rejected() {
         let source = r#"
 let x = 5
 const y = 10
-function add(a: int, b: int) -> int {
-    return a + b
-}
-if (x > 0) {
-    while (x > 0) {
-        x = x - 1
-    }
-}
 "#;
-        assert!(parses_ok(source));
+        assert!(!parses_ok(source));
     }
 
     #[test]
-    fn test_mixed_language() {
+    fn test_mixed_language_rejected() {
         let source = r#"
 متغير x = 5
-let س = 10
-function جمع(a: عدد، b: int) -> عدد {
-    return a + b
-}
 "#;
-        assert!(parses_ok(source));
+        assert!(!parses_ok(source));
     }
 }

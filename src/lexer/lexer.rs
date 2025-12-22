@@ -222,8 +222,17 @@ impl Lexer {
     }
 
     fn is_identifier_continue(&self, c: char) -> bool {
-        // Arabic letters, underscore, and digits (both ASCII and Arabic-Indic)
-        self.is_identifier_start(c) || c.is_ascii_digit() || self.is_arabic_digit(c)
+        // Arabic letters, underscore, digits (both ASCII and Arabic-Indic), Arabic diacritics, and tatweel
+        self.is_identifier_start(c)
+            || c.is_ascii_digit()
+            || self.is_arabic_digit(c)
+            || self.is_arabic_diacritic(c)
+            || c == '\u{0640}'  // Arabic tatweel (kashida)
+    }
+
+    fn is_arabic_diacritic(&self, c: char) -> bool {
+        // Arabic diacritical marks (tashkeel): fathatan, dammatan, kasratan, fatha, damma, kasra, shadda, sukun
+        matches!(c, '\u{064B}'..='\u{0652}')
     }
 
     fn is_english_letter(&self, c: char) -> bool {
