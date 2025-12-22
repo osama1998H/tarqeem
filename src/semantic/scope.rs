@@ -2,6 +2,14 @@
 
 use super::types::Type;
 use indexmap::IndexMap;
+use unicode_normalization::UnicodeNormalization;
+
+/// Normalize a string to NFC form for consistent identifier comparison.
+/// This ensures that Arabic identifiers with different Unicode representations
+/// (e.g., composed vs decomposed forms) are treated as identical.
+fn normalize_name(name: &str) -> String {
+    name.nfc().collect()
+}
 
 /// A symbol in the symbol table
 #[derive(Debug, Clone)]
@@ -203,7 +211,11 @@ impl Scope {
         scope.define(Symbol::function("لوغاريتم", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("log", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("لوغ10", vec![Type::Float], Type::Float));
-        scope.define(Symbol::function("لوغاريتم10", vec![Type::Float], Type::Float));
+        scope.define(Symbol::function(
+            "لوغاريتم10",
+            vec![Type::Float],
+            Type::Float,
+        ));
         scope.define(Symbol::function("log10", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("لوغ2", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("log2", vec![Type::Float], Type::Float));
@@ -362,11 +374,7 @@ impl Scope {
             vec![Type::Float],
             Type::Float,
         ));
-        scope.define(Symbol::function(
-            "راديان",
-            vec![Type::Float],
-            Type::Float,
-        ));
+        scope.define(Symbol::function("راديان", vec![Type::Float], Type::Float));
         scope.define(Symbol::function(
             "to_radians",
             vec![Type::Float],
@@ -377,11 +385,7 @@ impl Scope {
             vec![Type::Float],
             Type::Float,
         ));
-        scope.define(Symbol::function(
-            "درجات",
-            vec![Type::Float],
-            Type::Float,
-        ));
+        scope.define(Symbol::function("درجات", vec![Type::Float], Type::Float));
         scope.define(Symbol::function(
             "to_degrees",
             vec![Type::Float],
@@ -598,19 +602,25 @@ impl Scope {
         self.kind
     }
 
-    /// Define a new symbol in this scope
+    /// Define a new symbol in this scope.
+    /// The symbol name is normalized to NFC form for consistent comparison.
     pub fn define(&mut self, symbol: Symbol) -> bool {
-        if self.symbols.contains_key(&symbol.name) {
+        let normalized = normalize_name(&symbol.name);
+        if self.symbols.contains_key(&normalized) {
             false
         } else {
-            self.symbols.insert(symbol.name.clone(), symbol);
+            let mut symbol = symbol;
+            symbol.name = normalized.clone();
+            self.symbols.insert(normalized, symbol);
             true
         }
     }
 
-    /// Look up a symbol in this scope or parent scopes
+    /// Look up a symbol in this scope or parent scopes.
+    /// The name is normalized to NFC form for consistent comparison.
     pub fn lookup(&self, name: &str) -> Option<&Symbol> {
-        if let Some(symbol) = self.symbols.get(name) {
+        let normalized = normalize_name(name);
+        if let Some(symbol) = self.symbols.get(&normalized) {
             Some(symbol)
         } else if let Some(parent) = &self.parent {
             parent.lookup(name)
@@ -619,15 +629,19 @@ impl Scope {
         }
     }
 
-    /// Look up a symbol only in this scope (not parents)
+    /// Look up a symbol only in this scope (not parents).
+    /// The name is normalized to NFC form for consistent comparison.
     pub fn lookup_local(&self, name: &str) -> Option<&Symbol> {
-        self.symbols.get(name)
+        let normalized = normalize_name(name);
+        self.symbols.get(&normalized)
     }
 
-    /// Get a mutable reference to a symbol
+    /// Get a mutable reference to a symbol.
+    /// The name is normalized to NFC form for consistent comparison.
     pub fn lookup_mut(&mut self, name: &str) -> Option<&mut Symbol> {
-        if self.symbols.contains_key(name) {
-            self.symbols.get_mut(name)
+        let normalized = normalize_name(name);
+        if self.symbols.contains_key(&normalized) {
+            self.symbols.get_mut(&normalized)
         } else if let Some(parent) = &mut self.parent {
             parent.lookup_mut(name)
         } else {

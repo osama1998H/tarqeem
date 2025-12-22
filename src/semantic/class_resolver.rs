@@ -718,6 +718,53 @@ impl ClassResolver {
                                 ));
                             }
 
+                            // Check parameter count matches
+                            if method.params.len() != parent_method.params.len() {
+                                violations.push((
+                                    format!(
+                                        "Override of '{}' has {} parameters, but parent has {}",
+                                        method_name,
+                                        method.params.len(),
+                                        parent_method.params.len()
+                                    ),
+                                    format!(
+                                        "تجاوز الدالة '{}' لديه {} معاملات، لكن الأب لديه {}",
+                                        method_name,
+                                        method.params.len(),
+                                        parent_method.params.len()
+                                    ),
+                                    class.span,
+                                ));
+                            } else {
+                                // Check parameter types are compatible (contravariance)
+                                // For a valid override, the child's parameter types should be
+                                // able to accept at least what the parent's parameters accept.
+                                for (i, ((_, child_ty), (_, parent_ty))) in method
+                                    .params
+                                    .iter()
+                                    .zip(parent_method.params.iter())
+                                    .enumerate()
+                                {
+                                    // Check bidirectional compatibility for v1
+                                    // (strict contravariance would only check child_ty >= parent_ty)
+                                    if !child_ty.is_compatible_with(parent_ty)
+                                        && !parent_ty.is_compatible_with(child_ty)
+                                    {
+                                        violations.push((
+                                            format!(
+                                                "Parameter {} of '{}' has incompatible type '{}', expected '{}'",
+                                                i + 1, method_name, child_ty, parent_ty
+                                            ),
+                                            format!(
+                                                "المعامل {} للدالة '{}' له نوع غير متوافق '{}', المتوقع '{}'",
+                                                i + 1, method_name, child_ty.arabic_name(), parent_ty.arabic_name()
+                                            ),
+                                            class.span,
+                                        ));
+                                    }
+                                }
+                            }
+
                             // Check return type is compatible
                             if !method
                                 .return_type
@@ -902,6 +949,233 @@ mod tests {
         let mut resolver = ClassResolver::new();
         resolver.register_class("أ", Some("ب"), &[], Span::empty());
         resolver.register_class("ب", Some("أ"), &[], Span::empty());
+
+        let result = resolver.validate();
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // Method Override Parameter Contravariance Tests (Issue 1.5)
+    // =========================================================================
+
+    #[test]
+    fn test_method_override_same_params_valid() {
+        let mut resolver = ClassResolver::new();
+        resolver.register_class("أ", None, &[], Span::empty());
+        resolver.register_class("ب", Some("أ"), &[], Span::empty());
+
+        // Add method to parent with Int parameter
+        if let Some(class) = resolver.get_class_mut("أ") {
+            class.methods.insert(
+                "دالة".to_string(),
+                MethodInfo {
+                    name: "دالة".to_string(),
+                    params: vec![("س".to_string(), Type::Int)],
+                    return_type: Type::Void,
+                    visibility: Visibility::Public,
+                    is_static: false,
+                    is_async: false,
+                    is_abstract: false,
+                    vtable_index: None,
+                },
+            );
+        }
+
+        // Override with same parameter type (valid)
+        if let Some(class) = resolver.get_class_mut("ب") {
+            class.methods.insert(
+                "دالة".to_string(),
+                MethodInfo {
+                    name: "دالة".to_string(),
+                    params: vec![("س".to_string(), Type::Int)],
+                    return_type: Type::Void,
+                    visibility: Visibility::Public,
+                    is_static: false,
+                    is_async: false,
+                    is_abstract: false,
+                    vtable_index: None,
+                },
+            );
+        }
+
+        let result = resolver.validate();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_method_override_incompatible_param_type() {
+        let mut resolver = ClassResolver::new();
+        resolver.register_class("أ", None, &[], Span::empty());
+        resolver.register_class("ب", Some("أ"), &[], Span::empty());
+
+        // Parent method with Int parameter
+        if let Some(class) = resolver.get_class_mut("أ") {
+            class.methods.insert(
+                "دالة".to_string(),
+                MethodInfo {
+                    name: "دالة".to_string(),
+                    params: vec![("س".to_string(), Type::Int)],
+                    return_type: Type::Void,
+                    visibility: Visibility::Public,
+                    is_static: false,
+                    is_async: false,
+                    is_abstract: false,
+                    vtable_index: None,
+                },
+            );
+        }
+
+        // Override with String parameter (incompatible!)
+        if let Some(class) = resolver.get_class_mut("ب") {
+            class.methods.insert(
+                "دالة".to_string(),
+                MethodInfo {
+                    name: "دالة".to_string(),
+                    params: vec![("س".to_string(), Type::String)],
+                    return_type: Type::Void,
+                    visibility: Visibility::Public,
+                    is_static: false,
+                    is_async: false,
+                    is_abstract: false,
+                    vtable_index: None,
+                },
+            );
+        }
+
+        let result = resolver.validate();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_method_override_wrong_param_count() {
+        let mut resolver = ClassResolver::new();
+        resolver.register_class("أ", None, &[], Span::empty());
+        resolver.register_class("ب", Some("أ"), &[], Span::empty());
+
+        // Parent method with 1 parameter
+        if let Some(class) = resolver.get_class_mut("أ") {
+            class.methods.insert(
+                "دالة".to_string(),
+                MethodInfo {
+                    name: "دالة".to_string(),
+                    params: vec![("س".to_string(), Type::Int)],
+                    return_type: Type::Void,
+                    visibility: Visibility::Public,
+                    is_static: false,
+                    is_async: false,
+                    is_abstract: false,
+                    vtable_index: None,
+                },
+            );
+        }
+
+        // Override with 2 parameters (wrong count!)
+        if let Some(class) = resolver.get_class_mut("ب") {
+            class.methods.insert(
+                "دالة".to_string(),
+                MethodInfo {
+                    name: "دالة".to_string(),
+                    params: vec![("س".to_string(), Type::Int), ("ص".to_string(), Type::Int)],
+                    return_type: Type::Void,
+                    visibility: Visibility::Public,
+                    is_static: false,
+                    is_async: false,
+                    is_abstract: false,
+                    vtable_index: None,
+                },
+            );
+        }
+
+        let result = resolver.validate();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_method_override_any_param_accepts_all() {
+        let mut resolver = ClassResolver::new();
+        resolver.register_class("أ", None, &[], Span::empty());
+        resolver.register_class("ب", Some("أ"), &[], Span::empty());
+
+        // Parent with Int parameter
+        if let Some(class) = resolver.get_class_mut("أ") {
+            class.methods.insert(
+                "دالة".to_string(),
+                MethodInfo {
+                    name: "دالة".to_string(),
+                    params: vec![("س".to_string(), Type::Int)],
+                    return_type: Type::Void,
+                    visibility: Visibility::Public,
+                    is_static: false,
+                    is_async: false,
+                    is_abstract: false,
+                    vtable_index: None,
+                },
+            );
+        }
+
+        // Override with Any parameter (valid - Any is contravariant supertype)
+        if let Some(class) = resolver.get_class_mut("ب") {
+            class.methods.insert(
+                "دالة".to_string(),
+                MethodInfo {
+                    name: "دالة".to_string(),
+                    params: vec![("س".to_string(), Type::Any)],
+                    return_type: Type::Void,
+                    visibility: Visibility::Public,
+                    is_static: false,
+                    is_async: false,
+                    is_abstract: false,
+                    vtable_index: None,
+                },
+            );
+        }
+
+        let result = resolver.validate();
+        assert!(result.is_ok()); // Any accepts Int
+    }
+
+    #[test]
+    fn test_method_override_fewer_params_invalid() {
+        let mut resolver = ClassResolver::new();
+        resolver.register_class("أ", None, &[], Span::empty());
+        resolver.register_class("ب", Some("أ"), &[], Span::empty());
+
+        // Parent method with 2 parameters
+        if let Some(class) = resolver.get_class_mut("أ") {
+            class.methods.insert(
+                "دالة".to_string(),
+                MethodInfo {
+                    name: "دالة".to_string(),
+                    params: vec![
+                        ("س".to_string(), Type::Int),
+                        ("ص".to_string(), Type::String),
+                    ],
+                    return_type: Type::Void,
+                    visibility: Visibility::Public,
+                    is_static: false,
+                    is_async: false,
+                    is_abstract: false,
+                    vtable_index: None,
+                },
+            );
+        }
+
+        // Override with 1 parameter (too few!)
+        if let Some(class) = resolver.get_class_mut("ب") {
+            class.methods.insert(
+                "دالة".to_string(),
+                MethodInfo {
+                    name: "دالة".to_string(),
+                    params: vec![("س".to_string(), Type::Int)],
+                    return_type: Type::Void,
+                    visibility: Visibility::Public,
+                    is_static: false,
+                    is_async: false,
+                    is_abstract: false,
+                    vtable_index: None,
+                },
+            );
+        }
 
         let result = resolver.validate();
         assert!(result.is_err());

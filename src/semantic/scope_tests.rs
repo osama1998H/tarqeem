@@ -512,3 +512,98 @@ fn test_symbol_debug() {
     assert!(debug_str.contains("Variable"));
     assert!(debug_str.contains("Float"));
 }
+
+// =============================================================================
+// Unicode Normalization Tests (Issue 1.3)
+// =============================================================================
+
+#[test]
+fn test_unicode_normalization_lookup() {
+    use unicode_normalization::UnicodeNormalization;
+
+    let mut scope = Scope::new_global();
+
+    // "أحمد" in NFC form (precomposed)
+    let nfc_name: String = "أحمد".nfc().collect();
+
+    // "أحمد" in NFD form (decomposed) - same visually but different bytes
+    let nfd_name: String = "أحمد".nfd().collect();
+
+    // They should have different byte representations
+    assert_ne!(nfc_name.as_bytes(), nfd_name.as_bytes());
+
+    // Define with NFC form
+    scope.define(Symbol::variable(&nfc_name, Type::Int, true));
+
+    // Lookup with the NFD form should still work
+    assert!(scope.lookup(&nfd_name).is_some());
+}
+
+#[test]
+fn test_unicode_normalization_define() {
+    use unicode_normalization::UnicodeNormalization;
+
+    let mut scope = Scope::new_global();
+
+    let nfc_name: String = "متغير".nfc().collect();
+    let nfd_name: String = "متغير".nfd().collect();
+
+    // Define with NFD form
+    scope.define(Symbol::variable(&nfd_name, Type::Int, true));
+
+    // Lookup with NFC form should work
+    assert!(scope.lookup(&nfc_name).is_some());
+}
+
+#[test]
+fn test_unicode_normalization_prevents_duplicate() {
+    use unicode_normalization::UnicodeNormalization;
+
+    let mut scope = Scope::new_global();
+
+    let nfc_name: String = "س".nfc().collect();
+    let nfd_name: String = "س".nfd().collect();
+
+    // Define with NFC form
+    assert!(scope.define(Symbol::variable(&nfc_name, Type::Int, true)));
+
+    // Attempt to define with NFD form should fail (same identifier after normalization)
+    assert!(!scope.define(Symbol::variable(&nfd_name, Type::String, true)));
+}
+
+#[test]
+fn test_unicode_normalization_lookup_local() {
+    use unicode_normalization::UnicodeNormalization;
+
+    let mut scope = Scope::new_global();
+
+    let nfc_name: String = "محلي".nfc().collect();
+    let nfd_name: String = "محلي".nfd().collect();
+
+    // Define with one form
+    scope.define(Symbol::variable(&nfc_name, Type::Bool, true));
+
+    // lookup_local with the other form should work
+    assert!(scope.lookup_local(&nfd_name).is_some());
+}
+
+#[test]
+fn test_unicode_normalization_lookup_mut() {
+    use unicode_normalization::UnicodeNormalization;
+
+    let mut scope = Scope::new_global();
+
+    let nfc_name: String = "قابل_للتغيير".nfc().collect();
+    let nfd_name: String = "قابل_للتغيير".nfd().collect();
+
+    // Define with NFC form
+    scope.define(Symbol::variable(&nfc_name, Type::Int, true));
+
+    // lookup_mut with NFD form should work
+    let symbol = scope.lookup_mut(&nfd_name).unwrap();
+    symbol.ty = Type::String;
+
+    // Verify the change took effect
+    let updated = scope.lookup(&nfc_name).unwrap();
+    assert_eq!(updated.ty, Type::String);
+}

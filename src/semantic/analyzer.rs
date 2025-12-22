@@ -17,8 +17,7 @@ pub struct Analyzer {
     scope: Scope,
     /// Class resolver for OOP type checking
     class_resolver: ClassResolver,
-    /// Generic type resolver (for future use with generics)
-    #[allow(dead_code)]
+    /// Generic type resolver for handling generic types
     generic_resolver: GenericResolver,
     /// Module loader for handling imports
     module_loader: ModuleLoader,
@@ -188,12 +187,20 @@ impl Analyzer {
 
             StmtKind::ClassDecl {
                 name,
+                type_params,
                 extends,
                 implements,
                 members,
                 ..
             } => {
-                self.analyze_class_decl(name, extends.as_ref(), implements, members, stmt.span);
+                self.analyze_class_decl(
+                    name,
+                    type_params,
+                    extends.as_ref(),
+                    implements,
+                    members,
+                    stmt.span,
+                );
             }
 
             StmtKind::InterfaceDecl { name, methods, .. } => {
@@ -403,11 +410,18 @@ impl Analyzer {
     fn analyze_class_decl(
         &mut self,
         name: &str,
+        type_params: &[String],
         extends: Option<&String>,
         implements: &[String],
         members: &[ClassMember],
         span: Span,
     ) {
+        // Push generic context if this is a generic class
+        let has_generics = !type_params.is_empty();
+        if has_generics {
+            self.enter_generic_context(type_params);
+        }
+
         // Check parent class exists (using class resolver)
         if let Some(parent_name) = extends {
             if self.class_resolver.get_class(parent_name).is_none()
@@ -539,6 +553,11 @@ impl Analyzer {
         }
 
         self.pop_scope();
+
+        // Pop generic context if this was a generic class
+        if has_generics {
+            self.exit_generic_context();
+        }
 
         // Restore previous class context
         self.current_class = prev_class;
@@ -1654,6 +1673,32 @@ impl Analyzer {
         if let Some(parent) = std::mem::replace(&mut self.scope, Scope::new_global()).pop() {
             self.scope = parent;
         }
+    }
+
+    // ============ Generic Context Management ============
+
+    /// Enter a generic context for a class or function with type parameters.
+    /// This registers the type parameters so they can be recognized during type resolution.
+    fn enter_generic_context(&mut self, type_params: &[String]) {
+        use super::generics::{GenericContext, GenericParam};
+
+        let params: Vec<GenericParam> = type_params
+            .iter()
+            .map(|name| GenericParam::new(name.clone()))
+            .collect();
+        self.generic_resolver
+            .push_context(GenericContext::with_parameters(params));
+    }
+
+    /// Exit the current generic context.
+    fn exit_generic_context(&mut self) {
+        self.generic_resolver.pop_context();
+    }
+
+    /// Check if a name is a generic type parameter in the current context.
+    #[allow(dead_code)]
+    fn is_generic_param(&self, name: &str) -> bool {
+        self.generic_resolver.is_generic_param(name)
     }
 
     // ============ Error Reporting ============
