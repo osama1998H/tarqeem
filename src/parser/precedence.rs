@@ -29,7 +29,8 @@ impl Precedence {
             | TokenKind::MinusEqual
             | TokenKind::StarEqual
             | TokenKind::SlashEqual
-            | TokenKind::PercentEqual => Precedence::Assignment,
+            | TokenKind::PercentEqual
+            | TokenKind::FatArrow => Precedence::Assignment,
 
             TokenKind::Question => Precedence::Ternary,
 
@@ -91,6 +92,7 @@ impl Precedence {
                 | TokenKind::SlashEqual
                 | TokenKind::PercentEqual
                 | TokenKind::StarStar
+                | TokenKind::FatArrow
         )
     }
 }

@@ -487,6 +487,8 @@ impl Parser {
             self.parse_if_statement()
         } else if self.check(&TokenKind::While) {
             self.parse_while_statement()
+        } else if self.check(&TokenKind::Do) {
+            self.parse_do_while_statement()
         } else if self.check(&TokenKind::For) {
             self.parse_for_statement()
         } else if self.check(&TokenKind::Match) {
@@ -554,6 +556,25 @@ impl Parser {
 
         let span = start.merge(&self.previous_span());
         Ok(Stmt::new(StmtKind::While { condition, body }, span))
+    }
+
+    fn parse_do_while_statement(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.current_span();
+        self.advance(); // consume 'do' / 'افعل'
+
+        let body = self.parse_block()?;
+
+        self.expect(&TokenKind::While, "Expected 'while' / متوقع 'طالما'")?;
+        self.expect(&TokenKind::LeftParen, "Expected '(' / متوقع '('")?;
+        let condition = self.parse_expression()?;
+        self.expect(&TokenKind::RightParen, "Expected ')' / متوقع ')'")?;
+
+        // Optional semicolon at end
+        let _ =
+            self.match_token(&TokenKind::Semicolon) || self.match_token(&TokenKind::ArabicSemicolon);
+
+        let span = start.merge(&self.previous_span());
+        Ok(Stmt::new(StmtKind::DoWhile { body, condition }, span))
     }
 
     fn parse_for_statement(&mut self) -> Result<Stmt, Diagnostic> {
@@ -860,8 +881,13 @@ impl Parser {
             TokenKind::This => Ok(Expr::new(ExprKind::This, span)),
             TokenKind::Super => Ok(Expr::new(ExprKind::Super, span)),
 
-            // Grouping
+            // Grouping or arrow function parameters
             TokenKind::LeftParen => {
+                // Try to parse as arrow function first
+                if let Some(lambda) = self.try_parse_arrow_function(span)? {
+                    return Ok(lambda);
+                }
+                // Fall back to grouping
                 let expr = self.parse_expression()?;
                 self.expect(&TokenKind::RightParen, "Expected ')' / متوقع ')'")?;
                 let end_span = self.previous_span();
@@ -1295,6 +1321,116 @@ impl Parser {
         }
 
         Ok(params)
+    }
+
+    // ============ Arrow Function Parsing ============
+
+    /// Try to parse an arrow function starting after '('.
+    /// Returns Some(Lambda) if successful, None if this is not an arrow function.
+    /// The caller has already consumed the '('.
+    fn try_parse_arrow_function(&mut self, start_span: Span) -> Result<Option<Expr>, Diagnostic> {
+        // Save position for backtracking
+        let saved_pos = self.current;
+
+        // Try to parse arrow function parameters
+        let params = match self.try_parse_arrow_params() {
+            Ok(Some(params)) => params,
+            Ok(None) => {
+                self.current = saved_pos;
+                return Ok(None);
+            }
+            Err(_) => {
+                self.current = saved_pos;
+                return Ok(None);
+            }
+        };
+
+        // Check for '=>'
+        if !self.check(&TokenKind::FatArrow) {
+            self.current = saved_pos;
+            return Ok(None);
+        }
+        self.advance(); // consume '=>'
+
+        // Parse body: either block or expression
+        let body = if self.check(&TokenKind::LeftBrace) {
+            LambdaBody::Block(self.parse_block()?)
+        } else {
+            LambdaBody::Expr(Box::new(self.parse_precedence(Precedence::Assignment)?))
+        };
+
+        let end_span = self.previous_span();
+        Ok(Some(Expr::new(
+            ExprKind::Lambda { params, body },
+            start_span.merge(&end_span),
+        )))
+    }
+
+    /// Try to parse arrow function parameter list.
+    /// Returns Some(params) if this looks like arrow function params followed by ')'.
+    /// Returns None if this doesn't look like arrow function params.
+    fn try_parse_arrow_params(&mut self) -> Result<Option<Vec<Param>>, Diagnostic> {
+        let mut params = Vec::new();
+
+        // Empty params: () => ...
+        if self.check(&TokenKind::RightParen) {
+            self.advance(); // consume ')'
+            return Ok(Some(params));
+        }
+
+        // Parse comma-separated parameters
+        loop {
+            let param_start = self.current_span();
+
+            // Parameter must start with an identifier
+            let name = match &self.peek().kind {
+                TokenKind::Identifier(name) => {
+                    let name = name.clone();
+                    self.advance();
+                    name
+                }
+                _ => return Ok(None), // Not an arrow function
+            };
+
+            // Optional type annotation
+            let ty = if self.check(&TokenKind::Colon) {
+                self.advance(); // consume ':'
+                match self.parse_type_annotation() {
+                    Ok(ty) => Some(ty),
+                    Err(_) => return Ok(None),
+                }
+            } else {
+                None
+            };
+
+            // Optional default value
+            let default = if self.check(&TokenKind::Equal) {
+                self.advance(); // consume '='
+                match self.parse_expression() {
+                    Ok(expr) => Some(expr),
+                    Err(_) => return Ok(None),
+                }
+            } else {
+                None
+            };
+
+            params.push(Param {
+                name,
+                ty,
+                default,
+                span: param_start.merge(&self.previous_span()),
+            });
+
+            // Check for comma or end
+            if self.check(&TokenKind::Comma) || self.check(&TokenKind::ArabicComma) {
+                self.advance(); // consume comma
+            } else if self.check(&TokenKind::RightParen) {
+                self.advance(); // consume ')'
+                return Ok(Some(params));
+            } else {
+                return Ok(None); // Not a valid parameter list
+            }
+        }
     }
 
     // ============ Helper Methods ============

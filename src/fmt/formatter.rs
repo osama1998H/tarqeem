@@ -265,6 +265,20 @@ impl Formatter {
                 p.newline();
             }
 
+            StmtKind::DoWhile { body, condition } => {
+                p.write("افعل");
+                p.write_block(|p| {
+                    self.format_block(body, p);
+                });
+                p.write_space();
+                p.write("طالما");
+                p.write_space();
+                p.write_parens(|p| {
+                    self.format_expr(condition, p);
+                });
+                p.newline();
+            }
+
             StmtKind::For {
                 init,
                 condition,

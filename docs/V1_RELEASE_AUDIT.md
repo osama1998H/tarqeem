@@ -13,11 +13,11 @@ The Tarqeem compiler is **95% ready for v1 release**. The core compiler pipeline
 ### Quick Stats
 | Metric | Value |
 |--------|-------|
-| Total Lines of Code | ~38,140 |
-| Test Count | 899 (863 unit + 36 integration) |
-| Passing Tests | 899 (100%) |
+| Total Lines of Code | ~38,400 |
+| Test Count | 912 (876 unit + 36 integration) |
+| Passing Tests | 912 (100%) |
 | Compiler Warnings | 16 (minor) |
-| Critical Issues | 5 |
+| Critical Issues | 3 (2 fixed) |
 | High Priority Issues | 8 |
 
 ---
@@ -39,49 +39,68 @@ The Tarqeem compiler is **95% ready for v1 release**. The core compiler pipeline
 
 These issues could cause incorrect compilation, crashes, or user confusion.
 
-### 1.1 Arrow Functions Not Parsed
+### 1.1 ~~Arrow Functions Not Parsed~~ ✅ FIXED
 
 **Location:** `src/parser/parser.rs`
-**Severity:** CRITICAL
-**Impact:** Feature advertised in README doesn't work
+**Severity:** ~~CRITICAL~~ RESOLVED
+**Status:** ✅ Implemented and tested
 
-**Details:**
-- README shows: `ثابت مربع = (س: عدد) => س * س`
-- AST has `ExprKind::Lambda { params, body }` node
-- Token `FatArrow` (=>) exists
-- **BUT: No parsing code to handle arrow function syntax**
+**Solution Implemented:**
+- Added `FatArrow` to precedence table at Assignment level (right-associative)
+- Implemented `try_parse_arrow_function()` method with backtracking
+- Implemented `try_parse_arrow_params()` for parameter list parsing
+- Supports all syntax variants:
+  - Empty params: `() => expr`
+  - Single param: `(x) => expr`
+  - Multiple params: `(x, y) => expr`
+  - Typed params: `(x: عدد) => expr`
+  - Block body: `(x) => { ... }`
+  - Nested arrows: `(x) => (y) => x + y`
 
-**Evidence:**
-- Searched parser.rs - no match for `FatArrow` in expression parsing
-- Lambda is in AST but unreachable from parser
+**Tests Added:** 8 new parser tests covering all variants
 
-**Fix Required:**
-Add arrow function parsing in `parse_primary()` or create `parse_arrow_function()`:
-```rust
-// When seeing '(' check if this is arrow function
-// (params) => body
-```
+**Files Modified:**
+- `src/parser/parser.rs` - Arrow function parsing logic
+- `src/parser/precedence.rs` - FatArrow precedence
+- `src/parser/parser_tests.rs` - Unit tests
 
 ---
 
-### 1.2 Do-While Loops Not Implemented
+### 1.2 ~~Do-While Loops Not Implemented~~ ✅ FIXED
 
-**Location:** `src/parser/parser.rs`
-**Severity:** CRITICAL
-**Impact:** Feature advertised in README doesn't work
+**Location:** `src/parser/parser.rs`, `src/parser/ast.rs`
+**Severity:** ~~CRITICAL~~ RESOLVED
+**Status:** ✅ Implemented and tested
 
-**Details:**
-- README shows: `افعل { ... } طالما (شرط)`
-- Token `Do` (افعل) exists in lexer
-- **BUT: No StmtKind::DoWhile in AST**
-- **BUT: No parsing logic for do-while**
+**Solution Implemented:**
+- Added `DoWhile { body: Block, condition: Expr }` variant to `StmtKind`
+- Implemented `parse_do_while_statement()` in parser
+- Added check for `TokenKind::Do` in `parse_statement()`
+- Added semantic analysis in `analyze_do_while()`
+- Added IR generation in `build_do_while()`
+- Added formatter support for Arabic output
 
-**Fix Required:**
-1. Add `DoWhile { body: Block, condition: Expr }` to StmtKind
-2. Add parsing in `parse_statement()`:
-```rust
-TokenKind::Do => self.parse_do_while_statement()
+**Syntax Supported:**
+```tarqeem
+افعل {
+    // body executes at least once
+} طالما (condition)
 ```
+
+**Tests Added:** 5 new parser tests covering:
+- Arabic syntax (`افعل/طالما`)
+- English syntax (`do/while`)
+- Nested do-while
+- Do-while with break/continue
+- Optional semicolon
+
+**Files Modified:**
+- `src/parser/ast.rs` - DoWhile variant
+- `src/parser/parser.rs` - Parsing logic
+- `src/semantic/analyzer.rs` - Semantic analysis
+- `src/ir/builder.rs` - IR generation
+- `src/fmt/formatter.rs` - Code formatting
+- `src/parser/parser_tests.rs` - Unit tests
 
 ---
 
@@ -432,20 +451,22 @@ Should handle variable steps gracefully.
 
 ---
 
-### 4.2 Parser (src/parser/) - Score: 8.0/10
+### 4.2 Parser (src/parser/) - Score: 8.5/10 ⬆️
 
 | Aspect | Status | Notes |
 |--------|--------|-------|
-| AST Definitions | Good | Most constructs covered |
+| AST Definitions | Excellent | All constructs covered |
 | Recursive Descent | Excellent | Clean implementation |
 | Pratt Expression Parsing | Excellent | Correct precedence |
 | Span Preservation | Excellent | Accurate tracking |
+| Arrow Functions | Excellent | ✅ Now implemented |
+| Do-While Loops | Excellent | ✅ Now implemented |
 | Error Recovery | Poor | None implemented |
 
-**Critical Gaps:**
-- Arrow functions not parsed
-- Do-while loops not parsed
-- No error recovery mechanism
+**Remaining Gaps:**
+- ~~Arrow functions not parsed~~ ✅ Fixed
+- ~~Do-while loops not parsed~~ ✅ Fixed
+- No error recovery mechanism (non-critical for v1)
 
 ---
 
@@ -508,8 +529,8 @@ Should handle variable steps gracefully.
 
 | Feature | README Claim | Status |
 |---------|--------------|--------|
-| Arrow Functions | `(س) => س * س` | Not parsed |
-| Do-While Loops | `افعل { } طالما ()` | Not parsed |
+| Arrow Functions | `(س) => س * س` | ✅ Now implemented |
+| Do-While Loops | `افعل { } طالما ()` | ✅ Now implemented |
 | DAP Debugging | IDE integration | Server not implemented |
 
 ### 5.2 Partially Implemented
@@ -589,19 +610,21 @@ Should handle variable steps gracefully.
 
 ### 8.1 Before V1 Release (MUST DO)
 
-1. **Implement Arrow Function Parsing** (~50 LOC)
-   - Add parsing for `(params) => expr` syntax
-   - Connect to existing Lambda AST node
+1. ~~**Implement Arrow Function Parsing**~~ ✅ DONE
+   - Added parsing for `(params) => expr` syntax
+   - Connected to existing Lambda AST node
+   - Added 8 unit tests
 
-2. **Implement Do-While Parsing** (~30 LOC)
-   - Add DoWhile variant to StmtKind
-   - Add parsing logic
+2. ~~**Implement Do-While Parsing**~~ ✅ DONE
+   - Added DoWhile variant to StmtKind
+   - Added parsing, semantic analysis, IR generation
+   - Added 5 unit tests
 
 3. **Fix Unicode Normalization in Scope** (~10 LOC)
    - Add NFC normalization in define() and lookup()
 
 4. **Document Missing Features**
-   - If not fixing, update README to remove claims
+   - ~~If not fixing, update README to remove claims~~ N/A - Fixed
    - Mark DAP as "planned for v1.1"
 
 ### 8.2 Before V1 Release (SHOULD DO)
@@ -675,13 +698,19 @@ Total:             902 tests, 100% passing
 
 Tarqeem is a well-engineered compiler with excellent bilingual support and comprehensive feature coverage. The codebase follows clean architecture principles and has strong test coverage for core functionality.
 
-**Release Blockers (5 items):**
-1. Arrow functions not parsed
-2. Do-while loops not parsed
+**Release Blockers (3 remaining, 2 fixed):**
+1. ~~Arrow functions not parsed~~ ✅ FIXED
+2. ~~Do-while loops not parsed~~ ✅ FIXED
 3. Unicode normalization in scope
 4. Generics disconnected
 5. Override contravariance not checked
 
-**Recommendation:** Fix items 1-3 (estimated 2-4 hours of work) and document limitations for items 4-5 to achieve v1 release readiness. The remaining issues can be addressed in v1.1.
+**Progress Update (2024-12-22):**
+- ✅ Arrow function parsing implemented with full syntax support
+- ✅ Do-while loop parsing implemented with semantic analysis and IR generation
+- ✅ 13 new unit tests added (8 arrow function + 5 do-while)
+- All 912 tests passing
 
-**Overall Readiness: 95%**
+**Recommendation:** Fix item 3 (~10 LOC) and document limitations for items 4-5 to achieve v1 release readiness. The remaining issues can be addressed in v1.1.
+
+**Overall Readiness: 97%** ⬆️

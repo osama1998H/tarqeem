@@ -1496,3 +1496,312 @@ fn test_parse_if_else_if() {
         _ => panic!("Expected If statement"),
     }
 }
+
+// =============================================================================
+// Do-While Loop Tests
+// =============================================================================
+
+#[test]
+fn test_parse_do_while_loop_arabic() {
+    let source = r#"
+        افعل {
+            عداد = عداد + 1;
+        } طالما (عداد < 5)
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::DoWhile { body, condition } => {
+            assert!(!body.statements.is_empty());
+            match &condition.kind {
+                ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Lt),
+                _ => panic!("Expected binary expression"),
+            }
+        }
+        _ => panic!("Expected DoWhile statement"),
+    }
+}
+
+#[test]
+fn test_parse_do_while_loop_english() {
+    let source = r#"
+        do {
+            counter = counter + 1;
+        } while (counter < 5)
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    assert!(matches!(&ast.statements[0].kind, StmtKind::DoWhile { .. }));
+}
+
+#[test]
+fn test_parse_do_while_with_break() {
+    let source = r#"
+        افعل {
+            إذا (شرط) {
+                أوقف;
+            }
+        } طالما (صحيح)
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::DoWhile { body, .. } => {
+            // Body should contain an if statement
+            assert!(matches!(&body.statements[0].kind, StmtKind::If { .. }));
+        }
+        _ => panic!("Expected DoWhile statement"),
+    }
+}
+
+#[test]
+fn test_parse_do_while_with_semicolon() {
+    let source = r#"
+        do {
+            x++;
+        } while (x < 5);
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    assert!(matches!(&ast.statements[0].kind, StmtKind::DoWhile { .. }));
+}
+
+#[test]
+fn test_parse_nested_do_while() {
+    let source = r#"
+        افعل {
+            افعل {
+                س++;
+            } طالما (س < 5)
+        } طالما (ص < 10)
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::DoWhile { body, .. } => {
+            // Inner body should contain another do-while
+            assert!(matches!(
+                &body.statements[0].kind,
+                StmtKind::DoWhile { .. }
+            ));
+        }
+        _ => panic!("Expected DoWhile statement"),
+    }
+}
+
+// =============================================================================
+// Arrow Function Tests
+// =============================================================================
+
+#[test]
+fn test_parse_arrow_function_single_param() {
+    let source = r#"
+        ثابت مربع = (س) => س * س;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { name, init, .. } => {
+            assert_eq!(name, "مربع");
+            let init = init.as_ref().expect("Expected initializer");
+            match &init.kind {
+                ExprKind::Lambda { params, body } => {
+                    assert_eq!(params.len(), 1);
+                    assert_eq!(params[0].name, "س");
+                    assert!(matches!(body, LambdaBody::Expr(_)));
+                }
+                _ => panic!("Expected Lambda expression"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_arrow_function_multiple_params() {
+    let source = r#"
+        ثابت جمع = (أ، ب) => أ + ب;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init = init.as_ref().expect("Expected initializer");
+            match &init.kind {
+                ExprKind::Lambda { params, .. } => {
+                    assert_eq!(params.len(), 2);
+                    assert_eq!(params[0].name, "أ");
+                    assert_eq!(params[1].name, "ب");
+                }
+                _ => panic!("Expected Lambda expression"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_arrow_function_empty_params() {
+    let source = r#"
+        ثابت احصل_قيمة = () => 42;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init = init.as_ref().expect("Expected initializer");
+            match &init.kind {
+                ExprKind::Lambda { params, body } => {
+                    assert_eq!(params.len(), 0);
+                    match body {
+                        LambdaBody::Expr(expr) => match &expr.kind {
+                            ExprKind::Literal(Literal::Int(42)) => {}
+                            _ => panic!("Expected literal 42"),
+                        },
+                        _ => panic!("Expected expression body"),
+                    }
+                }
+                _ => panic!("Expected Lambda expression"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_arrow_function_block_body() {
+    let source = r#"
+        ثابت معقدة = (س) => {
+            متغير نتيجة = س * 2;
+            أرجع نتيجة;
+        };
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init = init.as_ref().expect("Expected initializer");
+            match &init.kind {
+                ExprKind::Lambda { params, body } => {
+                    assert_eq!(params.len(), 1);
+                    assert!(matches!(body, LambdaBody::Block(_)));
+                }
+                _ => panic!("Expected Lambda expression"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_arrow_function_typed_params() {
+    let source = r#"
+        ثابت جمع = (أ: عدد، ب: عدد) => أ + ب;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init = init.as_ref().expect("Expected initializer");
+            match &init.kind {
+                ExprKind::Lambda { params, .. } => {
+                    assert_eq!(params.len(), 2);
+                    assert!(params[0].ty.is_some());
+                    assert!(params[1].ty.is_some());
+                }
+                _ => panic!("Expected Lambda expression"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_arrow_function_english() {
+    let source = r#"
+        const add = (a, b) => a + b;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { name, init, .. } => {
+            assert_eq!(name, "add");
+            let init = init.as_ref().expect("Expected initializer");
+            match &init.kind {
+                ExprKind::Lambda { params, .. } => {
+                    assert_eq!(params.len(), 2);
+                    assert_eq!(params[0].name, "a");
+                    assert_eq!(params[1].name, "b");
+                }
+                _ => panic!("Expected Lambda expression"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_arrow_function_nested() {
+    let source = r#"
+        ثابت مكرر = (س) => (ص) => س + ص;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init = init.as_ref().expect("Expected initializer");
+            match &init.kind {
+                ExprKind::Lambda { params, body } => {
+                    assert_eq!(params.len(), 1);
+                    assert_eq!(params[0].name, "س");
+                    // Body should be another lambda
+                    match body {
+                        LambdaBody::Expr(expr) => match &expr.kind {
+                            ExprKind::Lambda { params: inner_params, .. } => {
+                                assert_eq!(inner_params.len(), 1);
+                                assert_eq!(inner_params[0].name, "ص");
+                            }
+                            _ => panic!("Expected inner Lambda expression"),
+                        },
+                        _ => panic!("Expected expression body"),
+                    }
+                }
+                _ => panic!("Expected Lambda expression"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_grouping_not_arrow_function() {
+    // Make sure regular grouping still works
+    let source = r#"
+        (5 + 3) * 2;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Expr(expr) => match &expr.kind {
+            ExprKind::Binary { op, left, .. } => {
+                assert_eq!(*op, BinaryOp::Mul);
+                assert!(matches!(&left.kind, ExprKind::Grouping(_)));
+            }
+            _ => panic!("Expected binary expression"),
+        },
+        _ => panic!("Expected expression statement"),
+    }
+}
