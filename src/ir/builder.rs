@@ -589,6 +589,7 @@ impl IrBuilder {
                 else_branch,
             } => self.build_if(condition, then_branch, else_branch.as_ref()),
             StmtKind::While { condition, body } => self.build_while(condition, body),
+            StmtKind::DoWhile { body, condition } => self.build_do_while(body, condition),
             StmtKind::For {
                 init,
                 condition,
@@ -1152,6 +1153,51 @@ impl IrBuilder {
                 }
             }
         }
+
+        // Pop loop context
+        self.loop_stack.pop();
+
+        self.switch_to_block(exit_block);
+        Ok(())
+    }
+
+    /// Build IR for a do-while loop
+    fn build_do_while(&mut self, body: &Block, condition: &Expr) -> Result<()> {
+        let body_block = self.new_block(Some("dowhile.body".to_string()));
+        let cond_block = self.new_block(Some("dowhile.cond".to_string()));
+        let exit_block = self.new_block(Some("dowhile.exit".to_string()));
+
+        // Jump to body first (do-while executes body at least once)
+        self.emit(Instruction::Jump { target: body_block });
+
+        // Push loop context (continue goes to condition, break goes to exit)
+        self.loop_stack.push((cond_block, exit_block));
+
+        // Build body
+        self.switch_to_block(body_block);
+        self.push_scope();
+        for stmt in &body.statements {
+            self.build_stmt(stmt)?;
+        }
+        self.pop_scope();
+
+        // Jump to condition after body
+        if let Some(ref func) = self.current_function {
+            if let Some(block) = func.get_block(self.current_block) {
+                if !block.has_terminator() {
+                    self.emit(Instruction::Jump { target: cond_block });
+                }
+            }
+        }
+
+        // Build condition
+        self.switch_to_block(cond_block);
+        let cond_var = self.build_expr(condition)?;
+        self.emit(Instruction::Branch {
+            cond: cond_var,
+            then_block: body_block,
+            else_block: exit_block,
+        });
 
         // Pop loop context
         self.loop_stack.pop();

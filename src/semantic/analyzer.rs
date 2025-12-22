@@ -212,6 +212,10 @@ impl Analyzer {
                 self.analyze_while(condition, body);
             }
 
+            StmtKind::DoWhile { body, condition } => {
+                self.analyze_do_while(body, condition);
+            }
+
             StmtKind::For {
                 init,
                 condition,
@@ -586,6 +590,20 @@ impl Analyzer {
         }
 
         self.analyze_block(body, ScopeKind::Loop);
+    }
+
+    fn analyze_do_while(&mut self, body: &Block, condition: &Expr) {
+        // For do-while, body is analyzed first (it executes at least once)
+        self.analyze_block(body, ScopeKind::Loop);
+
+        let cond_type = self.infer_type(condition);
+        if !cond_type.is_compatible_with(&Type::Bool) {
+            self.error(
+                &format!("Condition must be boolean, got {}", cond_type),
+                &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
+                condition.span,
+            );
+        }
     }
 
     fn analyze_for(

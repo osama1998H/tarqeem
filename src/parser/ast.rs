@@ -107,6 +107,9 @@ pub enum StmtKind {
     /// While loop: طالما (cond) { ... }
     While { condition: Expr, body: Block },
 
+    /// Do-while loop: افعل { ... } طالما (cond)
+    DoWhile { body: Block, condition: Expr },
+
     /// For loop: لكل (init; cond; update) { ... }
     For {
         init: Option<Box<Stmt>>,
