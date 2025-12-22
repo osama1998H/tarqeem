@@ -89,6 +89,61 @@ impl Parser {
         }
     }
 
+    /// Synchronize to the next class member boundary.
+    /// Used for error recovery within class declarations.
+    fn synchronize_to_member(&mut self) {
+        self.panic_mode = false;
+
+        while !self.is_at_end() {
+            // Stop at class member boundaries
+            match self.peek().kind {
+                // Visibility modifiers start a new member
+                TokenKind::Public     // عام
+                | TokenKind::Private  // خاص
+                | TokenKind::Protected // محمي
+                // Static modifier
+                | TokenKind::Static   // ثابت_صنف
+                // Member declarations
+                | TokenKind::Function // دالة
+                | TokenKind::Async    // غير_متزامن
+                | TokenKind::Constructor // منشئ
+                // End of class
+                | TokenKind::RightBrace => {
+                    return;
+                }
+                // Identifier could be a field declaration
+                TokenKind::Identifier(_) => {
+                    return;
+                }
+                _ => {}
+            }
+
+            self.advance();
+        }
+    }
+
+    /// Synchronize to the next match arm boundary.
+    /// Used for error recovery within match statements.
+    fn synchronize_to_arm(&mut self) {
+        self.panic_mode = false;
+
+        while !self.is_at_end() {
+            // Stop at match arm boundaries
+            match self.peek().kind {
+                // Case/default start a new arm
+                TokenKind::Case      // حالة
+                | TokenKind::Default // غير_ذلك
+                // End of match
+                | TokenKind::RightBrace => {
+                    return;
+                }
+                _ => {}
+            }
+
+            self.advance();
+        }
+    }
+
     /// Report an error and enter panic mode.
     /// The error is collected for later reporting.
     fn report_error(&mut self, diagnostic: Diagnostic) {
@@ -168,8 +223,8 @@ impl Parser {
             // If we have other errors, add this to them
             if !self.errors.is_empty() {
                 self.report_error(err);
-                // Return the first error
-                return Err(self.errors.remove(0));
+                // Clone the first error so get_errors() still has all errors
+                return Err(self.errors[0].clone());
             }
             return Err(err);
         };
@@ -183,15 +238,17 @@ impl Parser {
             );
             if !self.errors.is_empty() {
                 self.report_error(err);
-                return Err(self.errors.remove(0));
+                // Clone the first error so get_errors() still has all errors
+                return Err(self.errors[0].clone());
             }
             return Err(err);
         }
 
         // If we collected errors during parsing, return the first one
-        // (all errors are available via get_errors())
+        // All errors remain available via get_errors()
         if !self.errors.is_empty() {
-            return Err(self.errors.remove(0));
+            // Clone the first error so get_errors() still has all errors
+            return Err(self.errors[0].clone());
         }
 
         Ok(Ast::with_markers(
@@ -391,76 +448,88 @@ impl Parser {
         let mut members = Vec::new();
 
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            // Capture any doc comment before the member
-            let member_doc = self.consume_doc_comment();
-
-            let visibility = self.parse_visibility();
-            let is_static = self.match_token(&TokenKind::Static);
-
-            if self.check(&TokenKind::Constructor) {
-                self.advance();
-                self.expect(&TokenKind::LeftParen, "Expected '(' / متوقع '('")?;
-                let params = self.parse_parameters()?;
-                self.expect(&TokenKind::RightParen, "Expected ')' / متوقع ')'")?;
-                let body = self.parse_block()?;
-                members.push(ClassMember::Constructor {
-                    params,
-                    body,
-                    doc_comment: member_doc,
-                });
-            } else if self.check(&TokenKind::Function) || self.check(&TokenKind::Async) {
-                let is_async = self.match_token(&TokenKind::Async);
-                self.expect(&TokenKind::Function, "Expected 'function' / متوقع 'دالة'")?;
-                let name = self.expect_identifier("Expected method name / متوقع اسم الدالة")?;
-                self.expect(&TokenKind::LeftParen, "Expected '(' / متوقع '('")?;
-                let params = self.parse_parameters()?;
-                self.expect(&TokenKind::RightParen, "Expected ')' / متوقع ')'")?;
-
-                let return_type = if self.match_token(&TokenKind::Arrow) {
-                    Some(self.parse_type_annotation()?)
-                } else {
-                    None
-                };
-
-                let body = self.parse_block()?;
-
-                members.push(ClassMember::Method {
-                    visibility,
-                    name,
-                    params,
-                    return_type,
-                    body,
-                    is_static,
-                    is_async,
-                    doc_comment: member_doc,
-                });
-            } else {
-                // Field
-                let name = self.expect_identifier("Expected field name / متوقع اسم الحقل")?;
-                let ty = if self.match_token(&TokenKind::Colon) {
-                    Some(self.parse_type_annotation()?)
-                } else {
-                    None
-                };
-                let init = if self.match_token(&TokenKind::Equal) {
-                    Some(self.parse_expression()?)
-                } else {
-                    None
-                };
-                self.consume_semicolon()?;
-
-                members.push(ClassMember::Field {
-                    visibility,
-                    name,
-                    ty,
-                    init,
-                    is_static,
-                    doc_comment: member_doc,
-                });
+            // Use error recovery to collect multiple errors within a class
+            match self.parse_class_member() {
+                Ok(member) => members.push(member),
+                Err(diagnostic) => {
+                    self.report_error(diagnostic);
+                    self.synchronize_to_member();
+                }
             }
         }
 
         Ok(members)
+    }
+
+    /// Parse a single class member (field, method, or constructor)
+    fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
+        // Capture any doc comment before the member
+        let member_doc = self.consume_doc_comment();
+
+        let visibility = self.parse_visibility();
+        let is_static = self.match_token(&TokenKind::Static);
+
+        if self.check(&TokenKind::Constructor) {
+            self.advance();
+            self.expect(&TokenKind::LeftParen, "Expected '(' / متوقع '('")?;
+            let params = self.parse_parameters()?;
+            self.expect(&TokenKind::RightParen, "Expected ')' / متوقع ')'")?;
+            let body = self.parse_block()?;
+            Ok(ClassMember::Constructor {
+                params,
+                body,
+                doc_comment: member_doc,
+            })
+        } else if self.check(&TokenKind::Function) || self.check(&TokenKind::Async) {
+            let is_async = self.match_token(&TokenKind::Async);
+            self.expect(&TokenKind::Function, "Expected 'function' / متوقع 'دالة'")?;
+            let name = self.expect_identifier("Expected method name / متوقع اسم الدالة")?;
+            self.expect(&TokenKind::LeftParen, "Expected '(' / متوقع '('")?;
+            let params = self.parse_parameters()?;
+            self.expect(&TokenKind::RightParen, "Expected ')' / متوقع ')'")?;
+
+            let return_type = if self.match_token(&TokenKind::Arrow) {
+                Some(self.parse_type_annotation()?)
+            } else {
+                None
+            };
+
+            let body = self.parse_block()?;
+
+            Ok(ClassMember::Method {
+                visibility,
+                name,
+                params,
+                return_type,
+                body,
+                is_static,
+                is_async,
+                doc_comment: member_doc,
+            })
+        } else {
+            // Field
+            let name = self.expect_identifier("Expected field name / متوقع اسم الحقل")?;
+            let ty = if self.match_token(&TokenKind::Colon) {
+                Some(self.parse_type_annotation()?)
+            } else {
+                None
+            };
+            let init = if self.match_token(&TokenKind::Equal) {
+                Some(self.parse_expression()?)
+            } else {
+                None
+            };
+            self.consume_semicolon()?;
+
+            Ok(ClassMember::Field {
+                visibility,
+                name,
+                ty,
+                init,
+                is_static,
+                doc_comment: member_doc,
+            })
+        }
     }
 
     fn parse_visibility(&mut self) -> Visibility {
@@ -767,59 +836,71 @@ impl Parser {
 
         let mut arms = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            let arm_start = self.current_span();
-
-            let is_default = self.match_token(&TokenKind::Default);
-            let mut patterns = Vec::new();
-
-            if is_default {
-                // Default case - no patterns needed
-            } else {
-                self.expect(&TokenKind::Case, "Expected 'case' / متوقع 'حالة'")?;
-                loop {
-                    patterns.push(self.parse_expression()?);
-                    if !self.match_token(&TokenKind::Comma)
-                        && !self.match_token(&TokenKind::ArabicComma)
-                    {
-                        break;
-                    }
+            // Use error recovery to collect multiple errors within a match
+            match self.parse_match_arm() {
+                Ok(arm) => arms.push(arm),
+                Err(diagnostic) => {
+                    self.report_error(diagnostic);
+                    self.synchronize_to_arm();
                 }
             }
-
-            self.expect(&TokenKind::FatArrow, "Expected '=>' / متوقع '=>'")?;
-
-            let body = if self.check(&TokenKind::LeftBrace) {
-                self.parse_block()?
-            } else {
-                // Allow single statements (return, break, continue) without braces
-                // Check for statement keywords first
-                if self.check(&TokenKind::Return)
-                    || self.check(&TokenKind::Break)
-                    || self.check(&TokenKind::Continue)
-                {
-                    let stmt = self.parse_statement()?;
-                    Block::new(vec![stmt], self.previous_span())
-                } else {
-                    // Otherwise parse as expression statement
-                    let expr = self.parse_expression()?;
-                    Block::new(
-                        vec![Stmt::new(StmtKind::Expr(expr), self.previous_span())],
-                        self.previous_span(),
-                    )
-                }
-            };
-
-            arms.push(MatchArm {
-                patterns,
-                body,
-                span: arm_start.merge(&self.previous_span()),
-            });
         }
 
         self.expect(&TokenKind::RightBrace, "Expected '}' / متوقع '}'")?;
 
         let span = start.merge(&self.previous_span());
         Ok(Stmt::new(StmtKind::Match { expr, arms }, span))
+    }
+
+    /// Parse a single match arm (case or default)
+    fn parse_match_arm(&mut self) -> Result<MatchArm, Diagnostic> {
+        let arm_start = self.current_span();
+
+        let is_default = self.match_token(&TokenKind::Default);
+        let mut patterns = Vec::new();
+
+        if is_default {
+            // Default case - no patterns needed
+        } else {
+            self.expect(&TokenKind::Case, "Expected 'case' / متوقع 'حالة'")?;
+            loop {
+                patterns.push(self.parse_expression()?);
+                if !self.match_token(&TokenKind::Comma)
+                    && !self.match_token(&TokenKind::ArabicComma)
+                {
+                    break;
+                }
+            }
+        }
+
+        self.expect(&TokenKind::FatArrow, "Expected '=>' / متوقع '=>'")?;
+
+        let body = if self.check(&TokenKind::LeftBrace) {
+            self.parse_block()?
+        } else {
+            // Allow single statements (return, break, continue) without braces
+            // Check for statement keywords first
+            if self.check(&TokenKind::Return)
+                || self.check(&TokenKind::Break)
+                || self.check(&TokenKind::Continue)
+            {
+                let stmt = self.parse_statement()?;
+                Block::new(vec![stmt], self.previous_span())
+            } else {
+                // Otherwise parse as expression statement
+                let expr = self.parse_expression()?;
+                Block::new(
+                    vec![Stmt::new(StmtKind::Expr(expr), self.previous_span())],
+                    self.previous_span(),
+                )
+            }
+        };
+
+        Ok(MatchArm {
+            patterns,
+            body,
+            span: arm_start.merge(&self.previous_span()),
+        })
     }
 
     fn parse_return_statement(&mut self) -> Result<Stmt, Diagnostic> {
@@ -915,7 +996,14 @@ impl Parser {
 
         let mut statements = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            statements.push(self.parse_declaration()?);
+            // Use error recovery to collect multiple errors within a block
+            match self.parse_declaration() {
+                Ok(stmt) => statements.push(stmt),
+                Err(diagnostic) => {
+                    self.report_error(diagnostic);
+                    self.synchronize();
+                }
+            }
         }
 
         self.expect(&TokenKind::RightBrace, "Expected '}' / متوقع '}'")?;

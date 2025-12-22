@@ -865,7 +865,9 @@ impl ClassResolver {
 
             // Check that all abstract methods are implemented
             for (method_name, defining_class) in abstract_methods {
-                let is_implemented = class.get_method(&method_name, self).map_or(false, |m| !m.is_abstract);
+                let is_implemented = class
+                    .get_method(&method_name, self)
+                    .map_or(false, |m| !m.is_abstract);
                 if !is_implemented {
                     violations.push((
                         format!(

@@ -123,8 +123,13 @@ impl Analyzer {
                 implements,
                 ..
             } => {
-                self.class_resolver
-                    .register_class(name, type_params, extends.as_deref(), implements, stmt.span);
+                self.class_resolver.register_class(
+                    name,
+                    type_params,
+                    extends.as_deref(),
+                    implements,
+                    stmt.span,
+                );
             }
             StmtKind::InterfaceDecl { name, .. } => {
                 self.class_resolver.register_interface(name, &[], stmt.span);
@@ -1489,14 +1494,8 @@ impl Analyzer {
                     if class_info.is_generic() {
                         if type_args.is_empty() {
                             self.error(
-                                &format!(
-                                    "Generic class '{}' requires type arguments",
-                                    class_name
-                                ),
-                                &format!(
-                                    "الصنف المعمم '{}' يتطلب معاملات نوع",
-                                    class_name
-                                ),
+                                &format!("Generic class '{}' requires type arguments", class_name),
+                                &format!("الصنف المعمم '{}' يتطلب معاملات نوع", class_name),
                                 expr.span,
                             );
                         } else if type_args.len() != class_info.type_params.len() {
@@ -1526,10 +1525,11 @@ impl Analyzer {
                                 .map(|name| GenericParam::new(name.clone()))
                                 .collect();
 
-                            if let Some(context) =
-                                self.generic_resolver
-                                    .instantiate(&params, &resolved_args, expr.span)
-                            {
+                            if let Some(context) = self.generic_resolver.instantiate(
+                                &params,
+                                &resolved_args,
+                                expr.span,
+                            ) {
                                 // Successfully created context - it can be used for substitution
                                 // For now, we just validate that instantiation succeeded
                                 drop(context);
@@ -1547,10 +1547,7 @@ impl Analyzer {
                                 "Class '{}' is not generic but type arguments were provided",
                                 class_name
                             ),
-                            &format!(
-                                "الصنف '{}' ليس معمماً لكن تم تقديم معاملات نوع",
-                                class_name
-                            ),
+                            &format!("الصنف '{}' ليس معمماً لكن تم تقديم معاملات نوع", class_name),
                             expr.span,
                         );
                     }
