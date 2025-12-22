@@ -86,6 +86,8 @@ pub struct Scope {
     parent: Option<Box<Scope>>,
     /// Scope kind
     kind: ScopeKind,
+    /// Return type for function scopes (used for return statement validation)
+    return_type: Option<Type>,
 }
 
 /// The kind of scope
@@ -105,6 +107,7 @@ impl Scope {
             symbols: IndexMap::new(),
             parent: None,
             kind: ScopeKind::Global,
+            return_type: None,
         };
 
         // Register all built-in functions
@@ -594,6 +597,18 @@ impl Scope {
             symbols: IndexMap::new(),
             parent: Some(Box::new(parent)),
             kind,
+            return_type: None,
+        }
+    }
+
+    /// Create a new function scope with a specified return type.
+    /// This is used for function scopes to enable return type validation.
+    pub fn new_function(parent: Scope, ret_type: Type) -> Self {
+        Self {
+            symbols: IndexMap::new(),
+            parent: Some(Box::new(parent)),
+            kind: ScopeKind::Function,
+            return_type: Some(ret_type),
         }
     }
 
@@ -685,9 +700,8 @@ impl Scope {
     /// Get the return type of the enclosing function
     pub fn get_function_return_type(&self) -> Option<Type> {
         if self.kind == ScopeKind::Function {
-            // The function return type should be stored somewhere
-            // For now, return Unknown
-            Some(Type::Unknown)
+            // Return the stored return type if available
+            self.return_type.clone()
         } else if let Some(parent) = &self.parent {
             parent.get_function_return_type()
         } else {
@@ -743,5 +757,44 @@ mod tests {
 
         assert!(block.is_in_loop());
         assert!(block.is_in_function());
+    }
+
+    #[test]
+    fn test_function_return_type() {
+        let global = Scope::new_global();
+        // Create a function scope with Int return type
+        let func = Scope::new_function(global, Type::Int);
+
+        // The function scope should return the stored return type
+        assert_eq!(func.get_function_return_type(), Some(Type::Int));
+    }
+
+    #[test]
+    fn test_function_return_type_from_nested_scope() {
+        let global = Scope::new_global();
+        let func = Scope::new_function(global, Type::String);
+        let block = Scope::new_child(func, ScopeKind::Block);
+        let inner_block = Scope::new_child(block, ScopeKind::Block);
+
+        // Nested scopes should be able to get the function return type
+        assert_eq!(inner_block.get_function_return_type(), Some(Type::String));
+    }
+
+    #[test]
+    fn test_function_return_type_void() {
+        let global = Scope::new_global();
+        let func = Scope::new_function(global, Type::Void);
+        let loop_scope = Scope::new_child(func, ScopeKind::Loop);
+
+        assert_eq!(loop_scope.get_function_return_type(), Some(Type::Void));
+    }
+
+    #[test]
+    fn test_no_return_type_in_global_scope() {
+        let global = Scope::new_global();
+        let block = Scope::new_child(global, ScopeKind::Block);
+
+        // No function scope, so no return type
+        assert!(block.get_function_return_type().is_none());
     }
 }

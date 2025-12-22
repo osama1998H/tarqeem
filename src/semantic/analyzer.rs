@@ -384,8 +384,8 @@ impl Analyzer {
             );
         }
 
-        // Create a new scope for the function body
-        self.push_scope(ScopeKind::Function);
+        // Create a new function scope with the return type for validation
+        self.push_function_scope(ret_type.clone());
 
         // Define parameters in the function scope
         for (param, param_type) in params.iter().zip(param_types.iter()) {
@@ -531,7 +531,8 @@ impl Analyzer {
                 }
 
                 ClassMember::Constructor { params, body, .. } => {
-                    self.push_scope(ScopeKind::Function);
+                    // Constructors implicitly return void
+                    self.push_function_scope(Type::Void);
 
                     for param in params {
                         let param_type = param
@@ -1379,14 +1380,40 @@ impl Analyzer {
             }
 
             ExprKind::Object(pairs) => {
-                for (_, value) in pairs {
-                    self.infer_type(value);
+                if pairs.is_empty() {
+                    // Empty object - use expected type for context-aware inference
+                    if let Some(Type::Map(key_ty, val_ty)) = &self.expected_type {
+                        Type::Map(key_ty.clone(), val_ty.clone())
+                    } else {
+                        Type::Map(Box::new(Type::String), Box::new(Type::Any))
+                    }
+                } else {
+                    // Infer value type from first element
+                    let first_value_type = self.infer_type(&pairs[0].1);
+
+                    // Check if all values have the same type
+                    let mut all_same = true;
+                    for (_, value) in pairs.iter().skip(1) {
+                        let value_type = self.infer_type(value);
+                        if !value_type.is_compatible_with(&first_value_type) {
+                            all_same = false;
+                            break;
+                        }
+                    }
+
+                    if all_same {
+                        // All values have the same type - use that type
+                        Type::Map(Box::new(Type::String), Box::new(first_value_type))
+                    } else {
+                        // Mixed types - fall back to Any
+                        Type::Map(Box::new(Type::String), Box::new(Type::Any))
+                    }
                 }
-                Type::Map(Box::new(Type::String), Box::new(Type::Any))
             }
 
             ExprKind::Lambda { params, body } => {
-                self.push_scope(ScopeKind::Function);
+                // For lambdas, use Any as placeholder since return type is inferred
+                self.push_function_scope(Type::Any);
 
                 let param_types: Vec<Type> = params
                     .iter()
@@ -1667,6 +1694,13 @@ impl Analyzer {
     fn push_scope(&mut self, kind: ScopeKind) {
         let old_scope = std::mem::replace(&mut self.scope, Scope::new_global());
         self.scope = Scope::new_child(old_scope, kind);
+    }
+
+    /// Push a function scope with a specified return type.
+    /// This enables proper return type validation within the function body.
+    fn push_function_scope(&mut self, return_type: Type) {
+        let old_scope = std::mem::replace(&mut self.scope, Scope::new_global());
+        self.scope = Scope::new_function(old_scope, return_type);
     }
 
     fn pop_scope(&mut self) {

@@ -9,6 +9,10 @@ use crate::lexer::{Lexer, Token, TokenKind};
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
+    /// Collected errors during parsing (for error recovery)
+    errors: Vec<Diagnostic>,
+    /// Whether we're in panic mode (recovering from an error)
+    panic_mode: bool,
 }
 
 impl Parser {
@@ -22,7 +26,12 @@ impl Parser {
             .filter(|t| !matches!(t.kind, TokenKind::Newline))
             .collect();
 
-        Self { tokens, current: 0 }
+        Self {
+            tokens,
+            current: 0,
+            errors: Vec::new(),
+            panic_mode: false,
+        }
     }
 
     /// Create a new parser from pre-lexed tokens
@@ -31,7 +40,67 @@ impl Parser {
             .into_iter()
             .filter(|t| !matches!(t.kind, TokenKind::Newline))
             .collect();
-        Self { tokens, current: 0 }
+        Self {
+            tokens,
+            current: 0,
+            errors: Vec::new(),
+            panic_mode: false,
+        }
+    }
+
+    /// Synchronize after a parse error by skipping to the next statement boundary.
+    /// This enables parsing to continue and collect multiple errors.
+    fn synchronize(&mut self) {
+        self.panic_mode = false;
+
+        while !self.is_at_end() {
+            // If we just passed a semicolon, we're at a statement boundary
+            if self.previous().kind == TokenKind::Semicolon {
+                return;
+            }
+
+            // If we see a statement-starting keyword, we're at a statement boundary
+            match self.peek().kind {
+                // Declaration keywords
+                TokenKind::Let        // متغير
+                | TokenKind::Const    // ثابت
+                | TokenKind::Function // دالة
+                | TokenKind::Class    // صنف
+                | TokenKind::Interface // واجهة
+                // Control flow
+                | TokenKind::If       // إذا
+                | TokenKind::While    // طالما
+                | TokenKind::For      // لكل
+                | TokenKind::Do       // افعل
+                | TokenKind::Return   // أرجع
+                | TokenKind::Try      // حاول
+                | TokenKind::Match    // تطابق
+                // Module
+                | TokenKind::Import   // استورد
+                | TokenKind::Export   // صدّر
+                // File markers
+                | TokenKind::Alhamdulillah => {
+                    return;
+                }
+                _ => {}
+            }
+
+            self.advance();
+        }
+    }
+
+    /// Report an error and enter panic mode.
+    /// The error is collected for later reporting.
+    fn report_error(&mut self, diagnostic: Diagnostic) {
+        if !self.panic_mode {
+            self.errors.push(diagnostic);
+            self.panic_mode = true;
+        }
+    }
+
+    /// Get all collected errors
+    pub fn get_errors(&self) -> &[Diagnostic] {
+        &self.errors
     }
 
     /// Consume any doc comment token and return its content
@@ -53,6 +122,7 @@ impl Parser {
 
     /// Parse the entire program
     /// Files must start with بسم_الله (bismillah) and end with الحمد_لله (alhamdulillah)
+    /// Uses error recovery to collect multiple errors.
     pub fn parse(&mut self) -> Result<Ast, Diagnostic> {
         // Require file start marker: بسم_الله
         let bismillah_span = if self.check(&TokenKind::Bismillah) {
@@ -70,8 +140,18 @@ impl Parser {
         let mut statements = Vec::new();
 
         // Parse all declarations until we hit الحمد_لله or EOF
+        // Use error recovery to collect multiple errors
         while !self.is_at_end() && !self.check(&TokenKind::Alhamdulillah) {
-            statements.push(self.parse_declaration()?);
+            match self.parse_declaration() {
+                Ok(stmt) => {
+                    statements.push(stmt);
+                }
+                Err(diagnostic) => {
+                    // Report error and try to recover
+                    self.report_error(diagnostic);
+                    self.synchronize();
+                }
+            }
         }
 
         // Require file end marker: الحمد_لله
@@ -80,20 +160,38 @@ impl Parser {
             self.advance();
             span
         } else {
-            return Err(Diagnostic::error(
+            let err = Diagnostic::error(
                 "File must end with 'الحمد_لله' (alhamdulillah)",
                 "يجب أن ينتهي الملف بـ 'الحمد_لله'",
                 self.current_span(),
-            ));
+            );
+            // If we have other errors, add this to them
+            if !self.errors.is_empty() {
+                self.report_error(err);
+                // Return the first error
+                return Err(self.errors.remove(0));
+            }
+            return Err(err);
         };
 
         // Ensure nothing comes after الحمد_لله
         if !self.is_at_end() {
-            return Err(Diagnostic::error(
+            let err = Diagnostic::error(
                 "No code allowed after 'الحمد_لله' (alhamdulillah)",
                 "لا يُسمح بأي كود بعد 'الحمد_لله'",
                 self.current_span(),
-            ));
+            );
+            if !self.errors.is_empty() {
+                self.report_error(err);
+                return Err(self.errors.remove(0));
+            }
+            return Err(err);
+        }
+
+        // If we collected errors during parsing, return the first one
+        // (all errors are available via get_errors())
+        if !self.errors.is_empty() {
+            return Err(self.errors.remove(0));
         }
 
         Ok(Ast::with_markers(
