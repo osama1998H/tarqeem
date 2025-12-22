@@ -1706,8 +1706,14 @@ mod tests {
     use super::*;
     use crate::parser::Parser;
 
+    /// Helper to wrap source code with required file markers
+    fn wrap_with_markers(source: &str) -> String {
+        format!("بسم_الله\n{}\nالحمد_لله", source.trim())
+    }
+
     fn analyze(source: &str) -> Result<(), Vec<Diagnostic>> {
-        let mut parser = Parser::new(source);
+        let wrapped = wrap_with_markers(source);
+        let mut parser = Parser::new(&wrapped);
         let ast = parser.parse().unwrap();
         let mut analyzer = Analyzer::new();
         analyzer.analyze(&ast)

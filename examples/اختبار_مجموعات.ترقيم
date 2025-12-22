@@ -1,3 +1,5 @@
+بسم_الله
+
 // اختبار المجموعات - Collections Test
 // Test the stdlib collection implementations
 
@@ -80,3 +82,5 @@
     اختبار_طابور()
     اطبع("=== انتهى الاختبار ===")
 }
+
+الحمد_لله

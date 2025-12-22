@@ -28,15 +28,22 @@
 
 use tarqeem::parser::Parser;
 
+/// Helper to wrap source code with required file markers (بسم_الله and الحمد_لله)
+fn wrap_with_markers(source: &str) -> String {
+    format!("بسم_الله\n{}\nالحمد_لله", source.trim())
+}
+
 /// Helper function to test if source parses successfully
 fn parses_ok(source: &str) -> bool {
-    let mut parser = Parser::new(source);
+    let wrapped_source = wrap_with_markers(source);
+    let mut parser = Parser::new(&wrapped_source);
     parser.parse().is_ok()
 }
 
 /// Helper to get parse error message
 fn parse_error(source: &str) -> String {
-    let mut parser = Parser::new(source);
+    let wrapped_source = wrap_with_markers(source);
+    let mut parser = Parser::new(&wrapped_source);
     match parser.parse() {
         Ok(_) => String::new(),
         Err(e) => e.message,

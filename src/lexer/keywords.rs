@@ -142,6 +142,12 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "أي" => TokenKind::TypeAny,
     "اي" => TokenKind::TypeAny,
     "any" => TokenKind::TypeAny,
+
+    // ============ File Markers ============
+    "بسم_الله" => TokenKind::Bismillah,
+    "bismillah" => TokenKind::Bismillah,
+    "الحمد_لله" => TokenKind::Alhamdulillah,
+    "alhamdulillah" => TokenKind::Alhamdulillah,
 };
 
 /// Look up a keyword in the keyword map
@@ -175,5 +181,16 @@ mod tests {
     fn test_non_keyword() {
         assert_eq!(lookup_keyword("foo"), None);
         assert_eq!(lookup_keyword("مرحبا"), None);
+    }
+
+    #[test]
+    fn test_file_markers() {
+        assert_eq!(lookup_keyword("بسم_الله"), Some(TokenKind::Bismillah));
+        assert_eq!(lookup_keyword("bismillah"), Some(TokenKind::Bismillah));
+        assert_eq!(lookup_keyword("الحمد_لله"), Some(TokenKind::Alhamdulillah));
+        assert_eq!(
+            lookup_keyword("alhamdulillah"),
+            Some(TokenKind::Alhamdulillah)
+        );
     }
 }

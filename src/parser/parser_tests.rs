@@ -6,6 +6,16 @@
 use super::ast::*;
 use super::parser::Parser;
 
+/// Helper to wrap source code with required file markers (بسم_الله and الحمد_لله)
+fn wrap_with_markers(source: &str) -> String {
+    format!("بسم_الله\n{}\nالحمد_لله", source.trim())
+}
+
+/// Helper to create a parser with file markers
+fn parser_with_markers(source: &str) -> Parser {
+    Parser::new(&wrap_with_markers(source))
+}
+
 // =============================================================================
 // Loop Statement Tests
 // =============================================================================
@@ -17,7 +27,7 @@ fn test_parse_while_loop() {
             س = س + 1;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     assert_eq!(ast.statements.len(), 1);
@@ -40,7 +50,7 @@ fn test_parse_while_loop_english() {
             x = x + 1;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     assert_eq!(ast.statements.len(), 1);
@@ -54,7 +64,7 @@ fn test_parse_for_loop_c_style() {
             اطبع(ع);
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     assert_eq!(ast.statements.len(), 1);
@@ -81,7 +91,7 @@ fn test_parse_for_loop_english() {
             print(i);
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     assert_eq!(ast.statements.len(), 1);
@@ -95,7 +105,7 @@ fn test_parse_for_in_loop() {
             اطبع(عنصر);
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     assert_eq!(ast.statements.len(), 1);
@@ -123,7 +133,7 @@ fn test_parse_for_in_loop_english() {
             print(item);
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     assert_eq!(ast.statements.len(), 1);
@@ -142,7 +152,7 @@ fn test_parse_for_loop_no_init() {
             x = x + 1;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -167,7 +177,7 @@ fn test_parse_for_loop_no_update() {
             i = i + 2;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -198,7 +208,7 @@ fn test_parse_match_statement() {
             غير_ذلك => اطبع("يوم آخر")
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     assert_eq!(ast.statements.len(), 1);
@@ -223,7 +233,7 @@ fn test_parse_match_with_multiple_patterns() {
             default => print("unknown")
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -251,7 +261,7 @@ fn test_parse_match_with_block_body() {
             }
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -272,7 +282,7 @@ fn test_parse_named_import() {
     let source = r#"
         استورد { مساعد، أداة } من "مجموعات";
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -296,7 +306,7 @@ fn test_parse_named_import_with_alias() {
     let source = r#"
         import { List as MyList, Map as MyMap } from "collections";
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -318,7 +328,7 @@ fn test_parse_wildcard_import() {
     let source = r#"
         استورد * كـ رياضيات من "رياضيات";
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -340,7 +350,7 @@ fn test_parse_default_import() {
     let source = r#"
         import MyModule from "module";
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -361,7 +371,7 @@ fn test_parse_export_function() {
             أرجع 42;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -384,7 +394,7 @@ fn test_parse_export_class() {
             }
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -411,7 +421,7 @@ fn test_parse_try_catch() {
             اطبع(استثناء);
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -442,7 +452,7 @@ fn test_parse_try_catch_finally() {
             cleanup();
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -468,7 +478,7 @@ fn test_parse_try_finally_no_catch() {
             cleanup();
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -485,7 +495,7 @@ fn test_parse_throw_statement() {
     let source = r#"
         ارمِ "خطأ في البرنامج";
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -510,7 +520,7 @@ fn test_parse_break_statement() {
             break;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -528,7 +538,7 @@ fn test_parse_continue_statement() {
             استمر;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -546,7 +556,7 @@ fn test_parse_continue_statement() {
 #[test]
 fn test_precedence_multiplication_over_addition() {
     let source = "1 + 2 * 3;";
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     // Should parse as 1 + (2 * 3)
@@ -578,7 +588,7 @@ fn test_precedence_multiplication_over_addition() {
 #[test]
 fn test_precedence_power_right_associative() {
     let source = "2 ** 3 ** 2;";
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     // Should parse as 2 ** (3 ** 2) due to right associativity
@@ -618,7 +628,7 @@ fn test_precedence_power_right_associative() {
 #[test]
 fn test_precedence_comparison_and_logical() {
     let source = "a > b && c < d;";
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     // Should parse as (a > b) && (c < d)
@@ -648,7 +658,7 @@ fn test_precedence_comparison_and_logical() {
 #[test]
 fn test_precedence_parentheses() {
     let source = "(1 + 2) * 3;";
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     // Should parse as (1 + 2) * 3
@@ -682,7 +692,7 @@ fn test_precedence_parentheses() {
 #[test]
 fn test_parse_ternary_expression() {
     let source = "x > 0 ? 1 : -1;";
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -716,7 +726,7 @@ fn test_parse_ternary_expression() {
 #[test]
 fn test_parse_member_access() {
     let source = "obj.field.subfield;";
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -739,7 +749,7 @@ fn test_parse_member_access() {
 #[test]
 fn test_parse_index_access() {
     let source = "arr[0][1];";
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -766,7 +776,7 @@ fn test_parse_index_access() {
 #[test]
 fn test_parse_function_call_chain() {
     let source = "a().b().c();";
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -786,7 +796,7 @@ fn test_parse_function_call_chain() {
 #[test]
 fn test_parse_compound_assignment() {
     let source = "x += 5;";
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -819,7 +829,7 @@ fn test_parse_all_compound_assignments() {
     ];
 
     for (source, expected_op) in operators {
-        let mut parser = Parser::new(source);
+        let mut parser = parser_with_markers(source);
         let ast = parser.parse().unwrap();
 
         match &ast.statements[0].kind {
@@ -837,7 +847,7 @@ fn test_parse_all_compound_assignments() {
 #[test]
 fn test_parse_prefix_increment() {
     let source = "++x;";
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -855,7 +865,7 @@ fn test_parse_prefix_increment() {
 #[test]
 fn test_parse_postfix_increment() {
     let source = "x++;";
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -881,7 +891,7 @@ fn test_parse_class_with_inheritance() {
             خاص معدل: عدد_عشري;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -902,7 +912,7 @@ fn test_parse_class_with_interface() {
             }
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -923,7 +933,7 @@ fn test_parse_class_with_multiple_interfaces() {
         class MyClass implements Interface1, Interface2, Interface3 {
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -942,7 +952,7 @@ fn test_parse_interface_with_methods() {
             دالة يساوي(آخر: قابل_للمقارنة) -> منطقي
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -967,7 +977,7 @@ fn test_parse_class_static_members() {
             }
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1006,7 +1016,7 @@ fn test_parse_generic_class() {
             خاص عناصر: مصفوفة<ن>;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1029,7 +1039,7 @@ fn test_parse_generic_class_multiple_params() {
             private values: Array<V>;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1049,7 +1059,7 @@ fn test_parse_generic_interface() {
             function compare(other: T) -> int
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1066,7 +1076,7 @@ fn test_parse_new_expression_with_generics() {
     let source = r#"
         متغير قائمة = جديد قائمة<عدد>();
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1098,7 +1108,7 @@ fn test_parse_async_function() {
             أرجع 42;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1118,7 +1128,7 @@ fn test_parse_await_expression() {
             return data;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1145,7 +1155,7 @@ fn test_parse_object_literal() {
     let source = r#"
         متغير شخص = { اسم: "أحمد"، عمر: 25 };
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1167,7 +1177,7 @@ fn test_parse_object_literal() {
 #[test]
 fn test_parse_empty_object_literal() {
     let source = "let obj = {};";
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1193,7 +1203,7 @@ fn test_parse_optional_type() {
     let source = r#"
         متغير اسم: نص?;
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1213,7 +1223,7 @@ fn test_parse_generic_type() {
     let source = r#"
         let items: Array<int>;
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1236,7 +1246,7 @@ fn test_parse_nested_generic_type() {
     let source = r#"
         let data: Map<string, Array<int>>;
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1275,7 +1285,7 @@ fn test_parse_this_expression() {
             }
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1305,7 +1315,7 @@ fn test_parse_super_expression() {
             }
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1339,7 +1349,7 @@ fn test_parse_visibility_modifiers() {
             protected z: int;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1377,7 +1387,7 @@ fn test_parse_empty_block() {
         function empty() {
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1395,7 +1405,7 @@ fn test_parse_semicolon_insertion() {
         let x = 1
         let y = 2
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     assert_eq!(ast.statements.len(), 2);
@@ -1408,7 +1418,7 @@ fn test_parse_return_without_value() {
             return;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1429,7 +1439,7 @@ fn test_parse_function_with_default_params() {
             print("Hello, " + name);
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1444,7 +1454,7 @@ fn test_parse_function_with_default_params() {
 #[test]
 fn test_parse_const_declaration() {
     let source = "ثابت PI = 3.14159;";
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
@@ -1469,7 +1479,7 @@ fn test_parse_if_else_if() {
             y = 0;
         }
     "#;
-    let mut parser = Parser::new(source);
+    let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {

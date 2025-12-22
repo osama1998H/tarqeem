@@ -1,3 +1,5 @@
+بسم_الله
+
 // لعبة الحياة - نسخة مبسطة لاختبار المترجم
 // Conway's Game of Life - Simplified version for compiler testing
 
@@ -104,3 +106,5 @@
 
 // تشغيل البرنامج
 رئيسية();
+
+الحمد_لله

@@ -250,6 +250,12 @@ pub enum TokenKind {
     /// Block doc comment: /** comment */
     BlockDocComment(String),
 
+    // ============ File Markers ============
+    /// بسم_الله / bismillah - File start marker (In the name of God)
+    Bismillah,
+    /// الحمد_لله / alhamdulillah - File end marker (Praise be to God)
+    Alhamdulillah,
+
     // ============ Special ============
     /// End of file
     Eof,
@@ -317,6 +323,8 @@ impl TokenKind {
                 | TokenKind::Do
                 | TokenKind::Break
                 | TokenKind::Continue
+                | TokenKind::Bismillah
+                | TokenKind::Alhamdulillah
         )
     }
 

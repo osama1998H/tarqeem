@@ -28,6 +28,13 @@ impl Formatter {
 
     /// Format the AST
     fn format_ast(&self, ast: &Ast, p: &mut Printer) {
+        // Output file start marker if present
+        if ast.has_file_markers() {
+            p.write("بسم_الله");
+            p.newline();
+            p.newline();
+        }
+
         let mut prev_was_import = false;
         let mut first = true;
 
@@ -54,6 +61,13 @@ impl Formatter {
 
             self.format_stmt(stmt, p);
             first = false;
+        }
+
+        // Output file end marker if present
+        if ast.has_file_markers() {
+            p.newline();
+            p.write("الحمد_لله");
+            p.newline();
         }
     }
 
@@ -997,9 +1011,15 @@ impl Formatter {
 mod tests {
     use super::*;
 
+    /// Helper to wrap source code with required file markers
+    fn wrap_with_markers(source: &str) -> String {
+        format!("بسم_الله\n{}\nالحمد_لله", source.trim())
+    }
+
     fn format(source: &str) -> String {
         let config = FormatConfig::default();
-        let mut parser = crate::parser::Parser::new(source);
+        let wrapped = wrap_with_markers(source);
+        let mut parser = crate::parser::Parser::new(&wrapped);
         let ast = parser.parse().expect("Parse failed");
         let formatter = Formatter::new(config);
         formatter.format(&ast)
@@ -1008,13 +1028,19 @@ mod tests {
     #[test]
     fn test_format_variable() {
         let result = format("متغير س=5");
-        assert_eq!(result, "متغير س = 5\n");
+        // Output includes file markers
+        assert!(result.starts_with("بسم_الله\n"));
+        assert!(result.contains("متغير س = 5"));
+        assert!(result.ends_with("الحمد_لله\n"));
     }
 
     #[test]
     fn test_format_constant() {
         let result = format("ثابت ط = 3.14");
-        assert_eq!(result, "ثابت ط = 3.14\n");
+        // Output includes file markers
+        assert!(result.starts_with("بسم_الله\n"));
+        assert!(result.contains("ثابت ط = 3.14"));
+        assert!(result.ends_with("الحمد_لله\n"));
     }
 
     #[test]

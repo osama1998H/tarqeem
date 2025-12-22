@@ -113,6 +113,7 @@ impl DocumentState {
         }
 
         // Step 2: Parsing
+        // Note: The content should already contain بسم_الله at start and الحمد_لله at end
         let mut parser = Parser::new(&self.content);
         let ast = match parser.parse() {
             Ok(ast) => Some(ast),
@@ -423,10 +424,15 @@ impl DocumentState {
 mod tests {
     use super::*;
 
+    /// Helper to wrap source code with required file markers
+    fn wrap_with_markers(source: &str) -> String {
+        format!("بسم_الله\n{}\nالحمد_لله", source.trim())
+    }
+
     #[test]
     fn test_document_analysis() {
         let uri = Url::parse("file:///test.trq").unwrap();
-        let content = "متغير س = 5".to_string();
+        let content = wrap_with_markers("متغير س = 5");
         let mut doc = DocumentState::new(uri, 1, content);
 
         let analysis = doc.get_analysis(Language::Arabic);
@@ -436,26 +442,27 @@ mod tests {
     #[test]
     fn test_document_update() {
         let uri = Url::parse("file:///test.trq").unwrap();
-        let mut doc = DocumentState::new(uri, 1, "متغير س = 5".to_string());
+        let mut doc = DocumentState::new(uri, 1, wrap_with_markers("متغير س = 5"));
 
         // First analysis
         let _ = doc.get_analysis(Language::Arabic);
         assert!(doc.analysis.is_some());
 
         // Update invalidates cache
-        doc.update(2, "متغير ص = 10".to_string());
+        doc.update(2, wrap_with_markers("متغير ص = 10"));
         assert!(doc.analysis.is_none());
     }
 
     #[test]
     fn test_symbol_collection() {
         let uri = Url::parse("file:///test.trq").unwrap();
-        let content = r#"
+        let content = wrap_with_markers(
+            r#"
 دالة جمع(أ: عدد، ب: عدد) -> عدد {
     أرجع أ + ب
 }
-"#
-        .to_string();
+"#,
+        );
         let mut doc = DocumentState::new(uri, 1, content);
 
         let analysis = doc.get_analysis(Language::Arabic);
@@ -465,13 +472,14 @@ mod tests {
     #[test]
     fn test_symbol_with_doc_comment() {
         let uri = Url::parse("file:///test.trq").unwrap();
-        let content = r#"
+        let content = wrap_with_markers(
+            r#"
 /// دالة لجمع عددين
 دالة جمع(أ: عدد، ب: عدد) -> عدد {
     أرجع أ + ب
 }
-"#
-        .to_string();
+"#,
+        );
         let mut doc = DocumentState::new(uri, 1, content);
 
         let analysis = doc.get_analysis(Language::Arabic);
