@@ -416,11 +416,20 @@ impl Lexer {
 
     fn scan_number(&mut self, first: char) -> Token {
         let mut value: i64 = self.digit_value(first) as i64;
+        let mut overflowed = false;
 
-        // Consume integer part
+        // Consume integer part using checked arithmetic
         while !self.is_at_end() && self.is_digit(self.peek()) {
             let c = self.advance();
-            value = value * 10 + self.digit_value(c) as i64;
+            let digit = self.digit_value(c) as i64;
+
+            match value.checked_mul(10).and_then(|v| v.checked_add(digit)) {
+                Some(v) => value = v,
+                None => {
+                    overflowed = true;
+                    // Continue consuming digits to complete the token
+                }
+            }
         }
 
         // Check for decimal point
@@ -436,6 +445,7 @@ impl Lexer {
                 divisor *= 10.0;
             }
 
+            // For floats, overflow is less critical - the value gets large but doesn't crash
             return self.make_token(TokenKind::FloatLiteral(value as f64 + fraction));
         }
 
@@ -459,6 +469,13 @@ impl Lexer {
 
             let float_val = value as f64 * 10f64.powi(exp_sign * exp);
             return self.make_token(TokenKind::FloatLiteral(float_val));
+        }
+
+        // If integer overflowed, report error
+        if overflowed {
+            return self.make_token(TokenKind::Error(
+                "Integer literal too large / العدد الصحيح كبير جداً".to_string(),
+            ));
         }
 
         self.make_token(TokenKind::IntLiteral(value))

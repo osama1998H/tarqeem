@@ -977,32 +977,46 @@ impl Interpreter {
     fn is_builtin(&self, name: &str) -> bool {
         matches!(
             name,
-            "print"
-                | "اطبع"
-                | "println"
-                | "input"
-                | "ادخل"
-                | "len"
-                | "طول"
-                | "type"
-                | "نوع"
-                | "int"
-                | "عدد"
-                | "float"
-                | "عدد_عشري"
-                | "str"
-                | "نص"
-                | "bool"
-                | "منطقي"
-                | "abs"
-                | "sqrt"
-                | "جذر"
-                | "sin"
-                | "cos"
-                | "tan"
-                | "floor"
-                | "ceil"
-                | "round"
+            // I/O Functions
+            "print" | "اطبع" | "println" | "طباعة" | "اطبع_سطر"
+            | "input" | "ادخل" | "ادخل_رسالة" | "input_prompt"
+            | "ادخل_عدد" | "input_int" | "ادخل_عشري" | "input_float"
+            // Introspection
+            | "len" | "طول" | "length"
+            | "type" | "نوع" | "typeof"
+            // Type conversion
+            | "int" | "عدد" | "float" | "عدد_عشري" | "str" | "نص" | "string" | "bool" | "منطقي"
+            // Math - Basic
+            | "abs" | "مطلق"
+            | "pow" | "قوة"
+            | "sqrt" | "جذر" | "cbrt" | "جذر_تكعيبي"
+            // Math - Logarithms
+            | "log" | "لوغاريتم" | "log10" | "لوغ10" | "لوغاريتم10" | "log2" | "لوغ2"
+            | "exp" | "أس" | "أسي"
+            // Math - Rounding
+            | "floor" | "أرضية" | "ceil" | "سقف" | "round" | "قرب" | "تقريب" | "trunc" | "اقتطع"
+            // Math - Comparison
+            | "min" | "أقل" | "أدنى" | "max" | "أكبر" | "أقصى" | "clamp" | "حصر"
+            | "sign" | "علامة"
+            // Math - Number theory
+            | "gcd" | "قاسم_مشترك" | "lcm" | "مضاعف_مشترك"
+            | "factorial" | "عاملي"
+            // Trigonometry
+            | "sin" | "جا" | "cos" | "جتا" | "tan" | "ظا"
+            | "cot" | "ظتا" | "sec" | "قا" | "csc" | "قتا"
+            | "asin" | "جا_عكسي" | "acos" | "جتا_عكسي" | "atan" | "ظا_عكسي" | "atan2" | "ظا_عكسي2"
+            | "sinh" | "جا_زائدي" | "cosh" | "جتا_زائدي" | "tanh" | "ظا_زائدي"
+            | "to_radians" | "الى_راديان" | "راديان" | "to_degrees" | "الى_درجات" | "درجات"
+            // Random
+            | "random" | "عشوائي" | "random_int"
+            | "random_range" | "عشوائي_بين"
+            | "random_float" | "عشوائي_عشري"
+            | "random_bool" | "عشوائي_منطقي"
+            // Assertion and control
+            | "assert" | "تأكد" | "assert_msg" | "تأكد_رسالة"
+            | "panic" | "توقف"
+            // Time
+            | "sleep" | "نم" | "time_now" | "وقت_الآن"
         )
     }
 
@@ -1130,11 +1144,12 @@ impl Interpreter {
                 Ok(Value::Bool(val.is_truthy()))
             }
 
-            "abs" => {
+            // ============ Math - Basic ============
+            "abs" | "مطلق" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "abs() requires 1 argument",
-                        "abs() تتطلب معامل واحد",
+                        "مطلق() تتطلب معامل واحد",
                     )
                 })?;
 
@@ -1142,6 +1157,35 @@ impl Interpreter {
                     Value::Int(i) => Ok(Value::Int(i.abs())),
                     Value::Float(f) => Ok(Value::Float(f.abs())),
                     _ => Err(RuntimeError::type_error("numeric", val.type_name())),
+                }
+            }
+
+            "pow" | "قوة" => {
+                let base = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "pow() requires 2 arguments",
+                        "قوة() تتطلب معاملين",
+                    )
+                })?;
+                let exp = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "pow() requires 2 arguments",
+                        "قوة() تتطلب معاملين",
+                    )
+                })?;
+
+                match (base, exp) {
+                    (Value::Int(b), Value::Int(e)) if *e >= 0 => Ok(Value::Int(b.pow(*e as u32))),
+                    (Value::Int(b), Value::Int(e)) => Ok(Value::Float((*b as f64).powf(*e as f64))),
+                    _ => {
+                        let b = base
+                            .as_float()
+                            .ok_or_else(|| RuntimeError::type_error("numeric", base.type_name()))?;
+                        let e = exp
+                            .as_float()
+                            .ok_or_else(|| RuntimeError::type_error("numeric", exp.type_name()))?;
+                        Ok(Value::Float(b.powf(e)))
+                    }
                 }
             }
 
@@ -1159,50 +1203,79 @@ impl Interpreter {
                 Ok(Value::Float(f.sqrt()))
             }
 
-            "sin" => {
+            "cbrt" | "جذر_تكعيبي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
-                        "sin() requires 1 argument",
-                        "sin() تتطلب معامل واحد",
+                        "cbrt() requires 1 argument",
+                        "جذر_تكعيبي() تتطلب معامل واحد",
+                    )
+                })?;
+
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.cbrt()))
+            }
+
+            // ============ Math - Logarithms ============
+            "log" | "لوغاريتم" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "log() requires 1 argument",
+                        "لوغاريتم() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
-                Ok(Value::Float(f.sin()))
+                Ok(Value::Float(f.ln()))
             }
 
-            "cos" => {
+            "log10" | "لوغ10" | "لوغاريتم10" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
-                        "cos() requires 1 argument",
-                        "cos() تتطلب معامل واحد",
+                        "log10() requires 1 argument",
+                        "لوغ10() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
-                Ok(Value::Float(f.cos()))
+                Ok(Value::Float(f.log10()))
             }
 
-            "tan" => {
+            "log2" | "لوغ2" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
-                        "tan() requires 1 argument",
-                        "tan() تتطلب معامل واحد",
+                        "log2() requires 1 argument",
+                        "لوغ2() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
-                Ok(Value::Float(f.tan()))
+                Ok(Value::Float(f.log2()))
             }
 
-            "floor" => {
+            "exp" | "أس" | "أسي" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "exp() requires 1 argument",
+                        "أس() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.exp()))
+            }
+
+            // ============ Math - Rounding ============
+            "floor" | "أرضية" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "floor() requires 1 argument",
-                        "floor() تتطلب معامل واحد",
+                        "أرضية() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
@@ -1211,11 +1284,11 @@ impl Interpreter {
                 Ok(Value::Float(f.floor()))
             }
 
-            "ceil" => {
+            "ceil" | "سقف" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "ceil() requires 1 argument",
-                        "ceil() تتطلب معامل واحد",
+                        "سقف() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
@@ -1224,17 +1297,641 @@ impl Interpreter {
                 Ok(Value::Float(f.ceil()))
             }
 
-            "round" => {
+            "round" | "قرب" | "تقريب" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "round() requires 1 argument",
-                        "round() تتطلب معامل واحد",
+                        "قرب() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
                 Ok(Value::Float(f.round()))
+            }
+
+            "trunc" | "اقتطع" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "trunc() requires 1 argument",
+                        "اقتطع() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.trunc()))
+            }
+
+            // ============ Math - Comparison ============
+            "min" | "أقل" | "أدنى" => {
+                let a = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "min() requires 2 arguments",
+                        "أقل() تتطلب معاملين",
+                    )
+                })?;
+                let b = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "min() requires 2 arguments",
+                        "أقل() تتطلب معاملين",
+                    )
+                })?;
+
+                match (a, b) {
+                    (Value::Int(x), Value::Int(y)) => Ok(Value::Int(*x.min(y))),
+                    (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x.min(*y))),
+                    (Value::Int(x), Value::Float(y)) => Ok(Value::Float((*x as f64).min(*y))),
+                    (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x.min(*y as f64))),
+                    _ => Err(RuntimeError::type_error("numeric", a.type_name())),
+                }
+            }
+
+            "max" | "أكبر" | "أقصى" => {
+                let a = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "max() requires 2 arguments",
+                        "أكبر() تتطلب معاملين",
+                    )
+                })?;
+                let b = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "max() requires 2 arguments",
+                        "أكبر() تتطلب معاملين",
+                    )
+                })?;
+
+                match (a, b) {
+                    (Value::Int(x), Value::Int(y)) => Ok(Value::Int(*x.max(y))),
+                    (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x.max(*y))),
+                    (Value::Int(x), Value::Float(y)) => Ok(Value::Float((*x as f64).max(*y))),
+                    (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x.max(*y as f64))),
+                    _ => Err(RuntimeError::type_error("numeric", a.type_name())),
+                }
+            }
+
+            "clamp" | "حصر" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "clamp() requires 3 arguments",
+                        "حصر() تتطلب ثلاثة معاملات",
+                    )
+                })?;
+                let min_val = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "clamp() requires 3 arguments",
+                        "حصر() تتطلب ثلاثة معاملات",
+                    )
+                })?;
+                let max_val = args.get(2).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "clamp() requires 3 arguments",
+                        "حصر() تتطلب ثلاثة معاملات",
+                    )
+                })?;
+
+                match (val, min_val, max_val) {
+                    (Value::Int(v), Value::Int(mn), Value::Int(mx)) => {
+                        Ok(Value::Int(*v.max(mn).min(mx)))
+                    }
+                    _ => {
+                        let v = val
+                            .as_float()
+                            .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                        let mn = min_val.as_float().ok_or_else(|| {
+                            RuntimeError::type_error("numeric", min_val.type_name())
+                        })?;
+                        let mx = max_val.as_float().ok_or_else(|| {
+                            RuntimeError::type_error("numeric", max_val.type_name())
+                        })?;
+                        Ok(Value::Float(v.max(mn).min(mx)))
+                    }
+                }
+            }
+
+            "sign" | "علامة" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "sign() requires 1 argument",
+                        "علامة() تتطلب معامل واحد",
+                    )
+                })?;
+
+                match val {
+                    Value::Int(i) => Ok(Value::Int(i.signum())),
+                    Value::Float(f) => {
+                        if f.is_nan() {
+                            Ok(Value::Float(f64::NAN))
+                        } else if *f > 0.0 {
+                            Ok(Value::Float(1.0))
+                        } else if *f < 0.0 {
+                            Ok(Value::Float(-1.0))
+                        } else {
+                            Ok(Value::Float(0.0))
+                        }
+                    }
+                    _ => Err(RuntimeError::type_error("numeric", val.type_name())),
+                }
+            }
+
+            // ============ Math - Number Theory ============
+            "gcd" | "قاسم_مشترك" => {
+                let a = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "gcd() requires 2 arguments",
+                        "قاسم_مشترك() تتطلب معاملين",
+                    )
+                })?;
+                let b = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "gcd() requires 2 arguments",
+                        "قاسم_مشترك() تتطلب معاملين",
+                    )
+                })?;
+
+                let x = a
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::type_error("int", a.type_name()))?;
+                let y = b
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::type_error("int", b.type_name()))?;
+
+                fn gcd(mut a: i64, mut b: i64) -> i64 {
+                    a = a.abs();
+                    b = b.abs();
+                    while b != 0 {
+                        let t = b;
+                        b = a % b;
+                        a = t;
+                    }
+                    a
+                }
+
+                Ok(Value::Int(gcd(x, y)))
+            }
+
+            "lcm" | "مضاعف_مشترك" => {
+                let a = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "lcm() requires 2 arguments",
+                        "مضاعف_مشترك() تتطلب معاملين",
+                    )
+                })?;
+                let b = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "lcm() requires 2 arguments",
+                        "مضاعف_مشترك() تتطلب معاملين",
+                    )
+                })?;
+
+                let x = a
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::type_error("int", a.type_name()))?;
+                let y = b
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::type_error("int", b.type_name()))?;
+
+                fn gcd(mut a: i64, mut b: i64) -> i64 {
+                    a = a.abs();
+                    b = b.abs();
+                    while b != 0 {
+                        let t = b;
+                        b = a % b;
+                        a = t;
+                    }
+                    a
+                }
+
+                if x == 0 || y == 0 {
+                    Ok(Value::Int(0))
+                } else {
+                    Ok(Value::Int((x.abs() / gcd(x, y)) * y.abs()))
+                }
+            }
+
+            "factorial" | "عاملي" => {
+                let n = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "factorial() requires 1 argument",
+                        "عاملي() تتطلب معامل واحد",
+                    )
+                })?;
+
+                let n = n
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::type_error("int", n.type_name()))?;
+
+                if n < 0 {
+                    return Err(RuntimeError::invalid_operation(
+                        "factorial() requires non-negative argument",
+                        "عاملي() تتطلب عدد غير سالب",
+                    ));
+                }
+
+                let mut result: i64 = 1;
+                for i in 2..=n {
+                    result = result.saturating_mul(i);
+                }
+                Ok(Value::Int(result))
+            }
+
+            // ============ Trigonometry ============
+            "sin" | "جا" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "sin() requires 1 argument",
+                        "جا() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.sin()))
+            }
+
+            "cos" | "جتا" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "cos() requires 1 argument",
+                        "جتا() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.cos()))
+            }
+
+            "tan" | "ظا" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "tan() requires 1 argument",
+                        "ظا() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.tan()))
+            }
+
+            "cot" | "ظتا" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "cot() requires 1 argument",
+                        "ظتا() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(1.0 / f.tan()))
+            }
+
+            "sec" | "قا" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "sec() requires 1 argument",
+                        "قا() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(1.0 / f.cos()))
+            }
+
+            "csc" | "قتا" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "csc() requires 1 argument",
+                        "قتا() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(1.0 / f.sin()))
+            }
+
+            "asin" | "جا_عكسي" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "asin() requires 1 argument",
+                        "جا_عكسي() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.asin()))
+            }
+
+            "acos" | "جتا_عكسي" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "acos() requires 1 argument",
+                        "جتا_عكسي() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.acos()))
+            }
+
+            "atan" | "ظا_عكسي" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "atan() requires 1 argument",
+                        "ظا_عكسي() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.atan()))
+            }
+
+            "atan2" | "ظا_عكسي2" => {
+                let y = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "atan2() requires 2 arguments",
+                        "ظا_عكسي2() تتطلب معاملين",
+                    )
+                })?;
+                let x = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "atan2() requires 2 arguments",
+                        "ظا_عكسي2() تتطلب معاملين",
+                    )
+                })?;
+
+                let y = y
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", y.type_name()))?;
+                let x = x
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", x.type_name()))?;
+
+                Ok(Value::Float(y.atan2(x)))
+            }
+
+            "sinh" | "جا_زائدي" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "sinh() requires 1 argument",
+                        "جا_زائدي() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.sinh()))
+            }
+
+            "cosh" | "جتا_زائدي" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "cosh() requires 1 argument",
+                        "جتا_زائدي() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.cosh()))
+            }
+
+            "tanh" | "ظا_زائدي" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "tanh() requires 1 argument",
+                        "ظا_زائدي() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.tanh()))
+            }
+
+            "to_radians" | "الى_راديان" | "راديان" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "to_radians() requires 1 argument",
+                        "الى_راديان() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.to_radians()))
+            }
+
+            "to_degrees" | "الى_درجات" | "درجات" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "to_degrees() requires 1 argument",
+                        "الى_درجات() تتطلب معامل واحد",
+                    )
+                })?;
+                let f = val
+                    .as_float()
+                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
+                Ok(Value::Float(f.to_degrees()))
+            }
+
+            // ============ Random ============
+            "random" | "عشوائي" | "random_int" => {
+                // Simple pseudo-random using system time
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let seed = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(12345);
+                // Simple LCG
+                let random = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                Ok(Value::Int((random % (i64::MAX as u64 + 1)) as i64))
+            }
+
+            "random_range" | "عشوائي_بين" => {
+                let min_val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "random_range() requires 2 arguments",
+                        "عشوائي_بين() تتطلب معاملين",
+                    )
+                })?;
+                let max_val = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "random_range() requires 2 arguments",
+                        "عشوائي_بين() تتطلب معاملين",
+                    )
+                })?;
+
+                let min = min_val
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::type_error("int", min_val.type_name()))?;
+                let max = max_val
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::type_error("int", max_val.type_name()))?;
+
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let seed = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(12345);
+                let random = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let range = (max - min + 1) as u64;
+                let result = min + (random % range) as i64;
+                Ok(Value::Int(result))
+            }
+
+            "random_float" | "عشوائي_عشري" => {
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let seed = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(12345);
+                let random = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let result = (random as f64) / (u64::MAX as f64);
+                Ok(Value::Float(result))
+            }
+
+            "random_bool" | "عشوائي_منطقي" => {
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let seed = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(12345);
+                let random = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                Ok(Value::Bool(random % 2 == 0))
+            }
+
+            // ============ Assertion and Control ============
+            "assert" | "تأكد" => {
+                let cond = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "assert() requires 1 argument",
+                        "تأكد() تتطلب معامل واحد",
+                    )
+                })?;
+
+                if !cond.is_truthy() {
+                    return Err(RuntimeError::invalid_operation(
+                        "Assertion failed",
+                        "فشل التأكيد",
+                    ));
+                }
+                Ok(Value::Null)
+            }
+
+            "assert_msg" | "تأكد_رسالة" => {
+                let cond = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "assert_msg() requires 2 arguments",
+                        "تأكد_رسالة() تتطلب معاملين",
+                    )
+                })?;
+                let msg = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "assert_msg() requires 2 arguments",
+                        "تأكد_رسالة() تتطلب معاملين",
+                    )
+                })?;
+
+                if !cond.is_truthy() {
+                    let msg_str = msg.to_display_string();
+                    return Err(RuntimeError::invalid_operation(
+                        &format!("Assertion failed: {}", msg_str),
+                        &format!("فشل التأكيد: {}", msg_str),
+                    ));
+                }
+                Ok(Value::Null)
+            }
+
+            "panic" | "توقف" => {
+                let msg = args
+                    .first()
+                    .map(|v| v.to_display_string())
+                    .unwrap_or_else(|| "Panic!".to_string());
+
+                Err(RuntimeError::invalid_operation(
+                    &format!("Panic: {}", msg),
+                    &format!("توقف: {}", msg),
+                ))
+            }
+
+            // ============ Time ============
+            "sleep" | "نم" => {
+                let ms = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "sleep() requires 1 argument (milliseconds)",
+                        "نم() تتطلب معامل واحد (ميلي ثانية)",
+                    )
+                })?;
+
+                let ms = ms
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::type_error("int", ms.type_name()))?;
+
+                if ms > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(ms as u64));
+                }
+                Ok(Value::Null)
+            }
+
+            "time_now" | "وقت_الآن" => {
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                Ok(Value::Int(now))
+            }
+
+            // ============ Input Functions ============
+            "ادخل_رسالة" | "input_prompt" => {
+                let prompt = args
+                    .first()
+                    .map(|v| v.to_display_string())
+                    .unwrap_or_default();
+
+                print!("{}", prompt);
+                io::stdout().flush().ok();
+
+                let mut input = String::new();
+                io::stdin()
+                    .read_line(&mut input)
+                    .map_err(|e| RuntimeError::internal(format!("Input error: {}", e)))?;
+
+                Ok(Value::string(input.trim_end()))
+            }
+
+            "ادخل_عدد" | "input_int" => {
+                let mut input = String::new();
+                io::stdin()
+                    .read_line(&mut input)
+                    .map_err(|e| RuntimeError::internal(format!("Input error: {}", e)))?;
+
+                input
+                    .trim()
+                    .parse::<i64>()
+                    .map(Value::Int)
+                    .map_err(|_| RuntimeError::type_error("integer input", "invalid input"))
+            }
+
+            "ادخل_عشري" | "input_float" => {
+                let mut input = String::new();
+                io::stdin()
+                    .read_line(&mut input)
+                    .map_err(|e| RuntimeError::internal(format!("Input error: {}", e)))?;
+
+                input
+                    .trim()
+                    .parse::<f64>()
+                    .map(Value::Float)
+                    .map_err(|_| RuntimeError::type_error("float input", "invalid input"))
             }
 
             _ => Err(RuntimeError::undefined_function(name)),
