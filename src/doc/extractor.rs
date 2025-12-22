@@ -388,6 +388,11 @@ mod tests {
     use super::*;
     use crate::parser::Parser;
 
+    /// Helper to wrap source code with required file markers
+    fn wrap_with_markers(source: &str) -> String {
+        format!("بسم_الله\n{}\nالحمد_لله", source.trim())
+    }
+
     #[test]
     fn test_extract_function() {
         let source = r#"
@@ -400,7 +405,8 @@ mod tests {
             }
         "#;
 
-        let mut parser = Parser::new(source);
+        let wrapped = wrap_with_markers(source);
+        let mut parser = Parser::new(&wrapped);
         let ast = parser.parse().unwrap();
         let extractor = DocExtractor::new("test".to_string(), "test.trq".to_string());
         let doc = extractor.extract(&ast);
@@ -437,7 +443,8 @@ mod tests {
             }
         "#;
 
-        let mut parser = Parser::new(source);
+        let wrapped = wrap_with_markers(source);
+        let mut parser = Parser::new(&wrapped);
         let ast = parser.parse().unwrap();
         let extractor = DocExtractor::new("test".to_string(), "test.trq".to_string());
         let doc = extractor.extract(&ast);
@@ -462,7 +469,8 @@ mod tests {
             }
         "#;
 
-        let mut parser = Parser::new(source);
+        let wrapped = wrap_with_markers(source);
+        let mut parser = Parser::new(&wrapped);
         let ast = parser.parse().unwrap();
         let extractor = DocExtractor::new("test".to_string(), "test.trq".to_string());
         let doc = extractor.extract(&ast);

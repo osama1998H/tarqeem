@@ -6,11 +6,37 @@ use crate::error::Span;
 #[derive(Debug, Clone)]
 pub struct Ast {
     pub statements: Vec<Stmt>,
+    /// Span of the بسم_الله file start marker
+    pub bismillah_span: Option<Span>,
+    /// Span of the الحمد_لله file end marker
+    pub alhamdulillah_span: Option<Span>,
 }
 
 impl Ast {
     pub fn new(statements: Vec<Stmt>) -> Self {
-        Self { statements }
+        Self {
+            statements,
+            bismillah_span: None,
+            alhamdulillah_span: None,
+        }
+    }
+
+    /// Create an AST with file markers
+    pub fn with_markers(
+        statements: Vec<Stmt>,
+        bismillah_span: Span,
+        alhamdulillah_span: Span,
+    ) -> Self {
+        Self {
+            statements,
+            bismillah_span: Some(bismillah_span),
+            alhamdulillah_span: Some(alhamdulillah_span),
+        }
+    }
+
+    /// Check if this AST has proper file markers
+    pub fn has_file_markers(&self) -> bool {
+        self.bismillah_span.is_some() && self.alhamdulillah_span.is_some()
     }
 }
 

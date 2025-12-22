@@ -997,9 +997,15 @@ impl Formatter {
 mod tests {
     use super::*;
 
+    /// Helper to wrap source code with required file markers
+    fn wrap_with_markers(source: &str) -> String {
+        format!("بسم_الله\n{}\nالحمد_لله", source.trim())
+    }
+
     fn format(source: &str) -> String {
         let config = FormatConfig::default();
-        let mut parser = crate::parser::Parser::new(source);
+        let wrapped = wrap_with_markers(source);
+        let mut parser = crate::parser::Parser::new(&wrapped);
         let ast = parser.parse().expect("Parse failed");
         let formatter = Formatter::new(config);
         formatter.format(&ast)

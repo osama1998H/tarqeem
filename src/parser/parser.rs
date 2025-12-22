@@ -52,14 +52,55 @@ impl Parser {
     }
 
     /// Parse the entire program
+    /// Files must start with بسم_الله (bismillah) and end with الحمد_لله (alhamdulillah)
     pub fn parse(&mut self) -> Result<Ast, Diagnostic> {
+        // Require file start marker: بسم_الله
+        let bismillah_span = if self.check(&TokenKind::Bismillah) {
+            let span = self.current_span();
+            self.advance();
+            span
+        } else {
+            return Err(Diagnostic::error(
+                "File must start with 'بسم_الله' (bismillah)",
+                "يجب أن يبدأ الملف بـ 'بسم_الله'",
+                self.current_span(),
+            ));
+        };
+
         let mut statements = Vec::new();
 
-        while !self.is_at_end() {
+        // Parse all declarations until we hit الحمد_لله or EOF
+        while !self.is_at_end() && !self.check(&TokenKind::Alhamdulillah) {
             statements.push(self.parse_declaration()?);
         }
 
-        Ok(Ast::new(statements))
+        // Require file end marker: الحمد_لله
+        let alhamdulillah_span = if self.check(&TokenKind::Alhamdulillah) {
+            let span = self.current_span();
+            self.advance();
+            span
+        } else {
+            return Err(Diagnostic::error(
+                "File must end with 'الحمد_لله' (alhamdulillah)",
+                "يجب أن ينتهي الملف بـ 'الحمد_لله'",
+                self.current_span(),
+            ));
+        };
+
+        // Ensure nothing comes after الحمد_لله
+        if !self.is_at_end() {
+            return Err(Diagnostic::error(
+                "No code allowed after 'الحمد_لله' (alhamdulillah)",
+                "لا يُسمح بأي كود بعد 'الحمد_لله'",
+                self.current_span(),
+            ));
+        }
+
+        Ok(Ast::with_markers(
+            statements,
+            bismillah_span,
+            alhamdulillah_span,
+        ))
     }
 
     // ============ Declaration Parsing ============
@@ -1413,9 +1454,10 @@ mod tests {
 
     #[test]
     fn test_parse_variable_declaration() {
-        let mut parser = Parser::new("متغير س = 5;");
+        let mut parser = Parser::new("بسم_الله\nمتغير س = 5;\nالحمد_لله");
         let ast = parser.parse().unwrap();
 
+        assert!(ast.has_file_markers());
         assert_eq!(ast.statements.len(), 1);
         match &ast.statements[0].kind {
             StmtKind::VarDecl {
@@ -1435,13 +1477,16 @@ mod tests {
     #[test]
     fn test_parse_function_declaration() {
         let source = r#"
+            بسم_الله
             دالة جمع(أ: عدد، ب: عدد) -> عدد {
                 أرجع أ + ب;
             }
+            الحمد_لله
         "#;
         let mut parser = Parser::new(source);
         let ast = parser.parse().unwrap();
 
+        assert!(ast.has_file_markers());
         assert_eq!(ast.statements.len(), 1);
         match &ast.statements[0].kind {
             StmtKind::FuncDecl { name, params, .. } => {
@@ -1455,15 +1500,18 @@ mod tests {
     #[test]
     fn test_parse_if_statement() {
         let source = r#"
+            بسم_الله
             إذا (س > 5) {
                 اطبع("كبير");
             } وإلا {
                 اطبع("صغير");
             }
+            الحمد_لله
         "#;
         let mut parser = Parser::new(source);
         let ast = parser.parse().unwrap();
 
+        assert!(ast.has_file_markers());
         assert_eq!(ast.statements.len(), 1);
         match &ast.statements[0].kind {
             StmtKind::If { else_branch, .. } => {
@@ -1476,6 +1524,7 @@ mod tests {
     #[test]
     fn test_parse_class_declaration() {
         let source = r#"
+            بسم_الله
             صنف شخص {
                 خاص اسم: نص;
 
@@ -1487,10 +1536,12 @@ mod tests {
                     أرجع هذا.اسم;
                 }
             }
+            الحمد_لله
         "#;
         let mut parser = Parser::new(source);
         let ast = parser.parse().unwrap();
 
+        assert!(ast.has_file_markers());
         assert_eq!(ast.statements.len(), 1);
         match &ast.statements[0].kind {
             StmtKind::ClassDecl { name, members, .. } => {
@@ -1503,20 +1554,22 @@ mod tests {
 
     #[test]
     fn test_parse_expressions() {
-        let source = "1 + 2 * 3;";
+        let source = "بسم_الله\n1 + 2 * 3;\nالحمد_لله";
         let mut parser = Parser::new(source);
         let ast = parser.parse().unwrap();
 
         // Should parse as 1 + (2 * 3) due to precedence
+        assert!(ast.has_file_markers());
         assert_eq!(ast.statements.len(), 1);
     }
 
     #[test]
     fn test_parse_array_literal() {
-        let source = "[1، 2، 3];";
+        let source = "بسم_الله\n[1، 2، 3];\nالحمد_لله";
         let mut parser = Parser::new(source);
         let ast = parser.parse().unwrap();
 
+        assert!(ast.has_file_markers());
         match &ast.statements[0].kind {
             StmtKind::Expr(expr) => match &expr.kind {
                 ExprKind::Array(elements) => {
@@ -1531,14 +1584,17 @@ mod tests {
     #[test]
     fn test_parse_doc_comment_on_function() {
         let source = r#"
+            بسم_الله
             /// دالة لحساب مجموع عددين
             دالة جمع(أ: عدد، ب: عدد) -> عدد {
                 أرجع أ + ب;
             }
+            الحمد_لله
         "#;
         let mut parser = Parser::new(source);
         let ast = parser.parse().unwrap();
 
+        assert!(ast.has_file_markers());
         assert_eq!(ast.statements.len(), 1);
         match &ast.statements[0].kind {
             StmtKind::FuncDecl {
@@ -1558,6 +1614,7 @@ mod tests {
     #[test]
     fn test_parse_doc_comment_on_class() {
         let source = r#"
+            بسم_الله
             /**
              * صنف لتمثيل شخص
              * @معامل اسم - اسم الشخص
@@ -1571,10 +1628,12 @@ mod tests {
                     أرجع هذا.اسم;
                 }
             }
+            الحمد_لله
         "#;
         let mut parser = Parser::new(source);
         let ast = parser.parse().unwrap();
 
+        assert!(ast.has_file_markers());
         assert_eq!(ast.statements.len(), 1);
         match &ast.statements[0].kind {
             StmtKind::ClassDecl {
@@ -1611,5 +1670,58 @@ mod tests {
             }
             _ => panic!("Expected ClassDecl"),
         }
+    }
+
+    #[test]
+    fn test_missing_file_start_marker() {
+        let source = "متغير س = 5;\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("بسم_الله") || err.message.contains("bismillah"));
+    }
+
+    #[test]
+    fn test_missing_file_end_marker() {
+        let source = "بسم_الله\nمتغير س = 5;";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("الحمد_لله") || err.message.contains("alhamdulillah"));
+    }
+
+    #[test]
+    fn test_code_after_file_end_marker() {
+        let source = "بسم_الله\nمتغير س = 5;\nالحمد_لله\nمتغير ع = 10;";
+        let mut parser = Parser::new(source);
+        let result = parser.parse();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("No code allowed after"));
+    }
+
+    #[test]
+    fn test_english_file_markers() {
+        let source = "bismillah\nlet x = 5;\nalhamdulillah";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().unwrap();
+
+        assert!(ast.has_file_markers());
+        assert_eq!(ast.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_empty_file_with_markers() {
+        let source = "بسم_الله\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().unwrap();
+
+        assert!(ast.has_file_markers());
+        assert_eq!(ast.statements.len(), 0);
     }
 }

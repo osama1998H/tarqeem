@@ -11,6 +11,11 @@ fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+/// Helper to wrap source code with required file markers (بسم_الله and الحمد_لله)
+fn wrap_with_markers(source: &str) -> String {
+    format!("بسم_الله\n{}\nالحمد_لله", source.trim())
+}
+
 /// Helper to run a Tarqeem source file through the interpreter
 fn interpret_source(source: &str) -> Result<String, String> {
     use tarqeem::interpreter::Interpreter;
@@ -19,8 +24,11 @@ fn interpret_source(source: &str) -> Result<String, String> {
     use tarqeem::parser::Parser;
     use tarqeem::semantic::Analyzer;
 
+    // Wrap source with file markers
+    let wrapped_source = wrap_with_markers(source);
+
     // Parse
-    let mut parser = Parser::new(source);
+    let mut parser = Parser::new(&wrapped_source);
     let ast = parser.parse().map_err(|e| e.message)?;
 
     // Analyze
@@ -52,8 +60,16 @@ fn interpret_source(source: &str) -> Result<String, String> {
     Ok(format!("{}", result))
 }
 
-/// Helper to check if source parses successfully
+/// Helper to check if source parses successfully (wraps with markers)
 fn parses_ok(source: &str) -> bool {
+    use tarqeem::parser::Parser;
+    let wrapped_source = wrap_with_markers(source);
+    let mut parser = Parser::new(&wrapped_source);
+    parser.parse().is_ok()
+}
+
+/// Helper to check if source parses successfully (source already has markers)
+fn parses_ok_with_markers(source: &str) -> bool {
     use tarqeem::parser::Parser;
     let mut parser = Parser::new(source);
     parser.parse().is_ok()
@@ -64,7 +80,8 @@ fn analyzes_ok(source: &str) -> bool {
     use tarqeem::parser::Parser;
     use tarqeem::semantic::Analyzer;
 
-    let mut parser = Parser::new(source);
+    let wrapped_source = wrap_with_markers(source);
+    let mut parser = Parser::new(&wrapped_source);
     let ast = match parser.parse() {
         Ok(ast) => ast,
         Err(_) => return false,
@@ -345,8 +362,9 @@ mod examples {
         let path = project_root().join("examples/مرحبا.ترقيم");
         if path.exists() {
             let source = fs::read_to_string(&path).expect("Failed to read example file");
+            // Example files already have file markers (بسم_الله / الحمد_لله)
             assert!(
-                parses_ok(&source),
+                parses_ok_with_markers(&source),
                 "Example file مرحبا.ترقيم failed to parse"
             );
         }
@@ -357,8 +375,9 @@ mod examples {
         let path = project_root().join("examples/اختبار_بسيط.ترقيم");
         if path.exists() {
             let source = fs::read_to_string(&path).expect("Failed to read example file");
+            // Example files already have file markers (بسم_الله / الحمد_لله)
             assert!(
-                parses_ok(&source),
+                parses_ok_with_markers(&source),
                 "Example file اختبار_بسيط.ترقيم failed to parse"
             );
         }
@@ -369,8 +388,9 @@ mod examples {
         let path = project_root().join("examples/متغيرات.ترقيم");
         if path.exists() {
             let source = fs::read_to_string(&path).expect("Failed to read example file");
+            // Example files already have file markers (بسم_الله / الحمد_لله)
             assert!(
-                parses_ok(&source),
+                parses_ok_with_markers(&source),
                 "Example file متغيرات.ترقيم failed to parse"
             );
         }
@@ -381,8 +401,9 @@ mod examples {
         let path = project_root().join("examples/اختبار_مجموعات.ترقيم");
         if path.exists() {
             let source = fs::read_to_string(&path).expect("Failed to read example file");
+            // Example files already have file markers (بسم_الله / الحمد_لله)
             assert!(
-                parses_ok(&source),
+                parses_ok_with_markers(&source),
                 "Example file اختبار_مجموعات.ترقيم failed to parse"
             );
         }

@@ -2730,8 +2730,14 @@ mod tests {
     use super::*;
     use crate::parser::Parser;
 
+    /// Helper to wrap source code with required file markers
+    fn wrap_with_markers(source: &str) -> String {
+        format!("بسم_الله\n{}\nالحمد_لله", source.trim())
+    }
+
     fn build_ir(source: &str) -> Result<Module> {
-        let mut parser = Parser::new(source);
+        let wrapped = wrap_with_markers(source);
+        let mut parser = Parser::new(&wrapped);
         let ast = parser.parse().expect("Failed to parse");
         let builder = IrBuilder::new("test".to_string());
         builder.build(&ast)
