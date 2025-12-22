@@ -227,10 +227,10 @@ fn test_parse_match_statement() {
 #[test]
 fn test_parse_match_with_multiple_patterns() {
     let source = r#"
-        match (day) {
-            case 1, 2, 3 => print("weekday")
-            case 6, 7 => print("weekend")
-            default => print("unknown")
+        تطابق (يوم) {
+            حالة 1، 2، 3 => اطبع("يوم عمل")
+            حالة 6، 7 => اطبع("عطلة")
+            غير_ذلك => اطبع("غير معروف")
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -251,13 +251,13 @@ fn test_parse_match_with_multiple_patterns() {
 #[test]
 fn test_parse_match_with_block_body() {
     let source = r#"
-        match (x) {
-            case 1 => {
-                y = 10;
-                z = 20;
+        تطابق (س) {
+            حالة 1 => {
+                ص = 10؛
+                ع = 20؛
             }
-            default => {
-                y = 0;
+            غير_ذلك => {
+                ص = 0؛
             }
         }
     "#;
