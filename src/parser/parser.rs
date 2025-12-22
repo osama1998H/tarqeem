@@ -1951,8 +1951,8 @@ mod tests {
     }
 
     #[test]
-    fn test_english_file_markers() {
-        let source = "bismillah\nlet x = 5;\nalhamdulillah";
+    fn test_file_markers_with_statement() {
+        let source = "بسم_الله\nمتغير س = 5;\nالحمد_لله";
         let mut parser = Parser::new(source);
         let ast = parser.parse().unwrap();
 

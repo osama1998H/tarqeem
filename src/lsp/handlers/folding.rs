@@ -390,17 +390,16 @@ mod tests {
     #[test]
     fn test_folding_ranges_function() {
         let uri = Url::parse("file:///test.trq").unwrap();
-        // Use English keywords for consistent parsing in tests
         let content = wrap_with_markers(
             r#"
-function add(a: int, b: int) -> int {
-    return a + b
+دالة جمع_م(أ: عدد، ب: عدد) -> عدد {
+    أرجع أ + ب
 }
 "#,
         );
         let mut doc = DocumentState::new(uri, 1, content);
 
-        let ranges = handle_folding_ranges(&mut doc, Language::English);
+        let ranges = handle_folding_ranges(&mut doc, Language::Arabic);
         assert!(ranges.is_some());
         let ranges = ranges.unwrap();
         assert!(!ranges.is_empty());

@@ -44,10 +44,10 @@ fn test_parse_while_loop() {
 }
 
 #[test]
-fn test_parse_while_loop_english() {
+fn test_parse_while_loop_arabic_alt() {
     let source = r#"
-        while (x < 10) {
-            x = x + 1;
+        طالما (ص < 10) {
+            ص = ص + 1;
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -85,10 +85,10 @@ fn test_parse_for_loop_c_style() {
 }
 
 #[test]
-fn test_parse_for_loop_english() {
+fn test_parse_for_loop_arabic_alt() {
     let source = r#"
-        for (let i = 0; i < 10; i++) {
-            print(i);
+        لكل (متغير م = 0؛ م < 10؛ م++) {
+            اطبع(م);
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -127,10 +127,10 @@ fn test_parse_for_in_loop() {
 }
 
 #[test]
-fn test_parse_for_in_loop_english() {
+fn test_parse_for_in_loop_arabic_alt() {
     let source = r#"
-        for item in items {
-            print(item);
+        لكل بند في بنود {
+            اطبع(بند);
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -139,7 +139,7 @@ fn test_parse_for_in_loop_english() {
     assert_eq!(ast.statements.len(), 1);
     match &ast.statements[0].kind {
         StmtKind::ForIn { variable, .. } => {
-            assert_eq!(variable, "item");
+            assert_eq!(variable, "بند");
         }
         _ => panic!("Expected ForIn statement"),
     }
@@ -148,8 +148,8 @@ fn test_parse_for_in_loop_english() {
 #[test]
 fn test_parse_for_loop_no_init() {
     let source = r#"
-        for (; i < 10; i++) {
-            x = x + 1;
+        لكل (؛ ع < 10؛ ع++) {
+            س = س + 1;
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -173,8 +173,8 @@ fn test_parse_for_loop_no_init() {
 #[test]
 fn test_parse_for_loop_no_update() {
     let source = r#"
-        for (let i = 0; i < 10;) {
-            i = i + 2;
+        لكل (متغير ع = 0؛ ع < 10؛) {
+            ع = ع + 2;
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -304,7 +304,7 @@ fn test_parse_named_import() {
 #[test]
 fn test_parse_named_import_with_alias() {
     let source = r#"
-        import { List as MyList, Map as MyMap } from "collections";
+        استورد { قائمة كـ قائمتي، خريطة كـ خريطتي } من "مجموعات";
     "#;
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
@@ -312,10 +312,10 @@ fn test_parse_named_import_with_alias() {
     match &ast.statements[0].kind {
         StmtKind::Import { items, .. } => match items {
             ImportItems::Named(imports) => {
-                assert_eq!(imports[0].name, "List");
-                assert_eq!(imports[0].alias, Some("MyList".to_string()));
-                assert_eq!(imports[1].name, "Map");
-                assert_eq!(imports[1].alias, Some("MyMap".to_string()));
+                assert_eq!(imports[0].name, "قائمة");
+                assert_eq!(imports[0].alias, Some("قائمتي".to_string()));
+                assert_eq!(imports[1].name, "خريطة");
+                assert_eq!(imports[1].alias, Some("خريطتي".to_string()));
             }
             _ => panic!("Expected named imports"),
         },
@@ -348,7 +348,7 @@ fn test_parse_wildcard_import() {
 #[test]
 fn test_parse_default_import() {
     let source = r#"
-        import MyModule from "module";
+        استورد وحدتي من "وحدة";
     "#;
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
@@ -356,7 +356,7 @@ fn test_parse_default_import() {
     match &ast.statements[0].kind {
         StmtKind::Import { items, .. } => match items {
             ImportItems::Default(name) => {
-                assert_eq!(name, "MyModule");
+                assert_eq!(name, "وحدتي");
             }
             _ => panic!("Expected default import"),
         },
@@ -388,9 +388,9 @@ fn test_parse_export_function() {
 #[test]
 fn test_parse_export_class() {
     let source = r#"
-        export class Helper {
-            public function help() {
-                return 1;
+        صدّر صنف مساعد {
+            عام دالة ساعد() {
+                أرجع 1;
             }
         }
     "#;
@@ -400,7 +400,7 @@ fn test_parse_export_class() {
     match &ast.statements[0].kind {
         StmtKind::Export(inner) => match &inner.kind {
             StmtKind::ClassDecl { name, .. } => {
-                assert_eq!(name, "Helper");
+                assert_eq!(name, "مساعد");
             }
             _ => panic!("Expected ClassDecl inside export"),
         },
@@ -444,12 +444,12 @@ fn test_parse_try_catch() {
 #[test]
 fn test_parse_try_catch_finally() {
     let source = r#"
-        try {
-            dangerous();
-        } catch (error) {
-            log(error);
-        } finally {
-            cleanup();
+        حاول {
+            خطير();
+        } التقط (خطأ_م) {
+            سجل(خطأ_م);
+        } أخيراً {
+            نظف();
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -472,10 +472,10 @@ fn test_parse_try_catch_finally() {
 #[test]
 fn test_parse_try_finally_no_catch() {
     let source = r#"
-        try {
-            action();
-        } finally {
-            cleanup();
+        حاول {
+            نفذ();
+        } أخيراً {
+            نظف();
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -516,8 +516,8 @@ fn test_parse_throw_statement() {
 #[test]
 fn test_parse_break_statement() {
     let source = r#"
-        while (true) {
-            break;
+        طالما (صحيح) {
+            أوقف;
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -627,22 +627,22 @@ fn test_precedence_power_right_associative() {
 
 #[test]
 fn test_precedence_comparison_and_logical() {
-    let source = "a > b && c < d;";
+    let source = "أ > ب && ج < د;";
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
-    // Should parse as (a > b) && (c < d)
+    // Should parse as (أ > ب) && (ج < د)
     match &ast.statements[0].kind {
         StmtKind::Expr(expr) => {
             match &expr.kind {
                 ExprKind::Binary { op, left, right } => {
                     assert_eq!(*op, BinaryOp::And);
-                    // Left should be a > b
+                    // Left should be أ > ب
                     match &left.kind {
                         ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Gt),
                         _ => panic!("Expected comparison"),
                     }
-                    // Right should be c < d
+                    // Right should be ج < د
                     match &right.kind {
                         ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Lt),
                         _ => panic!("Expected comparison"),
@@ -691,7 +691,7 @@ fn test_precedence_parentheses() {
 
 #[test]
 fn test_parse_ternary_expression() {
-    let source = "x > 0 ? 1 : -1;";
+    let source = "س > 0 ? 1 : -1;";
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
@@ -725,17 +725,17 @@ fn test_parse_ternary_expression() {
 
 #[test]
 fn test_parse_member_access() {
-    let source = "obj.field.subfield;";
+    let source = "كائن.حقل.حقل_فرعي;";
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
         StmtKind::Expr(expr) => match &expr.kind {
             ExprKind::Member { object, property } => {
-                assert_eq!(property, "subfield");
+                assert_eq!(property, "حقل_فرعي");
                 match &object.kind {
                     ExprKind::Member { property, .. } => {
-                        assert_eq!(property, "field");
+                        assert_eq!(property, "حقل");
                     }
                     _ => panic!("Expected member access"),
                 }
@@ -748,7 +748,7 @@ fn test_parse_member_access() {
 
 #[test]
 fn test_parse_index_access() {
-    let source = "arr[0][1];";
+    let source = "أرقام[0][1];";
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
@@ -775,7 +775,7 @@ fn test_parse_index_access() {
 
 #[test]
 fn test_parse_function_call_chain() {
-    let source = "a().b().c();";
+    let source = "أ().ب().ج();";
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
@@ -783,7 +783,7 @@ fn test_parse_function_call_chain() {
         StmtKind::Expr(expr) => match &expr.kind {
             ExprKind::Call { callee, .. } => match &callee.kind {
                 ExprKind::Member { property, .. } => {
-                    assert_eq!(property, "c");
+                    assert_eq!(property, "ج");
                 }
                 _ => panic!("Expected member access"),
             },
@@ -795,7 +795,7 @@ fn test_parse_function_call_chain() {
 
 #[test]
 fn test_parse_compound_assignment() {
-    let source = "x += 5;";
+    let source = "س += 5;";
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
@@ -804,7 +804,7 @@ fn test_parse_compound_assignment() {
             ExprKind::CompoundAssignment { target, op, value } => {
                 assert_eq!(*op, BinaryOp::Add);
                 match &target.kind {
-                    ExprKind::Identifier(name) => assert_eq!(name, "x"),
+                    ExprKind::Identifier(name) => assert_eq!(name, "س"),
                     _ => panic!("Expected identifier"),
                 }
                 match &value.kind {
@@ -821,11 +821,11 @@ fn test_parse_compound_assignment() {
 #[test]
 fn test_parse_all_compound_assignments() {
     let operators = vec![
-        ("x += 1;", BinaryOp::Add),
-        ("x -= 1;", BinaryOp::Sub),
-        ("x *= 1;", BinaryOp::Mul),
-        ("x /= 1;", BinaryOp::Div),
-        ("x %= 1;", BinaryOp::Mod),
+        ("س += 1;", BinaryOp::Add),
+        ("س -= 1;", BinaryOp::Sub),
+        ("س *= 1;", BinaryOp::Mul),
+        ("س /= 1;", BinaryOp::Div),
+        ("س %= 1;", BinaryOp::Mod),
     ];
 
     for (source, expected_op) in operators {
@@ -846,7 +846,7 @@ fn test_parse_all_compound_assignments() {
 
 #[test]
 fn test_parse_prefix_increment() {
-    let source = "++x;";
+    let source = "++س;";
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
@@ -864,7 +864,7 @@ fn test_parse_prefix_increment() {
 
 #[test]
 fn test_parse_postfix_increment() {
-    let source = "x++;";
+    let source = "س++;";
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
@@ -906,9 +906,9 @@ fn test_parse_class_with_inheritance() {
 #[test]
 fn test_parse_class_with_interface() {
     let source = r#"
-        class Dog implements Animal {
-            public function speak() {
-                print("Woof");
+        صنف كلب يطبق حيوان {
+            عام دالة تكلم() {
+                اطبع("هاو");
             }
         }
     "#;
@@ -919,9 +919,9 @@ fn test_parse_class_with_interface() {
         StmtKind::ClassDecl {
             name, implements, ..
         } => {
-            assert_eq!(name, "Dog");
+            assert_eq!(name, "كلب");
             assert_eq!(implements.len(), 1);
-            assert_eq!(implements[0], "Animal");
+            assert_eq!(implements[0], "حيوان");
         }
         _ => panic!("Expected ClassDecl"),
     }
@@ -930,7 +930,7 @@ fn test_parse_class_with_interface() {
 #[test]
 fn test_parse_class_with_multiple_interfaces() {
     let source = r#"
-        class MyClass implements Interface1, Interface2, Interface3 {
+        صنف صنفي يطبق واجهة١، واجهة٢، واجهة٣ {
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -969,11 +969,11 @@ fn test_parse_interface_with_methods() {
 #[test]
 fn test_parse_class_static_members() {
     let source = r#"
-        class Counter {
-            static count: int;
+        صنف عداد_م {
+            ثابت_صنف قيمة: عدد;
 
-            static function increment() {
-                Counter.count = Counter.count + 1;
+            ثابت_صنف دالة زد() {
+                عداد_م.قيمة = عداد_م.قيمة + 1;
             }
         }
     "#;
@@ -987,7 +987,7 @@ fn test_parse_class_static_members() {
                     is_static, name, ..
                 } => {
                     assert!(*is_static);
-                    assert_eq!(name, "count");
+                    assert_eq!(name, "قيمة");
                 }
                 _ => panic!("Expected static field"),
             }
@@ -996,7 +996,7 @@ fn test_parse_class_static_members() {
                     is_static, name, ..
                 } => {
                     assert!(*is_static);
-                    assert_eq!(name, "increment");
+                    assert_eq!(name, "زد");
                 }
                 _ => panic!("Expected static method"),
             }
@@ -1034,9 +1034,9 @@ fn test_parse_generic_class() {
 #[test]
 fn test_parse_generic_class_multiple_params() {
     let source = r#"
-        class Map<K, V> {
-            private keys: Array<K>;
-            private values: Array<V>;
+        صنف خريطة<م، ق> {
+            خاص مفاتيح: مصفوفة<م>;
+            خاص قيم: مصفوفة<ق>;
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -1045,8 +1045,8 @@ fn test_parse_generic_class_multiple_params() {
     match &ast.statements[0].kind {
         StmtKind::ClassDecl { type_params, .. } => {
             assert_eq!(type_params.len(), 2);
-            assert_eq!(type_params[0], "K");
-            assert_eq!(type_params[1], "V");
+            assert_eq!(type_params[0], "م");
+            assert_eq!(type_params[1], "ق");
         }
         _ => panic!("Expected ClassDecl"),
     }
@@ -1055,8 +1055,8 @@ fn test_parse_generic_class_multiple_params() {
 #[test]
 fn test_parse_generic_interface() {
     let source = r#"
-        interface Comparable<T> {
-            function compare(other: T) -> int
+        واجهة قابل_للمقارنة<ن> {
+            دالة قارن(آخر: ن) -> عدد
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -1065,7 +1065,7 @@ fn test_parse_generic_interface() {
     match &ast.statements[0].kind {
         StmtKind::InterfaceDecl { type_params, .. } => {
             assert_eq!(type_params.len(), 1);
-            assert_eq!(type_params[0], "T");
+            assert_eq!(type_params[0], "ن");
         }
         _ => panic!("Expected InterfaceDecl"),
     }
@@ -1123,9 +1123,9 @@ fn test_parse_async_function() {
 #[test]
 fn test_parse_await_expression() {
     let source = r#"
-        async function fetchData() {
-            let data = await getData();
-            return data;
+        غير_متزامن دالة احضر_بيانات() {
+            متغير بيانات = انتظر احصل_بيانات();
+            أرجع بيانات;
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -1176,7 +1176,7 @@ fn test_parse_object_literal() {
 
 #[test]
 fn test_parse_empty_object_literal() {
-    let source = "let obj = {};";
+    let source = "متغير كائن = {};";
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
@@ -1221,7 +1221,7 @@ fn test_parse_optional_type() {
 #[test]
 fn test_parse_generic_type() {
     let source = r#"
-        let items: Array<int>;
+        متغير عناصر: مصفوفة<عدد>;
     "#;
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
@@ -1231,7 +1231,7 @@ fn test_parse_generic_type() {
             let type_ann = ty.as_ref().unwrap();
             match &type_ann.kind {
                 TypeKind::Generic { base, args } => {
-                    assert_eq!(base, "Array");
+                    assert_eq!(base, "مصفوفة");
                     assert_eq!(args.len(), 1);
                 }
                 _ => panic!("Expected generic type"),
@@ -1244,7 +1244,7 @@ fn test_parse_generic_type() {
 #[test]
 fn test_parse_nested_generic_type() {
     let source = r#"
-        let data: Map<string, Array<int>>;
+        متغير بيانات: خريطة<نص، مصفوفة<عدد>>;
     "#;
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
@@ -1254,11 +1254,11 @@ fn test_parse_nested_generic_type() {
             let type_ann = ty.as_ref().unwrap();
             match &type_ann.kind {
                 TypeKind::Generic { base, args } => {
-                    assert_eq!(base, "Map");
+                    assert_eq!(base, "خريطة");
                     assert_eq!(args.len(), 2);
                     match &args[1].kind {
                         TypeKind::Generic { base, .. } => {
-                            assert_eq!(base, "Array");
+                            assert_eq!(base, "مصفوفة");
                         }
                         _ => panic!("Expected nested generic type"),
                     }
@@ -1277,11 +1277,11 @@ fn test_parse_nested_generic_type() {
 #[test]
 fn test_parse_this_expression() {
     let source = r#"
-        class Person {
-            private name: string;
+        صنف شخص {
+            خاص اسم: نص;
 
-            public function getName() -> string {
-                return this.name;
+            عام دالة احصل_اسم() -> نص {
+                أرجع هذا.اسم;
             }
         }
     "#;
@@ -1294,7 +1294,7 @@ fn test_parse_this_expression() {
                 StmtKind::Return(Some(expr)) => match &expr.kind {
                     ExprKind::Member { object, property } => {
                         assert!(matches!(&object.kind, ExprKind::This));
-                        assert_eq!(property, "name");
+                        assert_eq!(property, "اسم");
                     }
                     _ => panic!("Expected member access"),
                 },
@@ -1343,10 +1343,10 @@ fn test_parse_super_expression() {
 #[test]
 fn test_parse_visibility_modifiers() {
     let source = r#"
-        class MyClass {
-            public x: int;
-            private y: int;
-            protected z: int;
+        صنف صنفي {
+            عام س: عدد;
+            خاص ص: عدد;
+            محمي ع: عدد;
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -1384,7 +1384,7 @@ fn test_parse_visibility_modifiers() {
 #[test]
 fn test_parse_empty_block() {
     let source = r#"
-        function empty() {
+        دالة فارغة() {
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -1402,8 +1402,8 @@ fn test_parse_empty_block() {
 fn test_parse_semicolon_insertion() {
     // Semicolons should be optional at end of lines
     let source = r#"
-        let x = 1
-        let y = 2
+        متغير س = 1
+        متغير ص = 2
     "#;
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
@@ -1414,8 +1414,8 @@ fn test_parse_semicolon_insertion() {
 #[test]
 fn test_parse_return_without_value() {
     let source = r#"
-        function doNothing() {
-            return;
+        دالة لا_شيء() {
+            أرجع;
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -1435,8 +1435,8 @@ fn test_parse_return_without_value() {
 #[test]
 fn test_parse_function_with_default_params() {
     let source = r#"
-        function greet(name: string = "World") {
-            print("Hello, " + name);
+        دالة رحب(اسم: نص = "العالم") {
+            اطبع("مرحبا، " + اسم);
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -1453,14 +1453,14 @@ fn test_parse_function_with_default_params() {
 
 #[test]
 fn test_parse_const_declaration() {
-    let source = "ثابت PI = 3.14159;";
+    let source = "ثابت باي = 3.14159;";
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
         StmtKind::VarDecl { mutable, name, .. } => {
             assert!(!*mutable);
-            assert_eq!(name, "PI");
+            assert_eq!(name, "باي");
         }
         _ => panic!("Expected VarDecl"),
     }
@@ -1469,14 +1469,14 @@ fn test_parse_const_declaration() {
 #[test]
 fn test_parse_if_else_if() {
     let source = r#"
-        if (x > 10) {
-            y = 1;
-        } else if (x > 5) {
-            y = 2;
-        } else if (x > 0) {
-            y = 3;
-        } else {
-            y = 0;
+        إذا (س > 10) {
+            ص = 1;
+        } وإلا إذا (س > 5) {
+            ص = 2;
+        } وإلا إذا (س > 0) {
+            ص = 3;
+        } وإلا {
+            ص = 0;
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -1524,11 +1524,11 @@ fn test_parse_do_while_loop_arabic() {
 }
 
 #[test]
-fn test_parse_do_while_loop_english() {
+fn test_parse_do_while_loop_arabic_alt() {
     let source = r#"
-        do {
-            counter = counter + 1;
-        } while (counter < 5)
+        افعل {
+            عداد_م = عداد_م + 1;
+        } طالما (عداد_م < 5)
     "#;
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
@@ -1560,9 +1560,9 @@ fn test_parse_do_while_with_break() {
 #[test]
 fn test_parse_do_while_with_semicolon() {
     let source = r#"
-        do {
-            x++;
-        } while (x < 5);
+        افعل {
+            س++;
+        } طالما (س < 5);
     "#;
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
@@ -1724,22 +1724,22 @@ fn test_parse_arrow_function_typed_params() {
 }
 
 #[test]
-fn test_parse_arrow_function_english() {
+fn test_parse_arrow_function_arabic_alt() {
     let source = r#"
-        const add = (a, b) => a + b;
+        ثابت جمع_م = (أ_م، ب_م) => أ_م + ب_م;
     "#;
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
         StmtKind::VarDecl { name, init, .. } => {
-            assert_eq!(name, "add");
+            assert_eq!(name, "جمع_م");
             let init = init.as_ref().expect("Expected initializer");
             match &init.kind {
                 ExprKind::Lambda { params, .. } => {
                     assert_eq!(params.len(), 2);
-                    assert_eq!(params[0].name, "a");
-                    assert_eq!(params[1].name, "b");
+                    assert_eq!(params[0].name, "أ_م");
+                    assert_eq!(params[1].name, "ب_م");
                 }
                 _ => panic!("Expected Lambda expression"),
             }

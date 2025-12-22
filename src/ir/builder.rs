@@ -2879,23 +2879,23 @@ mod tests {
 
     #[test]
     fn test_global_constant() {
-        let source = "ثابت PI = 3";
+        let source = "ثابت باي = 3";
         let module = build_ir(source).expect("Failed to build IR");
         // Should have one global variable
         assert_eq!(module.globals.len(), 1);
         let (name, ty, init) = &module.globals[0];
-        assert_eq!(name, "PI");
+        assert_eq!(name, "باي");
         assert!(matches!(ty, IrType::Int));
         assert!(matches!(init, Some(Constant::Int(3))));
     }
 
     #[test]
     fn test_global_mutable_variable() {
-        let source = "متغير counter = 0";
+        let source = "متغير عداد = 0";
         let module = build_ir(source).expect("Failed to build IR");
         assert_eq!(module.globals.len(), 1);
         let (name, ty, init) = &module.globals[0];
-        assert_eq!(name, "counter");
+        assert_eq!(name, "عداد");
         assert!(matches!(ty, IrType::Int));
         assert!(matches!(init, Some(Constant::Int(0))));
     }
@@ -2903,27 +2903,27 @@ mod tests {
     #[test]
     fn test_multiple_globals() {
         let source = r#"
-            متغير x = 10
-            ثابت Y = 20
-            متغير z = 30
+            متغير س = 10
+            ثابت ص = 20
+            متغير ع = 30
         "#;
         let module = build_ir(source).expect("Failed to build IR");
         assert_eq!(module.globals.len(), 3);
 
         // Check all globals are present
         let names: Vec<&String> = module.globals.iter().map(|(n, _, _)| n).collect();
-        assert!(names.contains(&&"x".to_string()));
-        assert!(names.contains(&&"Y".to_string()));
-        assert!(names.contains(&&"z".to_string()));
+        assert!(names.contains(&&"س".to_string()));
+        assert!(names.contains(&&"ص".to_string()));
+        assert!(names.contains(&&"ع".to_string()));
     }
 
     #[test]
     fn test_global_access_in_function() {
         let source = r#"
-            متغير counter = 0
+            متغير عداد = 0
 
-            دالة increment() {
-                counter = counter + 1
+            دالة زد() {
+                عداد = عداد + 1
             }
         "#;
         let module = build_ir(source).expect("Failed to build IR");
@@ -2931,24 +2931,24 @@ mod tests {
         // Should have one global
         assert_eq!(module.globals.len(), 1);
 
-        // Should have the increment function
-        let increment_fn = module.functions.iter().find(|f| f.name == "increment");
+        // Should have the زد function
+        let increment_fn = module.functions.iter().find(|f| f.name == "زد");
         assert!(increment_fn.is_some());
 
         let func = increment_fn.unwrap();
         // Function should have GlobalLoad and GlobalStore instructions
         let has_global_load = func.blocks.iter().any(|block| {
             block.instructions.iter().any(
-                |inst| matches!(inst, Instruction::GlobalLoad { name, .. } if name == "counter"),
+                |inst| matches!(inst, Instruction::GlobalLoad { name, .. } if name == "عداد"),
             )
         });
         let has_global_store = func.blocks.iter().any(|block| {
             block.instructions.iter().any(
-                |inst| matches!(inst, Instruction::GlobalStore { name, .. } if name == "counter"),
+                |inst| matches!(inst, Instruction::GlobalStore { name, .. } if name == "عداد"),
             )
         });
-        assert!(has_global_load, "Should have GlobalLoad for counter");
-        assert!(has_global_store, "Should have GlobalStore for counter");
+        assert!(has_global_load, "Should have GlobalLoad for عداد");
+        assert!(has_global_store, "Should have GlobalStore for عداد");
     }
 
     #[test]
@@ -2962,7 +2962,7 @@ mod tests {
 
     #[test]
     fn test_global_boolean() {
-        let source = "متغير flag = صحيح";
+        let source = "متغير علامة = صحيح";
         let module = build_ir(source).expect("Failed to build IR");
         assert_eq!(module.globals.len(), 1);
         let (_, ty, init) = &module.globals[0];
@@ -2973,9 +2973,9 @@ mod tests {
     #[test]
     fn test_local_variable_in_function() {
         let source = r#"
-            دالة test() {
-                متغير local = 5
-                أرجع local
+            دالة اختبار() {
+                متغير محلي = 5
+                أرجع محلي
             }
         "#;
         let module = build_ir(source).expect("Failed to build IR");
@@ -2984,7 +2984,7 @@ mod tests {
         assert_eq!(module.globals.len(), 0);
 
         // Function should exist with Alloca for local variable
-        let test_fn = module.functions.iter().find(|f| f.name == "test");
+        let test_fn = module.functions.iter().find(|f| f.name == "اختبار");
         assert!(test_fn.is_some());
 
         let func = test_fn.unwrap();
