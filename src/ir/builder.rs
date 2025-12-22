@@ -2938,14 +2938,16 @@ mod tests {
         let func = increment_fn.unwrap();
         // Function should have GlobalLoad and GlobalStore instructions
         let has_global_load = func.blocks.iter().any(|block| {
-            block.instructions.iter().any(
-                |inst| matches!(inst, Instruction::GlobalLoad { name, .. } if name == "عداد"),
-            )
+            block
+                .instructions
+                .iter()
+                .any(|inst| matches!(inst, Instruction::GlobalLoad { name, .. } if name == "عداد"))
         });
         let has_global_store = func.blocks.iter().any(|block| {
-            block.instructions.iter().any(
-                |inst| matches!(inst, Instruction::GlobalStore { name, .. } if name == "عداد"),
-            )
+            block
+                .instructions
+                .iter()
+                .any(|inst| matches!(inst, Instruction::GlobalStore { name, .. } if name == "عداد"))
         });
         assert!(has_global_load, "Should have GlobalLoad for عداد");
         assert!(has_global_store, "Should have GlobalStore for عداد");

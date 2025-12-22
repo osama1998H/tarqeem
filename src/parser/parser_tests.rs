@@ -1811,3 +1811,95 @@ fn test_parse_grouping_not_arrow_function() {
         _ => panic!("Expected expression statement"),
     }
 }
+
+// =============================================================================
+// Error Recovery Tests
+// =============================================================================
+
+#[test]
+fn test_error_recovery_multiple_errors_in_block() {
+    // Multiple syntax errors in a block - should collect all errors
+    let source = r#"
+        دالة اختبار() {
+            متغير = 5;
+            متغير ص = 10;
+            ثابت = 20;
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    // Should fail, but with multiple errors collected
+    assert!(result.is_err());
+    let errors = parser.get_errors();
+    assert!(
+        errors.len() >= 2,
+        "Expected at least 2 errors, got {}",
+        errors.len()
+    );
+}
+
+#[test]
+fn test_error_recovery_valid_code_after_error() {
+    // Error followed by valid code - valid code should still parse
+    let source = r#"
+        متغير = 5;
+        متغير س = 10;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    // Should fail, but the valid statement should be parsed
+    assert!(result.is_err());
+    // Even though there's an error, valid statement after should be in AST
+    // The parser collects errors and continues
+    let errors = parser.get_errors();
+    assert!(!errors.is_empty());
+}
+
+#[test]
+fn test_error_recovery_class_member_errors() {
+    // Multiple errors in class members - should collect all
+    let source = r#"
+        صنف اختبار {
+            خاص = 5;
+            خاص س: عدد;
+            عام = 10;
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    // Should fail with multiple errors
+    assert!(result.is_err());
+    let errors = parser.get_errors();
+    assert!(
+        errors.len() >= 2,
+        "Expected at least 2 errors for invalid class members, got {}",
+        errors.len()
+    );
+}
+
+#[test]
+fn test_error_recovery_get_errors_returns_all() {
+    // Verify get_errors() returns all collected errors
+    let source = r#"
+        متغير = 1;
+        ثابت = 2;
+        متغير = 3;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let _ = parser.parse();
+
+    let errors = parser.get_errors();
+    assert!(
+        errors.len() >= 3,
+        "Expected at least 3 errors, got {}",
+        errors.len()
+    );
+    // Each error should have both English and Arabic messages
+    for err in errors {
+        assert!(!err.message.is_empty());
+        assert!(!err.message_ar.is_empty());
+    }
+}

@@ -227,7 +227,7 @@ impl Lexer {
             || c.is_ascii_digit()
             || self.is_arabic_digit(c)
             || self.is_arabic_diacritic(c)
-            || c == '\u{0640}'  // Arabic tatweel (kashida)
+            || c == '\u{0640}' // Arabic tatweel (kashida)
     }
 
     fn is_arabic_diacritic(&self, c: char) -> bool {

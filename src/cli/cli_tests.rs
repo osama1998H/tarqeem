@@ -1065,3 +1065,259 @@ fn test_cli_doc_full_options() {
         _ => panic!("Expected Doc command"),
     }
 }
+
+// =============================================================================
+// Command Execution Tests
+// =============================================================================
+// These tests verify that the commands actually work on source code,
+// not just that the arguments parse correctly.
+
+use crate::ir::IrBuilder;
+use crate::lexer::Lexer;
+use crate::parser::Parser as TarqeemParser;
+use crate::semantic::Analyzer;
+
+/// Helper to wrap source code with required file markers
+fn wrap_source(source: &str) -> String {
+    format!("بسم_الله\n{}\nالحمد_لله", source.trim())
+}
+
+/// Helper: Parse and analyze source code, return errors if any
+fn check_source(source: &str) -> Result<(), Vec<String>> {
+    let wrapped = wrap_source(source);
+    let mut parser = TarqeemParser::new(&wrapped);
+    let ast = match parser.parse() {
+        Ok(ast) => ast,
+        Err(e) => return Err(vec![e.message]),
+    };
+
+    let mut analyzer = Analyzer::new();
+    if let Err(errors) = analyzer.analyze(&ast) {
+        return Err(errors.iter().map(|e| e.message.clone()).collect());
+    }
+
+    Ok(())
+}
+
+/// Helper: Parse, analyze, and generate IR from source code
+fn compile_to_ir(source: &str) -> Result<crate::ir::Module, String> {
+    let wrapped = wrap_source(source);
+    let mut parser = TarqeemParser::new(&wrapped);
+    let ast = parser.parse().map_err(|e| e.message)?;
+
+    let mut analyzer = Analyzer::new();
+    // Analyzer returns () on success, but modifies the AST in place or validates it
+    analyzer.analyze(&ast).map_err(|errors| {
+        errors
+            .iter()
+            .map(|e| e.message.clone())
+            .collect::<Vec<_>>()
+            .join("; ")
+    })?;
+
+    let ir_builder = IrBuilder::new("test_module".to_string());
+    let module = ir_builder.build(&ast).map_err(|e| e.to_string())?;
+    Ok(module)
+}
+
+#[test]
+fn test_check_valid_hello_world() {
+    let source = r#"
+        اطبع("مرحبا بالعالم")
+    "#;
+
+    let result = check_source(source);
+    assert!(result.is_ok(), "Hello world should be valid: {:?}", result);
+}
+
+#[test]
+fn test_check_valid_variable_declaration() {
+    let source = r#"
+        متغير س = 5
+        متغير ص: عدد = 10
+        ثابت ز = 15
+    "#;
+
+    let result = check_source(source);
+    assert!(
+        result.is_ok(),
+        "Variable declarations should be valid: {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_check_valid_function() {
+    let source = r#"
+        دالة جمع(أ: عدد، ب: عدد) -> عدد {
+            أرجع أ + ب
+        }
+    "#;
+
+    let result = check_source(source);
+    assert!(result.is_ok(), "Function should be valid: {:?}", result);
+}
+
+#[test]
+fn test_check_valid_class() {
+    let source = r#"
+        صنف شخص {
+            خاص اسم: نص
+
+            منشئ(اسم: نص) {
+                هذا.اسم = اسم
+            }
+
+            عام دالة اطبع_اسم() {
+                اطبع(هذا.اسم)
+            }
+        }
+    "#;
+
+    let result = check_source(source);
+    assert!(result.is_ok(), "Class should be valid: {:?}", result);
+}
+
+#[test]
+fn test_check_syntax_error_missing_variable_name() {
+    let source = r#"
+        متغير = 5
+    "#;
+
+    let result = check_source(source);
+    assert!(result.is_err(), "Missing variable name should be an error");
+}
+
+#[test]
+fn test_check_semantic_error_type_mismatch() {
+    let source = r#"
+        متغير س: عدد = "نص"
+    "#;
+
+    let result = check_source(source);
+    assert!(result.is_err(), "Type mismatch should be an error");
+}
+
+#[test]
+fn test_check_semantic_error_undefined_variable() {
+    let source = r#"
+        اطبع(غير_موجود)
+    "#;
+
+    let result = check_source(source);
+    assert!(result.is_err(), "Undefined variable should be an error");
+}
+
+#[test]
+fn test_compile_generates_ir() {
+    let source = r#"
+        متغير س = 42
+        اطبع(س)
+    "#;
+
+    let result = compile_to_ir(source);
+    assert!(result.is_ok(), "Should generate IR: {:?}", result);
+
+    let module = result.unwrap();
+    // Verify module has a main function
+    assert!(!module.functions.is_empty(), "Module should have functions");
+}
+
+#[test]
+fn test_compile_function_ir() {
+    let source = r#"
+        دالة مضاعفة(س: عدد) -> عدد {
+            أرجع س * 2
+        }
+    "#;
+
+    let result = compile_to_ir(source);
+    assert!(
+        result.is_ok(),
+        "Should generate IR for function: {:?}",
+        result
+    );
+
+    let module = result.unwrap();
+    // Check function was compiled
+    let has_func = module
+        .functions
+        .iter()
+        .any(|f| f.name.contains("مضاعفة") || f.id.0.contains("مضاعفة"));
+    assert!(has_func, "Module should have the مضاعفة function");
+}
+
+#[test]
+fn test_parser_error_recovery_collects_multiple_errors() {
+    let source = r#"
+        متغير = 1
+        متغير ص = 2
+        ثابت = 3
+        ثابت ع = 4
+    "#;
+
+    let wrapped = wrap_source(source);
+    let mut parser = TarqeemParser::new(&wrapped);
+    let _ = parser.parse();
+
+    let errors = parser.get_errors();
+    // Should collect at least 2 errors (missing names for first variable and first constant)
+    assert!(
+        errors.len() >= 2,
+        "Parser should collect multiple errors, got {}",
+        errors.len()
+    );
+}
+
+#[test]
+fn test_error_messages_are_bilingual() {
+    let source = r#"
+        متغير = 5
+    "#;
+
+    let wrapped = wrap_source(source);
+    let mut parser = TarqeemParser::new(&wrapped);
+    let result = parser.parse();
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+
+    // Error should have both English and Arabic messages
+    assert!(
+        !err.message.is_empty(),
+        "English message should not be empty"
+    );
+    assert!(
+        !err.message_ar.is_empty(),
+        "Arabic message should not be empty"
+    );
+}
+
+#[test]
+fn test_lexer_tokenizes_arabic_keywords() {
+    let source = "متغير س = 5";
+    let lexer = Lexer::new(source);
+    let tokens: Vec<_> = lexer.collect();
+
+    // First token should be 'let' keyword (متغير)
+    assert!(!tokens.is_empty());
+    assert!(
+        matches!(tokens[0].kind, crate::lexer::TokenKind::Let),
+        "First token should be Let (متغير)"
+    );
+}
+
+#[test]
+fn test_lexer_tokenizes_arabic_identifiers() {
+    let source = "اسم_المستخدم";
+    let lexer = Lexer::new(source);
+    let tokens: Vec<_> = lexer.collect();
+
+    assert!(!tokens.is_empty());
+    match &tokens[0].kind {
+        crate::lexer::TokenKind::Identifier(name) => {
+            assert_eq!(name, "اسم_المستخدم");
+        }
+        _ => panic!("Expected Identifier token"),
+    }
+}

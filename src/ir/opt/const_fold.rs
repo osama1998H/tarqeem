@@ -102,7 +102,12 @@ impl ConstantFolder {
                 }
 
                 // Fold unary operations
-                Instruction::Unary { dest, op, operand, ty } => {
+                Instruction::Unary {
+                    dest,
+                    op,
+                    operand,
+                    ty,
+                } => {
                     if let Some(operand_const) = constants.get(operand) {
                         if let Some(result) = self.fold_unary(*op, operand_const) {
                             let new_inst = Instruction::Const {

@@ -11,6 +11,23 @@ use crate::ir::{
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 
+/// Macro for emitting LLVM IR output with proper error handling.
+/// Wraps writeln! and converts fmt::Error to CodegenError.
+macro_rules! emit {
+    ($self:expr) => {
+        writeln!($self.output).map_err(|e| CodegenError {
+            message: format!("Failed to write LLVM output: {}", e),
+            message_ar: format!("فشل في كتابة مخرجات LLVM: {}", e),
+        })?
+    };
+    ($self:expr, $($arg:tt)*) => {
+        writeln!($self.output, $($arg)*).map_err(|e| CodegenError {
+            message: format!("Failed to write LLVM output: {}", e),
+            message_ar: format!("فشل في كتابة مخرجات LLVM: {}", e),
+        })?
+    };
+}
+
 /// LLVM IR Code Generator
 pub struct LlvmCodegen {
     /// Target configuration
@@ -67,16 +84,16 @@ impl LlvmCodegen {
         self.output.clear();
 
         // Module header
-        self.emit_header(&module.name);
+        self.emit_header(&module.name)?;
 
         // Runtime type definitions
-        self.emit_runtime_types();
+        self.emit_runtime_types()?;
 
         // String literals
-        self.emit_string_table(module);
+        self.emit_string_table(module)?;
 
         // Global variables
-        self.emit_global_variables(module);
+        self.emit_global_variables(module)?;
 
         // Class definitions
         for class in &module.classes {
@@ -84,7 +101,7 @@ impl LlvmCodegen {
         }
 
         // External declarations (runtime functions)
-        self.emit_runtime_declarations();
+        self.emit_runtime_declarations()?;
 
         // Function definitions
         for func in &module.functions {
@@ -94,82 +111,79 @@ impl LlvmCodegen {
         // Emit C main entry point if we have __main__
         let has_main = module.functions.iter().any(|f| f.name == "__main__");
         if has_main {
-            self.emit_c_main_entry();
+            self.emit_c_main_entry()?;
         }
 
         Ok(self.output.clone())
     }
 
     /// Emit C main entry point that calls __main__
-    fn emit_c_main_entry(&mut self) {
-        writeln!(self.output).unwrap();
-        writeln!(self.output, "; C entry point").unwrap();
-        writeln!(self.output, "define i32 @main() {{").unwrap();
-        writeln!(self.output, "entry:").unwrap();
-        writeln!(self.output, "  call void @__main__()").unwrap();
-        writeln!(self.output, "  ret i32 0").unwrap();
-        writeln!(self.output, "}}").unwrap();
+    fn emit_c_main_entry(&mut self) -> Result<(), CodegenError> {
+        emit!(self);
+        emit!(self, "; C entry point");
+        emit!(self, "define i32 @main() {{");
+        emit!(self, "entry:");
+        emit!(self, "  call void @__main__()");
+        emit!(self, "  ret i32 0");
+        emit!(self, "}}");
+        Ok(())
     }
 
     /// Emit module header with target info
-    fn emit_header(&mut self, name: &str) {
-        writeln!(self.output, "; ModuleID = '{}'", name).unwrap();
+    fn emit_header(&mut self, name: &str) -> Result<(), CodegenError> {
+        emit!(self, "; ModuleID = '{}'", name);
         // Note: source_filename is metadata only. Tarqeem supports both .trq and .ترقيم extensions
-        writeln!(self.output, "source_filename = \"{}\"", name).unwrap();
-        writeln!(
-            self.output,
+        emit!(self, "source_filename = \"{}\"", name);
+        emit!(
+            self,
             "target datalayout = \"{}\"",
             self.target.llvm_data_layout()
-        )
-        .unwrap();
-        writeln!(
-            self.output,
-            "target triple = \"{}\"",
-            self.target.llvm_triple()
-        )
-        .unwrap();
-        writeln!(self.output).unwrap();
+        );
+        emit!(self, "target triple = \"{}\"", self.target.llvm_triple());
+        emit!(self);
+        Ok(())
     }
 
     /// Emit runtime type definitions
-    fn emit_runtime_types(&mut self) {
-        writeln!(self.output, "; Runtime types").unwrap();
-        writeln!(self.output, "{}", TypeMapper::string_struct_type()).unwrap();
-        writeln!(self.output, "{}", TypeMapper::array_struct_type()).unwrap();
-        writeln!(self.output).unwrap();
+    fn emit_runtime_types(&mut self) -> Result<(), CodegenError> {
+        emit!(self, "; Runtime types");
+        emit!(self, "{}", TypeMapper::string_struct_type());
+        emit!(self, "{}", TypeMapper::array_struct_type());
+        emit!(self);
+        Ok(())
     }
 
     /// Emit string literal table
-    fn emit_string_table(&mut self, module: &Module) {
+    fn emit_string_table(&mut self, module: &Module) -> Result<(), CodegenError> {
         if module.strings.iter().count() == 0 {
-            return;
+            return Ok(());
         }
 
-        writeln!(self.output, "; String literals").unwrap();
+        emit!(self, "; String literals");
         for (idx, s) in module.strings.iter() {
             let escaped = escape_llvm_string(s);
             let len = s.len();
             let global_name = format!("@.str.{}", idx);
-            writeln!(
-                self.output,
+            emit!(
+                self,
                 "{} = private unnamed_addr constant [{} x i8] c\"{}\", align 1",
                 global_name,
                 len + 1,
                 escaped
-            )
-            .unwrap();
+            );
             self.string_globals.insert(idx, (global_name, len));
         }
-        writeln!(self.output).unwrap();
+        emit!(self);
+        Ok(())
     }
 
     /// Emit global variable definitions
-    fn emit_global_variables(&mut self, module: &Module) {
+    fn emit_global_variables(&mut self, module: &Module) -> Result<(), CodegenError> {
         if module.globals.is_empty() {
-            return;
+            return Ok(());
         }
 
-        writeln!(self.output, "; Global variables").unwrap();
+        emit!(self, "; Global variables");
         for (name, ty, init) in &module.globals {
             let llvm_type = self.type_mapper.map_type(ty);
             let global_name = mangle_name(name);
@@ -204,17 +218,13 @@ impl LlvmCodegen {
                 None => self.zero_initializer(ty),
             };
 
-            writeln!(
-                self.output,
-                "@{} = global {} {}",
-                global_name, llvm_type, init_val
-            )
-            .unwrap();
+            emit!(self, "@{} = global {} {}", global_name, llvm_type, init_val);
 
             // Track the global variable for later use
             self.global_vars.insert(name.clone(), global_name);
         }
-        writeln!(self.output).unwrap();
+        emit!(self);
+        Ok(())
     }
 
     /// Get zero initializer for a type
@@ -234,7 +244,7 @@ impl LlvmCodegen {
 
     /// Emit class/struct definition
     fn emit_class_definition(&mut self, class: &Class) -> Result<(), CodegenError> {
-        writeln!(self.output, "; Class: {}", class.name).unwrap();
+        emit!(self, "; Class: {}", class.name);
 
         // Store field information for later use
         self.class_defs
@@ -244,14 +254,14 @@ impl LlvmCodegen {
         let type_def = self
             .type_mapper
             .generate_struct_type(&class.id, &class.fields);
-        writeln!(self.output, "{}", type_def).unwrap();
+        emit!(self, "{}", type_def);
 
         // Generate vtable if class has virtual methods
         if !class.vtable.is_empty() {
             self.emit_vtable(class)?;
         }
 
-        writeln!(self.output).unwrap();
+        emit!(self);
         Ok(())
     }
 
@@ -271,65 +281,65 @@ impl LlvmCodegen {
             })
             .collect();
 
-        writeln!(
-            self.output,
+        emit!(
+            self,
             "{} = internal constant [{} x ptr] [{}]",
             vtable_name,
             vtable_entries.len(),
             vtable_entries.join(", ")
-        )
-        .unwrap();
+        );
 
         self.vtable_globals.insert(class.id.0.clone(), vtable_name);
         Ok(())
     }
 
     /// Emit runtime function declarations
-    fn emit_runtime_declarations(&mut self) {
-        writeln!(self.output, "; Runtime function declarations").unwrap();
+    fn emit_runtime_declarations(&mut self) -> Result<(), CodegenError> {
+        emit!(self, "; Runtime function declarations");
 
         // Memory allocation
-        writeln!(self.output, "declare ptr @trq_alloc(i64)").unwrap();
-        writeln!(self.output, "declare void @trq_free(ptr)").unwrap();
-        writeln!(self.output, "declare void @trq_retain(ptr)").unwrap();
-        writeln!(self.output, "declare void @trq_release(ptr)").unwrap();
+        emit!(self, "declare ptr @trq_alloc(i64)");
+        emit!(self, "declare void @trq_free(ptr)");
+        emit!(self, "declare void @trq_retain(ptr)");
+        emit!(self, "declare void @trq_release(ptr)");
 
         // String operations
-        writeln!(self.output, "declare ptr @trq_string_new(ptr, i64)").unwrap();
-        writeln!(self.output, "declare ptr @trq_string_concat(ptr, ptr)").unwrap();
-        writeln!(self.output, "declare i64 @trq_string_len(ptr)").unwrap();
-        writeln!(self.output, "declare ptr @trq_int_to_string(i64)").unwrap();
-        writeln!(self.output, "declare ptr @trq_float_to_string(double)").unwrap();
-        writeln!(self.output, "declare ptr @trq_bool_to_string(i1)").unwrap();
+        emit!(self, "declare ptr @trq_string_new(ptr, i64)");
+        emit!(self, "declare ptr @trq_string_concat(ptr, ptr)");
+        emit!(self, "declare i64 @trq_string_len(ptr)");
+        emit!(self, "declare ptr @trq_int_to_string(i64)");
+        emit!(self, "declare ptr @trq_float_to_string(double)");
+        emit!(self, "declare ptr @trq_bool_to_string(i1)");
 
         // Array operations
-        writeln!(self.output, "declare ptr @trq_array_new(i64, i64)").unwrap();
-        writeln!(self.output, "declare i64 @trq_array_len(ptr)").unwrap();
-        writeln!(self.output, "declare ptr @trq_array_get(ptr, i64)").unwrap();
-        writeln!(self.output, "declare void @trq_array_set(ptr, i64, ptr)").unwrap();
+        emit!(self, "declare ptr @trq_array_new(i64, i64)");
+        emit!(self, "declare i64 @trq_array_len(ptr)");
+        emit!(self, "declare ptr @trq_array_get(ptr, i64)");
+        emit!(self, "declare void @trq_array_set(ptr, i64, ptr)");
         // Array push takes (array_ptr, value_ptr, elem_size)
-        writeln!(self.output, "declare void @trq_array_push(ptr, ptr, i64)").unwrap();
+        emit!(self, "declare void @trq_array_push(ptr, ptr, i64)");
 
         // I/O operations
-        writeln!(self.output, "declare void @trq_print(ptr)").unwrap();
-        writeln!(self.output, "declare void @trq_print_int(i64)").unwrap();
-        writeln!(self.output, "declare void @trq_print_float(double)").unwrap();
-        writeln!(self.output, "declare void @trq_print_bool(i1)").unwrap();
-        writeln!(self.output, "declare void @trq_print_array(ptr)").unwrap();
-        writeln!(self.output, "declare void @trq_print_newline()").unwrap();
+        emit!(self, "declare void @trq_print(ptr)");
+        emit!(self, "declare void @trq_print_int(i64)");
+        emit!(self, "declare void @trq_print_float(double)");
+        emit!(self, "declare void @trq_print_bool(i1)");
+        emit!(self, "declare void @trq_print_array(ptr)");
+        emit!(self, "declare void @trq_print_newline()");
 
         // Math operations
-        writeln!(self.output, "declare double @llvm.pow.f64(double, double)").unwrap();
-        writeln!(self.output, "declare i64 @trq_pow_int(i64, i64)").unwrap();
+        emit!(self, "declare double @llvm.pow.f64(double, double)");
+        emit!(self, "declare i64 @trq_pow_int(i64, i64)");
 
         // Exception handling
-        writeln!(self.output, "declare void @trq_throw(ptr)").unwrap();
-        writeln!(self.output, "declare ptr @trq_get_exception()").unwrap();
+        emit!(self, "declare void @trq_throw(ptr)");
+        emit!(self, "declare ptr @trq_get_exception()");
 
         // C standard library
-        writeln!(self.output, "declare i64 @strlen(ptr)").unwrap();
+        emit!(self, "declare i64 @strlen(ptr)");
 
-        writeln!(self.output).unwrap();
+        emit!(self);
+        Ok(())
     }
 
     /// Emit a function definition
@@ -373,22 +383,21 @@ impl LlvmCodegen {
             .map(|(i, p)| format!("{} %arg.{}", self.type_mapper.map_param_type(&p.ty), i))
             .collect();
 
-        writeln!(
-            self.output,
+        emit!(
+            self,
             "define {} @{}({}) {{",
             return_type,
             func_name,
             params.join(", ")
-        )
-        .unwrap();
+        );
 
         // Emit blocks
         for block in &func.blocks {
             self.emit_block(block)?;
         }
 
-        writeln!(self.output, "}}").unwrap();
-        writeln!(self.output).unwrap();
+        emit!(self, "}}");
+        emit!(self);
 
         self.current_func = None;
         Ok(())
@@ -397,7 +406,7 @@ impl LlvmCodegen {
     /// Emit a basic block
     fn emit_block(&mut self, block: &BasicBlock) -> Result<(), CodegenError> {
         let label = self.get_block(block.id)?;
-        writeln!(self.output, "{}:", label).unwrap();
+        emit!(self, "{}:", label);
 
         for inst in &block.instructions {
             self.emit_instruction(inst)?;
@@ -405,7 +414,7 @@ impl LlvmCodegen {
 
         // Add unreachable if block has no terminator (dead code path)
         if !block.has_terminator() {
-            writeln!(self.output, "  unreachable").unwrap();
+            emit!(self, "  unreachable");
         }
 
         Ok(())
@@ -461,24 +470,14 @@ impl LlvmCodegen {
             Instruction::IntToFloat { dest, src } => {
                 let dest_name = self.get_or_create_var(*dest);
                 let src_name = self.get_var(*src)?;
-                writeln!(
-                    self.output,
-                    "  {} = sitofp i64 {} to double",
-                    dest_name, src_name
-                )
-                .unwrap();
+                emit!(self, "  {} = sitofp i64 {} to double", dest_name, src_name);
                 self.var_types.insert(dest.0, IrType::Float);
             }
 
             Instruction::FloatToInt { dest, src } => {
                 let dest_name = self.get_or_create_var(*dest);
                 let src_name = self.get_var(*src)?;
-                writeln!(
-                    self.output,
-                    "  {} = fptosi double {} to i64",
-                    dest_name, src_name
-                )
-                .unwrap();
+                emit!(self, "  {} = fptosi double {} to i64", dest_name, src_name);
                 self.var_types.insert(dest.0, IrType::Int);
             }
 
@@ -506,17 +505,16 @@ impl LlvmCodegen {
                     }
                     Some(IrType::String) | Some(IrType::Ptr(_)) => {
                         // String is already a string, just copy the pointer
-                        writeln!(self.output, "  {} = bitcast ptr {} to ptr", dest_name, src_name)
-                            .unwrap();
+                        emit!(self, "  {} = bitcast ptr {} to ptr", dest_name, src_name);
                     }
                     _ => {
                         // Default to int for Int and unknown types
-                        writeln!(
-                            self.output,
+                        emit!(
+                            self,
                             "  {} = call ptr @trq_int_to_string(i64 {})",
-                            dest_name, src_name
-                        )
-                        .unwrap();
+                            dest_name,
+                            src_name
+                        );
                     }
                 }
                 // Mark result as string type
@@ -527,12 +525,13 @@ impl LlvmCodegen {
                 let dest_name = self.get_or_create_var(*dest);
                 let src_name = self.get_var(*src)?;
                 let to_type = self.type_mapper.map_type(to_ty);
-                writeln!(
-                    self.output,
+                emit!(
+                    self,
                     "  {} = bitcast ptr {} to {}",
-                    dest_name, src_name, to_type
-                )
-                .unwrap();
+                    dest_name,
+                    src_name,
+                    to_type
+                );
             }
 
             Instruction::Alloca { dest, ty } => {
@@ -541,7 +540,7 @@ impl LlvmCodegen {
                 // Track the allocated pointer type
                 self.var_types
                     .insert(dest.0, IrType::Ptr(Box::new(ty.clone())));
-                writeln!(self.output, "  {} = alloca {}", dest_name, llvm_ty).unwrap();
+                emit!(self, "  {} = alloca {}", dest_name, llvm_ty);
             }
 
             Instruction::Load { dest, ptr, ty } => {
@@ -550,12 +549,7 @@ impl LlvmCodegen {
                 let llvm_ty = self.type_mapper.map_type(ty);
                 // Track the loaded value type
                 self.var_types.insert(dest.0, ty.clone());
-                writeln!(
-                    self.output,
-                    "  {} = load {}, ptr {}",
-                    dest_name, llvm_ty, ptr_name
-                )
-                .unwrap();
+                emit!(self, "  {} = load {}, ptr {}", dest_name, llvm_ty, ptr_name);
             }
 
             Instruction::Store { ptr, value } => {
@@ -579,12 +573,7 @@ impl LlvmCodegen {
                     // Use opaque pointer (ptr) for unknown types
                     .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                 let llvm_ty = self.type_mapper.map_type(&val_type);
-                writeln!(
-                    self.output,
-                    "  store {} {}, ptr {}",
-                    llvm_ty, value_name, ptr_name
-                )
-                .unwrap();
+                emit!(self, "  store {} {}, ptr {}", llvm_ty, value_name, ptr_name);
             }
 
             Instruction::GetElementPtr {
@@ -597,17 +586,19 @@ impl LlvmCodegen {
                 let ptr_name = self.get_var(*ptr)?;
                 let index_name = self.get_var(*index)?;
                 let llvm_ty = self.type_mapper.map_type(elem_ty);
-                writeln!(
-                    self.output,
+                emit!(
+                    self,
                     "  {} = getelementptr inbounds {}, ptr {}, i64 {}",
-                    dest_name, llvm_ty, ptr_name, index_name
-                )
-                .unwrap();
+                    dest_name,
+                    llvm_ty,
+                    ptr_name,
+                    index_name
+                );
             }
 
             Instruction::Jump { target } => {
                 let target_label = self.get_block(*target)?;
-                writeln!(self.output, "  br label %{}", target_label).unwrap();
+                emit!(self, "  br label %{}", target_label);
             }
 
             Instruction::Branch {
@@ -618,21 +609,22 @@ impl LlvmCodegen {
                 let cond_name = self.get_var(*cond)?;
                 let then_label = self.get_block(*then_block)?;
                 let else_label = self.get_block(*else_block)?;
-                writeln!(
-                    self.output,
+                emit!(
+                    self,
                     "  br i1 {}, label %{}, label %{}",
-                    cond_name, then_label, else_label
-                )
-                .unwrap();
+                    cond_name,
+                    then_label,
+                    else_label
+                );
             }
 
             Instruction::Return { value } => {
                 if let Some(val) = value {
                     let val_name = self.get_var(*val)?;
                     let ret_ty = self.type_mapper.map_type(&self.current_return_type);
-                    writeln!(self.output, "  ret {} {}", ret_ty, val_name).unwrap();
+                    emit!(self, "  ret {} {}", ret_ty, val_name);
                 } else {
-                    writeln!(self.output, "  ret void").unwrap();
+                    emit!(self, "  ret void");
                 }
             }
 
@@ -882,24 +874,20 @@ impl LlvmCodegen {
 
                 // Load vtable pointer from object (assume it's at offset 0)
                 let vtable_ptr = self.fresh_name("vtable.ptr");
-                writeln!(self.output, "  {} = load ptr, ptr {}", vtable_ptr, obj_name).unwrap();
+                emit!(self, "  {} = load ptr, ptr {}", vtable_ptr, obj_name);
 
                 // Get method pointer from vtable
                 let method_ptr_ptr = self.fresh_name("method.ptr.ptr");
-                writeln!(
-                    self.output,
+                emit!(
+                    self,
                     "  {} = getelementptr inbounds ptr, ptr {}, i32 {}",
-                    method_ptr_ptr, vtable_ptr, method_index
-                )
-                .unwrap();
+                    method_ptr_ptr,
+                    vtable_ptr,
+                    method_index
+                );
 
                 let method_ptr = self.fresh_name("method.ptr");
-                writeln!(
-                    self.output,
-                    "  {} = load ptr, ptr {}",
-                    method_ptr, method_ptr_ptr
-                )
-                .unwrap();
+                emit!(self, "  {} = load ptr, ptr {}", method_ptr, method_ptr_ptr);
 
                 // Call through function pointer - get proper argument types from var_types
                 let mut all_args = vec![format!("ptr {}", obj_name)];
@@ -913,24 +901,22 @@ impl LlvmCodegen {
                 let ret_type = self.type_mapper.map_type(ret_ty);
                 if let Some(d) = dest {
                     let dest_name = self.get_or_create_var(*d);
-                    writeln!(
-                        self.output,
+                    emit!(
+                        self,
                         "  {} = call {} {}({})",
                         dest_name,
                         ret_type,
                         method_ptr,
                         all_args.join(", ")
-                    )
-                    .unwrap();
+                    );
                 } else {
-                    writeln!(
-                        self.output,
+                    emit!(
+                        self,
                         "  call {} {}({})",
                         ret_type,
                         method_ptr,
                         all_args.join(", ")
-                    )
-                    .unwrap();
+                    );
                 }
             }
 
@@ -1070,35 +1056,32 @@ impl LlvmCodegen {
 
                 // Create temporary storage for the value
                 let temp_ptr = self.fresh_name("push.tmp");
-                writeln!(self.output, "  {} = alloca {}", temp_ptr, llvm_ty).unwrap();
+                emit!(self, "  {} = alloca {}", temp_ptr, llvm_ty);
 
                 // Store the value into temp storage
-                writeln!(
-                    self.output,
-                    "  store {} {}, ptr {}",
-                    llvm_ty, value_name, temp_ptr
-                )
-                .unwrap();
+                emit!(self, "  store {} {}, ptr {}", llvm_ty, value_name, temp_ptr);
 
                 // Call trq_array_push(array_ptr, value_ptr, elem_size)
-                writeln!(
-                    self.output,
+                emit!(
+                    self,
                     "  call void @trq_array_push(ptr {}, ptr {}, i64 {})",
-                    array_name, temp_ptr, elem_size
-                )
-                .unwrap();
+                    array_name,
+                    temp_ptr,
+                    elem_size
+                );
             }
 
             Instruction::StringConcat { dest, left, right } => {
                 let dest_name = self.get_or_create_var(*dest);
                 let left_name = self.get_var(*left)?;
                 let right_name = self.get_var(*right)?;
-                writeln!(
-                    self.output,
+                emit!(
+                    self,
                     "  {} = call ptr @trq_string_concat(ptr {}, ptr {})",
-                    dest_name, left_name, right_name
-                )
-                .unwrap();
+                    dest_name,
+                    left_name,
+                    right_name
+                );
                 // Track that result is a String
                 self.var_types.insert(dest.0, IrType::String);
             }
@@ -1106,27 +1089,22 @@ impl LlvmCodegen {
             Instruction::TryBegin { catch_block } => {
                 // Exception handling - for now just emit a comment
                 let catch_label = self.get_block(*catch_block)?;
-                writeln!(self.output, "  ; try_begin catch={}", catch_label).unwrap();
+                emit!(self, "  ; try_begin catch={}", catch_label);
             }
 
             Instruction::TryEnd => {
-                writeln!(self.output, "  ; try_end").unwrap();
+                emit!(self, "  ; try_end");
             }
 
             Instruction::Throw { exception } => {
                 let exc_name = self.get_var(*exception)?;
-                writeln!(self.output, "  call void @trq_throw(ptr {})", exc_name).unwrap();
-                writeln!(self.output, "  unreachable").unwrap();
+                emit!(self, "  call void @trq_throw(ptr {})", exc_name);
+                emit!(self, "  unreachable");
             }
 
             Instruction::GetException { dest } => {
                 let dest_name = self.get_or_create_var(*dest);
-                writeln!(
-                    self.output,
-                    "  {} = call ptr @trq_get_exception()",
-                    dest_name
-                )
-                .unwrap();
+                emit!(self, "  {} = call ptr @trq_get_exception()", dest_name);
             }
 
             Instruction::Phi { dest, ty, incoming } => {
@@ -1142,14 +1120,13 @@ impl LlvmCodegen {
                     })
                     .collect();
 
-                writeln!(
-                    self.output,
+                emit!(
+                    self,
                     "  {} = phi {} {}",
                     dest_name,
                     llvm_ty,
                     entries.join(", ")
-                )
-                .unwrap();
+                );
             }
 
             Instruction::Print { value } => {
@@ -1159,48 +1136,37 @@ impl LlvmCodegen {
                 match &var_type {
                     Some(IrType::String) | Some(IrType::Ptr(_)) => {
                         // Strings are already TrqString*, pass directly to trq_print
-                        writeln!(self.output, "  call void @trq_print(ptr {})", val_name).unwrap();
+                        emit!(self, "  call void @trq_print(ptr {})", val_name);
                     }
                     Some(IrType::Float) => {
-                        writeln!(
-                            self.output,
-                            "  call void @trq_print_float(double {})",
-                            val_name
-                        )
-                        .unwrap();
+                        emit!(self, "  call void @trq_print_float(double {})", val_name);
                     }
                     Some(IrType::Bool) => {
-                        writeln!(self.output, "  call void @trq_print_bool(i1 {})", val_name)
-                            .unwrap();
+                        emit!(self, "  call void @trq_print_bool(i1 {})", val_name);
                     }
                     Some(IrType::Array(_, _)) => {
                         // For arrays, call trq_print_array
-                        writeln!(
-                            self.output,
-                            "  call void @trq_print_array(ptr {})",
-                            val_name
-                        )
-                        .unwrap();
+                        emit!(self, "  call void @trq_print_array(ptr {})", val_name);
                     }
                     _ => {
                         // Default to int
-                        writeln!(self.output, "  call void @trq_print_int(i64 {})", val_name)
-                            .unwrap();
+                        emit!(self, "  call void @trq_print_int(i64 {})", val_name);
                     }
                 }
-                writeln!(self.output, "  call void @trq_print_newline()").unwrap();
+                emit!(self, "  call void @trq_print_newline()");
             }
 
             Instruction::GlobalLoad { dest, name, ty } => {
                 let dest_name = self.get_or_create_var(*dest);
                 let llvm_type = self.type_mapper.map_type(ty);
                 let global_name = mangle_name(name);
-                writeln!(
-                    self.output,
+                emit!(
+                    self,
                     "  {} = load {}, ptr @{}",
-                    dest_name, llvm_type, global_name
-                )
-                .unwrap();
+                    dest_name,
+                    llvm_type,
+                    global_name
+                );
                 self.var_types.insert(dest.0, ty.clone());
             }
 
@@ -1238,25 +1204,25 @@ impl LlvmCodegen {
 
         match value {
             Constant::Null => {
-                writeln!(self.output, "  {} = bitcast ptr null to ptr", dest_name).unwrap();
+                emit!(self, "  {} = bitcast ptr null to ptr", dest_name);
             }
             Constant::Bool(b) => {
                 let val = if *b { "true" } else { "false" };
                 // For booleans, we can't use add, so we use a select trick
-                writeln!(
-                    self.output,
+                emit!(
+                    self,
                     "  {} = select i1 {}, i1 true, i1 false",
-                    dest_name, val
-                )
-                .unwrap();
+                    dest_name,
+                    val
+                );
             }
             Constant::Int(i) => {
                 // Can't just assign in LLVM - need an instruction
                 // Use add with 0 as a workaround
-                writeln!(self.output, "  {} = add i64 {}, 0", dest_name, i).unwrap();
+                emit!(self, "  {} = add i64 {}, 0", dest_name, i);
             }
             Constant::Float(f) => {
-                writeln!(self.output, "  {} = fadd double {:e}, 0.0", dest_name, f).unwrap();
+                emit!(self, "  {} = fadd double {:e}, 0.0", dest_name, f);
             }
             Constant::String(idx) => {
                 // Create a TrqString from the string literal
@@ -1264,27 +1230,27 @@ impl LlvmCodegen {
                     // Get char* pointer to the string literal
                     let tmp_ptr = format!("%tmp_strptr_{}", self.name_counter);
                     self.name_counter += 1;
-                    writeln!(
-                        self.output,
+                    emit!(
+                        self,
                         "  {} = getelementptr [0 x i8], ptr {}, i64 0, i64 0",
-                        tmp_ptr, global
-                    )
-                    .unwrap();
+                        tmp_ptr,
+                        global
+                    );
                     // Create TrqString from the char* and known length
-                    writeln!(
-                        self.output,
+                    emit!(
+                        self,
                         "  {} = call ptr @trq_string_new(ptr {}, i64 {})",
-                        dest_name, tmp_ptr, len
-                    )
-                    .unwrap();
+                        dest_name,
+                        tmp_ptr,
+                        len
+                    );
                 } else {
                     // Empty string
-                    writeln!(
-                        self.output,
+                    emit!(
+                        self,
                         "  {} = call ptr @trq_string_new(ptr null, i64 0)",
                         dest_name
-                    )
-                    .unwrap();
+                    );
                 }
             }
         }
@@ -1405,31 +1371,16 @@ impl LlvmCodegen {
 
         match (op, ty) {
             (UnaryOp::Neg, IrType::Int) => {
-                writeln!(self.output, "  {} = sub i64 0, {}", dest_name, operand_name).unwrap();
+                emit!(self, "  {} = sub i64 0, {}", dest_name, operand_name);
             }
             (UnaryOp::Neg, IrType::Float) => {
-                writeln!(
-                    self.output,
-                    "  {} = fneg double {}",
-                    dest_name, operand_name
-                )
-                .unwrap();
+                emit!(self, "  {} = fneg double {}", dest_name, operand_name);
             }
             (UnaryOp::Not, IrType::Bool) => {
-                writeln!(
-                    self.output,
-                    "  {} = xor i1 {}, true",
-                    dest_name, operand_name
-                )
-                .unwrap();
+                emit!(self, "  {} = xor i1 {}, true", dest_name, operand_name);
             }
             (UnaryOp::BitNot, IrType::Int) => {
-                writeln!(
-                    self.output,
-                    "  {} = xor i64 {}, -1",
-                    dest_name, operand_name
-                )
-                .unwrap();
+                emit!(self, "  {} = xor i64 {}, -1", dest_name, operand_name);
             }
             _ => {
                 return Err(CodegenError {
