@@ -1585,10 +1585,7 @@ fn test_parse_nested_do_while() {
     match &ast.statements[0].kind {
         StmtKind::DoWhile { body, .. } => {
             // Inner body should contain another do-while
-            assert!(matches!(
-                &body.statements[0].kind,
-                StmtKind::DoWhile { .. }
-            ));
+            assert!(matches!(&body.statements[0].kind, StmtKind::DoWhile { .. }));
         }
         _ => panic!("Expected DoWhile statement"),
     }
@@ -1769,7 +1766,10 @@ fn test_parse_arrow_function_nested() {
                     // Body should be another lambda
                     match body {
                         LambdaBody::Expr(expr) => match &expr.kind {
-                            ExprKind::Lambda { params: inner_params, .. } => {
+                            ExprKind::Lambda {
+                                params: inner_params,
+                                ..
+                            } => {
                                 assert_eq!(inner_params.len(), 1);
                                 assert_eq!(inner_params[0].name, "ص");
                             }

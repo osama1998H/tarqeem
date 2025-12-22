@@ -570,8 +570,8 @@ impl Parser {
         self.expect(&TokenKind::RightParen, "Expected ')' / متوقع ')'")?;
 
         // Optional semicolon at end
-        let _ =
-            self.match_token(&TokenKind::Semicolon) || self.match_token(&TokenKind::ArabicSemicolon);
+        let _ = self.match_token(&TokenKind::Semicolon)
+            || self.match_token(&TokenKind::ArabicSemicolon);
 
         let span = start.merge(&self.previous_span());
         Ok(Stmt::new(StmtKind::DoWhile { body, condition }, span))
