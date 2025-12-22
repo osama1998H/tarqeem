@@ -1415,13 +1415,29 @@ impl Analyzer {
                 // For lambdas, use Any as placeholder since return type is inferred
                 self.push_function_scope(Type::Any);
 
+                // Extract expected parameter types from context if available
+                let expected_param_types: Option<Vec<Type>> = match &self.expected_type {
+                    Some(Type::Function {
+                        params: expected_params,
+                        ..
+                    }) => Some(expected_params.clone()),
+                    _ => None,
+                };
+
                 let param_types: Vec<Type> = params
                     .iter()
-                    .map(|p| {
-                        let ty =
-                            p.ty.as_ref()
-                                .map(|t| self.resolve_type(t))
-                                .unwrap_or(Type::Any);
+                    .enumerate()
+                    .map(|(i, p)| {
+                        // Use explicit type annotation if provided
+                        let ty = if let Some(type_ann) = &p.ty {
+                            self.resolve_type(type_ann)
+                        } else {
+                            // Try to infer from expected type context
+                            expected_param_types
+                                .as_ref()
+                                .and_then(|expected| expected.get(i).cloned())
+                                .unwrap_or(Type::Any)
+                        };
                         self.scope
                             .define(Symbol::variable(&p.name, ty.clone(), false));
                         ty

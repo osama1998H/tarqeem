@@ -571,6 +571,7 @@ impl ClassResolver {
         self.check_circular_inheritance();
         self.check_interface_implementations();
         self.check_method_overrides();
+        self.check_abstract_implementations();
 
         if self.diagnostics.is_empty() {
             Ok(())
@@ -650,12 +651,12 @@ impl ClassResolver {
                                     if expected_ty != actual_ty {
                                         violations.push((
                                             format!(
-                                                "Parameter {} of method '{}' in class '{}' has wrong type (expected {:?}, got {:?})",
+                                                "Parameter {} of method '{}' in class '{}' has wrong type (expected '{}', got '{}')",
                                                 i + 1, method_name, class_name, expected_ty, actual_ty
                                             ),
                                             format!(
-                                                "المعامل {} للدالة '{}' في الصنف '{}' له نوع خاطئ (متوقع {:?}، وجد {:?})",
-                                                i + 1, method_name, class_name, expected_ty, actual_ty
+                                                "المعامل {} للدالة '{}' في الصنف '{}' له نوع خاطئ (متوقع '{}'، وجد '{}')",
+                                                i + 1, method_name, class_name, expected_ty.arabic_name(), actual_ty.arabic_name()
                                             ),
                                             class.span,
                                         ));
@@ -667,12 +668,12 @@ impl ClassResolver {
                             if method.return_type != sig.return_type {
                                 violations.push((
                                     format!(
-                                        "Method '{}' in class '{}' has wrong return type (expected {:?}, got {:?})",
+                                        "Method '{}' in class '{}' has wrong return type (expected '{}', got '{}')",
                                         method_name, class_name, sig.return_type, method.return_type
                                     ),
                                     format!(
-                                        "الدالة '{}' في الصنف '{}' لديها نوع إرجاع خاطئ (متوقع {:?}، وجد {:?})",
-                                        method_name, class_name, sig.return_type, method.return_type
+                                        "الدالة '{}' في الصنف '{}' لديها نوع إرجاع خاطئ (متوقع '{}'، وجد '{}')",
+                                        method_name, class_name, sig.return_type.arabic_name(), method.return_type.arabic_name()
                                     ),
                                     class.span,
                                 ));
@@ -784,6 +785,67 @@ impl ClassResolver {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        for (msg, msg_ar, span) in violations {
+            self.diagnostics
+                .push(Diagnostic::error(&msg, &msg_ar, span));
+        }
+    }
+
+    /// Check that concrete classes implement all abstract methods from parent classes
+    ///
+    /// Note: Currently, the AST doesn't track the `is_abstract` modifier, so all methods
+    /// have `is_abstract: false`. This validation framework is ready for when abstract
+    /// method support is added to the lexer/parser (requires adding an abstract keyword
+    /// and `is_abstract` field to `ClassMember::Method`).
+    fn check_abstract_implementations(&mut self) {
+        let mut violations = Vec::new();
+
+        for (class_name, class) in &self.classes {
+            // Skip if this class itself has any abstract methods (it's abstract)
+            let is_abstract_class = class.methods.values().any(|m| m.is_abstract);
+            if is_abstract_class {
+                continue;
+            }
+
+            // Collect all abstract methods from parent chain
+            let mut abstract_methods: Vec<(String, String)> = Vec::new(); // (method_name, defining_class)
+            let mut current_parent = class.parent.clone();
+
+            while let Some(parent_name) = current_parent {
+                if let Some(parent_class) = self.classes.get(&parent_name) {
+                    for (method_name, method) in &parent_class.methods {
+                        if method.is_abstract {
+                            // Check if this abstract method is already in our list
+                            if !abstract_methods.iter().any(|(m, _)| m == method_name) {
+                                abstract_methods.push((method_name.clone(), parent_name.clone()));
+                            }
+                        }
+                    }
+                    current_parent = parent_class.parent.clone();
+                } else {
+                    break;
+                }
+            }
+
+            // Check that all abstract methods are implemented
+            for (method_name, defining_class) in abstract_methods {
+                let is_implemented = class.get_method(&method_name, self).map_or(false, |m| !m.is_abstract);
+                if !is_implemented {
+                    violations.push((
+                        format!(
+                            "Class '{}' must implement abstract method '{}' from '{}'",
+                            class_name, method_name, defining_class
+                        ),
+                        format!(
+                            "الصنف '{}' يجب أن يُطبّق الدالة المجردة '{}' من '{}'",
+                            class_name, method_name, defining_class
+                        ),
+                        class.span,
+                    ));
                 }
             }
         }

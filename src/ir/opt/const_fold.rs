@@ -16,7 +16,7 @@
 //! ```
 
 use super::OptStats;
-use crate::ir::{BasicBlock, BinaryOp, Constant, Function, Instruction, Module, VarId};
+use crate::ir::{BasicBlock, BinaryOp, Constant, Instruction, Module, StringTable, VarId};
 use std::collections::HashMap;
 
 /// Constant folding optimization pass
@@ -39,23 +39,31 @@ impl ConstantFolder {
 
     /// Run constant folding on a module
     pub fn run(&mut self, module: &mut Module) {
-        for function in &mut module.functions {
-            self.fold_function(function);
+        // We need to collect function indices first to avoid borrowing issues
+        let func_count = module.functions.len();
+        for i in 0..func_count {
+            // Map from VarId to known constant value
+            let mut constants: HashMap<VarId, Constant> = HashMap::new();
+
+            // Process each block in the function
+            let block_count = module.functions[i].blocks.len();
+            for j in 0..block_count {
+                self.fold_block_with_strings(
+                    &mut module.functions[i].blocks[j],
+                    &mut constants,
+                    &mut module.strings,
+                );
+            }
         }
     }
 
-    /// Fold constants in a function
-    fn fold_function(&mut self, function: &mut Function) {
-        // Map from VarId to known constant value
-        let mut constants: HashMap<VarId, Constant> = HashMap::new();
-
-        for block in &mut function.blocks {
-            self.fold_block(block, &mut constants);
-        }
-    }
-
-    /// Fold constants in a basic block
-    fn fold_block(&mut self, block: &mut BasicBlock, constants: &mut HashMap<VarId, Constant>) {
+    /// Fold constants in a basic block with string table access
+    fn fold_block_with_strings(
+        &mut self,
+        block: &mut BasicBlock,
+        constants: &mut HashMap<VarId, Constant>,
+        strings: &mut StringTable,
+    ) {
         let mut new_instructions = Vec::new();
 
         for inst in &block.instructions {
@@ -78,14 +86,14 @@ impl ConstantFolder {
                         (constants.get(left), constants.get(right))
                     {
                         if let Some(result) = self.fold_binary(*op, left_const, right_const) {
-                            // Record the result as a constant
-                            constants.insert(*dest, result.clone());
-                            // Replace with const instruction
-                            new_instructions.push(Instruction::Const {
+                            // Replace with constant
+                            let new_inst = Instruction::Const {
                                 dest: *dest,
-                                value: result,
+                                value: result.clone(),
                                 ty: ty.clone(),
-                            });
+                            };
+                            constants.insert(*dest, result);
+                            new_instructions.push(new_inst);
                             self.stats.constants_folded += 1;
                             continue;
                         }
@@ -93,21 +101,17 @@ impl ConstantFolder {
                     new_instructions.push(inst.clone());
                 }
 
-                // Try to fold unary operations
-                Instruction::Unary {
-                    dest,
-                    op,
-                    operand,
-                    ty,
-                } => {
+                // Fold unary operations
+                Instruction::Unary { dest, op, operand, ty } => {
                     if let Some(operand_const) = constants.get(operand) {
                         if let Some(result) = self.fold_unary(*op, operand_const) {
-                            constants.insert(*dest, result.clone());
-                            new_instructions.push(Instruction::Const {
+                            let new_inst = Instruction::Const {
                                 dest: *dest,
-                                value: result,
+                                value: result.clone(),
                                 ty: ty.clone(),
-                            });
+                            };
+                            constants.insert(*dest, result);
+                            new_instructions.push(new_inst);
                             self.stats.constants_folded += 1;
                             continue;
                         }
@@ -115,7 +119,7 @@ impl ConstantFolder {
                     new_instructions.push(inst.clone());
                 }
 
-                // Fold conditional branches with constant condition
+                // Fold conditional branches with known conditions
                 Instruction::Branch {
                     cond,
                     then_block,
@@ -132,18 +136,27 @@ impl ConstantFolder {
                 }
 
                 // Fold string concatenation of constant strings
-                Instruction::StringConcat {
-                    dest: _,
-                    left,
-                    right,
-                } => {
+                Instruction::StringConcat { dest, left, right } => {
                     if let (Some(Constant::String(left_idx)), Some(Constant::String(right_idx))) =
                         (constants.get(left), constants.get(right))
                     {
-                        // For now, we can't easily concatenate strings since they're in a string table
-                        // This would require access to the module's string table
-                        // TODO: Implement string constant folding with string table access
-                        let _ = (*left_idx, *right_idx); // Silence warnings
+                        // Look up both strings and concatenate
+                        if let (Some(left_str), Some(right_str)) =
+                            (strings.get(*left_idx), strings.get(*right_idx))
+                        {
+                            let concatenated = format!("{}{}", left_str, right_str);
+                            let new_idx = strings.add(concatenated);
+                            let new_const = Constant::String(new_idx);
+                            let new_inst = Instruction::Const {
+                                dest: *dest,
+                                value: new_const.clone(),
+                                ty: crate::ir::IrType::String,
+                            };
+                            constants.insert(*dest, new_const);
+                            new_instructions.push(new_inst);
+                            self.stats.constants_folded += 1;
+                            continue;
+                        }
                     }
                     new_instructions.push(inst.clone());
                 }

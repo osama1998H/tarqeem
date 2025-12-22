@@ -483,15 +483,44 @@ impl LlvmCodegen {
             }
 
             Instruction::ToString { dest, src } => {
-                // For now, just use a placeholder - needs runtime support
                 let dest_name = self.get_or_create_var(*dest);
                 let src_name = self.get_var(*src)?;
-                writeln!(
-                    self.output,
-                    "  {} = call ptr @trq_int_to_string(i64 {})",
-                    dest_name, src_name
-                )
-                .unwrap();
+                // Dispatch based on source type
+                let src_type = self.var_types.get(&src.0).cloned();
+                match &src_type {
+                    Some(IrType::Float) => {
+                        writeln!(
+                            self.output,
+                            "  {} = call ptr @trq_float_to_string(double {})",
+                            dest_name, src_name
+                        )
+                        .unwrap();
+                    }
+                    Some(IrType::Bool) => {
+                        writeln!(
+                            self.output,
+                            "  {} = call ptr @trq_bool_to_string(i1 {})",
+                            dest_name, src_name
+                        )
+                        .unwrap();
+                    }
+                    Some(IrType::String) | Some(IrType::Ptr(_)) => {
+                        // String is already a string, just copy the pointer
+                        writeln!(self.output, "  {} = bitcast ptr {} to ptr", dest_name, src_name)
+                            .unwrap();
+                    }
+                    _ => {
+                        // Default to int for Int and unknown types
+                        writeln!(
+                            self.output,
+                            "  {} = call ptr @trq_int_to_string(i64 {})",
+                            dest_name, src_name
+                        )
+                        .unwrap();
+                    }
+                }
+                // Mark result as string type
+                self.var_types.insert(dest.0, IrType::String);
             }
 
             Instruction::Bitcast { dest, src, to_ty } => {
