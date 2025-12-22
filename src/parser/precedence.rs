@@ -29,8 +29,9 @@ impl Precedence {
             | TokenKind::MinusEqual
             | TokenKind::StarEqual
             | TokenKind::SlashEqual
-            | TokenKind::PercentEqual
-            | TokenKind::FatArrow => Precedence::Assignment,
+            | TokenKind::PercentEqual => Precedence::Assignment,
+            // Note: FatArrow (=>) is NOT an infix operator - it's handled by
+            // parse_match_statement and try_parse_arrow_function directly
 
             TokenKind::Question => Precedence::Ternary,
 
@@ -92,7 +93,6 @@ impl Precedence {
                 | TokenKind::SlashEqual
                 | TokenKind::PercentEqual
                 | TokenKind::StarStar
-                | TokenKind::FatArrow
         )
     }
 }
