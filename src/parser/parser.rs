@@ -1085,12 +1085,12 @@ impl Parser {
                 // Parse class name at Primary level to avoid parsing args as a call
                 let class = self.parse_precedence(Precedence::Primary)?;
 
-                // Skip generic type arguments if present: <T, U, ...>
-                if self.check(&TokenKind::Less) {
+                // Parse generic type arguments if present: <T, U, ...>
+                let type_args = if self.check(&TokenKind::Less) {
                     self.advance(); // consume '<'
-                                    // Parse type arguments (for now, just skip over them)
+                    let mut args = Vec::new();
                     loop {
-                        self.parse_type_annotation()?; // consume type argument
+                        args.push(self.parse_type_annotation()?);
                         if !self.match_token(&TokenKind::Comma)
                             && !self.match_token(&TokenKind::ArabicComma)
                         {
@@ -1098,7 +1098,10 @@ impl Parser {
                         }
                     }
                     self.expect(&TokenKind::Greater, "Expected '>' / متوقع '>'")?;
-                }
+                    args
+                } else {
+                    Vec::new()
+                };
 
                 // Args must follow immediately with parentheses
                 let args = if self.match_token(&TokenKind::LeftParen) {
@@ -1112,6 +1115,7 @@ impl Parser {
                 Ok(Expr::new(
                     ExprKind::New {
                         class: Box::new(class),
+                        type_args,
                         args,
                     },
                     span.merge(&end_span),

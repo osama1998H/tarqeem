@@ -40,6 +40,8 @@ pub struct MethodInfo {
 #[derive(Debug, Clone)]
 pub struct ClassInfo {
     pub name: String,
+    /// Generic type parameters (e.g., ["ن", "م"] for صنف قائمة<ن, م>)
+    pub type_params: Vec<String>,
     pub parent: Option<String>,
     pub interfaces: Vec<String>,
     pub fields: IndexMap<String, FieldInfo>,
@@ -55,6 +57,7 @@ impl ClassInfo {
     pub fn new(name: String, span: Span) -> Self {
         Self {
             name,
+            type_params: Vec::new(),
             parent: None,
             interfaces: Vec::new(),
             fields: IndexMap::new(),
@@ -63,6 +66,26 @@ impl ClassInfo {
             vtable: Vec::new(),
             span,
         }
+    }
+
+    /// Create a new class info with type parameters
+    pub fn with_type_params(name: String, type_params: Vec<String>, span: Span) -> Self {
+        Self {
+            name,
+            type_params,
+            parent: None,
+            interfaces: Vec::new(),
+            fields: IndexMap::new(),
+            methods: IndexMap::new(),
+            constructor: None,
+            vtable: Vec::new(),
+            span,
+        }
+    }
+
+    /// Check if this class is generic
+    pub fn is_generic(&self) -> bool {
+        !self.type_params.is_empty()
     }
 
     /// Get a field by name, including inherited fields
@@ -314,11 +337,13 @@ impl ClassResolver {
     pub fn register_class(
         &mut self,
         name: &str,
+        type_params: &[String],
         parent: Option<&str>,
         interfaces: &[String],
         span: Span,
     ) {
-        let mut class_info = ClassInfo::new(name.to_string(), span);
+        let mut class_info =
+            ClassInfo::with_type_params(name.to_string(), type_params.to_vec(), span);
         class_info.parent = parent.map(|s| s.to_string());
         class_info.interfaces = interfaces.to_vec();
         self.classes.insert(name.to_string(), class_info);
@@ -814,8 +839,15 @@ impl ClassResolver {
             // Collect all abstract methods from parent chain
             let mut abstract_methods: Vec<(String, String)> = Vec::new(); // (method_name, defining_class)
             let mut current_parent = class.parent.clone();
+            let mut visited_parents = HashSet::new();
 
             while let Some(parent_name) = current_parent {
+                // Cycle detection - prevent infinite loop on circular inheritance
+                if visited_parents.contains(&parent_name) {
+                    break;
+                }
+                visited_parents.insert(parent_name.clone());
+
                 if let Some(parent_class) = self.classes.get(&parent_name) {
                     for (method_name, method) in &parent_class.methods {
                         if method.is_abstract {
@@ -858,13 +890,30 @@ impl ClassResolver {
 
     /// Check if a class is a subclass of another
     pub fn is_subclass(&self, class_name: &str, potential_parent: &str) -> bool {
+        let mut visited = HashSet::new();
+        self.is_subclass_with_cycle_check(class_name, potential_parent, &mut visited)
+    }
+
+    /// Internal helper with cycle detection
+    fn is_subclass_with_cycle_check(
+        &self,
+        class_name: &str,
+        potential_parent: &str,
+        visited: &mut HashSet<String>,
+    ) -> bool {
         if class_name == potential_parent {
             return true;
         }
 
+        // Cycle detection
+        if visited.contains(class_name) {
+            return false;
+        }
+        visited.insert(class_name.to_string());
+
         if let Some(class) = self.classes.get(class_name) {
             if let Some(parent_name) = &class.parent {
-                return self.is_subclass(parent_name, potential_parent);
+                return self.is_subclass_with_cycle_check(parent_name, potential_parent, visited);
             }
         }
 
@@ -873,6 +922,23 @@ impl ClassResolver {
 
     /// Check if a class implements an interface
     pub fn implements_interface(&self, class_name: &str, interface_name: &str) -> bool {
+        let mut visited = HashSet::new();
+        self.implements_interface_with_cycle_check(class_name, interface_name, &mut visited)
+    }
+
+    /// Internal helper with cycle detection
+    fn implements_interface_with_cycle_check(
+        &self,
+        class_name: &str,
+        interface_name: &str,
+        visited: &mut HashSet<String>,
+    ) -> bool {
+        // Cycle detection
+        if visited.contains(class_name) {
+            return false;
+        }
+        visited.insert(class_name.to_string());
+
         if let Some(class) = self.classes.get(class_name) {
             // Check direct implementation
             if class.interfaces.contains(&interface_name.to_string()) {
@@ -881,7 +947,11 @@ impl ClassResolver {
 
             // Check parent
             if let Some(parent_name) = &class.parent {
-                return self.implements_interface(parent_name, interface_name);
+                return self.implements_interface_with_cycle_check(
+                    parent_name,
+                    interface_name,
+                    visited,
+                );
             }
         }
 
@@ -924,8 +994,8 @@ mod tests {
     #[test]
     fn test_class_registration() {
         let mut resolver = ClassResolver::new();
-        resolver.register_class("شخص", None, &[], Span::empty());
-        resolver.register_class("موظف", Some("شخص"), &[], Span::empty());
+        resolver.register_class("شخص", &[], None, &[], Span::empty());
+        resolver.register_class("موظف", &[], Some("شخص"), &[], Span::empty());
 
         assert!(resolver.get_class("شخص").is_some());
         assert!(resolver.get_class("موظف").is_some());
@@ -943,8 +1013,8 @@ mod tests {
     #[test]
     fn test_vtable_building() {
         let mut resolver = ClassResolver::new();
-        resolver.register_class("أ", None, &[], Span::empty());
-        resolver.register_class("ب", Some("أ"), &[], Span::empty());
+        resolver.register_class("أ", &[], None, &[], Span::empty());
+        resolver.register_class("ب", &[], Some("أ"), &[], Span::empty());
 
         // Add a method to class أ
         if let Some(class) = resolver.get_class_mut("أ") {
@@ -1009,8 +1079,8 @@ mod tests {
     #[test]
     fn test_circular_inheritance_detection() {
         let mut resolver = ClassResolver::new();
-        resolver.register_class("أ", Some("ب"), &[], Span::empty());
-        resolver.register_class("ب", Some("أ"), &[], Span::empty());
+        resolver.register_class("أ", &[], Some("ب"), &[], Span::empty());
+        resolver.register_class("ب", &[], Some("أ"), &[], Span::empty());
 
         let result = resolver.validate();
         assert!(result.is_err());
@@ -1023,8 +1093,8 @@ mod tests {
     #[test]
     fn test_method_override_same_params_valid() {
         let mut resolver = ClassResolver::new();
-        resolver.register_class("أ", None, &[], Span::empty());
-        resolver.register_class("ب", Some("أ"), &[], Span::empty());
+        resolver.register_class("أ", &[], None, &[], Span::empty());
+        resolver.register_class("ب", &[], Some("أ"), &[], Span::empty());
 
         // Add method to parent with Int parameter
         if let Some(class) = resolver.get_class_mut("أ") {
@@ -1067,8 +1137,8 @@ mod tests {
     #[test]
     fn test_method_override_incompatible_param_type() {
         let mut resolver = ClassResolver::new();
-        resolver.register_class("أ", None, &[], Span::empty());
-        resolver.register_class("ب", Some("أ"), &[], Span::empty());
+        resolver.register_class("أ", &[], None, &[], Span::empty());
+        resolver.register_class("ب", &[], Some("أ"), &[], Span::empty());
 
         // Parent method with Int parameter
         if let Some(class) = resolver.get_class_mut("أ") {
@@ -1111,8 +1181,8 @@ mod tests {
     #[test]
     fn test_method_override_wrong_param_count() {
         let mut resolver = ClassResolver::new();
-        resolver.register_class("أ", None, &[], Span::empty());
-        resolver.register_class("ب", Some("أ"), &[], Span::empty());
+        resolver.register_class("أ", &[], None, &[], Span::empty());
+        resolver.register_class("ب", &[], Some("أ"), &[], Span::empty());
 
         // Parent method with 1 parameter
         if let Some(class) = resolver.get_class_mut("أ") {
@@ -1155,8 +1225,8 @@ mod tests {
     #[test]
     fn test_method_override_any_param_accepts_all() {
         let mut resolver = ClassResolver::new();
-        resolver.register_class("أ", None, &[], Span::empty());
-        resolver.register_class("ب", Some("أ"), &[], Span::empty());
+        resolver.register_class("أ", &[], None, &[], Span::empty());
+        resolver.register_class("ب", &[], Some("أ"), &[], Span::empty());
 
         // Parent with Int parameter
         if let Some(class) = resolver.get_class_mut("أ") {
@@ -1199,8 +1269,8 @@ mod tests {
     #[test]
     fn test_method_override_fewer_params_invalid() {
         let mut resolver = ClassResolver::new();
-        resolver.register_class("أ", None, &[], Span::empty());
-        resolver.register_class("ب", Some("أ"), &[], Span::empty());
+        resolver.register_class("أ", &[], None, &[], Span::empty());
+        resolver.register_class("ب", &[], Some("أ"), &[], Span::empty());
 
         // Parent method with 2 parameters
         if let Some(class) = resolver.get_class_mut("أ") {

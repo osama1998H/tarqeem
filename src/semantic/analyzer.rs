@@ -118,12 +118,13 @@ impl Analyzer {
         match &stmt.kind {
             StmtKind::ClassDecl {
                 name,
+                type_params,
                 extends,
                 implements,
                 ..
             } => {
                 self.class_resolver
-                    .register_class(name, extends.as_deref(), implements, stmt.span);
+                    .register_class(name, type_params, extends.as_deref(), implements, stmt.span);
             }
             StmtKind::InterfaceDecl { name, .. } => {
                 self.class_resolver.register_interface(name, &[], stmt.span);
@@ -1462,7 +1463,11 @@ impl Analyzer {
                 }
             }
 
-            ExprKind::New { class, args } => {
+            ExprKind::New {
+                class,
+                type_args,
+                args,
+            } => {
                 // Extract class name from identifier
                 let class_name = match &class.kind {
                     ExprKind::Identifier(name) => name.clone(),
@@ -1476,17 +1481,83 @@ impl Analyzer {
                     }
                 };
 
-                // Extract constructor info from class resolver (clone to avoid borrow issues)
-                let ctor_info = self
-                    .class_resolver
-                    .get_class(&class_name)
-                    .and_then(|ci| ci.constructor.as_ref())
-                    .map(|ctor| ctor.params.clone());
-                let class_exists = self.class_resolver.get_class(&class_name).is_some();
+                // Extract class info from class resolver (clone to avoid borrow issues)
+                let class_info = self.class_resolver.get_class(&class_name).cloned();
 
-                if class_exists {
+                if let Some(class_info) = class_info {
+                    // Validate type arguments for generic classes
+                    if class_info.is_generic() {
+                        if type_args.is_empty() {
+                            self.error(
+                                &format!(
+                                    "Generic class '{}' requires type arguments",
+                                    class_name
+                                ),
+                                &format!(
+                                    "الصنف المعمم '{}' يتطلب معاملات نوع",
+                                    class_name
+                                ),
+                                expr.span,
+                            );
+                        } else if type_args.len() != class_info.type_params.len() {
+                            self.error(
+                                &format!(
+                                    "Wrong number of type arguments: expected {}, got {}",
+                                    class_info.type_params.len(),
+                                    type_args.len()
+                                ),
+                                &format!(
+                                    "عدد خاطئ لمعاملات النوع: متوقع {}، وُجد {}",
+                                    class_info.type_params.len(),
+                                    type_args.len()
+                                ),
+                                expr.span,
+                            );
+                        } else {
+                            // Resolve type arguments and create substitution context
+                            let resolved_args: Vec<Type> =
+                                type_args.iter().map(|ta| self.resolve_type(ta)).collect();
+
+                            // Create generic context for this instantiation using GenericResolver
+                            use crate::semantic::generics::GenericParam;
+                            let params: Vec<GenericParam> = class_info
+                                .type_params
+                                .iter()
+                                .map(|name| GenericParam::new(name.clone()))
+                                .collect();
+
+                            if let Some(context) =
+                                self.generic_resolver
+                                    .instantiate(&params, &resolved_args, expr.span)
+                            {
+                                // Successfully created context - it can be used for substitution
+                                // For now, we just validate that instantiation succeeded
+                                drop(context);
+                            }
+
+                            // Collect and report any diagnostics from the generic resolver
+                            let diagnostics = self.generic_resolver.take_diagnostics();
+                            for diag in diagnostics {
+                                self.diagnostics.push(diag);
+                            }
+                        }
+                    } else if !type_args.is_empty() {
+                        self.error(
+                            &format!(
+                                "Class '{}' is not generic but type arguments were provided",
+                                class_name
+                            ),
+                            &format!(
+                                "الصنف '{}' ليس معمماً لكن تم تقديم معاملات نوع",
+                                class_name
+                            ),
+                            expr.span,
+                        );
+                    }
+
                     // Validate constructor arguments
-                    if let Some(expected_params) = ctor_info {
+                    if let Some(ref ctor) = class_info.constructor {
+                        let expected_params = &ctor.params;
                         // Check argument count
                         if args.len() != expected_params.len() {
                             self.error(

@@ -1083,11 +1083,17 @@ fn test_parse_new_expression_with_generics() {
         StmtKind::VarDecl { init, .. } => {
             let init_expr = init.as_ref().unwrap();
             match &init_expr.kind {
-                ExprKind::New { class, args } => {
+                ExprKind::New {
+                    class,
+                    type_args,
+                    args,
+                } => {
                     match &class.kind {
                         ExprKind::Identifier(name) => assert_eq!(name, "قائمة"),
                         _ => panic!("Expected identifier"),
                     }
+                    // Should have one type argument: عدد
+                    assert_eq!(type_args.len(), 1);
                     assert!(args.is_empty());
                 }
                 _ => panic!("Expected new expression"),

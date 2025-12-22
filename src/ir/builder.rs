@@ -1664,7 +1664,7 @@ impl IrBuilder {
             ExprKind::Array(elements) => self.build_array(elements),
             ExprKind::Object(fields) => self.build_object(fields),
             ExprKind::Lambda { params, body } => self.build_lambda(params, body),
-            ExprKind::New { class, args } => self.build_new(class, args),
+            ExprKind::New { class, args, .. } => self.build_new(class, args),
             ExprKind::Await(inner) => self.build_await(inner),
             ExprKind::Ternary {
                 condition,
