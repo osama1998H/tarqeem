@@ -1,153 +1,99 @@
-//! Keyword mappings for Arabic and English keywords
+//! Keyword mappings for Arabic keywords
+//!
+//! Tarqeem is an Arabic-only programming language. English keywords are not supported.
 
 use super::TokenKind;
 use phf::phf_map;
 
-/// Static map of keywords to token kinds
-/// Includes both Arabic and English keywords
+/// Static map of Arabic keywords to token kinds
+/// Only Arabic keywords are supported - English keywords are not allowed
 pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     // ============ Variables ============
     "متغير" => TokenKind::Let,
-    "let" => TokenKind::Let,
-    "var" => TokenKind::Let,
     "ثابت" => TokenKind::Const,
-    "const" => TokenKind::Const,
 
     // ============ Functions ============
     "دالة" => TokenKind::Function,
-    "function" => TokenKind::Function,
-    "fn" => TokenKind::Function,
     "أرجع" => TokenKind::Return,
-    "ارجع" => TokenKind::Return,
-    "return" => TokenKind::Return,
+    "ارجع" => TokenKind::Return,  // Without hamza variant
     "غير_متزامن" => TokenKind::Async,
-    "async" => TokenKind::Async,
     "انتظر" => TokenKind::Await,
-    "await" => TokenKind::Await,
 
     // ============ Control Flow ============
     "إذا" => TokenKind::If,
-    "اذا" => TokenKind::If,
-    "if" => TokenKind::If,
+    "اذا" => TokenKind::If,  // Without hamza variant
     "وإلا" => TokenKind::Else,
-    "والا" => TokenKind::Else,
-    "else" => TokenKind::Else,
+    "والا" => TokenKind::Else,  // Without hamza variant
     "تطابق" => TokenKind::Match,
-    "match" => TokenKind::Match,
-    "switch" => TokenKind::Match,
     "حالة" => TokenKind::Case,
-    "case" => TokenKind::Case,
     "غير_ذلك" => TokenKind::Default,
-    "default" => TokenKind::Default,
 
     // ============ Loops ============
     "طالما" => TokenKind::While,
-    "while" => TokenKind::While,
     "لكل" => TokenKind::For,
-    "for" => TokenKind::For,
     "في" => TokenKind::In,
-    "in" => TokenKind::In,
     "افعل" => TokenKind::Do,
-    "do" => TokenKind::Do,
     "أوقف" => TokenKind::Break,
-    "اوقف" => TokenKind::Break,
-    "break" => TokenKind::Break,
+    "اوقف" => TokenKind::Break,  // Without hamza variant
     "استمر" => TokenKind::Continue,
-    "continue" => TokenKind::Continue,
 
     // ============ OOP ============
     "صنف" => TokenKind::Class,
-    "class" => TokenKind::Class,
     "واجهة" => TokenKind::Interface,
-    "interface" => TokenKind::Interface,
     "يرث" => TokenKind::Extends,
-    "extends" => TokenKind::Extends,
     "يطبق" => TokenKind::Implements,
-    "implements" => TokenKind::Implements,
     "عام" => TokenKind::Public,
-    "public" => TokenKind::Public,
     "خاص" => TokenKind::Private,
-    "private" => TokenKind::Private,
     "محمي" => TokenKind::Protected,
-    "protected" => TokenKind::Protected,
     "ثابت_صنف" => TokenKind::Static,
-    "static" => TokenKind::Static,
     "منشئ" => TokenKind::Constructor,
-    "constructor" => TokenKind::Constructor,
     "هذا" => TokenKind::This,
-    "this" => TokenKind::This,
     "أساس" => TokenKind::Super,
-    "اساس" => TokenKind::Super,
-    "super" => TokenKind::Super,
+    "اساس" => TokenKind::Super,  // Without hamza variant
     "جديد" => TokenKind::New,
-    "new" => TokenKind::New,
 
     // ============ Error Handling ============
     "حاول" => TokenKind::Try,
-    "try" => TokenKind::Try,
     "التقط" => TokenKind::Catch,
-    "catch" => TokenKind::Catch,
     "أخيراً" => TokenKind::Finally,
-    "اخيرا" => TokenKind::Finally,
-    "finally" => TokenKind::Finally,
+    "اخيرا" => TokenKind::Finally,  // Without hamza variant
     "ارمِ" => TokenKind::Throw,
-    "ارم" => TokenKind::Throw,
-    "throw" => TokenKind::Throw,
+    "ارم" => TokenKind::Throw,  // Without kasra variant
 
     // ============ Modules ============
     "استورد" => TokenKind::Import,
-    "import" => TokenKind::Import,
     "صدّر" => TokenKind::Export,
-    "صدر" => TokenKind::Export,
-    "export" => TokenKind::Export,
+    "صدر" => TokenKind::Export,  // Without shadda variant
     "من" => TokenKind::From,
-    "from" => TokenKind::From,
     "كـ" => TokenKind::As,
-    "ك" => TokenKind::As,
-    "as" => TokenKind::As,
+    "ك" => TokenKind::As,  // Without tatweel variant
 
     // ============ Boolean/Null ============
     "صحيح" => TokenKind::True,
-    "true" => TokenKind::True,
     "خطأ" => TokenKind::False,
-    "خطا" => TokenKind::False,
-    "false" => TokenKind::False,
+    "خطا" => TokenKind::False,  // Without hamza variant
     "عدم" => TokenKind::Null,
-    "null" => TokenKind::Null,
-    "none" => TokenKind::Null,
 
     // ============ Logical Operators (Arabic words) ============
     "و" => TokenKind::And,
     "أو" => TokenKind::Or,
-    "او" => TokenKind::Or,
+    "او" => TokenKind::Or,  // Without hamza variant
     "ليس" => TokenKind::Bang,
-    "not" => TokenKind::Bang,
 
     // ============ Type Keywords ============
     "عدد" => TokenKind::TypeInt,
-    "int" => TokenKind::TypeInt,
     "عدد_عشري" => TokenKind::TypeFloat,
-    "float" => TokenKind::TypeFloat,
     "نص" => TokenKind::TypeString,
-    "string" => TokenKind::TypeString,
     "منطقي" => TokenKind::TypeBool,
-    "bool" => TokenKind::TypeBool,
     "مصفوفة" => TokenKind::TypeArray,
-    "array" => TokenKind::TypeArray,
     "قاموس" => TokenKind::TypeMap,
-    "map" => TokenKind::TypeMap,
-    "dict" => TokenKind::TypeMap,
     "فراغ" => TokenKind::TypeVoid,
-    "void" => TokenKind::TypeVoid,
     "أي" => TokenKind::TypeAny,
-    "اي" => TokenKind::TypeAny,
-    "any" => TokenKind::TypeAny,
+    "اي" => TokenKind::TypeAny,  // Without hamza variant
 
     // ============ File Markers ============
     "بسم_الله" => TokenKind::Bismillah,
-    "bismillah" => TokenKind::Bismillah,
     "الحمد_لله" => TokenKind::Alhamdulillah,
-    "alhamdulillah" => TokenKind::Alhamdulillah,
 };
 
 /// Look up a keyword in the keyword map
@@ -169,12 +115,28 @@ mod tests {
     }
 
     #[test]
-    fn test_english_keywords() {
-        assert_eq!(lookup_keyword("let"), Some(TokenKind::Let));
-        assert_eq!(lookup_keyword("const"), Some(TokenKind::Const));
-        assert_eq!(lookup_keyword("function"), Some(TokenKind::Function));
-        assert_eq!(lookup_keyword("if"), Some(TokenKind::If));
-        assert_eq!(lookup_keyword("true"), Some(TokenKind::True));
+    fn test_arabic_keywords_without_hamza() {
+        // Test variants without hamza/diacritics (common typing alternatives)
+        assert_eq!(lookup_keyword("اذا"), Some(TokenKind::If));
+        assert_eq!(lookup_keyword("والا"), Some(TokenKind::Else));
+        assert_eq!(lookup_keyword("ارجع"), Some(TokenKind::Return));
+        assert_eq!(lookup_keyword("اساس"), Some(TokenKind::Super));
+        assert_eq!(lookup_keyword("خطا"), Some(TokenKind::False));
+    }
+
+    #[test]
+    fn test_english_keywords_not_supported() {
+        // English keywords should NOT be recognized
+        assert_eq!(lookup_keyword("let"), None);
+        assert_eq!(lookup_keyword("const"), None);
+        assert_eq!(lookup_keyword("function"), None);
+        assert_eq!(lookup_keyword("if"), None);
+        assert_eq!(lookup_keyword("else"), None);
+        assert_eq!(lookup_keyword("while"), None);
+        assert_eq!(lookup_keyword("for"), None);
+        assert_eq!(lookup_keyword("class"), None);
+        assert_eq!(lookup_keyword("true"), None);
+        assert_eq!(lookup_keyword("false"), None);
     }
 
     #[test]
@@ -186,11 +148,32 @@ mod tests {
     #[test]
     fn test_file_markers() {
         assert_eq!(lookup_keyword("بسم_الله"), Some(TokenKind::Bismillah));
-        assert_eq!(lookup_keyword("bismillah"), Some(TokenKind::Bismillah));
         assert_eq!(lookup_keyword("الحمد_لله"), Some(TokenKind::Alhamdulillah));
-        assert_eq!(
-            lookup_keyword("alhamdulillah"),
-            Some(TokenKind::Alhamdulillah)
-        );
+    }
+
+    #[test]
+    fn test_type_keywords() {
+        assert_eq!(lookup_keyword("عدد"), Some(TokenKind::TypeInt));
+        assert_eq!(lookup_keyword("عدد_عشري"), Some(TokenKind::TypeFloat));
+        assert_eq!(lookup_keyword("نص"), Some(TokenKind::TypeString));
+        assert_eq!(lookup_keyword("منطقي"), Some(TokenKind::TypeBool));
+        assert_eq!(lookup_keyword("مصفوفة"), Some(TokenKind::TypeArray));
+        assert_eq!(lookup_keyword("قاموس"), Some(TokenKind::TypeMap));
+        assert_eq!(lookup_keyword("فراغ"), Some(TokenKind::TypeVoid));
+        assert_eq!(lookup_keyword("أي"), Some(TokenKind::TypeAny));
+    }
+
+    #[test]
+    fn test_oop_keywords() {
+        assert_eq!(lookup_keyword("صنف"), Some(TokenKind::Class));
+        assert_eq!(lookup_keyword("واجهة"), Some(TokenKind::Interface));
+        assert_eq!(lookup_keyword("يرث"), Some(TokenKind::Extends));
+        assert_eq!(lookup_keyword("يطبق"), Some(TokenKind::Implements));
+        assert_eq!(lookup_keyword("عام"), Some(TokenKind::Public));
+        assert_eq!(lookup_keyword("خاص"), Some(TokenKind::Private));
+        assert_eq!(lookup_keyword("محمي"), Some(TokenKind::Protected));
+        assert_eq!(lookup_keyword("منشئ"), Some(TokenKind::Constructor));
+        assert_eq!(lookup_keyword("هذا"), Some(TokenKind::This));
+        assert_eq!(lookup_keyword("جديد"), Some(TokenKind::New));
     }
 }

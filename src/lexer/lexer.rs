@@ -1,4 +1,7 @@
 //! Main lexer implementation
+//!
+//! Tarqeem is an Arabic-only programming language. English identifiers and keywords
+//! are not supported.
 
 use super::keywords::lookup_keyword;
 use super::token::{Token, TokenKind};
@@ -8,7 +11,7 @@ use unicode_normalization::UnicodeNormalization;
 /// The Tarqeem lexer
 ///
 /// Converts source code into a stream of tokens.
-/// Supports both Arabic and English keywords and identifiers.
+/// Only Arabic identifiers and keywords are supported.
 pub struct Lexer {
     /// Source code (NFC normalized)
     source: Vec<char>,
@@ -69,7 +72,12 @@ impl Lexer {
             return self.scan_number(c);
         }
 
-        // Identifiers and keywords
+        // Check for English letters - produce helpful error
+        if self.is_english_letter(c) {
+            return self.scan_english_identifier_error(c);
+        }
+
+        // Identifiers and keywords (Arabic only)
         if self.is_identifier_start(c) {
             return self.scan_identifier(c);
         }
@@ -208,11 +216,18 @@ impl Lexer {
     }
 
     fn is_identifier_start(&self, c: char) -> bool {
-        c.is_alphabetic() || c == '_' || self.is_arabic_letter(c)
+        // Only Arabic letters and underscore are allowed as identifier start
+        // English letters (a-z, A-Z) are NOT allowed
+        c == '_' || self.is_arabic_letter(c)
     }
 
     fn is_identifier_continue(&self, c: char) -> bool {
+        // Arabic letters, underscore, and digits (both ASCII and Arabic-Indic)
         self.is_identifier_start(c) || c.is_ascii_digit() || self.is_arabic_digit(c)
+    }
+
+    fn is_english_letter(&self, c: char) -> bool {
+        c.is_ascii_alphabetic()
     }
 
     fn is_arabic_letter(&self, c: char) -> bool {
@@ -497,6 +512,28 @@ impl Lexer {
         }
     }
 
+    /// Scan an English identifier and produce a helpful error message
+    fn scan_english_identifier_error(&mut self, first: char) -> Token {
+        let mut ident = String::new();
+        ident.push(first);
+
+        // Consume the entire English identifier/word
+        while !self.is_at_end() {
+            let c = self.peek();
+            if c.is_ascii_alphanumeric() || c == '_' {
+                ident.push(self.advance());
+            } else {
+                break;
+            }
+        }
+
+        // Produce a bilingual error message
+        self.make_error(&format!(
+            "English identifiers are not allowed. Use Arabic instead / المعرفات الإنجليزية غير مسموح بها. استخدم العربية بدلاً من '{}'"
+            , ident
+        ))
+    }
+
     fn scan_string(&mut self, quote: char) -> Token {
         let closing = match quote {
             '«' => '»',
@@ -694,15 +731,17 @@ mod tests {
     }
 
     #[test]
-    fn test_english_keywords() {
+    fn test_english_keywords_not_allowed() {
+        // English keywords should produce errors, not be recognized as keywords
         let mut lexer = Lexer::new("let const function if else");
         let tokens: Vec<_> = lexer.tokenize();
 
-        assert_eq!(tokens[0].kind, TokenKind::Let);
-        assert_eq!(tokens[1].kind, TokenKind::Const);
-        assert_eq!(tokens[2].kind, TokenKind::Function);
-        assert_eq!(tokens[3].kind, TokenKind::If);
-        assert_eq!(tokens[4].kind, TokenKind::Else);
+        // All tokens should be errors since English is not allowed
+        assert!(matches!(&tokens[0].kind, TokenKind::Error(_)));
+        assert!(matches!(&tokens[1].kind, TokenKind::Error(_)));
+        assert!(matches!(&tokens[2].kind, TokenKind::Error(_)));
+        assert!(matches!(&tokens[3].kind, TokenKind::Error(_)));
+        assert!(matches!(&tokens[4].kind, TokenKind::Error(_)));
     }
 
     #[test]
@@ -768,27 +807,53 @@ mod tests {
     }
 
     #[test]
-    fn test_mixed_arabic_english() {
-        let source = r#"
-            متغير userName = "أحمد"
-            const userAge = 25
-            اطبع(userName)
-        "#;
+    fn test_english_identifiers_produce_errors() {
+        // English identifiers should produce errors
+        let source = r#"متغير userName = "أحمد""#;
         let mut lexer = Lexer::new(source);
-        let tokens: Vec<_> = lexer
-            .tokenize()
-            .into_iter()
-            .filter(|t| !matches!(t.kind, TokenKind::Newline))
-            .collect();
+        let tokens: Vec<_> = lexer.tokenize();
 
-        // First variable declaration: متغير userName = "أحمد"
+        // First token is متغير (Let keyword) - valid
         assert_eq!(tokens[0].kind, TokenKind::Let);
-        assert!(matches!(&tokens[1].kind, TokenKind::Identifier(s) if s == "userName"));
+        // Second token is userName - should be an error (English identifier)
+        assert!(matches!(&tokens[1].kind, TokenKind::Error(msg) if msg.contains("English")));
+    }
 
-        // Second variable declaration: const userAge = 25
-        // tokens[4] = const, tokens[5] = userAge
-        assert_eq!(tokens[4].kind, TokenKind::Const);
-        assert!(matches!(&tokens[5].kind, TokenKind::Identifier(s) if s == "userAge"));
+    #[test]
+    fn test_arabic_only_identifiers() {
+        // Arabic identifiers should work correctly
+        let source = r#"متغير اسم_المستخدم = "أحمد""#;
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        assert_eq!(tokens[0].kind, TokenKind::Let);
+        assert!(matches!(&tokens[1].kind, TokenKind::Identifier(s) if s == "اسم_المستخدم"));
+        assert_eq!(tokens[2].kind, TokenKind::Equal);
+        assert!(matches!(&tokens[3].kind, TokenKind::StringLiteral(s) if s == "أحمد"));
+    }
+
+    #[test]
+    fn test_arabic_identifier_with_underscore() {
+        let source = "متغير _خاص = 5";
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        assert_eq!(tokens[0].kind, TokenKind::Let);
+        assert!(matches!(&tokens[1].kind, TokenKind::Identifier(s) if s == "_خاص"));
+        assert_eq!(tokens[2].kind, TokenKind::Equal);
+        assert_eq!(tokens[3].kind, TokenKind::IntLiteral(5));
+    }
+
+    #[test]
+    fn test_arabic_identifier_with_digits() {
+        let source = "متغير رقم1 = 10";
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        assert_eq!(tokens[0].kind, TokenKind::Let);
+        assert!(matches!(&tokens[1].kind, TokenKind::Identifier(s) if s == "رقم1"));
+        assert_eq!(tokens[2].kind, TokenKind::Equal);
+        assert_eq!(tokens[3].kind, TokenKind::IntLiteral(10));
     }
 
     #[test]
