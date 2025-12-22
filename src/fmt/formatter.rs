@@ -605,10 +605,25 @@ impl Formatter {
                 }
             }
 
-            ExprKind::New { class, args } => {
+            ExprKind::New {
+                class,
+                type_args,
+                args,
+            } => {
                 p.write("جديد");
                 p.write_space();
                 self.format_expr(class, p);
+                // Format type arguments if present
+                if !type_args.is_empty() {
+                    p.write_char('<');
+                    for (i, ta) in type_args.iter().enumerate() {
+                        if i > 0 {
+                            p.write("، ");
+                        }
+                        self.format_type(ta, p);
+                    }
+                    p.write_char('>');
+                }
                 p.write_parens(|p| {
                     for (i, arg) in args.iter().enumerate() {
                         if i > 0 {

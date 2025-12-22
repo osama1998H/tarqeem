@@ -426,7 +426,7 @@ mod tests {
     #[test]
     fn test_class_method_resolution() {
         let mut class_resolver = ClassResolver::new();
-        class_resolver.register_class("شخص", None, &[], Span::empty());
+        class_resolver.register_class("شخص", &[], None, &[], Span::empty());
 
         // Add a method
         if let Some(class) = class_resolver.get_class_mut("شخص") {

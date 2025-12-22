@@ -129,28 +129,53 @@ These issues could cause incorrect compilation, crashes, or user confusion.
 
 ---
 
-### 1.4 ~~Generics Framework Disconnected from Semantic Analysis~~ ✅ FIXED (Phase 1)
+### 1.4 ~~Generics Framework Disconnected from Semantic Analysis~~ ✅ FIXED (Complete)
 
-**Location:** `src/semantic/analyzer.rs`, `src/semantic/generics.rs`
-**Severity:** ~~CRITICAL~~ RESOLVED (Phase 1)
-**Status:** ✅ Basic integration implemented
+**Location:** `src/semantic/analyzer.rs`, `src/semantic/generics.rs`, `src/parser/ast.rs`
+**Severity:** ~~CRITICAL~~ RESOLVED
+**Status:** ✅ Fully implemented with type argument validation
 
-**Solution Implemented (Phase 1):**
+**Solution Implemented (Phase 1 - Generic Context Management):**
 - Removed `#[allow(dead_code)]` annotation from `generic_resolver` field
 - Added `enter_generic_context()` and `exit_generic_context()` helper methods
 - Added `is_generic_param()` method for checking if a type is a generic parameter
 - Updated `analyze_class_decl()` to accept and handle `type_params`
 - Generic context is now pushed/popped when analyzing generic class declarations
 
+**Solution Implemented (Phase 2 - Type Argument Validation):**
+- Added `type_args: Vec<TypeAnnotation>` field to `ExprKind::New` in AST
+- Updated parser to capture and store type arguments instead of discarding them
+- Added `type_params: Vec<String>` field to `ClassInfo` in class_resolver
+- Added `with_type_params()` constructor and `is_generic()` helper method
+- Updated `register_class()` to accept type parameters
+- Updated semantic analyzer to validate type arguments at instantiation sites:
+  - Checks if generic class is instantiated without type arguments (error)
+  - Checks if non-generic class is instantiated with type arguments (error)
+  - Validates type argument count matches type parameter count
+  - Uses GenericResolver.instantiate() for type substitution
+- Updated IR builder to handle new ExprKind::New structure
+- Updated formatter to output type arguments in New expressions
+
 **Integration Points:**
 - When analyzing a class with type parameters (e.g., `صنف قائمة<ن>`), a generic context is pushed
-- Type parameters are registered in the GenericResolver
+- Type parameters are registered in the GenericResolver and ClassInfo
 - Context is popped after class analysis completes
+- At instantiation sites, type arguments are validated against class type parameters
+
+**Bilingual Error Messages:**
+- "Generic class 'X' requires type arguments" / "الصنف المعمم 'X' يتطلب معاملات نوع"
+- "Class 'X' is not generic and cannot have type arguments" / "الصنف 'X' ليس معمماً ولا يقبل معاملات نوع"
+- "Wrong number of type arguments for 'X': expected N, got M" / "عدد خاطئ لمعاملات النوع للصنف 'X': متوقع N، وجد M"
 
 **Files Modified:**
-- `src/semantic/analyzer.rs` - Removed dead_code, added generic context management
-
-**Note:** Full type argument validation at instantiation sites is deferred to v1.1 as the AST doesn't currently include type arguments in `New` expressions.
+- `src/parser/ast.rs` - Added type_args to ExprKind::New
+- `src/parser/parser.rs` - Store type arguments in New expression
+- `src/parser/parser_tests.rs` - Updated test assertions
+- `src/semantic/class_resolver.rs` - Added type_params to ClassInfo
+- `src/semantic/analyzer.rs` - Full type argument validation
+- `src/semantic/method_resolver.rs` - Updated test for register_class signature
+- `src/ir/builder.rs` - Handle new ExprKind::New structure
+- `src/fmt/formatter.rs` - Output type arguments
 
 ---
 
@@ -628,7 +653,7 @@ format!("... (متوقع '{}'، وجد '{}')", expected_ty.arabic_name(), actual
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Generics | Framework exists | Not connected to type checking |
+| Generics | ✅ Complete | Type argument validation at instantiation sites |
 | Abstract Methods | Field exists | Always false |
 | Global CSE | Infrastructure exists | No dominator analysis |
 
@@ -744,11 +769,11 @@ format!("... (متوقع '{}'، وجد '{}')", expected_ty.arabic_name(), actual
 
 ### 8.3 Post-V1 (CAN DEFER)
 
-8. ~~**Integrate GenericResolver**~~ ✅ DONE (Phase 1 - Phase 2 adds full type arg validation)
+8. ~~**Integrate GenericResolver**~~ ✅ DONE (Complete with type argument validation)
 9. **Implement Global CSE with Dominators** (~300 LOC)
 10. **Complete DAP Server** (~400 LOC)
 11. **Add Abstract Method Enforcement** (~50 LOC)
-12. **Full Generics Type Argument Validation** (~100 LOC) - Requires AST changes for New expressions
+12. ~~**Full Generics Type Argument Validation**~~ ✅ DONE - AST updated, parser captures type args, semantic validation complete
 
 ---
 
@@ -805,7 +830,7 @@ Tarqeem is a well-engineered compiler with excellent bilingual support and compr
 1. ~~Arrow functions not parsed~~ ✅ FIXED
 2. ~~Do-while loops not parsed~~ ✅ FIXED
 3. ~~Unicode normalization in scope~~ ✅ FIXED
-4. ~~Generics disconnected~~ ✅ FIXED (Phase 1)
+4. ~~Generics disconnected~~ ✅ FIXED (Complete with type argument validation)
 5. ~~Override contravariance not checked~~ ✅ FIXED
 
 **Progress Update (2024-12-22):**
@@ -815,6 +840,14 @@ Tarqeem is a well-engineered compiler with excellent bilingual support and compr
 - ✅ GenericResolver integrated into semantic analysis with context management
 - ✅ Method override parameter contravariance checking implemented
 - ✅ 23 new unit tests added (8 arrow + 5 do-while + 5 unicode + 5 override)
+
+**Generics Phase 2 Update (2024-12-22):**
+- ✅ Added `type_args` field to `ExprKind::New` in AST
+- ✅ Parser now captures and stores type arguments instead of discarding them
+- ✅ Added `type_params` to `ClassInfo` for tracking generic class type parameters
+- ✅ Full type argument validation at instantiation sites implemented
+- ✅ Bilingual error messages for generic type argument violations
+- ✅ Updated IR builder and formatter to handle new AST structure
 
 **Medium Priority Fixes (2024-12-22):**
 - ✅ 3.1 Abstract Methods - Validation framework added (full impl requires AST changes, deferred to v1.1)

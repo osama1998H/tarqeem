@@ -223,8 +223,12 @@ pub enum ExprKind {
         body: LambdaBody,
     },
 
-    /// New expression: جديد Person("name")
-    New { class: Box<Expr>, args: Vec<Expr> },
+    /// New expression: جديد Person<T>("name")
+    New {
+        class: Box<Expr>,
+        type_args: Vec<TypeAnnotation>,
+        args: Vec<Expr>,
+    },
 
     /// Await expression: انتظر promise
     Await(Box<Expr>),
