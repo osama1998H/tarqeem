@@ -11,6 +11,8 @@ pub struct TypeMapper {
     pointer_bits: u32,
     /// Cached struct type definitions
     struct_types: HashMap<String, String>,
+    /// Struct field information for size calculation
+    struct_fields: HashMap<String, Vec<IrType>>,
 }
 
 impl TypeMapper {
@@ -19,6 +21,7 @@ impl TypeMapper {
         Self {
             pointer_bits,
             struct_types: HashMap::new(),
+            struct_fields: HashMap::new(),
         }
     }
 
@@ -74,9 +77,29 @@ impl TypeMapper {
             IrType::Ptr(_) => self.pointer_bits as u64 / 8,
             IrType::Array(elem, size) => self.type_size(elem) * (*size as u64),
             IrType::Function { .. } => self.pointer_bits as u64 / 8,
-            IrType::Struct(_) => {
-                // TODO: Calculate actual struct size from class definition
-                self.pointer_bits as u64 / 8 // Placeholder
+            IrType::Struct(class_id) => {
+                // Calculate struct size from registered field types
+                if let Some(field_types) = self.struct_fields.get(&class_id.0) {
+                    let mut total_size = 0u64;
+                    for field_ty in field_types {
+                        // Add alignment padding if needed
+                        let field_align = self.type_align(field_ty);
+                        if field_align > 0 {
+                            let padding = (field_align - (total_size % field_align)) % field_align;
+                            total_size += padding;
+                        }
+                        total_size += self.type_size(field_ty);
+                    }
+                    // Ensure minimum size of pointer
+                    if total_size == 0 {
+                        self.pointer_bits as u64 / 8
+                    } else {
+                        total_size
+                    }
+                } else {
+                    // Fallback to pointer size if struct not registered
+                    self.pointer_bits as u64 / 8
+                }
             }
         }
     }
@@ -111,6 +134,10 @@ impl TypeMapper {
         );
         self.struct_types
             .insert(class_id.0.clone(), type_def.clone());
+        // Store field types for size calculation
+        let ir_field_types: Vec<IrType> = fields.iter().map(|(_, ty)| ty.clone()).collect();
+        self.struct_fields
+            .insert(class_id.0.clone(), ir_field_types);
         type_def
     }
 
