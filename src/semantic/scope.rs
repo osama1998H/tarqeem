@@ -74,6 +74,7 @@ pub enum SymbolKind {
     Function,
     Class,
     Interface,
+    Enum,
     Parameter,
 }
 

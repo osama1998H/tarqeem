@@ -213,6 +213,15 @@ impl Analyzer {
                 self.analyze_interface_decl(name, methods, stmt.span);
             }
 
+            StmtKind::EnumDecl {
+                name,
+                variants,
+                type_params,
+                ..
+            } => {
+                self.analyze_enum_decl(name, type_params, variants, stmt.span);
+            }
+
             StmtKind::If {
                 condition,
                 then_branch,
@@ -665,6 +674,32 @@ impl Analyzer {
             self.error(
                 &format!("Interface '{}' is already defined", name),
                 &format!("الميثاق '{}' معرّف مسبقاً", name),
+                span,
+            );
+        }
+    }
+
+    fn analyze_enum_decl(
+        &mut self,
+        name: &str,
+        _type_params: &[String],
+        _variants: &[EnumVariant],
+        span: Span,
+    ) {
+        // TODO: Full enum semantic analysis in Phase 3
+        // For now, just register the enum type in scope
+        let symbol = Symbol {
+            name: name.to_string(),
+            kind: SymbolKind::Enum,
+            ty: Type::Enum(name.to_string()),
+            mutable: false,
+            defined: true,
+        };
+
+        if !self.scope.define(symbol) {
+            self.error(
+                &format!("Enum '{}' is already defined", name),
+                &format!("التعداد '{}' معرّف مسبقاً", name),
                 span,
             );
         }

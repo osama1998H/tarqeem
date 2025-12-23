@@ -67,6 +67,7 @@ impl Parser {
                 | TokenKind::Function // دالة
                 | TokenKind::Class    // صنف
                 | TokenKind::Interface // ميثاق
+                | TokenKind::Enum     // تعداد
                 // Control flow
                 | TokenKind::If       // إذا
                 | TokenKind::While    // طالما
@@ -275,6 +276,8 @@ impl Parser {
             self.parse_class_declaration(doc_comment)
         } else if self.check(&TokenKind::Interface) {
             self.parse_interface_declaration(doc_comment)
+        } else if self.check(&TokenKind::Enum) {
+            self.parse_enum_declaration(doc_comment)
         } else if self.check(&TokenKind::Import) {
             self.parse_import_statement()
         } else if self.check(&TokenKind::Export) {
@@ -682,6 +685,135 @@ impl Parser {
             },
             span,
         ))
+    }
+
+    /// Parse enum declaration: تعداد Color { Red, Green = 1, Blue(r: عدد) }
+    fn parse_enum_declaration(&mut self, doc_comment: Option<String>) -> Result<Stmt, Diagnostic> {
+        let start = self.current_span();
+        self.advance(); // consume 'تعداد'
+
+        let name = self.expect_identifier("Expected enum name", "متوقع اسم التعداد")?;
+
+        // Parse optional generic type parameters: <T, U, ...>
+        let type_params = self.parse_type_parameters()?;
+
+        self.expect(&TokenKind::LeftBrace, "Expected '{'", "متوقع '{'")?;
+
+        let mut variants = Vec::new();
+        while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            let variant = self.parse_enum_variant()?;
+            variants.push(variant);
+
+            // Optional comma between variants
+            let _ =
+                self.match_token(&TokenKind::Comma) || self.match_token(&TokenKind::ArabicComma);
+        }
+
+        self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
+
+        let span = start.merge(&self.previous_span());
+        Ok(Stmt::new(
+            StmtKind::EnumDecl {
+                name,
+                type_params,
+                variants,
+                doc_comment,
+            },
+            span,
+        ))
+    }
+
+    /// Parse a single enum variant
+    fn parse_enum_variant(&mut self) -> Result<EnumVariant, Diagnostic> {
+        let start = self.current_span();
+
+        // Capture any doc comment before the variant
+        let variant_doc = self.consume_doc_comment();
+
+        let name = self.expect_identifier("Expected variant name", "متوقع اسم الحالة")?;
+
+        // Check for explicit discriminant: = 1
+        let discriminant = if self.match_token(&TokenKind::Equal) {
+            match &self.peek().kind {
+                TokenKind::IntLiteral(n) => {
+                    let value = *n;
+                    self.advance();
+                    Some(value)
+                }
+                _ => {
+                    return Err(Diagnostic::error(
+                        "Expected integer value for discriminant",
+                        "متوقع قيمة عددية للمميز",
+                        self.current_span(),
+                    ))
+                }
+            }
+        } else {
+            None
+        };
+
+        // Check for associated data: (field: type, ...)
+        let fields = if self.check(&TokenKind::LeftParen) {
+            self.parse_enum_variant_fields()?
+        } else {
+            Vec::new()
+        };
+
+        let span = start.merge(&self.previous_span());
+        Ok(EnumVariant {
+            name,
+            discriminant,
+            fields,
+            doc_comment: variant_doc,
+            span,
+        })
+    }
+
+    /// Parse enum variant fields: (name: type, ...) or (type, ...)
+    fn parse_enum_variant_fields(&mut self) -> Result<Vec<EnumVariantField>, Diagnostic> {
+        self.advance(); // consume '('
+
+        let mut fields = Vec::new();
+
+        if !self.check(&TokenKind::RightParen) {
+            loop {
+                let field_start = self.current_span();
+
+                // Check if this is a named field (name: type) or positional (type)
+                let (name, ty) = if self.check_identifier() {
+                    let first = self.expect_identifier(
+                        "Expected field name or type",
+                        "متوقع اسم الحقل أو النوع",
+                    )?;
+
+                    if self.match_token(&TokenKind::Colon) {
+                        // Named field: name: type
+                        let ty = self.parse_type_annotation()?;
+                        (Some(first), ty)
+                    } else {
+                        // Positional field: just a type (the first token was the type name)
+                        let span = field_start.merge(&self.previous_span());
+                        (None, TypeAnnotation::new(TypeKind::Simple(first), span))
+                    }
+                } else {
+                    // Parse a complex type directly
+                    let ty = self.parse_type_annotation()?;
+                    (None, ty)
+                };
+
+                let span = field_start.merge(&self.previous_span());
+                fields.push(EnumVariantField { name, ty, span });
+
+                if !self.match_token(&TokenKind::Comma)
+                    && !self.match_token(&TokenKind::ArabicComma)
+                {
+                    break;
+                }
+            }
+        }
+
+        self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+        Ok(fields)
     }
 
     fn parse_import_statement(&mut self) -> Result<Stmt, Diagnostic> {
@@ -2139,5 +2271,127 @@ mod tests {
 
         assert!(ast.has_file_markers());
         assert_eq!(ast.statements.len(), 0);
+    }
+
+    // ============ Enum Tests ============
+
+    #[test]
+    fn test_simple_enum() {
+        let source = r#"بسم_الله
+تعداد اللون {
+    أحمر
+    أخضر
+    أزرق
+}
+الحمد_لله"#;
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(ast.statements.len(), 1);
+        match &ast.statements[0].kind {
+            StmtKind::EnumDecl { name, variants, .. } => {
+                assert_eq!(name, "اللون");
+                assert_eq!(variants.len(), 3);
+                assert_eq!(variants[0].name, "أحمر");
+                assert_eq!(variants[1].name, "أخضر");
+                assert_eq!(variants[2].name, "أزرق");
+                assert!(variants[0].discriminant.is_none());
+                assert!(variants[0].fields.is_empty());
+            }
+            _ => panic!("Expected EnumDecl"),
+        }
+    }
+
+    #[test]
+    fn test_enum_with_discriminants() {
+        let source = r#"بسم_الله
+تعداد الحجم {
+    صغير = 1
+    متوسط = 2
+    كبير = 3
+}
+الحمد_لله"#;
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(ast.statements.len(), 1);
+        match &ast.statements[0].kind {
+            StmtKind::EnumDecl { name, variants, .. } => {
+                assert_eq!(name, "الحجم");
+                assert_eq!(variants.len(), 3);
+                assert_eq!(variants[0].name, "صغير");
+                assert_eq!(variants[0].discriminant, Some(1));
+                assert_eq!(variants[1].name, "متوسط");
+                assert_eq!(variants[1].discriminant, Some(2));
+                assert_eq!(variants[2].name, "كبير");
+                assert_eq!(variants[2].discriminant, Some(3));
+            }
+            _ => panic!("Expected EnumDecl"),
+        }
+    }
+
+    #[test]
+    fn test_enum_with_associated_data() {
+        let source = r#"بسم_الله
+تعداد الرسالة {
+    رسالة_نصية(محتوى: نص)
+    رسالة_رقمية(قيمة: عدد)
+    فارغ
+}
+الحمد_لله"#;
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(ast.statements.len(), 1);
+        match &ast.statements[0].kind {
+            StmtKind::EnumDecl { name, variants, .. } => {
+                assert_eq!(name, "الرسالة");
+                assert_eq!(variants.len(), 3);
+
+                // First variant: رسالة_نصية(محتوى: نص)
+                assert_eq!(variants[0].name, "رسالة_نصية");
+                assert_eq!(variants[0].fields.len(), 1);
+                assert_eq!(variants[0].fields[0].name, Some("محتوى".to_string()));
+
+                // Second variant: رسالة_رقمية(قيمة: عدد)
+                assert_eq!(variants[1].name, "رسالة_رقمية");
+                assert_eq!(variants[1].fields.len(), 1);
+                assert_eq!(variants[1].fields[0].name, Some("قيمة".to_string()));
+
+                // Third variant: فارغ (unit variant)
+                assert_eq!(variants[2].name, "فارغ");
+                assert!(variants[2].fields.is_empty());
+            }
+            _ => panic!("Expected EnumDecl"),
+        }
+    }
+
+    #[test]
+    fn test_generic_enum() {
+        let source = r#"بسم_الله
+تعداد نتيجة<ن، خ> {
+    نجاح(قيمة: ن)
+    فشل(سبب: خ)
+}
+الحمد_لله"#;
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(ast.statements.len(), 1);
+        match &ast.statements[0].kind {
+            StmtKind::EnumDecl {
+                name,
+                type_params,
+                variants,
+                ..
+            } => {
+                assert_eq!(name, "نتيجة");
+                assert_eq!(type_params.len(), 2);
+                assert_eq!(type_params[0], "ن");
+                assert_eq!(type_params[1], "خ");
+                assert_eq!(variants.len(), 2);
+            }
+            _ => panic!("Expected EnumDecl"),
+        }
     }
 }

@@ -584,6 +584,11 @@ impl IrBuilder {
                 // Interfaces don't generate runtime code
                 Ok(())
             }
+            StmtKind::EnumDecl { .. } => {
+                // TODO: Implement enum IR generation
+                // For now, enums are handled at semantic level
+                Ok(())
+            }
             StmtKind::If {
                 condition,
                 then_branch,
