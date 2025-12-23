@@ -326,7 +326,7 @@ mod builtins {
         let source = r#"
 متغير أ = أرضية(3.7)
 متغير ب = سقف(3.2)
-متغير ج = قرب(3.5)
+متغير ج = قرّب(3.5)
 "#;
         assert!(analyzes_ok(source));
     }

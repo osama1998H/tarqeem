@@ -303,37 +303,242 @@ impl LlvmCodegen {
         emit!(self, "declare void @trq_retain(ptr)");
         emit!(self, "declare void @trq_release(ptr)");
 
-        // String operations
+        // =======================================================================
+        // String operations (دوال النص)
+        // =======================================================================
         emit!(self, "declare ptr @trq_string_new(ptr, i64)");
         emit!(self, "declare ptr @trq_string_concat(ptr, ptr)");
         emit!(self, "declare i64 @trq_string_len(ptr)");
+        emit!(self, "declare i64 @trq_string_len_chars(ptr)");
+        emit!(self, "declare ptr @trq_string_substr(ptr, i64, i64)");
+        emit!(self, "declare ptr @trq_string_substr_chars(ptr, i64, i64)");
+        emit!(self, "declare ptr @trq_string_char_at(ptr, i64)");
+        emit!(self, "declare i1 @trq_string_contains(ptr, ptr)");
+        emit!(self, "declare i1 @trq_string_starts_with(ptr, ptr)");
+        emit!(self, "declare i1 @trq_string_ends_with(ptr, ptr)");
+        emit!(self, "declare i64 @trq_string_index_of(ptr, ptr)");
+        emit!(self, "declare i64 @trq_string_last_index_of(ptr, ptr)");
+        emit!(self, "declare i64 @trq_string_count(ptr, ptr)");
+        emit!(self, "declare ptr @trq_string_to_upper(ptr)");
+        emit!(self, "declare ptr @trq_string_to_lower(ptr)");
+        emit!(self, "declare ptr @trq_string_to_title(ptr)");
+        emit!(self, "declare ptr @trq_string_reverse(ptr)");
+        emit!(self, "declare ptr @trq_string_trim(ptr)");
+        emit!(self, "declare ptr @trq_string_trim_left(ptr)");
+        emit!(self, "declare ptr @trq_string_trim_right(ptr)");
+        emit!(self, "declare ptr @trq_string_split(ptr, ptr)");
+        emit!(self, "declare ptr @trq_string_join(ptr, ptr)");
+        emit!(self, "declare ptr @trq_string_replace(ptr, ptr, ptr)");
+        emit!(self, "declare ptr @trq_string_replace_all(ptr, ptr, ptr)");
+        emit!(self, "declare ptr @trq_string_repeat(ptr, i64)");
+        emit!(self, "declare ptr @trq_string_pad_left(ptr, i64, ptr)");
+        emit!(self, "declare ptr @trq_string_pad_right(ptr, i64, ptr)");
+        emit!(self, "declare i1 @trq_string_is_numeric(ptr)");
+        emit!(self, "declare i1 @trq_string_is_alpha(ptr)");
+        emit!(self, "declare i1 @trq_string_is_arabic(ptr)");
+        emit!(self, "declare i64 @trq_string_compare(ptr, ptr)");
+        emit!(self, "declare i1 @trq_string_equals(ptr, ptr)");
+
+        // Type conversion
         emit!(self, "declare ptr @trq_int_to_string(i64)");
         emit!(self, "declare ptr @trq_float_to_string(double)");
         emit!(self, "declare ptr @trq_bool_to_string(i1)");
+        emit!(self, "declare i64 @trq_string_to_int(ptr)");
+        emit!(self, "declare double @trq_string_to_float(ptr)");
 
-        // Array operations
+        // =======================================================================
+        // Array operations (دوال المصفوفة)
+        // =======================================================================
         emit!(self, "declare ptr @trq_array_new(i64, i64)");
         emit!(self, "declare i64 @trq_array_len(ptr)");
         emit!(self, "declare ptr @trq_array_get(ptr, i64)");
         emit!(self, "declare void @trq_array_set(ptr, i64, ptr)");
-        // Array push takes (array_ptr, value_ptr, elem_size)
         emit!(self, "declare void @trq_array_push(ptr, ptr, i64)");
+        emit!(self, "declare ptr @trq_array_pop(ptr)");
 
-        // I/O operations
+        // =======================================================================
+        // I/O operations (دوال الإدخال والإخراج)
+        // =======================================================================
         emit!(self, "declare void @trq_print(ptr)");
         emit!(self, "declare void @trq_print_int(i64)");
         emit!(self, "declare void @trq_print_float(double)");
         emit!(self, "declare void @trq_print_bool(i1)");
         emit!(self, "declare void @trq_print_array(ptr)");
         emit!(self, "declare void @trq_print_newline()");
+        emit!(self, "declare void @trq_print_error(ptr)");
+        emit!(self, "declare ptr @trq_input()");
+        emit!(self, "declare ptr @trq_input_prompt(ptr)");
+        emit!(self, "declare i64 @trq_input_int()");
+        emit!(self, "declare double @trq_input_float()");
 
-        // Math operations
+        // =======================================================================
+        // Math operations (دوال رياضية)
+        // =======================================================================
         emit!(self, "declare double @llvm.pow.f64(double, double)");
         emit!(self, "declare i64 @trq_pow_int(i64, i64)");
+        emit!(self, "declare double @trq_pow_float(double, double)");
+        emit!(self, "declare i64 @trq_abs_int(i64)");
+        emit!(self, "declare double @trq_abs_float(double)");
+        emit!(self, "declare double @trq_sqrt(double)");
+        emit!(self, "declare double @trq_cbrt(double)");
+        emit!(self, "declare double @trq_nroot(double, i64)");
+        emit!(self, "declare double @trq_log(double)");
+        emit!(self, "declare double @trq_log10(double)");
+        emit!(self, "declare double @trq_log2(double)");
+        emit!(self, "declare double @trq_exp(double)");
+        emit!(self, "declare double @trq_floor(double)");
+        emit!(self, "declare double @trq_ceil(double)");
+        emit!(self, "declare double @trq_round(double)");
+        emit!(self, "declare double @trq_trunc(double)");
+        emit!(self, "declare i64 @trq_min_int(i64, i64)");
+        emit!(self, "declare i64 @trq_max_int(i64, i64)");
+        emit!(self, "declare double @trq_min_float(double, double)");
+        emit!(self, "declare double @trq_max_float(double, double)");
+        emit!(self, "declare i64 @trq_clamp_int(i64, i64, i64)");
+        emit!(
+            self,
+            "declare double @trq_clamp_float(double, double, double)"
+        );
+        emit!(self, "declare i64 @trq_sign(i64)");
+        emit!(self, "declare i64 @trq_mod(i64, i64)");
+        emit!(self, "declare i64 @trq_gcd(i64, i64)");
+        emit!(self, "declare i64 @trq_lcm(i64, i64)");
+        emit!(self, "declare i64 @trq_factorial(i64)");
 
+        // Trigonometric functions
+        emit!(self, "declare double @trq_sin(double)");
+        emit!(self, "declare double @trq_cos(double)");
+        emit!(self, "declare double @trq_tan(double)");
+        emit!(self, "declare double @trq_cot(double)");
+        emit!(self, "declare double @trq_sec(double)");
+        emit!(self, "declare double @trq_csc(double)");
+        emit!(self, "declare double @trq_asin(double)");
+        emit!(self, "declare double @trq_acos(double)");
+        emit!(self, "declare double @trq_atan(double)");
+        emit!(self, "declare double @trq_atan2(double, double)");
+        emit!(self, "declare double @trq_sinh(double)");
+        emit!(self, "declare double @trq_cosh(double)");
+        emit!(self, "declare double @trq_tanh(double)");
+        emit!(self, "declare double @trq_to_radians(double)");
+        emit!(self, "declare double @trq_to_degrees(double)");
+
+        // Random functions
+        emit!(self, "declare void @trq_random_seed(i64)");
+        emit!(self, "declare i64 @trq_random_int()");
+        emit!(self, "declare i64 @trq_random_int_range(i64, i64)");
+        emit!(self, "declare double @trq_random_float()");
+        emit!(
+            self,
+            "declare double @trq_random_float_range(double, double)"
+        );
+        emit!(self, "declare i1 @trq_random_bool()");
+
+        // =======================================================================
+        // File system operations (دوال الملفات)
+        // =======================================================================
+        emit!(self, "declare i1 @trq_file_exists(ptr)");
+        emit!(self, "declare i1 @trq_file_is_file(ptr)");
+        emit!(self, "declare i1 @trq_file_is_dir(ptr)");
+        emit!(self, "declare ptr @trq_file_read(ptr)");
+        emit!(self, "declare i1 @trq_file_write(ptr, ptr)");
+        emit!(self, "declare i1 @trq_file_append(ptr, ptr)");
+        emit!(self, "declare i1 @trq_file_delete(ptr)");
+        emit!(self, "declare i1 @trq_file_copy(ptr, ptr)");
+        emit!(self, "declare i1 @trq_file_move(ptr, ptr)");
+        emit!(self, "declare i64 @trq_file_size(ptr)");
+        emit!(self, "declare i1 @trq_dir_create(ptr)");
+        emit!(self, "declare i1 @trq_dir_create_all(ptr)");
+        emit!(self, "declare i1 @trq_dir_delete(ptr)");
+        emit!(self, "declare ptr @trq_dir_list(ptr)");
+        emit!(self, "declare ptr @trq_dir_current()");
+        emit!(self, "declare ptr @trq_dir_home()");
+        emit!(self, "declare ptr @trq_dir_temp()");
+        emit!(self, "declare ptr @trq_path_join(ptr, ptr)");
+        emit!(self, "declare ptr @trq_path_parent(ptr)");
+        emit!(self, "declare ptr @trq_path_filename(ptr)");
+        emit!(self, "declare ptr @trq_path_extension(ptr)");
+        emit!(self, "declare ptr @trq_path_stem(ptr)");
+        emit!(self, "declare ptr @trq_path_absolute(ptr)");
+        emit!(self, "declare i1 @trq_path_is_absolute(ptr)");
+        emit!(self, "declare ptr @trq_path_separator()");
+
+        // =======================================================================
+        // Date/Time operations (دوال التاريخ والوقت)
+        // =======================================================================
+        emit!(self, "declare ptr @trq_date_today()");
+        emit!(self, "declare ptr @trq_date_parse(ptr)");
+        emit!(self, "declare ptr @trq_date_from_timestamp(i64)");
+        emit!(self, "declare ptr @trq_date_add_days(i64, i64, i64, i64)");
+        emit!(self, "declare ptr @trq_date_add_months(i64, i64, i64, i64)");
+        emit!(
+            self,
+            "declare i64 @trq_date_diff_days(i64, i64, i64, i64, i64, i64)"
+        );
+        emit!(self, "declare i64 @trq_day_of_week(i64, i64, i64)");
+        emit!(self, "declare i64 @trq_day_of_year(i64, i64, i64)");
+        emit!(self, "declare i64 @trq_week_number(i64, i64, i64)");
+        emit!(self, "declare i64 @trq_days_in_month(i64, i64)");
+        emit!(self, "declare ptr @trq_date_format(i64, i64, i64, ptr)");
+        emit!(self, "declare ptr @trq_time_now()");
+        emit!(self, "declare ptr @trq_time_parse(ptr)");
+        emit!(
+            self,
+            "declare ptr @trq_time_format(i64, i64, i64, i64, ptr)"
+        );
+        emit!(self, "declare ptr @trq_datetime_now()");
+        emit!(self, "declare ptr @trq_datetime_from_timestamp(i64)");
+        emit!(self, "declare ptr @trq_datetime_parse(ptr)");
+        emit!(
+            self,
+            "declare ptr @trq_datetime_format(i64, i64, i64, i64, i64, i64, ptr)"
+        );
+        emit!(self, "declare void @trq_sleep(i64)");
+        emit!(self, "declare i64 @trq_performance_now()");
+
+        // =======================================================================
+        // Network operations (دوال الشبكة)
+        // =======================================================================
+        emit!(self, "declare i64 @trq_tcp_connect(ptr, i64, i64)");
+        emit!(self, "declare void @trq_tcp_close(i64)");
+        emit!(self, "declare i1 @trq_tcp_send(i64, ptr)");
+        emit!(self, "declare i1 @trq_tcp_send_bytes(i64, ptr)");
+        emit!(self, "declare ptr @trq_tcp_receive(i64, i64)");
+        emit!(self, "declare ptr @trq_tcp_receive_bytes(i64, i64, i64)");
+        emit!(self, "declare ptr @trq_tcp_receive_until(i64, ptr, i64)");
+        emit!(self, "declare i1 @trq_tcp_available(i64)");
+        emit!(self, "declare i64 @trq_tcp_listen(ptr, i64, i64)");
+        emit!(self, "declare ptr @trq_tcp_accept(i64)");
+        emit!(self, "declare ptr @trq_tcp_accept_timeout(i64, i64)");
+        emit!(self, "declare ptr @trq_tcp_local_address(i64)");
+        emit!(self, "declare i64 @trq_tcp_local_port(i64)");
+        emit!(self, "declare i64 @trq_udp_bind(i64)");
+        emit!(self, "declare void @trq_udp_close(i64)");
+        emit!(self, "declare i1 @trq_udp_send_to(i64, ptr, i64, ptr)");
+        emit!(
+            self,
+            "declare i1 @trq_udp_send_bytes_to(i64, ptr, i64, ptr)"
+        );
+        emit!(self, "declare ptr @trq_udp_receive(i64, i64)");
+        emit!(self, "declare ptr @trq_udp_receive_bytes(i64, i64, i64)");
+        emit!(self, "declare i1 @trq_udp_reply(i64, ptr)");
+        emit!(self, "declare ptr @trq_resolve_hostname(ptr)");
+        emit!(self, "declare ptr @trq_get_local_ip()");
+        emit!(
+            self,
+            "declare ptr @trq_http_request(ptr, ptr, ptr, ptr, i64, i1)"
+        );
+        emit!(self, "declare i1 @trq_http_download(ptr, ptr)");
+        emit!(self, "declare ptr @trq_url_encode(ptr)");
+        emit!(self, "declare ptr @trq_url_decode(ptr)");
+        emit!(self, "declare ptr @trq_base64_encode(ptr)");
+        emit!(self, "declare ptr @trq_base64_decode(ptr)");
+
+        // =======================================================================
         // Exception handling
+        // =======================================================================
         emit!(self, "declare void @trq_throw(ptr)");
         emit!(self, "declare ptr @trq_get_exception()");
+        emit!(self, "declare void @trq_panic(ptr)");
 
         // C standard library
         emit!(self, "declare i64 @strlen(ptr)");
@@ -1450,7 +1655,216 @@ impl std::error::Error for CodegenError {}
 
 /// Mangle a function name to be valid for LLVM
 fn mangle_function_name(name: &str) -> String {
+    // First check if this is a builtin function with a runtime mapping
+    if let Some(runtime_name) = get_runtime_function_name(name) {
+        return runtime_name.to_string();
+    }
     mangle_name(name)
+}
+
+/// Map Arabic builtin function names to their C runtime equivalents (trq_* prefix).
+/// This eliminates the need for the __xxx__ pattern in stdlib.
+fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
+    match arabic_name {
+        // ==========================================================================
+        // String Functions (دوال النص)
+        // ==========================================================================
+        "قص_نص" => Some("trq_string_substr"),
+        "قص_حروف" => Some("trq_string_substr_chars"),
+        "حرف_في" => Some("trq_string_char_at"),
+        "يحتوي" => Some("trq_string_contains"),
+        "يبدأ_بـ" => Some("trq_string_starts_with"),
+        "ينتهي_بـ" => Some("trq_string_ends_with"),
+        "موضع" => Some("trq_string_index_of"),
+        "موضع_اخير" => Some("trq_string_last_index_of"),
+        "عدد_مرات" => Some("trq_string_count"),
+        "كبير" => Some("trq_string_to_upper"),
+        "صغير" => Some("trq_string_to_lower"),
+        "عنوان" => Some("trq_string_to_title"),
+        "اعكس_نص" => Some("trq_string_reverse"),
+        "ازل_فراغات" => Some("trq_string_trim"),
+        "ازل_فراغات_يسار" => Some("trq_string_trim_left"),
+        "ازل_فراغات_يمين" => Some("trq_string_trim_right"),
+        "قسّم" => Some("trq_string_split"),
+        "ادمج" => Some("trq_string_join"),
+        "استبدل" => Some("trq_string_replace"),
+        "استبدل_كل" => Some("trq_string_replace_all"),
+        "كرر_نص" => Some("trq_string_repeat"),
+        "احشو_يسار" => Some("trq_string_pad_left"),
+        "احشو_يمين" => Some("trq_string_pad_right"),
+        "طول_نص" => Some("trq_string_len"),
+        "طول_حروف" => Some("trq_string_len_chars"),
+        "رقمي" => Some("trq_string_is_numeric"),
+        "حروف_فقط" => Some("trq_string_is_alpha"),
+        "عربي" => Some("trq_string_is_arabic"),
+        "قارن_نص" => Some("trq_string_compare"),
+        "نصوص_متساوية" => Some("trq_string_equals"),
+
+        // Type conversion
+        "عدد_لنص" => Some("trq_int_to_string"),
+        "عشري_لنص" => Some("trq_float_to_string"),
+        "منطقي_لنص" => Some("trq_bool_to_string"),
+        "نص_لعدد" => Some("trq_string_to_int"),
+        "نص_لعشري" => Some("trq_string_to_float"),
+
+        // ==========================================================================
+        // File System Functions (دوال الملفات)
+        // ==========================================================================
+        "ملف_موجود" => Some("trq_file_exists"),
+        "هل_ملف" => Some("trq_file_is_file"),
+        "هل_مجلد" => Some("trq_file_is_dir"),
+        "اقرأ_ملف" => Some("trq_file_read"),
+        "اكتب_ملف" => Some("trq_file_write"),
+        "الحق_ملف" => Some("trq_file_append"),
+        "احذف_ملف" => Some("trq_file_delete"),
+        "انسخ_ملف" => Some("trq_file_copy"),
+        "انقل_ملف" => Some("trq_file_move"),
+        "حجم_ملف" => Some("trq_file_size"),
+        "انشئ_مجلد" => Some("trq_dir_create"),
+        "قائمة_مجلد" => Some("trq_dir_list"),
+        "احذف_مجلد" => Some("trq_dir_delete"),
+        "مجلد_حالي" => Some("trq_dir_current"),
+        "مجلد_مستخدم" => Some("trq_dir_home"),
+        "مجلد_مؤقت" => Some("trq_dir_temp"),
+        "ادمج_مسار" => Some("trq_path_join"),
+        "مسار_اب" => Some("trq_path_parent"),
+        "اسم_ملف" => Some("trq_path_filename"),
+        "امتداد_ملف" => Some("trq_path_extension"),
+        "فاصل_مسار" => Some("trq_path_separator"),
+
+        // ==========================================================================
+        // Random Functions (دوال العشوائية)
+        // ==========================================================================
+        "بذرة_عشوائي" => Some("trq_random_seed"),
+        "عشوائي_عدد" => Some("trq_random_int"),
+        "عشوائي_عدد_بين" => Some("trq_random_int_range"),
+        "عشوائي_عشري" => Some("trq_random_float"),
+        "عشوائي_عشري_بين" => Some("trq_random_float_range"),
+        "عشوائي_منطقي" => Some("trq_random_bool"),
+
+        // ==========================================================================
+        // Date/Time Functions (دوال التاريخ والوقت)
+        // ==========================================================================
+        "تاريخ_اليوم" => Some("trq_date_today"),
+        "حلل_تاريخ" => Some("trq_date_parse"),
+        "تاريخ_من_طابع" => Some("trq_date_from_timestamp"),
+        "أضف_أيام" => Some("trq_date_add_days"),
+        "أضف_أشهر" => Some("trq_date_add_months"),
+        "فرق_أيام" => Some("trq_date_diff_days"),
+        "يوم_الأسبوع" => Some("trq_day_of_week"),
+        "يوم_السنة" => Some("trq_day_of_year"),
+        "رقم_الأسبوع" => Some("trq_week_number"),
+        "أيام_الشهر" => Some("trq_days_in_month"),
+        "نسّق_تاريخ" => Some("trq_date_format"),
+        "وقت_الآن" => Some("trq_time_now"),
+        "حلل_وقت" => Some("trq_time_parse"),
+        "نسّق_وقت" => Some("trq_time_format"),
+        "تاريخ_ووقت_من_طابع" => Some("trq_datetime_from_timestamp"),
+        "حلل_تاريخ_ووقت" => Some("trq_datetime_parse"),
+        "نسّق_تاريخ_ووقت" => Some("trq_datetime_format"),
+        "نم" => Some("trq_sleep"),
+        "وقت_أداء" => Some("trq_performance_now"),
+
+        // ==========================================================================
+        // Network Functions (دوال الشبكة)
+        // ==========================================================================
+        "tcp_اتصل" => Some("trq_tcp_connect"),
+        "tcp_اغلق" => Some("trq_tcp_close"),
+        "tcp_ارسل" => Some("trq_tcp_send"),
+        "tcp_ارسل_بايتات" => Some("trq_tcp_send_bytes"),
+        "tcp_استقبل" => Some("trq_tcp_receive"),
+        "tcp_استقبل_بايتات" => Some("trq_tcp_receive_bytes"),
+        "tcp_استقبل_حتى" => Some("trq_tcp_receive_until"),
+        "tcp_بيانات_متاحة" => Some("trq_tcp_available"),
+        "tcp_استمع" => Some("trq_tcp_listen"),
+        "tcp_اقبل" => Some("trq_tcp_accept"),
+        "tcp_اقبل_مع_مهلة" => Some("trq_tcp_accept_timeout"),
+        "tcp_عنوان_محلي" => Some("trq_tcp_local_address"),
+        "tcp_منفذ_محلي" => Some("trq_tcp_local_port"),
+        "udp_اربط" => Some("trq_udp_bind"),
+        "udp_اغلق" => Some("trq_udp_close"),
+        "udp_ارسل_الى" => Some("trq_udp_send_to"),
+        "udp_ارسل_بايتات_الى" => Some("trq_udp_send_bytes_to"),
+        "udp_استقبل" => Some("trq_udp_receive"),
+        "udp_استقبل_بايتات" => Some("trq_udp_receive_bytes"),
+        "udp_ارسل_رد" => Some("trq_udp_reply"),
+        "حل_عنوان" => Some("trq_resolve_hostname"),
+        "احصل_ip_محلي" => Some("trq_get_local_ip"),
+        "http_طلب" => Some("trq_http_request"),
+        "http_حمّل" => Some("trq_http_download"),
+        "رمّز_رابط" => Some("trq_url_encode"),
+        "فك_رمز_رابط" => Some("trq_url_decode"),
+        "base64_ترميز" => Some("trq_base64_encode"),
+        "base64_فك" => Some("trq_base64_decode"),
+
+        // ==========================================================================
+        // I/O Functions (دوال الإدخال والإخراج)
+        // ==========================================================================
+        "اطبع" | "طباعة" => Some("trq_print"),
+        "اطبع_سطر" => Some("trq_print"), // Will add newline in wrapper
+        "اطبع_خطأ" => Some("trq_print_error"),
+        "اطبع_منسق" => Some("trq_print"),
+        "ادخل" => Some("trq_input"),
+        "ادخل_رسالة" => Some("trq_input_prompt"),
+        "ادخل_عدد" => Some("trq_input_int"),
+        "ادخل_عشري" => Some("trq_input_float"),
+
+        // ==========================================================================
+        // Math Functions (دوال رياضية)
+        // ==========================================================================
+        "جذر" => Some("trq_sqrt"),
+        "جذر_تكعيبي" => Some("trq_cbrt"),
+        "لوغاريتم" => Some("trq_log"),
+        "لوغ10" | "لوغاريتم10" => Some("trq_log10"),
+        "لوغ2" => Some("trq_log2"),
+        "أسي" | "أس" => Some("trq_exp"),
+        "أرضية" => Some("trq_floor"),
+        "سقف" => Some("trq_ceil"),
+        "قرّب" | "تقريب" => Some("trq_round"),
+        "اقتطع" => Some("trq_trunc"),
+        "مطلق" => Some("trq_abs_float"),
+        "مطلق_عدد" => Some("trq_abs_int"),
+        "أقل" | "أدنى" => Some("trq_min_float"),
+        "أقل_عدد" => Some("trq_min_int"),
+        "أكبر" | "أقصى" => Some("trq_max_float"),
+        "أكبر_عدد" => Some("trq_max_int"),
+        "حصر" => Some("trq_clamp_float"),
+        "حصر_عدد" => Some("trq_clamp_int"),
+        "علامة" => Some("trq_sign"),
+        "باقي" => Some("trq_mod"),
+        "قاسم_مشترك" => Some("trq_gcd"),
+        "مضاعف_مشترك" => Some("trq_lcm"),
+        "عاملي" => Some("trq_factorial"),
+        "قوة" => Some("trq_pow_float"),
+        "قوة_عدد" => Some("trq_pow_int"),
+
+        // Trigonometric functions
+        "جا" | "جيب" => Some("trq_sin"),
+        "جتا" | "جيب_التمام" => Some("trq_cos"),
+        "ظا" | "ظل" => Some("trq_tan"),
+        "ظتا" | "ظل_التمام" => Some("trq_cot"),
+        "قا" | "قاطع" => Some("trq_sec"),
+        "قتا" | "قاطع_التمام" => Some("trq_csc"),
+        "جا_عكسي" | "جيب_عكسي" => Some("trq_asin"),
+        "جتا_عكسي" | "جيب_تمام_عكسي" => Some("trq_acos"),
+        "ظا_عكسي" => Some("trq_atan"),
+        "ظا_عكسي2" => Some("trq_atan2"),
+        "جا_زائدي" => Some("trq_sinh"),
+        "جتا_زائدي" => Some("trq_cosh"),
+        "ظا_زائدي" => Some("trq_tanh"),
+        "الى_راديان" | "راديان" => Some("trq_to_radians"),
+        "الى_درجات" | "درجات" => Some("trq_to_degrees"),
+
+        // ==========================================================================
+        // Utility Functions
+        // ==========================================================================
+        "توقف" => Some("trq_panic"),
+        "طول_مصفوفة" => Some("trq_array_len"),
+        "الحق" => Some("trq_array_push"),
+
+        // No mapping - not a builtin
+        _ => None,
+    }
 }
 
 /// Mangle a class name to be valid for LLVM
@@ -1495,9 +1909,12 @@ mod tests {
     fn test_mangle_function_name() {
         assert_eq!(mangle_function_name("main"), "main");
         assert_eq!(mangle_function_name("add_numbers"), "add_numbers");
-        // Arabic name
-        let mangled = mangle_function_name("اطبع");
-        assert!(!mangled.contains("اطبع"));
+        // Builtin Arabic name maps to runtime function
+        assert_eq!(mangle_function_name("اطبع"), "trq_print");
+        assert_eq!(mangle_function_name("طباعة"), "trq_print");
+        // Non-builtin Arabic name gets mangled
+        let mangled = mangle_function_name("دالتي");
+        assert!(!mangled.contains("دالتي"));
         assert!(mangled.contains("_U"));
     }
 

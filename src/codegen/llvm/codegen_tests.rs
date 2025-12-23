@@ -1980,10 +1980,10 @@ fn test_arabic_function_name_mangling() {
     let mut codegen = create_codegen();
     let mut module = create_test_module("test");
 
-    // Create function with Arabic name
+    // Create function with Arabic name (non-builtin)
     let mut func = Function::new(
-        FuncId("اطبع".to_string()),
-        "اطبع".to_string(),
+        FuncId("دالتي_الخاصة".to_string()),
+        "دالتي_الخاصة".to_string(),
         vec![],
         IrType::Void,
     );
@@ -1996,8 +1996,8 @@ fn test_arabic_function_name_mangling() {
 
     let result = codegen.generate(&module).unwrap();
 
-    // Arabic name should be mangled (not appear directly)
-    assert!(!result.contains("define void @اطبع"));
+    // Non-builtin Arabic name should be mangled (not appear directly)
+    assert!(!result.contains("define void @دالتي_الخاصة"));
     assert!(result.contains("_U")); // Mangled encoding
 }
 

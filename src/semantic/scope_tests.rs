@@ -166,78 +166,42 @@ fn test_global_scope_has_builtins_arabic() {
     assert!(scope.lookup("قوة").is_some());
 }
 
-#[test]
-fn test_global_scope_has_builtins_english() {
-    let scope = Scope::new_global();
-
-    // I/O functions
-    assert!(scope.lookup("print").is_some());
-    assert!(scope.lookup("println").is_some());
-    assert!(scope.lookup("input").is_some());
-
-    // Introspection
-    assert!(scope.lookup("len").is_some());
-    assert!(scope.lookup("length").is_some());
-    assert!(scope.lookup("type").is_some());
-    assert!(scope.lookup("typeof").is_some());
-
-    // Type conversion
-    assert!(scope.lookup("int").is_some());
-    assert!(scope.lookup("float").is_some());
-    assert!(scope.lookup("str").is_some());
-    assert!(scope.lookup("string").is_some());
-    assert!(scope.lookup("bool").is_some());
-
-    // Math
-    assert!(scope.lookup("abs").is_some());
-    assert!(scope.lookup("sqrt").is_some());
-    assert!(scope.lookup("pow").is_some());
-    assert!(scope.lookup("floor").is_some());
-    assert!(scope.lookup("ceil").is_some());
-    assert!(scope.lookup("round").is_some());
-    assert!(scope.lookup("min").is_some());
-    assert!(scope.lookup("max").is_some());
-}
+// Note: English builtin functions have been removed.
+// Tarqeem is an Arabic-only language.
+// See test_global_scope_has_builtins_arabic for Arabic builtin tests.
 
 #[test]
 fn test_global_scope_has_trig_functions() {
     let scope = Scope::new_global();
 
-    // Arabic trig
+    // Arabic trig functions only (Arabic-only language)
     assert!(scope.lookup("جا").is_some());
     assert!(scope.lookup("جتا").is_some());
     assert!(scope.lookup("ظا").is_some());
-
-    // English trig
-    assert!(scope.lookup("sin").is_some());
-    assert!(scope.lookup("cos").is_some());
-    assert!(scope.lookup("tan").is_some());
-    assert!(scope.lookup("asin").is_some());
-    assert!(scope.lookup("acos").is_some());
-    assert!(scope.lookup("atan").is_some());
+    assert!(scope.lookup("جا_عكسي").is_some());
+    assert!(scope.lookup("جتا_عكسي").is_some());
+    assert!(scope.lookup("ظا_عكسي").is_some());
 }
 
 #[test]
 fn test_global_scope_has_file_functions() {
     let scope = Scope::new_global();
 
+    // Arabic file functions only (Arabic-only language)
     assert!(scope.lookup("ملف_موجود").is_some());
-    assert!(scope.lookup("file_exists").is_some());
     assert!(scope.lookup("اقرأ_ملف").is_some());
-    assert!(scope.lookup("read_file").is_some());
     assert!(scope.lookup("اكتب_ملف").is_some());
-    assert!(scope.lookup("write_file").is_some());
 }
 
 #[test]
 fn test_global_scope_has_random_functions() {
     let scope = Scope::new_global();
 
+    // Arabic random functions only (Arabic-only language)
     assert!(scope.lookup("عشوائي").is_some());
-    assert!(scope.lookup("random").is_some());
-    assert!(scope.lookup("random_int").is_some());
-    assert!(scope.lookup("random_float").is_some());
-    assert!(scope.lookup("random_range").is_some());
+    assert!(scope.lookup("عشوائي_عدد").is_some());
+    assert!(scope.lookup("عشوائي_عشري").is_some());
+    assert!(scope.lookup("عشوائي_منطقي").is_some());
 }
 
 // =============================================================================
@@ -301,8 +265,8 @@ fn test_child_scope_inherits_parent() {
 
     // Can access parent's variable
     assert!(child.lookup("parentVar").is_some());
-    // Can access global builtins
-    assert!(child.lookup("print").is_some());
+    // Can access global builtins (Arabic)
+    assert!(child.lookup("اطبع").is_some());
 }
 
 #[test]
