@@ -374,7 +374,7 @@ impl DocumentState {
             "عدد_عشري" | "float" => Type::Float,
             "نص" | "string" => Type::String,
             "منطقي" | "bool" => Type::Bool,
-            "فراغ" | "void" => Type::Void,
+            "void" => Type::Void, // فراغ eliminated - functions default to no return
             "عدم" | "null" | "none" => Type::Null,
             "أي" | "اي" | "any" => Type::Any,
             _ => Type::Class(name.to_string()),

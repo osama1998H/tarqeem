@@ -456,7 +456,7 @@ impl IrBuilder {
             "عدد_عشري" | "float" => IrType::Float,
             "نص" | "string" => IrType::String,
             "منطقي" | "bool" => IrType::Bool,
-            "فراغ" | "void" => IrType::Void,
+            "void" => IrType::Void, // فراغ eliminated - functions default to no return
             _ => IrType::Struct(ClassId(name.to_string())),
         }
     }

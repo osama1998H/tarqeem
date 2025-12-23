@@ -293,7 +293,7 @@ pub enum Type {
     Float,          // عدد_عشري
     String,         // نص
     Bool,           // منطقي
-    Void,           // فراغ
+    Void,           // Internal: functions default to no return
 
     // Compound types
     Array(Box<Type>),               // مصفوفة<ن>

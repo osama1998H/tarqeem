@@ -398,8 +398,9 @@ Tarqeem uses a **strong, static type system** with type inference. Types are che
 | `عدد_عشري` | `float` | Floating point | 64-bit |
 | `نص` | `string` | UTF-8 string | Variable |
 | `منطقي` | `bool` | Boolean | 1-bit |
-| `فراغ` | `void` | No value | N/A |
 | `عدم` | `null` | Null value | Pointer |
+
+> **Note**: Functions that don't return a value simply omit the return type annotation. There is no `void` keyword.
 
 ### 5.3 Composite Types
 
@@ -425,7 +426,7 @@ map<string, int>   // English form
 #### Function Type
 ```tarqeem
 (عدد، عدد) -> عدد   // Function taking two ints, returning int
-() -> فراغ          // Function with no params, no return
+()                  // Function with no params, no return (void)
 ```
 
 ### 5.4 User-Defined Types
@@ -811,7 +812,7 @@ The return type is specified with `->`:
 }
 ```
 
-If no return type is specified, the function returns `فراغ` (void).
+If no return type is specified, the function does not return a value (void).
 
 ### 8.3 Lambda Functions
 
@@ -1343,7 +1344,7 @@ type            := simple_type
                  | optional_type
                  | generic_type
 
-simple_type     := 'عدد' | 'عدد_عشري' | 'نص' | 'منطقي' | 'فراغ' | IDENTIFIER
+simple_type     := 'عدد' | 'عدد_عشري' | 'نص' | 'منطقي' | IDENTIFIER
 
 array_type      := 'مصفوفة' '<' type '>'
 
@@ -1479,8 +1480,9 @@ throw_stmt      := 'ارمِ' expr ';'
 | Types | `منطقي` | `bool` | `TypeBool` |
 | Types | `مصفوفة` | `array` | `TypeArray` |
 | Types | `قاموس` | `map`, `dict` | `TypeMap` |
-| Types | `فراغ` | `void` | `TypeVoid` |
 | Types | `أي`, `اي` | `any` | `TypeAny` |
+
+> **Note**: There is no `void` keyword. Functions that don't return a value simply omit the return type annotation.
 
 ---
 

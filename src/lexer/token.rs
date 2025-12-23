@@ -149,7 +149,7 @@ pub enum TokenKind {
     TypeArray,
     /// قاموس / map
     TypeMap,
-    /// فراغ / void
+    /// Internal void type (no keyword - functions default to no return)
     TypeVoid,
     /// أي / any
     TypeAny,

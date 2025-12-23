@@ -193,11 +193,11 @@ let, const, function, class, interface, if, else, while, for, return
 ### Types
 
 ```tarqeem
-// Arabic types
-عدد، عدد_عشري، نص، منطقي، فراغ، مصفوفة، قاموس
+// Arabic types (فراغ/void eliminated - functions without return type default to void)
+عدد، عدد_عشري، نص، منطقي، مصفوفة، قاموس
 
 // English types
-int, float, string, bool, void, array, map
+int, float, string, bool, array, map
 ```
 
 ### Built-in Functions

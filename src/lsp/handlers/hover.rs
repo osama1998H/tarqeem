@@ -85,12 +85,12 @@ pub fn get_builtin_hover(name: &str, language: Language) -> Option<Hover> {
     let (signature, description_ar, description_en) = match name {
         // I/O Functions
         "اطبع" | "print" => (
-            "دالة اطبع(قيمة: أي) -> فراغ",
+            "دالة اطبع(قيمة: أي)", // No return type means no return value
             "طباعة قيمة إلى المخرج القياسي",
             "Print a value to standard output",
         ),
         "println" | "اطبع_سطر" => (
-            "دالة اطبع_سطر(قيمة: أي) -> فراغ",
+            "دالة اطبع_سطر(قيمة: أي)", // No return type means no return value
             "طباعة قيمة مع سطر جديد",
             "Print a value with a newline",
         ),

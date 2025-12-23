@@ -1720,9 +1720,11 @@ impl Parser {
                 self.advance();
                 Ok("قاموس".to_string())
             }
+            // Note: TypeVoid has no keyword - functions default to no return
+            // This case kept for internal/future use but lexer won't produce it
             TokenKind::TypeVoid => {
                 self.advance();
-                Ok("فراغ".to_string())
+                Ok("void".to_string()) // Internal name only
             }
             TokenKind::TypeAny => {
                 self.advance();

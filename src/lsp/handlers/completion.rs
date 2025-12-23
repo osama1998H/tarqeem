@@ -259,7 +259,7 @@ fn get_type_completions(language: Language) -> Vec<CompletionItem> {
             ("عدد_عشري", "عدد عشري"),
             ("نص", "سلسلة نصية"),
             ("منطقي", "قيمة منطقية"),
-            ("فراغ", "بدون قيمة"),
+            // Note: فراغ eliminated - functions default to no return value
             ("مصفوفة", "مصفوفة"),
             ("قاموس", "قاموس"),
             ("أي", "أي نوع"),
@@ -269,7 +269,7 @@ fn get_type_completions(language: Language) -> Vec<CompletionItem> {
             ("float", "Floating point"),
             ("string", "String"),
             ("bool", "Boolean"),
-            ("void", "No value"),
+            // Note: void eliminated - functions default to no return value
             ("array", "Array"),
             ("map", "Map/Dictionary"),
             ("any", "Any type"),
