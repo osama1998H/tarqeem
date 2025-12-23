@@ -891,6 +891,92 @@ impl Formatter {
                 });
                 p.newline();
             }
+
+            ClassMember::Property {
+                visibility,
+                name,
+                ty,
+                accessors,
+                default_value,
+                is_static,
+                doc_comment,
+            } => {
+                // Blank line before property
+                p.blank_line();
+
+                // Doc comment
+                if let Some(doc) = doc_comment.as_ref() {
+                    self.format_doc_comment(doc, p);
+                }
+
+                // Visibility
+                self.format_visibility(*visibility, p);
+
+                // Static
+                if *is_static {
+                    p.write("مشترك");
+                    p.write_space();
+                }
+
+                p.write("خاصية");
+                p.write_space();
+                p.write(name);
+                p.write_colon();
+                self.format_type(ty, p);
+
+                if accessors.is_empty() {
+                    // Auto-property with optional default
+                    if let Some(init) = default_value {
+                        p.write_operator("=");
+                        self.format_expr(init, p);
+                    }
+                    p.newline();
+                } else {
+                    // Property with accessors
+                    p.write_block(|p| {
+                        for accessor in accessors {
+                            match accessor {
+                                crate::parser::PropertyAccessor::Get {
+                                    visibility: acc_vis,
+                                    body,
+                                } => {
+                                    self.format_visibility(*acc_vis, p);
+                                    p.write("احصل");
+                                    match body {
+                                        crate::parser::PropertyAccessorBody::Expr(expr) => {
+                                            p.write_operator("=>");
+                                            self.format_expr(expr, p);
+                                            p.newline();
+                                        }
+                                        crate::parser::PropertyAccessorBody::Block(block) => {
+                                            p.write_block(|p| {
+                                                self.format_block(block, p);
+                                            });
+                                            p.newline();
+                                        }
+                                    }
+                                }
+                                crate::parser::PropertyAccessor::Set {
+                                    visibility: acc_vis,
+                                    param_name,
+                                    body,
+                                } => {
+                                    self.format_visibility(*acc_vis, p);
+                                    p.write("عيّن");
+                                    p.write_parens(|p| {
+                                        p.write(param_name);
+                                    });
+                                    p.write_block(|p| {
+                                        self.format_block(body, p);
+                                    });
+                                    p.newline();
+                                }
+                            }
+                        }
+                    });
+                    p.newline();
+                }
+            }
         }
     }
 

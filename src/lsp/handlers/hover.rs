@@ -75,6 +75,8 @@ fn format_type_info(ty: &Type, kind: &SymbolKind, language: Language) -> (String
         (SymbolKind::Field, Language::English) => "Field",
         (SymbolKind::Method, Language::Arabic) => "دالة",
         (SymbolKind::Method, Language::English) => "Method",
+        (SymbolKind::Property, Language::Arabic) => "خاصية",
+        (SymbolKind::Property, Language::English) => "Property",
     };
 
     (type_str, kind_label.to_string())

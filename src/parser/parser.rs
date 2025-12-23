@@ -506,6 +506,39 @@ impl Parser {
                 is_async,
                 doc_comment: member_doc,
             })
+        } else if self.check(&TokenKind::Property) {
+            // Property: خاصية name: type { احصل { ... } عيّن { ... } }
+            self.advance();
+            let name = self.expect_identifier("Expected property name", "متوقع اسم الخاصية")?;
+            self.expect(&TokenKind::Colon, "Expected ':'", "متوقع ':'")?;
+            let ty = self.parse_type_annotation()?;
+
+            // Check for accessor block, default value, or auto-property
+            let (accessors, default_value) = if self.match_token(&TokenKind::LeftBrace) {
+                // Property with accessor block
+                let accessors = self.parse_property_accessors()?;
+                self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
+                (accessors, None)
+            } else if self.match_token(&TokenKind::Equal) {
+                // Auto-property with default value
+                let default = self.parse_expression()?;
+                self.consume_semicolon()?;
+                (Vec::new(), Some(default))
+            } else {
+                // Auto-property without default
+                self.consume_semicolon()?;
+                (Vec::new(), None)
+            };
+
+            Ok(ClassMember::Property {
+                visibility,
+                name,
+                ty,
+                accessors,
+                default_value,
+                is_static,
+                doc_comment: member_doc,
+            })
         } else {
             // Field
             let name = self.expect_identifier("Expected field name", "متوقع اسم الحقل")?;
@@ -530,6 +563,60 @@ impl Parser {
                 doc_comment: member_doc,
             })
         }
+    }
+
+    /// Parse property accessors (احصل and عيّن blocks)
+    fn parse_property_accessors(&mut self) -> Result<Vec<PropertyAccessor>, Diagnostic> {
+        let mut accessors = Vec::new();
+
+        while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // Optional visibility modifier for accessor
+            let accessor_visibility = self.parse_visibility();
+
+            if self.match_token(&TokenKind::Get) {
+                // احصل block
+                let body = if self.match_token(&TokenKind::FatArrow) {
+                    // Short form: احصل => expression
+                    let expr = self.parse_expression()?;
+                    PropertyAccessorBody::Expr(Box::new(expr))
+                } else {
+                    // Full form: احصل { ... }
+                    PropertyAccessorBody::Block(self.parse_block()?)
+                };
+
+                accessors.push(PropertyAccessor::Get {
+                    visibility: accessor_visibility,
+                    body,
+                });
+            } else if self.match_token(&TokenKind::Set) {
+                // عيّن block
+                // Optional parameter name: عيّن(قيمة) or just عيّن
+                let param_name = if self.match_token(&TokenKind::LeftParen) {
+                    let name =
+                        self.expect_identifier("Expected parameter name", "متوقع اسم المعامل")?;
+                    self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+                    name
+                } else {
+                    "قيمة".to_string() // Default parameter name
+                };
+
+                let body = self.parse_block()?;
+
+                accessors.push(PropertyAccessor::Set {
+                    visibility: accessor_visibility,
+                    param_name,
+                    body,
+                });
+            } else {
+                return Err(Diagnostic::error(
+                    "Expected 'احصل' (get) or 'عيّن' (set)",
+                    "متوقع 'احصل' أو 'عيّن'",
+                    self.current_span(),
+                ));
+            }
+        }
+
+        Ok(accessors)
     }
 
     fn parse_visibility(&mut self) -> Visibility {

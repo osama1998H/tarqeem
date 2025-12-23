@@ -116,6 +116,14 @@ pub enum TokenKind {
     /// جديد / new
     New,
 
+    // ============ Keywords - Property Accessors ============
+    /// خاصية / property
+    Property,
+    /// احصل / get
+    Get,
+    /// عيّن / set
+    Set,
+
     // ============ Keywords - Error Handling ============
     /// حاول / try
     Try,
@@ -304,6 +312,9 @@ impl TokenKind {
                 | TokenKind::This
                 | TokenKind::Super
                 | TokenKind::New
+                | TokenKind::Property
+                | TokenKind::Get
+                | TokenKind::Set
                 | TokenKind::Try
                 | TokenKind::Catch
                 | TokenKind::Finally

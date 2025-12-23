@@ -486,6 +486,80 @@ impl ClassResolver {
                         vtable_index: None,
                     });
                 }
+
+                ClassMember::Property {
+                    visibility,
+                    name,
+                    ty,
+                    accessors,
+                    default_value,
+                    is_static,
+                    ..
+                } => {
+                    let prop_type = resolve_type(ty);
+
+                    // Register the property as a public-facing field
+                    // This allows member access like object.property to work
+                    let property_field_info = FieldInfo {
+                        name: name.clone(),
+                        ty: prop_type.clone(),
+                        visibility: *visibility,
+                        is_static: *is_static,
+                        has_initializer: default_value.is_some(),
+                    };
+                    fields.insert(name.clone(), property_field_info);
+
+                    // Also create a backing field with underscore prefix (for internal use)
+                    let backing_field_name = format!("_{}", name);
+                    let backing_field_info = FieldInfo {
+                        name: backing_field_name.clone(),
+                        ty: prop_type.clone(),
+                        visibility: Visibility::Private,
+                        is_static: *is_static,
+                        has_initializer: default_value.is_some(),
+                    };
+                    fields.insert(backing_field_name, backing_field_info);
+
+                    // Check if property has getter - create synthetic getter method
+                    let has_getter = accessors
+                        .iter()
+                        .any(|a| matches!(a, crate::parser::PropertyAccessor::Get { .. }));
+                    if has_getter || accessors.is_empty() {
+                        // Auto-property or explicit getter
+                        let getter_name = format!("__احصل_{}", name);
+                        let getter_info = MethodInfo {
+                            name: getter_name.clone(),
+                            params: vec![],
+                            return_type: prop_type.clone(),
+                            visibility: *visibility,
+                            is_static: *is_static,
+                            is_async: false,
+                            is_abstract: false,
+                            vtable_index: None,
+                        };
+                        methods.insert(getter_name, getter_info);
+                    }
+
+                    // Check if property has setter - create synthetic setter method
+                    let has_setter = accessors
+                        .iter()
+                        .any(|a| matches!(a, crate::parser::PropertyAccessor::Set { .. }));
+                    if has_setter || accessors.is_empty() {
+                        // Auto-property or explicit setter
+                        let setter_name = format!("__عيّن_{}", name);
+                        let setter_info = MethodInfo {
+                            name: setter_name.clone(),
+                            params: vec![("قيمة".to_string(), prop_type.clone())],
+                            return_type: Type::Void,
+                            visibility: *visibility,
+                            is_static: *is_static,
+                            is_async: false,
+                            is_abstract: false,
+                            vtable_index: None,
+                        };
+                        methods.insert(setter_name, setter_info);
+                    }
+                }
             }
         }
 

@@ -277,6 +277,31 @@ impl DocExtractor {
 
                             class_doc.constructor = Some(ctor_doc);
                         }
+
+                        ClassMember::Property {
+                            visibility,
+                            name,
+                            ty,
+                            is_static,
+                            doc_comment,
+                            ..
+                        } => {
+                            // Treat properties as fields for documentation purposes
+                            let mut field_doc = FieldDoc {
+                                name: name.clone(),
+                                ty: Some(self.type_to_string(ty)),
+                                description: None,
+                                visibility: self.visibility_to_string(*visibility),
+                                is_static: *is_static,
+                            };
+
+                            if let Some(comment) = doc_comment {
+                                let parsed = DocCommentParser::parse(comment);
+                                field_doc.description = parsed.description;
+                            }
+
+                            class_doc.fields.push(field_doc);
+                        }
                     }
                 }
 
