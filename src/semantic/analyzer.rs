@@ -930,13 +930,13 @@ impl Analyzer {
         }
     }
 
-    /// Analyze a super constructor call: أساس(args)
+    /// Analyze a super constructor call: الأصل(args)
     fn analyze_super_constructor_call(&mut self, args: &[Expr], span: Span) -> Type {
         // Must be inside a class
         if !self.scope.is_in_class() {
             self.error(
                 "'super()' can only be used inside a class constructor",
-                "'أساس()' يمكن استخدامه فقط داخل منشئ صنف",
+                "'الأصل()' يمكن استخدامه فقط داخل منشئ صنف",
                 span,
             );
             return Type::Error;
@@ -948,7 +948,7 @@ impl Analyzer {
             None => {
                 self.error(
                     "'super()' can only be used inside a class",
-                    "'أساس()' يمكن استخدامه فقط داخل صنف",
+                    "'الأصل()' يمكن استخدامه فقط داخل صنف",
                     span,
                 );
                 return Type::Error;
@@ -966,7 +966,7 @@ impl Analyzer {
                             current_class_name
                         ),
                         &format!(
-                            "لا يمكن استخدام 'أساس()' في الصنف '{}' الذي ليس له صنف أب",
+                            "لا يمكن استخدام 'الأصل()' في الصنف '{}' الذي ليس له صنف أب",
                             current_class_name
                         ),
                         span,
@@ -1029,7 +1029,7 @@ impl Analyzer {
                                 arg_type
                             ),
                             &format!(
-                                "المعامل {} لـ أساس() نوعه خاطئ: متوقع {}، وُجد {}",
+                                "المعامل {} لـ الأصل() نوعه خاطئ: متوقع {}، وُجد {}",
                                 i + 1,
                                 param_type.arabic_name(),
                                 arg_type.arabic_name()
@@ -1170,7 +1170,7 @@ impl Analyzer {
             }
 
             ExprKind::Call { callee, args } => {
-                // Special case: super constructor call (أساس(...))
+                // Special case: super constructor call (الأصل(...))
                 if matches!(callee.kind, ExprKind::Super) {
                     return self.analyze_super_constructor_call(args, expr.span);
                 }
@@ -1665,7 +1665,7 @@ impl Analyzer {
 
             ExprKind::Super => {
                 if !self.scope.is_in_class() {
-                    self.error("'super' outside of class", "'أساس' خارج الصنف", expr.span);
+                    self.error("'super' outside of class", "'الأصل' خارج الصنف", expr.span);
                     Type::Error
                 } else if let Some(ref class_name) = self.current_class {
                     // Get the parent class type
@@ -1675,7 +1675,7 @@ impl Analyzer {
                         } else {
                             self.error(
                                 "Cannot use 'super' in a class without a parent",
-                                "لا يمكن استخدام 'أساس' في صنف بدون أب",
+                                "لا يمكن استخدام 'الأصل' في صنف بدون أب",
                                 expr.span,
                             );
                             Type::Error
@@ -2015,7 +2015,7 @@ mod tests {
         // Test super usage outside class
         let result = analyze(
             r#"
-            أساس;
+            الأصل;
         "#,
         );
         assert!(result.is_err());
@@ -2035,7 +2035,7 @@ mod tests {
             صنف ابن يرث أب {
                 خاص عمر: عدد;
                 منشئ(اسم: نص، عمر: عدد) {
-                    أساس(اسم);
+                    الأصل(اسم);
                     هذا.عمر = عمر;
                 }
             }
@@ -2057,7 +2057,7 @@ mod tests {
             }
             صنف ابن يرث أب {
                 منشئ() {
-                    أساس();
+                    الأصل();
                 }
             }
         "#,
@@ -2072,7 +2072,7 @@ mod tests {
             r#"
             صنف أ {
                 منشئ() {
-                    أساس();
+                    الأصل();
                 }
             }
         "#,

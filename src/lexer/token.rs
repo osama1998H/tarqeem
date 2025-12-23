@@ -41,7 +41,7 @@ pub enum TokenKind {
     True,
     /// Boolean false: خطأ, false
     False,
-    /// Null: عدم, null
+    /// Null: لا_شيء
     Null,
 
     // ============ Identifiers ============
@@ -59,7 +59,7 @@ pub enum TokenKind {
     Function,
     /// أرجع / return
     Return,
-    /// غير_متزامن / async
+    /// متوازي / async
     Async,
     /// انتظر / await
     Await,
@@ -111,7 +111,7 @@ pub enum TokenKind {
     Constructor,
     /// هذا / this
     This,
-    /// أساس / super
+    /// الأصل / super
     Super,
     /// جديد / new
     New,

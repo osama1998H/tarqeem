@@ -152,7 +152,7 @@ All keywords have Arabic and English forms. The Arabic form is primary.
 |--------|---------|-------------|
 | `دالة` | `function`, `fn` | Function declaration |
 | `أرجع` / `ارجع` | `return` | Return statement |
-| `غير_متزامن` | `async` | Async function |
+| `متوازي` | `async` | Async/parallel function |
 | `انتظر` | `await` | Await expression |
 
 #### Control Flow Keywords
@@ -183,7 +183,7 @@ All keywords have Arabic and English forms. The Arabic form is primary.
 | `مشترك` | `static` | Shared member (across instances) |
 | `منشئ` | `constructor` | Constructor |
 | `هذا` | `this` | Self reference |
-| `أساس` / `اساس` | `super` | Parent reference |
+| `الأصل` / `الاصل` | `super` | Parent reference |
 | `جديد` | `new` | Object instantiation |
 
 #### Error Handling Keywords
@@ -207,7 +207,7 @@ All keywords have Arabic and English forms. The Arabic form is primary.
 |--------|---------|-------------|
 | `صحيح` | `true` | Boolean true |
 | `خطأ` / `خطا` | `false` | Boolean false |
-| `عدم` | `null`, `none` | Null value |
+| `لا_شيء` | `null`, `none` | Null value |
 
 #### Logical Operators (Word Form)
 | Arabic | English | Description |
@@ -263,7 +263,7 @@ false     // English alias
 
 #### Null Literal
 ```tarqeem
-عدم       // null
+لا_شيء    // null
 null      // English alias
 ```
 
@@ -398,7 +398,7 @@ Tarqeem uses a **strong, static type system** with type inference. Types are che
 | `عدد_عشري` | `float` | Floating point | 64-bit |
 | `نص` | `string` | UTF-8 string | Variable |
 | `منطقي` | `bool` | Boolean | 1-bit |
-| `عدم` | `null` | Null value | Pointer |
+| `لا_شيء` | `null` | Null value | Pointer |
 
 > **Note**: Functions that don't return a value simply omit the return type annotation. There is no `void` keyword.
 
@@ -461,7 +461,7 @@ map<string, int>   // English form
 #### Implicit Conversions
 - `عدد` → `عدد_عشري` (int to float)
 - `T` → `T?` (value to optional)
-- `عدم` → `T?` (null to optional)
+- `لا_شيء` → `T?` (null to optional)
 
 #### String Concatenation Coercion
 When using `+` with a string, other types are implicitly converted:
@@ -500,7 +500,7 @@ Explicit type annotations use colon syntax:
 "مرحبا"               // String literal
 صحيح                  // Boolean true
 خطأ                   // Boolean false
-عدم                   // Null
+لا_شيء                // Null
 متغير_اسم             // Identifier
 (تعبير)               // Grouping
 ```
@@ -619,7 +619,7 @@ Explicit type annotations use colon syntax:
 
 ```tarqeem
 انتظر وعد             // Await a promise
-انتظر دالة_غير_متزامنة()
+انتظر دالة_متوازية()
 ```
 
 ---
@@ -934,12 +934,12 @@ Use `هذا` (this) to reference the current instance:
     خاص راتب: عدد_عشري
 
     منشئ(اسم: نص، عمر: عدد، راتب: عدد_عشري) {
-        أساس(اسم، عمر)      // Call parent constructor
+        الأصل(اسم، عمر)      // Call parent constructor
         هذا.راتب = راتب
     }
 
     عام دالة تحية() {      // Override parent method
-        أساس.تحية()        // Call parent method
+        الأصل.تحية()        // Call parent method
         اطبع("أنا موظف")
     }
 }
@@ -1095,7 +1095,7 @@ Create custom exception types by extending `استثناء`:
     عام الحقل: نص
 
     منشئ(الحقل: نص، رسالة: نص) {
-        أساس(رسالة)
+        الأصل(رسالة)
         هذا.الحقل = الحقل
     }
 }
@@ -1177,7 +1177,7 @@ Exceptions propagate up the call stack until caught:
 ### 12.1 Async Functions
 
 ```tarqeem
-غير_متزامن دالة احضر_بيانات(رابط: نص) -> نص {
+متوازي دالة احضر_بيانات(رابط: نص) -> نص {
     متغير استجابة = انتظر طلب_شبكة(رابط)
     أرجع استجابة.نص()
 }
@@ -1186,7 +1186,7 @@ Exceptions propagate up the call stack until caught:
 ### 12.2 Await Expression
 
 ```tarqeem
-غير_متزامن دالة رئيسية() {
+متوازي دالة رئيسية() {
     متغير بيانات = انتظر احضر_بيانات("https://api.example.com")
     اطبع(بيانات)
 }
@@ -1236,13 +1236,13 @@ Objects are automatically freed when no references remain:
 
 Optional types must be checked before use:
 ```tarqeem
-متغير س: عدد? = عدم
+متغير س: عدد? = لا_شيء
 
 // Direct use would be an error
 // اطبع(س + 1)  // Error!
 
 // Safe usage
-إذا (س != عدم) {
+إذا (س != لا_شيء) {
     اطبع(س + 1)  // OK, س is known to be non-null
 }
 ```
@@ -1323,7 +1323,7 @@ statement       := var_decl
 ```
 var_decl        := ('متغير' | 'ثابت') IDENTIFIER [':' type] ['=' expr] ';'
 
-func_decl       := ['غير_متزامن'] 'دالة' IDENTIFIER '(' [params] ')' ['->' type] block
+func_decl       := ['متوازي'] 'دالة' IDENTIFIER '(' [params] ')' ['->' type] block
 
 class_decl      := 'صنف' IDENTIFIER ['<' type_params '>']
                    ['يرث' IDENTIFIER]
@@ -1388,7 +1388,7 @@ postfix         := primary {call | index | member | ('++' | '--')}
 primary         := literal
                  | IDENTIFIER
                  | 'هذا'
-                 | 'أساس'
+                 | 'الأصل'
                  | '(' expr ')'
                  | array_literal
                  | object_literal
@@ -1435,7 +1435,7 @@ throw_stmt      := 'ارمِ' expr ';'
 | Variables | `ثابت` | `const` | `Const` |
 | Functions | `دالة` | `function`, `fn` | `Function` |
 | Functions | `أرجع`, `ارجع` | `return` | `Return` |
-| Functions | `غير_متزامن` | `async` | `Async` |
+| Functions | `متوازي` | `async` | `Async` |
 | Functions | `انتظر` | `await` | `Await` |
 | Control | `إذا`, `اذا` | `if` | `If` |
 | Control | `وإلا`, `والا` | `else` | `Else` |
@@ -1458,7 +1458,7 @@ throw_stmt      := 'ارمِ' expr ';'
 | OOP | `مشترك` | `static` | `Static` |
 | OOP | `منشئ` | `constructor` | `Constructor` |
 | OOP | `هذا` | `this` | `This` |
-| OOP | `أساس`, `اساس` | `super` | `Super` |
+| OOP | `الأصل`, `الاصل` | `super` | `Super` |
 | OOP | `جديد` | `new` | `New` |
 | Errors | `حاول` | `try` | `Try` |
 | Errors | `التقط` | `catch` | `Catch` |
@@ -1470,7 +1470,7 @@ throw_stmt      := 'ارمِ' expr ';'
 | Modules | `كـ`, `ك` | `as` | `As` |
 | Literals | `صحيح` | `true` | `True` |
 | Literals | `خطأ`, `خطا` | `false` | `False` |
-| Literals | `عدم` | `null`, `none` | `Null` |
+| Literals | `لا_شيء` | `null`, `none` | `Null` |
 | Logical | `و` | | `And` |
 | Logical | `أو`, `او` | | `Or` |
 | Logical | `ليس` | `not` | `Bang` |

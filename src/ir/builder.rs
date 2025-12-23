@@ -2012,7 +2012,7 @@ impl IrBuilder {
 
     /// Build IR for a function call
     fn build_call(&mut self, callee: &Expr, args: &[Expr]) -> Result<VarId> {
-        // Special case: super constructor call (أساس(...))
+        // Special case: super constructor call (الأصل(...))
         if matches!(callee.kind, ExprKind::Super) {
             return self.build_super_constructor_call(args);
         }
@@ -2709,7 +2709,7 @@ impl IrBuilder {
         }
     }
 
-    /// Build IR for a super constructor call: أساس(args)
+    /// Build IR for a super constructor call: الأصل(args)
     fn build_super_constructor_call(&mut self, args: &[Expr]) -> Result<VarId> {
         // Get 'this' reference
         let this_var = self
@@ -2718,7 +2718,7 @@ impl IrBuilder {
             .ok_or_else(|| {
                 IrError::new(
                     "'super()' can only be used inside a constructor",
-                    "'أساس()' يمكن استخدامه فقط داخل منشئ",
+                    "'الأصل()' يمكن استخدامه فقط داخل منشئ",
                 )
             })?;
 
@@ -2731,14 +2731,14 @@ impl IrBuilder {
                 } else {
                     return Err(IrError::new(
                         "'super()' can only be used inside a class constructor",
-                        "'أساس()' يمكن استخدامه فقط داخل منشئ صنف",
+                        "'الأصل()' يمكن استخدامه فقط داخل منشئ صنف",
                     ));
                 }
             }
             None => {
                 return Err(IrError::new(
                     "'super()' can only be used inside a function",
-                    "'أساس()' يمكن استخدامه فقط داخل دالة",
+                    "'الأصل()' يمكن استخدامه فقط داخل دالة",
                 ));
             }
         };

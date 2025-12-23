@@ -219,7 +219,7 @@ impl HtmlGenerator {
         // Function signature
         write!(writer, "<h3 class=\"name\">")?;
         if func.is_async {
-            write!(writer, "<span class=\"modifier\">غير_متزامن</span> ")?;
+            write!(writer, "<span class=\"modifier\">متوازي</span> ")?;
         }
         write!(writer, "<span class=\"keyword\">دالة</span> ")?;
         write!(
@@ -471,7 +471,7 @@ impl HtmlGenerator {
             write!(writer, "<span class=\"modifier\">مشترك</span> ")?;
         }
         if method.is_async {
-            write!(writer, "<span class=\"modifier\">غير_متزامن</span> ")?;
+            write!(writer, "<span class=\"modifier\">متوازي</span> ")?;
         }
         write!(writer, "<span class=\"keyword\">دالة</span> ")?;
         write!(

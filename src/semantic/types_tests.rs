@@ -57,7 +57,7 @@ fn test_type_null() {
     assert!(!ty.is_numeric());
     assert!(ty.is_primitive());
     assert_eq!(ty.to_string(), "null");
-    assert_eq!(ty.arabic_name(), "عدم");
+    assert_eq!(ty.arabic_name(), "لا_شيء");
 }
 
 #[test]
@@ -533,7 +533,7 @@ fn test_parse_type_name_arabic() {
     assert_eq!(parse_type_name("منطقي"), Type::Bool);
     // فراغ eliminated - not recognized as type keyword
     assert_eq!(parse_type_name("فراغ"), Type::Class("فراغ".to_string()));
-    assert_eq!(parse_type_name("عدم"), Type::Null);
+    assert_eq!(parse_type_name("لا_شيء"), Type::Null);
     assert_eq!(parse_type_name("أي"), Type::Any);
     assert_eq!(parse_type_name("اي"), Type::Any);
 }

@@ -13,7 +13,7 @@ use crate::ir::ClassId;
 /// mutability through `Rc<RefCell<...>>` for efficient sharing and mutation.
 #[derive(Clone)]
 pub enum Value {
-    /// Null value (عدم)
+    /// Null value (لا_شيء)
     Null,
 
     /// Boolean value (منطقي)
@@ -149,7 +149,7 @@ impl Value {
     /// Get the type name of this value (Arabic).
     pub fn type_name_ar(&self) -> &'static str {
         match self {
-            Value::Null => "عدم",
+            Value::Null => "لا_شيء",
             Value::Bool(_) => "منطقي",
             Value::Int(_) => "عدد",
             Value::Float(_) => "عدد_عشري",
@@ -197,7 +197,7 @@ impl Value {
     /// Convert this value to a string representation.
     pub fn to_display_string(&self) -> String {
         match self {
-            Value::Null => "عدم".to_string(),
+            Value::Null => "لا_شيء".to_string(),
             Value::Bool(true) => "صحيح".to_string(),
             Value::Bool(false) => "خطأ".to_string(),
             Value::Int(i) => i.to_string(),
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_display_string() {
-        assert_eq!(Value::null().to_display_string(), "عدم");
+        assert_eq!(Value::null().to_display_string(), "لا_شيء");
         assert_eq!(Value::bool(true).to_display_string(), "صحيح");
         assert_eq!(Value::bool(false).to_display_string(), "خطأ");
         assert_eq!(Value::int(42).to_display_string(), "42");
