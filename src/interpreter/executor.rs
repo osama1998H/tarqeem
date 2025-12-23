@@ -118,7 +118,7 @@ impl Interpreter {
     fn find_main_function(&self) -> RuntimeResult<FuncId> {
         // Try common main function names
         // __main__ is the auto-generated wrapper for top-level statements
-        let main_names = ["__main__", "main", "رئيسية", "البداية"];
+        let main_names = ["__main__", "main", "رئيسي", "رئيسية", "البداية"];
 
         for name in main_names {
             let func_id = FuncId(name.to_string());
@@ -132,7 +132,7 @@ impl Interpreter {
             return Ok(func.id.clone());
         }
 
-        Err(RuntimeError::undefined_function("main/رئيسية"))
+        Err(RuntimeError::undefined_function("main/رئيسي/رئيسية"))
     }
 
     /// Call a function with arguments.
@@ -1019,6 +1019,8 @@ impl Interpreter {
             | "panic" | "توقف"
             // Time
             | "sleep" | "نم" | "time_now" | "وقت_الآن"
+            // Internal type conversion (used for string concatenation)
+            | "trq_int_to_string" | "trq_float_to_string" | "trq_bool_to_string"
         )
     }
 
@@ -1934,6 +1936,52 @@ impl Interpreter {
                     .parse::<f64>()
                     .map(Value::Float)
                     .map_err(|_| RuntimeError::type_error("float input", "invalid input"))
+            }
+
+            // ============ Type Conversion (for string concatenation) ============
+            "trq_int_to_string" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "trq_int_to_string requires 1 argument",
+                        "trq_int_to_string تتطلب معامل واحد",
+                    )
+                })?;
+                match val {
+                    Value::Int(n) => Ok(Value::string(n.to_string())),
+                    Value::Float(f) => Ok(Value::string((*f as i64).to_string())),
+                    _ => Err(RuntimeError::type_error("int", val.type_name())),
+                }
+            }
+
+            "trq_float_to_string" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "trq_float_to_string requires 1 argument",
+                        "trq_float_to_string تتطلب معامل واحد",
+                    )
+                })?;
+                match val {
+                    Value::Float(f) => Ok(Value::string(f.to_string())),
+                    Value::Int(n) => Ok(Value::string((*n as f64).to_string())),
+                    _ => Err(RuntimeError::type_error("float", val.type_name())),
+                }
+            }
+
+            "trq_bool_to_string" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "trq_bool_to_string requires 1 argument",
+                        "trq_bool_to_string تتطلب معامل واحد",
+                    )
+                })?;
+                match val {
+                    Value::Bool(b) => Ok(Value::string(if *b {
+                        "صحيح".to_string()
+                    } else {
+                        "خطأ".to_string()
+                    })),
+                    _ => Err(RuntimeError::type_error("bool", val.type_name())),
+                }
             }
 
             _ => Err(RuntimeError::undefined_function(name)),

@@ -143,8 +143,9 @@ impl IrBuilder {
                     if let Some(const_val) = self.try_evaluate_const(init_expr) {
                         self.const_to_type(&const_val)
                     } else {
-                        // Default type for non-constant expressions
-                        IrType::Int
+                        // Infer type from expression for non-constant expressions
+                        // (e.g., جديد شخص(...) should return Ptr(Struct(شخص)))
+                        self.infer_expr_type(init_expr)
                     }
                 } else {
                     // No type annotation and no initializer - default to Int
@@ -759,12 +760,15 @@ impl IrBuilder {
                 }
             }
             ExprKind::Identifier(name) => {
-                // Look up the variable's type
+                // Look up the variable's type - check local first, then global
                 if let Some(ptr) = self.lookup_var(name) {
                     self.var_types
                         .get(&ptr.0)
                         .cloned()
                         .unwrap_or(IrType::Ptr(Box::new(IrType::Void)))
+                } else if let Some(global_ty) = self.global_var_types.get(name).cloned() {
+                    // Global variable - return its tracked type
+                    global_ty
                 } else {
                     IrType::Ptr(Box::new(IrType::Void))
                 }
@@ -801,6 +805,35 @@ impl IrBuilder {
             }
             ExprKind::This => {
                 // Look up the type of 'this' from the first parameter (which is always 'this')
+                if let Some(var_id) = self.lookup_var("هذا").or_else(|| self.lookup_var("this"))
+                {
+                    self.var_types
+                        .get(&var_id.0)
+                        .cloned()
+                        .unwrap_or(IrType::Ptr(Box::new(IrType::Void)))
+                } else {
+                    IrType::Ptr(Box::new(IrType::Void))
+                }
+            }
+            ExprKind::Super => {
+                // 'super' refers to the parent class
+                // Get the current class name from the function being built
+                if let Some(ref func) = self.current_function {
+                    if let Some(idx) = func.name.find("::") {
+                        let current_class_name = &func.name[..idx];
+                        // Find the parent class
+                        if let Some(parent_class_id) = self
+                            .module
+                            .classes
+                            .iter()
+                            .find(|c| c.name == current_class_name)
+                            .and_then(|c| c.parent.as_ref())
+                        {
+                            return IrType::Ptr(Box::new(IrType::Struct(parent_class_id.clone())));
+                        }
+                    }
+                }
+                // Fallback: return same type as 'this'
                 if let Some(var_id) = self.lookup_var("هذا").or_else(|| self.lookup_var("this"))
                 {
                     self.var_types
@@ -1938,14 +1971,9 @@ impl IrBuilder {
         is_increment: bool,
         is_prefix: bool,
     ) -> Result<VarId> {
-        // Get variable pointer - must be an lvalue
-        let ptr = match &operand.kind {
-            ExprKind::Identifier(name) => self.lookup_var(name).ok_or_else(|| {
-                IrError::new(
-                    format!("Cannot modify undefined variable '{}'", name),
-                    format!("لا يمكن تعديل متغير غير معرّف '{}'", name),
-                )
-            })?,
+        // Must be an identifier (lvalue)
+        let name = match &operand.kind {
+            ExprKind::Identifier(name) => name.clone(),
             _ => {
                 return Err(IrError::new(
                     "Increment/decrement requires a variable",
@@ -1954,20 +1982,51 @@ impl IrBuilder {
             }
         };
 
-        // Get variable type
-        let var_type = self.var_types.get(&ptr.0).cloned().unwrap_or(IrType::Int);
-        let result_ty = match var_type {
-            IrType::Float => IrType::Float,
-            _ => IrType::Int,
+        // Check if it's a local or global variable
+        let is_local = self.lookup_var(&name).is_some();
+        let is_global = self.global_variables.contains(&name);
+
+        if !is_local && !is_global {
+            return Err(IrError::new(
+                format!("Cannot modify undefined variable '{}'", name),
+                format!("لا يمكن تعديل متغير غير معرّف '{}'", name),
+            ));
+        }
+
+        // Determine the type
+        let result_ty = if is_local {
+            let ptr = self.lookup_var(&name).unwrap();
+            let var_type = self.var_types.get(&ptr.0).cloned().unwrap_or(IrType::Int);
+            match var_type {
+                IrType::Float => IrType::Float,
+                _ => IrType::Int,
+            }
+        } else {
+            // Global variable
+            let var_type = self.global_var_types.get(&name).cloned().unwrap_or(IrType::Int);
+            match var_type {
+                IrType::Float => IrType::Float,
+                _ => IrType::Int,
+            }
         };
 
         // Load current value
         let old_val = self.new_var();
-        self.emit(Instruction::Load {
-            dest: old_val,
-            ptr,
-            ty: result_ty.clone(),
-        });
+        if is_local {
+            let ptr = self.lookup_var(&name).unwrap();
+            self.emit(Instruction::Load {
+                dest: old_val,
+                ptr,
+                ty: result_ty.clone(),
+            });
+        } else {
+            // Global variable - use GlobalLoad
+            self.emit(Instruction::GlobalLoad {
+                dest: old_val,
+                name: name.clone(),
+                ty: result_ty.clone(),
+            });
+        }
         self.var_types.insert(old_val.0, result_ty.clone());
 
         // Create constant 1
@@ -2001,10 +2060,19 @@ impl IrBuilder {
         self.var_types.insert(new_val.0, result_ty);
 
         // Store new value back to the variable
-        self.emit(Instruction::Store {
-            ptr,
-            value: new_val,
-        });
+        if is_local {
+            let ptr = self.lookup_var(&name).unwrap();
+            self.emit(Instruction::Store {
+                ptr,
+                value: new_val,
+            });
+        } else {
+            // Global variable - use GlobalStore
+            self.emit(Instruction::GlobalStore {
+                name: name.clone(),
+                value: new_val,
+            });
+        }
 
         // Return appropriate value: new_val for prefix, old_val for postfix
         Ok(if is_prefix { new_val } else { old_val })
