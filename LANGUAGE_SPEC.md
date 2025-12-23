@@ -174,13 +174,13 @@ All keywords have Arabic and English forms. The Arabic form is primary.
 | Arabic | English | Description |
 |--------|---------|-------------|
 | `صنف` | `class` | Class declaration |
-| `واجهة` | `interface` | Interface declaration |
+| `ميثاق` | `interface` | Interface/contract declaration |
 | `يرث` | `extends` | Inheritance |
-| `يطبق` | `implements` | Interface implementation |
+| `يلتزم` | `implements` | Contract commitment |
 | `عام` | `public` | Public visibility |
 | `خاص` | `private` | Private visibility |
 | `محمي` | `protected` | Protected visibility |
-| `ثابت_صنف` | `static` | Static member |
+| `مشترك` | `static` | Shared member (across instances) |
 | `منشئ` | `constructor` | Constructor |
 | `هذا` | `this` | Self reference |
 | `أساس` / `اساس` | `super` | Parent reference |
@@ -438,7 +438,7 @@ map<string, int>   // English form
 
 #### Interface Types
 ```tarqeem
-واجهة قابل_للطباعة { ... }
+ميثاق قابل_للطباعة { ... }
 ```
 
 #### Generic Types
@@ -914,9 +914,9 @@ Use `هذا` (this) to reference the current instance:
 
 ```tarqeem
 صنف رياضيات {
-    ثابت_صنف PI: عدد_عشري = 3.14159
+    مشترك PI: عدد_عشري = 3.14159
 
-    ثابت_صنف دالة جذر(س: عدد_عشري) -> عدد_عشري {
+    مشترك دالة جذر(س: عدد_عشري) -> عدد_عشري {
         // implementation
     }
 }
@@ -947,15 +947,15 @@ Use `هذا` (this) to reference the current instance:
 ### 9.7 Interfaces
 
 ```tarqeem
-واجهة قابل_للطباعة {
+ميثاق قابل_للطباعة {
     دالة اطبع_معلومات()
 }
 
-واجهة قابل_للمقارنة {
+ميثاق قابل_للمقارنة {
     دالة قارن(آخر: أي) -> عدد
 }
 
-صنف شخص يطبق قابل_للطباعة {
+صنف شخص يلتزم قابل_للطباعة {
     عام دالة اطبع_معلومات() {
         // Implementation required
     }
@@ -965,7 +965,7 @@ Use `هذا` (this) to reference the current instance:
 ### 9.8 Multiple Interface Implementation
 
 ```tarqeem
-صنف منتج يطبق قابل_للطباعة، قابل_للمقارنة {
+صنف منتج يلتزم قابل_للطباعة، قابل_للمقارنة {
     // Must implement all interface methods
 }
 ```
@@ -1326,10 +1326,10 @@ func_decl       := ['غير_متزامن'] 'دالة' IDENTIFIER '(' [params] ')
 
 class_decl      := 'صنف' IDENTIFIER ['<' type_params '>']
                    ['يرث' IDENTIFIER]
-                   ['يطبق' IDENTIFIER {',' IDENTIFIER}]
+                   ['يلتزم' IDENTIFIER {',' IDENTIFIER}]
                    '{' {class_member} '}'
 
-interface_decl  := 'واجهة' IDENTIFIER ['<' type_params '>']
+interface_decl  := 'ميثاق' IDENTIFIER ['<' type_params '>']
                    '{' {method_sig} '}'
 ```
 
@@ -1448,13 +1448,13 @@ throw_stmt      := 'ارمِ' expr ';'
 | Control | `حالة` | `case` | `Case` |
 | Control | `غير_ذلك` | `default` | `Default` |
 | OOP | `صنف` | `class` | `Class` |
-| OOP | `واجهة` | `interface` | `Interface` |
+| OOP | `ميثاق` | `interface` | `Interface` |
 | OOP | `يرث` | `extends` | `Extends` |
-| OOP | `يطبق` | `implements` | `Implements` |
+| OOP | `يلتزم` | `implements` | `Implements` |
 | OOP | `عام` | `public` | `Public` |
 | OOP | `خاص` | `private` | `Private` |
 | OOP | `محمي` | `protected` | `Protected` |
-| OOP | `ثابت_صنف` | `static` | `Static` |
+| OOP | `مشترك` | `static` | `Static` |
 | OOP | `منشئ` | `constructor` | `Constructor` |
 | OOP | `هذا` | `this` | `This` |
 | OOP | `أساس`, `اساس` | `super` | `Super` |

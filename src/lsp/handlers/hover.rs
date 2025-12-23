@@ -67,7 +67,7 @@ fn format_type_info(ty: &Type, kind: &SymbolKind, language: Language) -> (String
         (SymbolKind::Function, Language::English) => "Function",
         (SymbolKind::Class, Language::Arabic) => "صنف",
         (SymbolKind::Class, Language::English) => "Class",
-        (SymbolKind::Interface, Language::Arabic) => "واجهة",
+        (SymbolKind::Interface, Language::Arabic) => "ميثاق",
         (SymbolKind::Interface, Language::English) => "Interface",
         (SymbolKind::Parameter, Language::Arabic) => "معامل",
         (SymbolKind::Parameter, Language::English) => "Parameter",

@@ -147,7 +147,7 @@ fn parse_variable_declaration(&mut self) -> Result<Stmt, ParseError> {
 /// Parses a class declaration including inheritance and interface implementation.
 ///
 /// Grammar:
-/// صنف <name> [يرث <parent>] [يطبق <interfaces>] { <body> }
+/// صنف <name> [يرث <parent>] [يلتزم <interfaces>] { <body> }
 fn parse_class_declaration(&mut self) -> Result<Stmt, ParseError> {
     // ...
 }

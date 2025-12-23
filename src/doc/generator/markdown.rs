@@ -307,7 +307,7 @@ impl MarkdownGenerator {
             write!(writer, " يرث {}", extends)?;
         }
         if !class.implements.is_empty() {
-            write!(writer, " يطبق ")?;
+            write!(writer, " يلتزم ")?;
             for (i, iface) in class.implements.iter().enumerate() {
                 if i > 0 {
                     write!(writer, "، ")?;
@@ -429,7 +429,7 @@ impl MarkdownGenerator {
 
         // Signature
         write!(writer, "```tarqeem\n")?;
-        write!(writer, "واجهة {}", &interface.name)?;
+        write!(writer, "ميثاق {}", &interface.name)?;
         if !interface.type_params.is_empty() {
             write!(writer, "<")?;
             for (i, param) in interface.type_params.iter().enumerate() {

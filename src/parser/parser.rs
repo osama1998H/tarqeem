@@ -66,7 +66,7 @@ impl Parser {
                 | TokenKind::Const    // ثابت
                 | TokenKind::Function // دالة
                 | TokenKind::Class    // صنف
-                | TokenKind::Interface // واجهة
+                | TokenKind::Interface // ميثاق
                 // Control flow
                 | TokenKind::If       // إذا
                 | TokenKind::While    // طالما
@@ -102,7 +102,7 @@ impl Parser {
                 | TokenKind::Private  // خاص
                 | TokenKind::Protected // محمي
                 // Static modifier
-                | TokenKind::Static   // ثابت_صنف
+                | TokenKind::Static   // مشترك
                 // Member declarations
                 | TokenKind::Function // دالة
                 | TokenKind::Async    // غير_متزامن
@@ -377,7 +377,7 @@ impl Parser {
             self.advance();
             loop {
                 let interface_name =
-                    self.expect_identifier("Expected interface name / متوقع اسم الواجهة")?;
+                    self.expect_identifier("Expected interface name / متوقع اسم الميثاق")?;
                 implements.push(interface_name);
 
                 // Skip generic type arguments on interface: <T, U, ...>
@@ -551,7 +551,7 @@ impl Parser {
         let start = self.current_span();
         self.advance(); // consume 'interface'
 
-        let name = self.expect_identifier("Expected interface name / متوقع اسم الواجهة")?;
+        let name = self.expect_identifier("Expected interface name / متوقع اسم الميثاق")?;
 
         // Parse optional generic type parameters: <T, U, ...>
         let type_params = self.parse_type_parameters()?;

@@ -353,7 +353,7 @@ impl HtmlGenerator {
 
         // Implements
         if !class.implements.is_empty() {
-            write!(writer, " <span class=\"keyword\">يطبق</span> ")?;
+            write!(writer, " <span class=\"keyword\">يلتزم</span> ")?;
             for (i, iface) in class.implements.iter().enumerate() {
                 if i > 0 {
                     write!(writer, "، ")?;
@@ -438,7 +438,7 @@ impl HtmlGenerator {
             html_escape(&field.name)
         )?;
         if field.is_static {
-            write!(writer, " <span class=\"badge static\">ثابت_صنف</span>")?;
+            write!(writer, " <span class=\"badge static\">مشترك</span>")?;
         }
         writeln!(writer, "</td>")?;
         writeln!(
@@ -468,7 +468,7 @@ impl HtmlGenerator {
             &method.visibility, &method.visibility
         )?;
         if method.is_static {
-            write!(writer, "<span class=\"modifier\">ثابت_صنف</span> ")?;
+            write!(writer, "<span class=\"modifier\">مشترك</span> ")?;
         }
         if method.is_async {
             write!(writer, "<span class=\"modifier\">غير_متزامن</span> ")?;
@@ -522,7 +522,7 @@ impl HtmlGenerator {
         writeln!(writer, "<header>")?;
 
         write!(writer, "<h3 class=\"name\">")?;
-        write!(writer, "<span class=\"keyword\">واجهة</span> ")?;
+        write!(writer, "<span class=\"keyword\">ميثاق</span> ")?;
         write!(
             writer,
             "<span class=\"interface-name\">{}</span>",

@@ -88,7 +88,7 @@ pub enum StmtKind {
         doc_comment: Option<String>,
     },
 
-    /// Interface declaration: واجهة Printable<T> { ... }
+    /// Interface declaration: ميثاق Printable<T> { ... }
     InterfaceDecl {
         name: String,
         type_params: Vec<String>,
