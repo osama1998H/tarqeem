@@ -123,59 +123,29 @@ impl ModuleLoader {
         None
     }
 
-    /// Find a module file, trying different extensions
+    /// Find a module file with .ترقيم extension
     fn find_module_file(&self, base: &Path) -> Option<PathBuf> {
         // If the path already has a valid extension
         if base.exists() {
             if let Some(ext) = base.extension().and_then(|e| e.to_str()) {
-                if ext == "trq" || ext == "ترقيم" {
+                if ext == "ترقيم" {
                     return base.canonicalize().ok();
                 }
             }
         }
 
-        // Try with .trq extension
-        let with_trq = base.with_extension("trq");
-        if with_trq.exists() {
-            return with_trq.canonicalize().ok();
-        }
-
-        // Try with Arabic extension
+        // Try with .ترقيم extension
         let with_arabic = base.with_extension("ترقيم");
         if with_arabic.exists() {
             return with_arabic.canonicalize().ok();
         }
 
         // Try as a directory with module index file
-        // Support multiple patterns: فهرس (Arabic index), mod (module), index (English)
-        // Prefer Arabic extensions first
         if base.is_dir() {
-            // Arabic index patterns (preferred)
+            // Arabic index pattern: فهرس.ترقيم
             let index_arabic = base.join("فهرس.ترقيم");
             if index_arabic.exists() {
                 return index_arabic.canonicalize().ok();
-            }
-            let index_arabic_trq = base.join("فهرس.trq");
-            if index_arabic_trq.exists() {
-                return index_arabic_trq.canonicalize().ok();
-            }
-            // Module patterns (mod.*)
-            let mod_arabic = base.join("mod.ترقيم");
-            if mod_arabic.exists() {
-                return mod_arabic.canonicalize().ok();
-            }
-            let mod_trq = base.join("mod.trq");
-            if mod_trq.exists() {
-                return mod_trq.canonicalize().ok();
-            }
-            // English index patterns (fallback)
-            let index_trq = base.join("index.trq");
-            if index_trq.exists() {
-                return index_trq.canonicalize().ok();
-            }
-            let index_arabic_ext = base.join("index.ترقيم");
-            if index_arabic_ext.exists() {
-                return index_arabic_ext.canonicalize().ok();
             }
         }
 
@@ -406,14 +376,14 @@ mod tests {
         // Create a test module file
         create_test_file(
             base_path,
-            "math.trq",
+            "رياضيات.ترقيم",
             "صدّر دالة جمع(أ: عدد) -> عدد { أرجع أ }",
         );
 
         let loader = ModuleLoader::new();
-        let main_file = base_path.join("main.trq");
+        let main_file = base_path.join("رئيسي.ترقيم");
 
-        let resolved = loader.resolve_path(&main_file, "./math");
+        let resolved = loader.resolve_path(&main_file, "./رياضيات");
         assert!(resolved.is_some());
     }
 
@@ -422,12 +392,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let base_path = temp_dir.path();
 
-        create_test_file(base_path, "utils.trq", "صدّر ثابت س = 42");
+        create_test_file(base_path, "أدوات.ترقيم", "صدّر ثابت س = 42");
 
         let loader = ModuleLoader::new();
-        let main_file = base_path.join("main.trq");
+        let main_file = base_path.join("رئيسي.ترقيم");
 
-        let resolved = loader.resolve_path(&main_file, "./utils.trq");
+        let resolved = loader.resolve_path(&main_file, "./أدوات.ترقيم");
         assert!(resolved.is_some());
     }
 
@@ -437,15 +407,14 @@ mod tests {
         let base_path = temp_dir.path();
 
         // Create two files that import each other
-        create_test_file(base_path, "a.trq", "استورد { ب } من \"./b\"");
-        create_test_file(base_path, "b.trq", "استورد { أ } من \"./a\"");
+        create_test_file(base_path, "أ.ترقيم", "استورد { ب } من \"./ب\"");
+        create_test_file(base_path, "ب.ترقيم", "استورد { أ } من \"./أ\"");
 
         let mut loader = ModuleLoader::new();
-        let a_path = base_path.join("a.trq");
+        let a_path = base_path.join("أ.ترقيم");
 
-        // Start loading from a.trq - this should detect the cycle when b.trq tries to import a.trq
-        // For now, just test that the loader can be created and paths can be resolved
-        let resolved = loader.resolve_path(&a_path, "./b");
+        // Start loading - this should detect the cycle
+        let resolved = loader.resolve_path(&a_path, "./ب");
         assert!(resolved.is_some());
     }
 
@@ -455,15 +424,15 @@ mod tests {
         let base_path = temp_dir.path();
 
         // Create stdlib directory
-        let stdlib_dir = base_path.join("stdlib");
+        let stdlib_dir = base_path.join("مكتبة");
         std::fs::create_dir(&stdlib_dir).unwrap();
-        create_test_file(&stdlib_dir, "collections.trq", "صدّر صنف قائمة {}");
+        create_test_file(&stdlib_dir, "مجموعات.ترقيم", "صدّر صنف قائمة {}");
 
         let mut loader = ModuleLoader::new();
         loader.add_search_path(stdlib_dir);
 
-        let main_file = base_path.join("main.trq");
-        let resolved = loader.resolve_path(&main_file, "collections");
+        let main_file = base_path.join("رئيسي.ترقيم");
+        let resolved = loader.resolve_path(&main_file, "مجموعات");
         assert!(resolved.is_some());
     }
 }

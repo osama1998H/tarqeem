@@ -14,7 +14,7 @@ use crate::ir::{IrBuilder, OptLevel, Optimizer};
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::semantic::Analyzer;
-use crate::utils::{is_valid_source_extension, valid_source_extensions_display};
+use crate::utils::{is_valid_source_extension, valid_source_extension_display};
 use colored::Colorize;
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -27,7 +27,7 @@ fn warn_invalid_extension(file: &Path) {
             "{}",
             format!(
                 "تحذير: الملف لا يحمل امتداد ترقيم صالح ({})",
-                valid_source_extensions_display()
+                valid_source_extension_display()
             )
             .yellow()
         );
@@ -35,7 +35,7 @@ fn warn_invalid_extension(file: &Path) {
             "{}",
             format!(
                 "Warning: File doesn't have a valid Tarqeem extension ({})",
-                valid_source_extensions_display()
+                valid_source_extension_display()
             )
             .yellow()
         );

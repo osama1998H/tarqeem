@@ -1,35 +1,32 @@
 //! File extension utilities for Tarqeem
 //!
-//! Provides constants and utilities for handling Tarqeem file extensions,
-//! supporting both ASCII (.trq) and Arabic (.ترقيم) extensions.
+//! Provides constants and utilities for handling Tarqeem file extensions.
+//! Tarqeem uses Arabic-only extensions to maintain language consistency.
 //!
 //! ## Supported Extensions
 //!
-//! | Type | Extensions |
-//! |------|------------|
-//! | Source | `.trq`, `.ترقيم` |
+//! | Type | Extension |
+//! |------|-----------|
+//! | Source | `.ترقيم` |
 //! | Package | `.حزمة` |
 //! | Lock | `.قفل` |
 
 use std::ffi::OsStr;
 use std::path::Path;
 
-/// Valid source file extensions for Tarqeem
-/// Supports both ASCII (.trq) and Arabic (.ترقيم) extensions
-pub const SOURCE_EXTENSIONS: &[&str] = &["trq", "ترقيم"];
+/// Valid source file extension for Tarqeem (Arabic only)
+pub const SOURCE_EXTENSION: &str = "ترقيم";
 
-/// Valid package manifest file extensions
-/// Arabic-only extension for package configuration files
-pub const PACKAGE_EXTENSIONS: &[&str] = &["حزمة"];
+/// Valid package manifest file extension (Arabic only)
+pub const PACKAGE_EXTENSION: &str = "حزمة";
 
-/// Valid lock file extensions
-/// Arabic-only extension for dependency lock files
-pub const LOCK_EXTENSIONS: &[&str] = &["قفل"];
+/// Valid lock file extension (Arabic only)
+pub const LOCK_EXTENSION: &str = "قفل";
 
 /// Represents a Tarqeem file extension type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileExtension {
-    /// Source file (.trq or .ترقيم)
+    /// Source file (.ترقيم)
     Source,
     /// Package manifest file (.حزمة)
     Package,
@@ -44,11 +41,11 @@ impl FileExtension {
     pub fn from_path(path: &Path) -> Self {
         let ext = path.extension().and_then(OsStr::to_str).unwrap_or("");
 
-        if SOURCE_EXTENSIONS.contains(&ext) {
+        if ext == SOURCE_EXTENSION {
             FileExtension::Source
-        } else if PACKAGE_EXTENSIONS.contains(&ext) {
+        } else if ext == PACKAGE_EXTENSION {
             FileExtension::Package
-        } else if LOCK_EXTENSIONS.contains(&ext) {
+        } else if ext == LOCK_EXTENSION {
             FileExtension::Lock
         } else {
             FileExtension::Unknown
@@ -70,29 +67,18 @@ impl FileExtension {
         matches!(self, FileExtension::Package | FileExtension::Lock)
     }
 
-    /// Get the primary extension for this type
-    /// For Package and Lock, returns Arabic since they are Arabic-only
-    pub fn primary_extension(&self) -> &'static str {
+    /// Get the extension for this type
+    pub fn extension(&self) -> &'static str {
         match self {
-            FileExtension::Source => "trq",
-            FileExtension::Package => "حزمة",
-            FileExtension::Lock => "قفل",
-            FileExtension::Unknown => "",
-        }
-    }
-
-    /// Get the Arabic extension for this type
-    pub fn arabic_extension(&self) -> &'static str {
-        match self {
-            FileExtension::Source => "ترقيم",
-            FileExtension::Package => "حزمة",
-            FileExtension::Lock => "قفل",
+            FileExtension::Source => SOURCE_EXTENSION,
+            FileExtension::Package => PACKAGE_EXTENSION,
+            FileExtension::Lock => LOCK_EXTENSION,
             FileExtension::Unknown => "",
         }
     }
 }
 
-/// Check if a path has a valid Tarqeem source extension (.trq or .ترقيم)
+/// Check if a path has a valid Tarqeem source extension (.ترقيم)
 ///
 /// # Examples
 ///
@@ -100,7 +86,6 @@ impl FileExtension {
 /// use std::path::Path;
 /// use tarqeem::utils::is_valid_source_extension;
 ///
-/// assert!(is_valid_source_extension(Path::new("program.trq")));
 /// assert!(is_valid_source_extension(Path::new("برنامج.ترقيم")));
 /// assert!(!is_valid_source_extension(Path::new("file.txt")));
 /// ```
@@ -116,7 +101,6 @@ pub fn is_valid_source_extension(path: &Path) -> bool {
 /// use std::path::Path;
 /// use tarqeem::utils::has_tarqeem_extension;
 ///
-/// assert!(has_tarqeem_extension(Path::new("program.trq")));
 /// assert!(has_tarqeem_extension(Path::new("برنامج.ترقيم")));
 /// assert!(!has_tarqeem_extension(Path::new("file.rs")));
 /// ```
@@ -124,13 +108,9 @@ pub fn has_tarqeem_extension(path: &Path) -> bool {
     FileExtension::from_path(path).is_valid()
 }
 
-/// Get a formatted string of valid source extensions for error messages
-pub fn valid_source_extensions_display() -> String {
-    SOURCE_EXTENSIONS
-        .iter()
-        .map(|e| format!(".{}", e))
-        .collect::<Vec<_>>()
-        .join(" أو / or ")
+/// Get the valid source extension for error messages
+pub fn valid_source_extension_display() -> String {
+    format!(".{}", SOURCE_EXTENSION)
 }
 
 /// Check if a path has a valid package manifest extension (.حزمة)
@@ -141,7 +121,6 @@ pub fn valid_source_extensions_display() -> String {
 /// use std::path::Path;
 /// use tarqeem::utils::is_valid_package_extension;
 ///
-/// assert!(is_valid_package_extension(Path::new("حزمة.حزمة")));
 /// assert!(is_valid_package_extension(Path::new("مكتبتي.حزمة")));
 /// assert!(!is_valid_package_extension(Path::new("package.toml")));
 /// ```
@@ -158,28 +137,20 @@ pub fn is_valid_package_extension(path: &Path) -> bool {
 /// use tarqeem::utils::is_valid_lock_extension;
 ///
 /// assert!(is_valid_lock_extension(Path::new("حزمة.قفل")));
-/// assert!(!is_valid_lock_extension(Path::new(".trqlock")));
+/// assert!(!is_valid_lock_extension(Path::new("package.lock")));
 /// ```
 pub fn is_valid_lock_extension(path: &Path) -> bool {
     matches!(FileExtension::from_path(path), FileExtension::Lock)
 }
 
-/// Get a formatted string of valid package extensions for error messages
-pub fn valid_package_extensions_display() -> String {
-    PACKAGE_EXTENSIONS
-        .iter()
-        .map(|e| format!(".{}", e))
-        .collect::<Vec<_>>()
-        .join(" أو ")
+/// Get the valid package extension for error messages
+pub fn valid_package_extension_display() -> String {
+    format!(".{}", PACKAGE_EXTENSION)
 }
 
-/// Get a formatted string of valid lock extensions for error messages
-pub fn valid_lock_extensions_display() -> String {
-    LOCK_EXTENSIONS
-        .iter()
-        .map(|e| format!(".{}", e))
-        .collect::<Vec<_>>()
-        .join(" أو ")
+/// Get the valid lock extension for error messages
+pub fn valid_lock_extension_display() -> String {
+    format!(".{}", LOCK_EXTENSION)
 }
 
 #[cfg(test)]
@@ -187,16 +158,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_source_extension_trq() {
-        assert!(is_valid_source_extension(Path::new("program.trq")));
-        assert!(is_valid_source_extension(Path::new("مرحبا.trq")));
-        assert!(is_valid_source_extension(Path::new("/path/to/file.trq")));
-    }
-
-    #[test]
     fn test_source_extension_arabic() {
         assert!(is_valid_source_extension(Path::new("برنامج.ترقيم")));
-        assert!(is_valid_source_extension(Path::new("program.ترقيم")));
+        assert!(is_valid_source_extension(Path::new("مرحبا.ترقيم")));
         assert!(is_valid_source_extension(Path::new("/مسار/ملف.ترقيم")));
     }
 
@@ -205,25 +169,26 @@ mod tests {
         assert!(!is_valid_source_extension(Path::new("file.txt")));
         assert!(!is_valid_source_extension(Path::new("file.rs")));
         assert!(!is_valid_source_extension(Path::new("file.py")));
+        assert!(!is_valid_source_extension(Path::new("file.trq")));
         assert!(!is_valid_source_extension(Path::new("noextension")));
     }
 
     #[test]
     fn test_has_tarqeem_extension() {
-        assert!(has_tarqeem_extension(Path::new("file.trq")));
         assert!(has_tarqeem_extension(Path::new("file.ترقيم")));
+        assert!(!has_tarqeem_extension(Path::new("file.trq")));
         assert!(!has_tarqeem_extension(Path::new("file.txt")));
     }
 
     #[test]
     fn test_file_extension_enum() {
         assert_eq!(
-            FileExtension::from_path(Path::new("file.trq")),
+            FileExtension::from_path(Path::new("file.ترقيم")),
             FileExtension::Source
         );
         assert_eq!(
-            FileExtension::from_path(Path::new("file.ترقيم")),
-            FileExtension::Source
+            FileExtension::from_path(Path::new("file.trq")),
+            FileExtension::Unknown
         );
         assert_eq!(
             FileExtension::from_path(Path::new("file.txt")),
@@ -233,9 +198,8 @@ mod tests {
 
     #[test]
     fn test_extension_display() {
-        let display = valid_source_extensions_display();
-        assert!(display.contains(".trq"));
-        assert!(display.contains(".ترقيم"));
+        let display = valid_source_extension_display();
+        assert_eq!(display, ".ترقيم");
     }
 
     #[test]
@@ -244,14 +208,12 @@ mod tests {
         assert!(is_valid_package_extension(Path::new("مكتبتي.حزمة")));
         assert!(is_valid_package_extension(Path::new("/مسار/مشروع.حزمة")));
         assert!(!is_valid_package_extension(Path::new("package.toml")));
-        assert!(!is_valid_package_extension(Path::new("حزمة.toml")));
     }
 
     #[test]
     fn test_lock_extension() {
         assert!(is_valid_lock_extension(Path::new("حزمة.قفل")));
         assert!(is_valid_lock_extension(Path::new("مشروع.قفل")));
-        assert!(!is_valid_lock_extension(Path::new(".trqlock")));
         assert!(!is_valid_lock_extension(Path::new("package.lock")));
     }
 
@@ -285,13 +247,13 @@ mod tests {
 
     #[test]
     fn test_package_extension_display() {
-        let display = valid_package_extensions_display();
-        assert!(display.contains(".حزمة"));
+        let display = valid_package_extension_display();
+        assert_eq!(display, ".حزمة");
     }
 
     #[test]
     fn test_lock_extension_display() {
-        let display = valid_lock_extensions_display();
-        assert!(display.contains(".قفل"));
+        let display = valid_lock_extension_display();
+        assert_eq!(display, ".قفل");
     }
 }
