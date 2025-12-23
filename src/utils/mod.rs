@@ -5,9 +5,8 @@
 mod extensions;
 
 pub use extensions::{
-    has_tarqeem_extension, is_valid_header_extension, is_valid_lock_extension,
-    is_valid_package_extension, is_valid_source_extension, valid_header_extensions_display,
-    valid_lock_extensions_display, valid_package_extensions_display,
-    valid_source_extensions_display, FileExtension, HEADER_EXTENSIONS, LOCK_EXTENSIONS,
-    PACKAGE_EXTENSIONS, SOURCE_EXTENSIONS,
+    has_tarqeem_extension, is_valid_lock_extension, is_valid_package_extension,
+    is_valid_source_extension, valid_lock_extension_display, valid_package_extension_display,
+    valid_source_extension_display, FileExtension, LOCK_EXTENSION, PACKAGE_EXTENSION,
+    SOURCE_EXTENSION,
 };

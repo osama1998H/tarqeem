@@ -160,11 +160,11 @@ Each layer can ONLY depend on layers before it:
 
 ## File Extensions
 
-| Type | ASCII | Arabic |
-|------|-------|--------|
-| Source | `.trq` | `.ترقيم` |
-| Header | `.trqh` | `.ترقيم-ر` |
-| Package Manifest | `حزمة.toml` | - |
+| Type | Extension |
+|------|-----------|
+| Source | `.ترقيم` |
+| Package Manifest | `.حزمة` |
+| Lock File | `.قفل` |
 
 ---
 
