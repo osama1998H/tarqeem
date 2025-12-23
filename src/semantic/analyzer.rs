@@ -448,7 +448,7 @@ impl Analyzer {
             {
                 self.error(
                     &format!("Unknown interface '{}'", iface),
-                    &format!("واجهة غير معروفة '{}'", iface),
+                    &format!("ميثاق غير معروف '{}'", iface),
                     span,
                 );
             }
@@ -582,7 +582,7 @@ impl Analyzer {
         if !self.scope.define(symbol) {
             self.error(
                 &format!("Interface '{}' is already defined", name),
-                &format!("الواجهة '{}' معرّفة مسبقاً", name),
+                &format!("الميثاق '{}' معرّف مسبقاً", name),
                 span,
             );
         }
@@ -1992,7 +1992,7 @@ mod tests {
     fn test_interface_declaration() {
         let result = analyze(
             r#"
-            واجهة قابل_للطباعة {
+            ميثاق قابل_للطباعة {
                 دالة اطبع() -> نص
             }
         "#,

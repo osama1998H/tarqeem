@@ -649,7 +649,7 @@ impl ClassResolver {
                                     class_name, method_name, interface_name
                                 ),
                                 format!(
-                                    "الصنف '{}' لا يُنفذ الدالة '{}' من الواجهة '{}'",
+                                    "الصنف '{}' لا يُنفذ الدالة '{}' من الميثاق '{}'",
                                     class_name, method_name, interface_name
                                 ),
                                 class.span,

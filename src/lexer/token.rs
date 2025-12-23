@@ -93,11 +93,11 @@ pub enum TokenKind {
     // ============ Keywords - OOP ============
     /// صنف / class
     Class,
-    /// واجهة / interface
+    /// ميثاق / interface
     Interface,
     /// يرث / extends
     Extends,
-    /// يطبق / implements
+    /// يلتزم / implements
     Implements,
     /// عام / public
     Public,
@@ -105,7 +105,7 @@ pub enum TokenKind {
     Private,
     /// محمي / protected
     Protected,
-    /// ثابت_صنف / static
+    /// مشترك / static
     Static,
     /// منشئ / constructor
     Constructor,
@@ -149,7 +149,7 @@ pub enum TokenKind {
     TypeArray,
     /// قاموس / map
     TypeMap,
-    /// فراغ / void
+    /// Internal void type (no keyword - functions default to no return)
     TypeVoid,
     /// أي / any
     TypeAny,

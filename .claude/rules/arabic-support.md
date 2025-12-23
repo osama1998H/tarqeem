@@ -4,34 +4,27 @@ This file defines requirements for Arabic language support in Tarqeem.
 
 ## Core Principle
 
-Tarqeem is **Arabic-first, but bilingual**. Every user-facing feature must work in Arabic and have an English equivalent.
+Tarqeem is **Arabic-only**. It is NOT a translation of an English programming language.
+English keywords are NOT supported. See `arabic-philosophy.md` for the full philosophy.
 
-## Keyword Mapping
+## Keyword Design
 
-### All Keywords Need Both Forms
+### Keywords Must Describe Function, Not Translate
 
-```rust
-// In src/lexer/keywords.rs
-pub fn get_keyword(text: &str) -> Option<TokenKind> {
-    match text {
-        // Arabic primary, English alias
-        "متغير" | "let" => Some(TokenKind::Let),
-        "ثابت" | "const" => Some(TokenKind::Const),
-        "دالة" | "function" | "fn" => Some(TokenKind::Function),
-        "إذا" | "if" => Some(TokenKind::If),
-        "وإلا" | "else" => Some(TokenKind::Else),
-        // ... etc
-        _ => None,
-    }
-}
-```
+See `arabic-philosophy.md` for detailed guidelines. Key principles:
+
+1. **الوصف لا الترجمة**: Choose words that describe what something does in Arabic context
+2. **الصحة النحوية**: Keywords must read naturally in Arabic sentences
+3. **الترتيب العربي**: Word order follows Arabic grammar (adjective after noun)
+4. **الاكتمال الذاتي**: No cryptic abbreviations
 
 ### When Adding a New Keyword
 
-1. Choose a clear Arabic term
-2. Add English alias(es)
-3. Document the mapping in both CLAUDE.md and README.md
-4. Test both forms
+1. Ask: "Would an Arabic speaker understand this without knowing English?"
+2. Ask: "Does it read naturally in an Arabic sentence?"
+3. Check `arabic-philosophy.md` for existing patterns
+4. Document the rationale for the choice
+5. Test that it flows naturally in code
 
 ## Error Messages
 

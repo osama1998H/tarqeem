@@ -277,8 +277,8 @@ pub fn get_builtin_signature_help(
         // I/O Functions
         "اطبع" | "print" => (
             match language {
-                Language::Arabic => "دالة اطبع(قيمة: أي) -> فراغ",
-                Language::English => "function print(value: any) -> void",
+                Language::Arabic => "دالة اطبع(قيمة: أي)", // No return type = no return value
+                Language::English => "function print(value: any)",
             },
             vec![ParameterInformation {
                 label: ParameterLabel::Simple(match language {

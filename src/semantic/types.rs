@@ -200,7 +200,7 @@ impl Type {
             Type::Float => "عدد_عشري".to_string(),
             Type::String => "نص".to_string(),
             Type::Bool => "منطقي".to_string(),
-            Type::Void => "فراغ".to_string(),
+            Type::Void => "(لا_إرجاع)".to_string(), // Internal: functions default to no return
             Type::Null => "عدم".to_string(),
             Type::Array(inner) => format!("مصفوفة<{}>", inner.arabic_name()),
             Type::Map(k, v) => format!("قاموس<{}، {}>", k.arabic_name(), v.arabic_name()),
@@ -264,7 +264,7 @@ pub fn parse_type_name(name: &str) -> Type {
         "عدد_عشري" | "float" => Type::Float,
         "نص" | "string" => Type::String,
         "منطقي" | "bool" => Type::Bool,
-        "فراغ" | "void" => Type::Void,
+        "void" => Type::Void, // فراغ eliminated - functions default to no return
         "عدم" | "null" | "none" => Type::Null,
         "أي" | "اي" | "any" => Type::Any,
         _ => Type::Class(name.to_string()),

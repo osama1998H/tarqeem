@@ -39,13 +39,13 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
 
     // ============ OOP ============
     "صنف" => TokenKind::Class,
-    "واجهة" => TokenKind::Interface,
+    "ميثاق" => TokenKind::Interface,  // عقد يُلزم الصنف بتنفيذ دوال معينة
     "يرث" => TokenKind::Extends,
-    "يطبق" => TokenKind::Implements,
+    "يلتزم" => TokenKind::Implements,  // الصنف يلتزم بتنفيذ الميثاق
     "عام" => TokenKind::Public,
     "خاص" => TokenKind::Private,
     "محمي" => TokenKind::Protected,
-    "ثابت_صنف" => TokenKind::Static,
+    "مشترك" => TokenKind::Static,  // عضو مشترك بين جميع نسخ الصنف
     "منشئ" => TokenKind::Constructor,
     "هذا" => TokenKind::This,
     "أساس" => TokenKind::Super,
@@ -81,13 +81,14 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "ليس" => TokenKind::Bang,
 
     // ============ Type Keywords ============
+    // Note: فراغ (void) is not a keyword - functions default to no return value
+    // Users only need to specify return type when function DOES return something
     "عدد" => TokenKind::TypeInt,
     "عدد_عشري" => TokenKind::TypeFloat,
     "نص" => TokenKind::TypeString,
     "منطقي" => TokenKind::TypeBool,
     "مصفوفة" => TokenKind::TypeArray,
     "قاموس" => TokenKind::TypeMap,
-    "فراغ" => TokenKind::TypeVoid,
     "أي" => TokenKind::TypeAny,
     "اي" => TokenKind::TypeAny,  // Without hamza variant
 
@@ -159,21 +160,32 @@ mod tests {
         assert_eq!(lookup_keyword("منطقي"), Some(TokenKind::TypeBool));
         assert_eq!(lookup_keyword("مصفوفة"), Some(TokenKind::TypeArray));
         assert_eq!(lookup_keyword("قاموس"), Some(TokenKind::TypeMap));
-        assert_eq!(lookup_keyword("فراغ"), Some(TokenKind::TypeVoid));
         assert_eq!(lookup_keyword("أي"), Some(TokenKind::TypeAny));
+        // Note: فراغ is not a keyword - functions default to no return value
     }
 
     #[test]
     fn test_oop_keywords() {
         assert_eq!(lookup_keyword("صنف"), Some(TokenKind::Class));
-        assert_eq!(lookup_keyword("واجهة"), Some(TokenKind::Interface));
+        assert_eq!(lookup_keyword("ميثاق"), Some(TokenKind::Interface)); // ميثاق بدلاً من واجهة
         assert_eq!(lookup_keyword("يرث"), Some(TokenKind::Extends));
-        assert_eq!(lookup_keyword("يطبق"), Some(TokenKind::Implements));
+        assert_eq!(lookup_keyword("يلتزم"), Some(TokenKind::Implements)); // يلتزم بدلاً من يطبق
         assert_eq!(lookup_keyword("عام"), Some(TokenKind::Public));
         assert_eq!(lookup_keyword("خاص"), Some(TokenKind::Private));
         assert_eq!(lookup_keyword("محمي"), Some(TokenKind::Protected));
+        assert_eq!(lookup_keyword("مشترك"), Some(TokenKind::Static)); // مشترك بدلاً من ثابت_صنف
         assert_eq!(lookup_keyword("منشئ"), Some(TokenKind::Constructor));
         assert_eq!(lookup_keyword("هذا"), Some(TokenKind::This));
         assert_eq!(lookup_keyword("جديد"), Some(TokenKind::New));
+    }
+
+    #[test]
+    fn test_old_keywords_not_supported() {
+        // Old keywords should NOT be recognized (no backward compatibility)
+        assert_eq!(lookup_keyword("واجهة"), None);
+        assert_eq!(lookup_keyword("يطبق"), None);
+        assert_eq!(lookup_keyword("ثابت_صنف"), None);
+        // فراغ eliminated - functions default to no return value
+        assert_eq!(lookup_keyword("فراغ"), None);
     }
 }

@@ -174,13 +174,13 @@ All keywords have Arabic and English forms. The Arabic form is primary.
 | Arabic | English | Description |
 |--------|---------|-------------|
 | `صنف` | `class` | Class declaration |
-| `واجهة` | `interface` | Interface declaration |
+| `ميثاق` | `interface` | Interface/contract declaration |
 | `يرث` | `extends` | Inheritance |
-| `يطبق` | `implements` | Interface implementation |
+| `يلتزم` | `implements` | Contract commitment |
 | `عام` | `public` | Public visibility |
 | `خاص` | `private` | Private visibility |
 | `محمي` | `protected` | Protected visibility |
-| `ثابت_صنف` | `static` | Static member |
+| `مشترك` | `static` | Shared member (across instances) |
 | `منشئ` | `constructor` | Constructor |
 | `هذا` | `this` | Self reference |
 | `أساس` / `اساس` | `super` | Parent reference |
@@ -398,8 +398,9 @@ Tarqeem uses a **strong, static type system** with type inference. Types are che
 | `عدد_عشري` | `float` | Floating point | 64-bit |
 | `نص` | `string` | UTF-8 string | Variable |
 | `منطقي` | `bool` | Boolean | 1-bit |
-| `فراغ` | `void` | No value | N/A |
 | `عدم` | `null` | Null value | Pointer |
+
+> **Note**: Functions that don't return a value simply omit the return type annotation. There is no `void` keyword.
 
 ### 5.3 Composite Types
 
@@ -425,7 +426,7 @@ map<string, int>   // English form
 #### Function Type
 ```tarqeem
 (عدد، عدد) -> عدد   // Function taking two ints, returning int
-() -> فراغ          // Function with no params, no return
+()                  // Function with no params, no return (void)
 ```
 
 ### 5.4 User-Defined Types
@@ -438,7 +439,7 @@ map<string, int>   // English form
 
 #### Interface Types
 ```tarqeem
-واجهة قابل_للطباعة { ... }
+ميثاق قابل_للطباعة { ... }
 ```
 
 #### Generic Types
@@ -811,7 +812,7 @@ The return type is specified with `->`:
 }
 ```
 
-If no return type is specified, the function returns `فراغ` (void).
+If no return type is specified, the function does not return a value (void).
 
 ### 8.3 Lambda Functions
 
@@ -914,9 +915,9 @@ Use `هذا` (this) to reference the current instance:
 
 ```tarqeem
 صنف رياضيات {
-    ثابت_صنف PI: عدد_عشري = 3.14159
+    مشترك PI: عدد_عشري = 3.14159
 
-    ثابت_صنف دالة جذر(س: عدد_عشري) -> عدد_عشري {
+    مشترك دالة جذر(س: عدد_عشري) -> عدد_عشري {
         // implementation
     }
 }
@@ -947,15 +948,15 @@ Use `هذا` (this) to reference the current instance:
 ### 9.7 Interfaces
 
 ```tarqeem
-واجهة قابل_للطباعة {
+ميثاق قابل_للطباعة {
     دالة اطبع_معلومات()
 }
 
-واجهة قابل_للمقارنة {
+ميثاق قابل_للمقارنة {
     دالة قارن(آخر: أي) -> عدد
 }
 
-صنف شخص يطبق قابل_للطباعة {
+صنف شخص يلتزم قابل_للطباعة {
     عام دالة اطبع_معلومات() {
         // Implementation required
     }
@@ -965,7 +966,7 @@ Use `هذا` (this) to reference the current instance:
 ### 9.8 Multiple Interface Implementation
 
 ```tarqeem
-صنف منتج يطبق قابل_للطباعة، قابل_للمقارنة {
+صنف منتج يلتزم قابل_للطباعة، قابل_للمقارنة {
     // Must implement all interface methods
 }
 ```
@@ -1326,10 +1327,10 @@ func_decl       := ['غير_متزامن'] 'دالة' IDENTIFIER '(' [params] ')
 
 class_decl      := 'صنف' IDENTIFIER ['<' type_params '>']
                    ['يرث' IDENTIFIER]
-                   ['يطبق' IDENTIFIER {',' IDENTIFIER}]
+                   ['يلتزم' IDENTIFIER {',' IDENTIFIER}]
                    '{' {class_member} '}'
 
-interface_decl  := 'واجهة' IDENTIFIER ['<' type_params '>']
+interface_decl  := 'ميثاق' IDENTIFIER ['<' type_params '>']
                    '{' {method_sig} '}'
 ```
 
@@ -1343,7 +1344,7 @@ type            := simple_type
                  | optional_type
                  | generic_type
 
-simple_type     := 'عدد' | 'عدد_عشري' | 'نص' | 'منطقي' | 'فراغ' | IDENTIFIER
+simple_type     := 'عدد' | 'عدد_عشري' | 'نص' | 'منطقي' | IDENTIFIER
 
 array_type      := 'مصفوفة' '<' type '>'
 
@@ -1448,13 +1449,13 @@ throw_stmt      := 'ارمِ' expr ';'
 | Control | `حالة` | `case` | `Case` |
 | Control | `غير_ذلك` | `default` | `Default` |
 | OOP | `صنف` | `class` | `Class` |
-| OOP | `واجهة` | `interface` | `Interface` |
+| OOP | `ميثاق` | `interface` | `Interface` |
 | OOP | `يرث` | `extends` | `Extends` |
-| OOP | `يطبق` | `implements` | `Implements` |
+| OOP | `يلتزم` | `implements` | `Implements` |
 | OOP | `عام` | `public` | `Public` |
 | OOP | `خاص` | `private` | `Private` |
 | OOP | `محمي` | `protected` | `Protected` |
-| OOP | `ثابت_صنف` | `static` | `Static` |
+| OOP | `مشترك` | `static` | `Static` |
 | OOP | `منشئ` | `constructor` | `Constructor` |
 | OOP | `هذا` | `this` | `This` |
 | OOP | `أساس`, `اساس` | `super` | `Super` |
@@ -1479,8 +1480,9 @@ throw_stmt      := 'ارمِ' expr ';'
 | Types | `منطقي` | `bool` | `TypeBool` |
 | Types | `مصفوفة` | `array` | `TypeArray` |
 | Types | `قاموس` | `map`, `dict` | `TypeMap` |
-| Types | `فراغ` | `void` | `TypeVoid` |
 | Types | `أي`, `اي` | `any` | `TypeAny` |
+
+> **Note**: There is no `void` keyword. Functions that don't return a value simply omit the return type annotation.
 
 ---
 

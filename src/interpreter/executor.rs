@@ -1001,11 +1001,13 @@ impl Interpreter {
             // Math - Number theory
             | "gcd" | "قاسم_مشترك" | "lcm" | "مضاعف_مشترك"
             | "factorial" | "عاملي"
-            // Trigonometry
-            | "sin" | "جا" | "cos" | "جتا" | "tan" | "ظا"
-            | "cot" | "ظتا" | "sec" | "قا" | "csc" | "قتا"
-            | "asin" | "جا_عكسي" | "acos" | "جتا_عكسي" | "atan" | "ظا_عكسي" | "atan2" | "ظا_عكسي2"
-            | "sinh" | "جا_زائدي" | "cosh" | "جتا_زائدي" | "tanh" | "ظا_زائدي"
+            // Trigonometry (with full Arabic names per arabic-philosophy.md)
+            | "sin" | "جا" | "جيب" | "cos" | "جتا" | "جيب_التمام" | "tan" | "ظا" | "ظل"
+            | "cot" | "ظتا" | "ظل_التمام" | "sec" | "قا" | "قاطع" | "csc" | "قتا" | "قاطع_التمام"
+            | "asin" | "جا_عكسي" | "جيب_عكسي" | "acos" | "جتا_عكسي" | "جيب_تمام_عكسي"
+            | "atan" | "ظا_عكسي" | "ظل_عكسي" | "atan2" | "ظا_عكسي2" | "ظل_عكسي2"
+            | "sinh" | "جا_زائدي" | "جيب_زائدي" | "cosh" | "جتا_زائدي" | "جيب_تمام_زائدي"
+            | "tanh" | "ظا_زائدي" | "ظل_زائدي"
             | "to_radians" | "الى_راديان" | "راديان" | "to_degrees" | "الى_درجات" | "درجات"
             // Random
             | "random" | "عشوائي" | "random_int"
@@ -1535,12 +1537,12 @@ impl Interpreter {
                 Ok(Value::Int(result))
             }
 
-            // ============ Trigonometry ============
-            "sin" | "جا" => {
+            // ============ Trigonometry (with full Arabic names per arabic-philosophy.md) ============
+            "sin" | "جا" | "جيب" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "sin() requires 1 argument",
-                        "جا() تتطلب معامل واحد",
+                        "جيب() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
@@ -1549,11 +1551,11 @@ impl Interpreter {
                 Ok(Value::Float(f.sin()))
             }
 
-            "cos" | "جتا" => {
+            "cos" | "جتا" | "جيب_التمام" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "cos() requires 1 argument",
-                        "جتا() تتطلب معامل واحد",
+                        "جيب_التمام() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
@@ -1562,11 +1564,11 @@ impl Interpreter {
                 Ok(Value::Float(f.cos()))
             }
 
-            "tan" | "ظا" => {
+            "tan" | "ظا" | "ظل" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "tan() requires 1 argument",
-                        "ظا() تتطلب معامل واحد",
+                        "ظل() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
@@ -1575,11 +1577,11 @@ impl Interpreter {
                 Ok(Value::Float(f.tan()))
             }
 
-            "cot" | "ظتا" => {
+            "cot" | "ظتا" | "ظل_التمام" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "cot() requires 1 argument",
-                        "ظتا() تتطلب معامل واحد",
+                        "ظل_التمام() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
@@ -1588,11 +1590,11 @@ impl Interpreter {
                 Ok(Value::Float(1.0 / f.tan()))
             }
 
-            "sec" | "قا" => {
+            "sec" | "قا" | "قاطع" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "sec() requires 1 argument",
-                        "قا() تتطلب معامل واحد",
+                        "قاطع() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
@@ -1601,11 +1603,11 @@ impl Interpreter {
                 Ok(Value::Float(1.0 / f.cos()))
             }
 
-            "csc" | "قتا" => {
+            "csc" | "قتا" | "قاطع_التمام" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "csc() requires 1 argument",
-                        "قتا() تتطلب معامل واحد",
+                        "قاطع_التمام() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
@@ -1614,11 +1616,11 @@ impl Interpreter {
                 Ok(Value::Float(1.0 / f.sin()))
             }
 
-            "asin" | "جا_عكسي" => {
+            "asin" | "جا_عكسي" | "جيب_عكسي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "asin() requires 1 argument",
-                        "جا_عكسي() تتطلب معامل واحد",
+                        "جيب_عكسي() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
@@ -1627,11 +1629,11 @@ impl Interpreter {
                 Ok(Value::Float(f.asin()))
             }
 
-            "acos" | "جتا_عكسي" => {
+            "acos" | "جتا_عكسي" | "جيب_تمام_عكسي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "acos() requires 1 argument",
-                        "جتا_عكسي() تتطلب معامل واحد",
+                        "جيب_تمام_عكسي() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
@@ -1640,11 +1642,11 @@ impl Interpreter {
                 Ok(Value::Float(f.acos()))
             }
 
-            "atan" | "ظا_عكسي" => {
+            "atan" | "ظا_عكسي" | "ظل_عكسي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "atan() requires 1 argument",
-                        "ظا_عكسي() تتطلب معامل واحد",
+                        "ظل_عكسي() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
@@ -1653,17 +1655,17 @@ impl Interpreter {
                 Ok(Value::Float(f.atan()))
             }
 
-            "atan2" | "ظا_عكسي2" => {
+            "atan2" | "ظا_عكسي2" | "ظل_عكسي2" => {
                 let y = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "atan2() requires 2 arguments",
-                        "ظا_عكسي2() تتطلب معاملين",
+                        "ظل_عكسي2() تتطلب معاملين",
                     )
                 })?;
                 let x = args.get(1).ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "atan2() requires 2 arguments",
-                        "ظا_عكسي2() تتطلب معاملين",
+                        "ظل_عكسي2() تتطلب معاملين",
                     )
                 })?;
 
@@ -1677,11 +1679,11 @@ impl Interpreter {
                 Ok(Value::Float(y.atan2(x)))
             }
 
-            "sinh" | "جا_زائدي" => {
+            "sinh" | "جا_زائدي" | "جيب_زائدي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "sinh() requires 1 argument",
-                        "جا_زائدي() تتطلب معامل واحد",
+                        "جيب_زائدي() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
@@ -1690,11 +1692,11 @@ impl Interpreter {
                 Ok(Value::Float(f.sinh()))
             }
 
-            "cosh" | "جتا_زائدي" => {
+            "cosh" | "جتا_زائدي" | "جيب_تمام_زائدي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "cosh() requires 1 argument",
-                        "جتا_زائدي() تتطلب معامل واحد",
+                        "جيب_تمام_زائدي() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val
@@ -1703,11 +1705,11 @@ impl Interpreter {
                 Ok(Value::Float(f.cosh()))
             }
 
-            "tanh" | "ظا_زائدي" => {
+            "tanh" | "ظا_زائدي" | "ظل_زائدي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "tanh() requires 1 argument",
-                        "ظا_زائدي() تتطلب معامل واحد",
+                        "ظل_زائدي() تتطلب معامل واحد",
                     )
                 })?;
                 let f = val

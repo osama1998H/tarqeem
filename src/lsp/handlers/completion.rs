@@ -119,7 +119,7 @@ fn get_keyword_completions(language: Language) -> Vec<CompletionItem> {
             ("ثابت", "تعريف ثابت", "ثابت $1 = $2"),
             ("دالة", "تعريف دالة", "دالة $1($2) -> $3 {\n\t$0\n}"),
             ("صنف", "تعريف صنف", "صنف $1 {\n\t$0\n}"),
-            ("واجهة", "تعريف واجهة", "واجهة $1 {\n\t$0\n}"),
+            ("ميثاق", "تعريف ميثاق", "ميثاق $1 {\n\t$0\n}"),
             ("استورد", "استيراد وحدة", "استورد { $1 } من \"$2\""),
             ("صدّر", "تصدير", "صدّر "),
         ],
@@ -259,7 +259,7 @@ fn get_type_completions(language: Language) -> Vec<CompletionItem> {
             ("عدد_عشري", "عدد عشري"),
             ("نص", "سلسلة نصية"),
             ("منطقي", "قيمة منطقية"),
-            ("فراغ", "بدون قيمة"),
+            // Note: فراغ eliminated - functions default to no return value
             ("مصفوفة", "مصفوفة"),
             ("قاموس", "قاموس"),
             ("أي", "أي نوع"),
@@ -269,7 +269,7 @@ fn get_type_completions(language: Language) -> Vec<CompletionItem> {
             ("float", "Floating point"),
             ("string", "String"),
             ("bool", "Boolean"),
-            ("void", "No value"),
+            // Note: void eliminated - functions default to no return value
             ("array", "Array"),
             ("map", "Map/Dictionary"),
             ("any", "Any type"),

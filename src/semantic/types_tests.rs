@@ -48,7 +48,7 @@ fn test_type_void() {
     assert!(!ty.is_numeric());
     assert!(ty.is_primitive());
     assert_eq!(ty.to_string(), "void");
-    assert_eq!(ty.arabic_name(), "فراغ");
+    assert_eq!(ty.arabic_name(), "(لا_إرجاع)"); // Internal: functions default to no return
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn test_type_function_no_params() {
         return_type: Box::new(Type::Void),
     };
     assert_eq!(ty.to_string(), "() -> void");
-    assert_eq!(ty.arabic_name(), "() -> فراغ");
+    assert_eq!(ty.arabic_name(), "() -> (لا_إرجاع)");
 }
 
 #[test]
@@ -531,7 +531,8 @@ fn test_parse_type_name_arabic() {
     assert_eq!(parse_type_name("عدد_عشري"), Type::Float);
     assert_eq!(parse_type_name("نص"), Type::String);
     assert_eq!(parse_type_name("منطقي"), Type::Bool);
-    assert_eq!(parse_type_name("فراغ"), Type::Void);
+    // فراغ eliminated - not recognized as type keyword
+    assert_eq!(parse_type_name("فراغ"), Type::Class("فراغ".to_string()));
     assert_eq!(parse_type_name("عدم"), Type::Null);
     assert_eq!(parse_type_name("أي"), Type::Any);
     assert_eq!(parse_type_name("اي"), Type::Any);

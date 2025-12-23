@@ -67,7 +67,7 @@ fn format_type_info(ty: &Type, kind: &SymbolKind, language: Language) -> (String
         (SymbolKind::Function, Language::English) => "Function",
         (SymbolKind::Class, Language::Arabic) => "صنف",
         (SymbolKind::Class, Language::English) => "Class",
-        (SymbolKind::Interface, Language::Arabic) => "واجهة",
+        (SymbolKind::Interface, Language::Arabic) => "ميثاق",
         (SymbolKind::Interface, Language::English) => "Interface",
         (SymbolKind::Parameter, Language::Arabic) => "معامل",
         (SymbolKind::Parameter, Language::English) => "Parameter",
@@ -85,12 +85,12 @@ pub fn get_builtin_hover(name: &str, language: Language) -> Option<Hover> {
     let (signature, description_ar, description_en) = match name {
         // I/O Functions
         "اطبع" | "print" => (
-            "دالة اطبع(قيمة: أي) -> فراغ",
+            "دالة اطبع(قيمة: أي)", // No return type means no return value
             "طباعة قيمة إلى المخرج القياسي",
             "Print a value to standard output",
         ),
         "println" | "اطبع_سطر" => (
-            "دالة اطبع_سطر(قيمة: أي) -> فراغ",
+            "دالة اطبع_سطر(قيمة: أي)", // No return type means no return value
             "طباعة قيمة مع سطر جديد",
             "Print a value with a newline",
         ),

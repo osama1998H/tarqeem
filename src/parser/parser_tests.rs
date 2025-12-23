@@ -906,7 +906,7 @@ fn test_parse_class_with_inheritance() {
 #[test]
 fn test_parse_class_with_interface() {
     let source = r#"
-        صنف كلب يطبق حيوان {
+        صنف كلب يلتزم حيوان {
             عام دالة تكلم() {
                 اطبع("هاو");
             }
@@ -930,7 +930,7 @@ fn test_parse_class_with_interface() {
 #[test]
 fn test_parse_class_with_multiple_interfaces() {
     let source = r#"
-        صنف صنفي يطبق واجهة١، واجهة٢، واجهة٣ {
+        صنف صنفي يلتزم ميثاق١، ميثاق٢، ميثاق٣ {
         }
     "#;
     let mut parser = parser_with_markers(source);
@@ -947,7 +947,7 @@ fn test_parse_class_with_multiple_interfaces() {
 #[test]
 fn test_parse_interface_with_methods() {
     let source = r#"
-        واجهة قابل_للمقارنة {
+        ميثاق قابل_للمقارنة {
             دالة قارن(آخر: قابل_للمقارنة) -> عدد
             دالة يساوي(آخر: قابل_للمقارنة) -> منطقي
         }
@@ -970,9 +970,9 @@ fn test_parse_interface_with_methods() {
 fn test_parse_class_static_members() {
     let source = r#"
         صنف عداد_م {
-            ثابت_صنف قيمة: عدد;
+            مشترك قيمة: عدد;
 
-            ثابت_صنف دالة زد() {
+            مشترك دالة زد() {
                 عداد_م.قيمة = عداد_م.قيمة + 1;
             }
         }
@@ -1055,7 +1055,7 @@ fn test_parse_generic_class_multiple_params() {
 #[test]
 fn test_parse_generic_interface() {
     let source = r#"
-        واجهة قابل_للمقارنة<ن> {
+        ميثاق قابل_للمقارنة<ن> {
             دالة قارن(آخر: ن) -> عدد
         }
     "#;

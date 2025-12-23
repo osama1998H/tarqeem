@@ -177,7 +177,7 @@ impl Formatter {
                 // Implements
                 if !implements.is_empty() {
                     p.write_space();
-                    p.write("يطبق");
+                    p.write("يلتزم");
                     p.write_space();
                     for (i, iface) in implements.iter().enumerate() {
                         if i > 0 {
@@ -202,7 +202,7 @@ impl Formatter {
                 methods,
                 ..
             } => {
-                p.write("واجهة");
+                p.write("ميثاق");
                 p.write_space();
                 p.write(name);
 
@@ -793,7 +793,7 @@ impl Formatter {
 
                 // Static
                 if *is_static {
-                    p.write("ثابت_صنف");
+                    p.write("مشترك");
                     p.write_space();
                 }
 
@@ -836,7 +836,7 @@ impl Formatter {
 
                 // Static
                 if *is_static {
-                    p.write("ثابت_صنف");
+                    p.write("مشترك");
                     p.write_space();
                 }
 
