@@ -163,8 +163,8 @@ Each layer can ONLY depend on layers before it:
 | Type | ASCII | Arabic |
 |------|-------|--------|
 | Source | `.trq` | `.ترقيم` |
-| Header | `.trqh` | `.ترقيم-ر` |
-| Package Manifest | `حزمة.toml` | - |
+| Package Manifest | `.حزمة` | - |
+| Lock File | `.قفل` | - |
 
 ---
 

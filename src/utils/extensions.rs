@@ -8,7 +8,6 @@
 //! | Type | Extensions |
 //! |------|------------|
 //! | Source | `.trq`, `.ترقيم` |
-//! | Header | `.trqh`, `.ترقيم-ر` |
 //! | Package | `.حزمة` |
 //! | Lock | `.قفل` |
 
@@ -18,10 +17,6 @@ use std::path::Path;
 /// Valid source file extensions for Tarqeem
 /// Supports both ASCII (.trq) and Arabic (.ترقيم) extensions
 pub const SOURCE_EXTENSIONS: &[&str] = &["trq", "ترقيم"];
-
-/// Valid header/interface file extensions
-/// Supports both ASCII (.trqh) and Arabic (.ترقيم-ر) extensions
-pub const HEADER_EXTENSIONS: &[&str] = &["trqh", "ترقيم-ر"];
 
 /// Valid package manifest file extensions
 /// Arabic-only extension for package configuration files
@@ -36,8 +31,6 @@ pub const LOCK_EXTENSIONS: &[&str] = &["قفل"];
 pub enum FileExtension {
     /// Source file (.trq or .ترقيم)
     Source,
-    /// Header/interface file (.trqh or .ترقيم-ر)
-    Header,
     /// Package manifest file (.حزمة)
     Package,
     /// Lock file (.قفل)
@@ -53,8 +46,6 @@ impl FileExtension {
 
         if SOURCE_EXTENSIONS.contains(&ext) {
             FileExtension::Source
-        } else if HEADER_EXTENSIONS.contains(&ext) {
-            FileExtension::Header
         } else if PACKAGE_EXTENSIONS.contains(&ext) {
             FileExtension::Package
         } else if LOCK_EXTENSIONS.contains(&ext) {
@@ -64,14 +55,14 @@ impl FileExtension {
         }
     }
 
-    /// Check if this is a valid Tarqeem extension (source or header)
+    /// Check if this is a valid Tarqeem source extension
     pub fn is_valid(&self) -> bool {
-        matches!(self, FileExtension::Source | FileExtension::Header)
+        matches!(self, FileExtension::Source)
     }
 
-    /// Check if this is a valid Tarqeem code extension (source or header)
+    /// Check if this is a valid Tarqeem code extension (source files only)
     pub fn is_code(&self) -> bool {
-        matches!(self, FileExtension::Source | FileExtension::Header)
+        matches!(self, FileExtension::Source)
     }
 
     /// Check if this is a valid package-related extension
@@ -84,7 +75,6 @@ impl FileExtension {
     pub fn primary_extension(&self) -> &'static str {
         match self {
             FileExtension::Source => "trq",
-            FileExtension::Header => "trqh",
             FileExtension::Package => "حزمة",
             FileExtension::Lock => "قفل",
             FileExtension::Unknown => "",
@@ -95,7 +85,6 @@ impl FileExtension {
     pub fn arabic_extension(&self) -> &'static str {
         match self {
             FileExtension::Source => "ترقيم",
-            FileExtension::Header => "ترقيم-ر",
             FileExtension::Package => "حزمة",
             FileExtension::Lock => "قفل",
             FileExtension::Unknown => "",
@@ -119,23 +108,7 @@ pub fn is_valid_source_extension(path: &Path) -> bool {
     matches!(FileExtension::from_path(path), FileExtension::Source)
 }
 
-/// Check if a path has a valid Tarqeem header extension (.trqh or .ترقيم-ر)
-///
-/// # Examples
-///
-/// ```
-/// use std::path::Path;
-/// use tarqeem::utils::is_valid_header_extension;
-///
-/// assert!(is_valid_header_extension(Path::new("types.trqh")));
-/// assert!(is_valid_header_extension(Path::new("أنماط.ترقيم-ر")));
-/// assert!(!is_valid_header_extension(Path::new("file.h")));
-/// ```
-pub fn is_valid_header_extension(path: &Path) -> bool {
-    matches!(FileExtension::from_path(path), FileExtension::Header)
-}
-
-/// Check if a path has any valid Tarqeem extension (source or header)
+/// Check if a path has any valid Tarqeem source extension
 ///
 /// # Examples
 ///
@@ -145,7 +118,6 @@ pub fn is_valid_header_extension(path: &Path) -> bool {
 ///
 /// assert!(has_tarqeem_extension(Path::new("program.trq")));
 /// assert!(has_tarqeem_extension(Path::new("برنامج.ترقيم")));
-/// assert!(has_tarqeem_extension(Path::new("types.trqh")));
 /// assert!(!has_tarqeem_extension(Path::new("file.rs")));
 /// ```
 pub fn has_tarqeem_extension(path: &Path) -> bool {
@@ -155,15 +127,6 @@ pub fn has_tarqeem_extension(path: &Path) -> bool {
 /// Get a formatted string of valid source extensions for error messages
 pub fn valid_source_extensions_display() -> String {
     SOURCE_EXTENSIONS
-        .iter()
-        .map(|e| format!(".{}", e))
-        .collect::<Vec<_>>()
-        .join(" أو / or ")
-}
-
-/// Get a formatted string of valid header extensions for error messages
-pub fn valid_header_extensions_display() -> String {
-    HEADER_EXTENSIONS
         .iter()
         .map(|e| format!(".{}", e))
         .collect::<Vec<_>>()
@@ -238,12 +201,6 @@ mod tests {
     }
 
     #[test]
-    fn test_header_extensions() {
-        assert!(is_valid_header_extension(Path::new("types.trqh")));
-        assert!(is_valid_header_extension(Path::new("أنماط.ترقيم-ر")));
-    }
-
-    #[test]
     fn test_invalid_extensions() {
         assert!(!is_valid_source_extension(Path::new("file.txt")));
         assert!(!is_valid_source_extension(Path::new("file.rs")));
@@ -255,8 +212,6 @@ mod tests {
     fn test_has_tarqeem_extension() {
         assert!(has_tarqeem_extension(Path::new("file.trq")));
         assert!(has_tarqeem_extension(Path::new("file.ترقيم")));
-        assert!(has_tarqeem_extension(Path::new("file.trqh")));
-        assert!(has_tarqeem_extension(Path::new("file.ترقيم-ر")));
         assert!(!has_tarqeem_extension(Path::new("file.txt")));
     }
 
@@ -269,10 +224,6 @@ mod tests {
         assert_eq!(
             FileExtension::from_path(Path::new("file.ترقيم")),
             FileExtension::Source
-        );
-        assert_eq!(
-            FileExtension::from_path(Path::new("file.trqh")),
-            FileExtension::Header
         );
         assert_eq!(
             FileExtension::from_path(Path::new("file.txt")),
@@ -321,14 +272,12 @@ mod tests {
         assert!(FileExtension::Package.is_package_related());
         assert!(FileExtension::Lock.is_package_related());
         assert!(!FileExtension::Source.is_package_related());
-        assert!(!FileExtension::Header.is_package_related());
         assert!(!FileExtension::Unknown.is_package_related());
     }
 
     #[test]
     fn test_is_code() {
         assert!(FileExtension::Source.is_code());
-        assert!(FileExtension::Header.is_code());
         assert!(!FileExtension::Package.is_code());
         assert!(!FileExtension::Lock.is_code());
         assert!(!FileExtension::Unknown.is_code());
