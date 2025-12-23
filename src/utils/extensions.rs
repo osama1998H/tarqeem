@@ -2,6 +2,15 @@
 //!
 //! Provides constants and utilities for handling Tarqeem file extensions,
 //! supporting both ASCII (.trq) and Arabic (.ترقيم) extensions.
+//!
+//! ## Supported Extensions
+//!
+//! | Type | Extensions |
+//! |------|------------|
+//! | Source | `.trq`, `.ترقيم` |
+//! | Header | `.trqh`, `.ترقيم-ر` |
+//! | Package | `.حزمة` |
+//! | Lock | `.قفل` |
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -14,6 +23,14 @@ pub const SOURCE_EXTENSIONS: &[&str] = &["trq", "ترقيم"];
 /// Supports both ASCII (.trqh) and Arabic (.ترقيم-ر) extensions
 pub const HEADER_EXTENSIONS: &[&str] = &["trqh", "ترقيم-ر"];
 
+/// Valid package manifest file extensions
+/// Arabic-only extension for package configuration files
+pub const PACKAGE_EXTENSIONS: &[&str] = &["حزمة"];
+
+/// Valid lock file extensions
+/// Arabic-only extension for dependency lock files
+pub const LOCK_EXTENSIONS: &[&str] = &["قفل"];
+
 /// Represents a Tarqeem file extension type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileExtension {
@@ -21,6 +38,10 @@ pub enum FileExtension {
     Source,
     /// Header/interface file (.trqh or .ترقيم-ر)
     Header,
+    /// Package manifest file (.حزمة)
+    Package,
+    /// Lock file (.قفل)
+    Lock,
     /// Unknown/unsupported extension
     Unknown,
 }
@@ -34,21 +55,38 @@ impl FileExtension {
             FileExtension::Source
         } else if HEADER_EXTENSIONS.contains(&ext) {
             FileExtension::Header
+        } else if PACKAGE_EXTENSIONS.contains(&ext) {
+            FileExtension::Package
+        } else if LOCK_EXTENSIONS.contains(&ext) {
+            FileExtension::Lock
         } else {
             FileExtension::Unknown
         }
     }
 
-    /// Check if this is a valid Tarqeem extension
+    /// Check if this is a valid Tarqeem extension (source or header)
     pub fn is_valid(&self) -> bool {
         matches!(self, FileExtension::Source | FileExtension::Header)
     }
 
-    /// Get the primary (ASCII) extension for this type
+    /// Check if this is a valid Tarqeem code extension (source or header)
+    pub fn is_code(&self) -> bool {
+        matches!(self, FileExtension::Source | FileExtension::Header)
+    }
+
+    /// Check if this is a valid package-related extension
+    pub fn is_package_related(&self) -> bool {
+        matches!(self, FileExtension::Package | FileExtension::Lock)
+    }
+
+    /// Get the primary extension for this type
+    /// For Package and Lock, returns Arabic since they are Arabic-only
     pub fn primary_extension(&self) -> &'static str {
         match self {
             FileExtension::Source => "trq",
             FileExtension::Header => "trqh",
+            FileExtension::Package => "حزمة",
+            FileExtension::Lock => "قفل",
             FileExtension::Unknown => "",
         }
     }
@@ -58,6 +96,8 @@ impl FileExtension {
         match self {
             FileExtension::Source => "ترقيم",
             FileExtension::Header => "ترقيم-ر",
+            FileExtension::Package => "حزمة",
+            FileExtension::Lock => "قفل",
             FileExtension::Unknown => "",
         }
     }
@@ -130,6 +170,55 @@ pub fn valid_header_extensions_display() -> String {
         .join(" أو / or ")
 }
 
+/// Check if a path has a valid package manifest extension (.حزمة)
+///
+/// # Examples
+///
+/// ```
+/// use std::path::Path;
+/// use tarqeem::utils::is_valid_package_extension;
+///
+/// assert!(is_valid_package_extension(Path::new("حزمة.حزمة")));
+/// assert!(is_valid_package_extension(Path::new("مكتبتي.حزمة")));
+/// assert!(!is_valid_package_extension(Path::new("package.toml")));
+/// ```
+pub fn is_valid_package_extension(path: &Path) -> bool {
+    matches!(FileExtension::from_path(path), FileExtension::Package)
+}
+
+/// Check if a path has a valid lock file extension (.قفل)
+///
+/// # Examples
+///
+/// ```
+/// use std::path::Path;
+/// use tarqeem::utils::is_valid_lock_extension;
+///
+/// assert!(is_valid_lock_extension(Path::new("حزمة.قفل")));
+/// assert!(!is_valid_lock_extension(Path::new(".trqlock")));
+/// ```
+pub fn is_valid_lock_extension(path: &Path) -> bool {
+    matches!(FileExtension::from_path(path), FileExtension::Lock)
+}
+
+/// Get a formatted string of valid package extensions for error messages
+pub fn valid_package_extensions_display() -> String {
+    PACKAGE_EXTENSIONS
+        .iter()
+        .map(|e| format!(".{}", e))
+        .collect::<Vec<_>>()
+        .join(" أو ")
+}
+
+/// Get a formatted string of valid lock extensions for error messages
+pub fn valid_lock_extensions_display() -> String {
+    LOCK_EXTENSIONS
+        .iter()
+        .map(|e| format!(".{}", e))
+        .collect::<Vec<_>>()
+        .join(" أو ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,5 +285,64 @@ mod tests {
         let display = valid_source_extensions_display();
         assert!(display.contains(".trq"));
         assert!(display.contains(".ترقيم"));
+    }
+
+    #[test]
+    fn test_package_extension() {
+        assert!(is_valid_package_extension(Path::new("حزمة.حزمة")));
+        assert!(is_valid_package_extension(Path::new("مكتبتي.حزمة")));
+        assert!(is_valid_package_extension(Path::new("/مسار/مشروع.حزمة")));
+        assert!(!is_valid_package_extension(Path::new("package.toml")));
+        assert!(!is_valid_package_extension(Path::new("حزمة.toml")));
+    }
+
+    #[test]
+    fn test_lock_extension() {
+        assert!(is_valid_lock_extension(Path::new("حزمة.قفل")));
+        assert!(is_valid_lock_extension(Path::new("مشروع.قفل")));
+        assert!(!is_valid_lock_extension(Path::new(".trqlock")));
+        assert!(!is_valid_lock_extension(Path::new("package.lock")));
+    }
+
+    #[test]
+    fn test_file_extension_enum_package_lock() {
+        assert_eq!(
+            FileExtension::from_path(Path::new("حزمة.حزمة")),
+            FileExtension::Package
+        );
+        assert_eq!(
+            FileExtension::from_path(Path::new("مشروع.قفل")),
+            FileExtension::Lock
+        );
+    }
+
+    #[test]
+    fn test_is_package_related() {
+        assert!(FileExtension::Package.is_package_related());
+        assert!(FileExtension::Lock.is_package_related());
+        assert!(!FileExtension::Source.is_package_related());
+        assert!(!FileExtension::Header.is_package_related());
+        assert!(!FileExtension::Unknown.is_package_related());
+    }
+
+    #[test]
+    fn test_is_code() {
+        assert!(FileExtension::Source.is_code());
+        assert!(FileExtension::Header.is_code());
+        assert!(!FileExtension::Package.is_code());
+        assert!(!FileExtension::Lock.is_code());
+        assert!(!FileExtension::Unknown.is_code());
+    }
+
+    #[test]
+    fn test_package_extension_display() {
+        let display = valid_package_extensions_display();
+        assert!(display.contains(".حزمة"));
+    }
+
+    #[test]
+    fn test_lock_extension_display() {
+        let display = valid_lock_extensions_display();
+        assert!(display.contains(".قفل"));
     }
 }

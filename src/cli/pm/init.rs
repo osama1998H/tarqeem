@@ -1,6 +1,7 @@
 //! Package initialization command
 //!
 //! Creates a new Tarqeem package with proper directory structure.
+//! Uses the new Arabic format (ترقيم.حزمة) by default.
 
 use crate::package::{Manifest, PackageError, PackageResult};
 use colored::*;
@@ -9,9 +10,11 @@ use std::path::Path;
 
 /// Run the init command
 pub fn run(name: Option<String>, lib: bool) -> PackageResult<()> {
-    // Check if already initialized
-    if Path::new("حزمة.toml").exists() || Path::new("trq.toml").exists() {
-        return Err(PackageError::AlreadyInitialized);
+    // Check if already initialized - check all manifest names
+    for manifest_name in Manifest::MANIFEST_NAMES {
+        if Path::new(manifest_name).exists() {
+            return Err(PackageError::AlreadyInitialized);
+        }
     }
 
     // Get package name from argument or directory
@@ -48,21 +51,18 @@ pub fn run(name: Option<String>, lib: bool) -> PackageResult<()> {
         println!("  {} {}/", "→".cyan(), dir);
     }
 
-    // Create entry file
+    // Create entry file - use Arabic extension by default
     let (entry_path, entry_content) = if lib {
         (
-            "مصدر/lib.trq",
-            r#"/// مكتبة ترقيم
-/// Tarqeem library
+            "مصدر/مكتبة.ترقيم",
+            r#"# مكتبة ترقيم
 
-/// دالة مرحبا - ترجع رسالة ترحيب
-/// Hello function - returns a greeting message
+# دالة مرحبا - ترجع رسالة ترحيب
 صدّر دالة مرحبا() -> نص {
     أرجع "مرحباً من المكتبة!"
 }
 
-/// دالة رئيسية للمكتبة (للاختبار)
-/// Main function for the library (for testing)
+# دالة رئيسية للمكتبة (للاختبار)
 صدّر دالة اختبار() {
     اطبع(مرحبا())
 }
@@ -70,12 +70,10 @@ pub fn run(name: Option<String>, lib: bool) -> PackageResult<()> {
         )
     } else {
         (
-            "مصدر/رئيسي.trq",
-            r#"/// برنامج ترقيم رئيسي
-/// Main Tarqeem program
+            "مصدر/رئيسي.ترقيم",
+            r#"# برنامج ترقيم رئيسي
 
-/// الدالة الرئيسية - نقطة بداية البرنامج
-/// Main function - program entry point
+# الدالة الرئيسية - نقطة بداية البرنامج
 دالة رئيسي() {
     اطبع("مرحباً بالعالم!")
 }
@@ -88,27 +86,25 @@ pub fn run(name: Option<String>, lib: bool) -> PackageResult<()> {
         println!("  {} {}", "→".cyan(), entry_path);
     }
 
-    // Create test file
-    let test_path = "اختبارات/test.trq";
+    // Create test file - use Arabic extension
+    let test_path = "اختبارات/اختبار.ترقيم";
     let test_content = if lib {
-        r#"/// اختبارات المكتبة
-/// Library tests
+        r#"# اختبارات المكتبة
 
-استورد { مرحبا } من "../مصدر/lib"
+استورد { مرحبا } من "../مصدر/مكتبة"
 
-/// اختبار دالة مرحبا
+# اختبار دالة مرحبا
 دالة اختبار_مرحبا() {
     متغير نتيجة = مرحبا()
     تأكيد(نتيجة == "مرحباً من المكتبة!")
 }
 "#
     } else {
-        r#"/// اختبارات البرنامج
-/// Program tests
+        r#"# اختبارات البرنامج
 
-/// اختبار بسيط
+# اختبار بسيط
 دالة اختبار_أساسي() {
-    تأكيد(1 + 1 == 2)
+    تأكيد(١ + ١ == ٢)
 }
 "#
     };
@@ -118,22 +114,26 @@ pub fn run(name: Option<String>, lib: bool) -> PackageResult<()> {
         println!("  {} {}", "→".cyan(), test_path);
     }
 
-    // Save manifest
-    manifest.save(Path::new("حزمة.toml"))?;
-    println!("  {} حزمة.toml", "→".cyan());
+    // Save manifest in Arabic format
+    manifest.save(Path::new("ترقيم.حزمة"))?;
+    println!("  {} ترقيم.حزمة", "→".cyan());
 
     // Create .gitignore
-    let gitignore_content = r#"# Tarqeem build artifacts / مخلفات البناء
+    let gitignore_content = r#"# مخلفات البناء / Tarqeem build artifacts
 /بناء/
 /build/
 /target/
 
+# ملف القفل (اختياري: البعض يفضل تضمينه)
 # Lock file (optional: some prefer to commit this)
+# ترقيم.قفل
 # .trqlock
 
+# مجلد الحزم
 # Packages directory
 /packages/
 
+# ملفات المحررات
 # IDE and editor files
 .vscode/
 .idea/
@@ -141,6 +141,7 @@ pub fn run(name: Option<String>, lib: bool) -> PackageResult<()> {
 *.swo
 *~
 
+# ملفات النظام
 # OS files
 .DS_Store
 Thumbs.db
