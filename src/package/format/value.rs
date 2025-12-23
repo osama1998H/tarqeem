@@ -253,10 +253,7 @@ mod tests {
         assert_eq!(Value::Bool(true).as_bool(), Some(true));
         assert_eq!(Value::Number(3.14).as_number(), Some(3.14));
         assert_eq!(Value::Number(42.0).as_i64(), Some(42));
-        assert_eq!(
-            Value::String("مرحبا".to_string()).as_str(),
-            Some("مرحبا")
-        );
+        assert_eq!(Value::String("مرحبا".to_string()).as_str(), Some("مرحبا"));
     }
 
     #[test]
@@ -266,7 +263,10 @@ mod tests {
         assert_eq!(format!("{}", Value::Bool(false)), "لا");
         assert_eq!(format!("{}", Value::Number(42.0)), "42");
         assert_eq!(format!("{}", Value::Number(3.14)), "3.14");
-        assert_eq!(format!("{}", Value::String("مرحبا".to_string())), "\"مرحبا\"");
+        assert_eq!(
+            format!("{}", Value::String("مرحبا".to_string())),
+            "\"مرحبا\""
+        );
     }
 
     #[test]

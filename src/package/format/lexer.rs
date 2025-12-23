@@ -308,7 +308,9 @@ impl<'a> Lexer<'a> {
                 Ok(Token::String(s))
             }
             Some(c) if is_digit(c) => self.read_number_or_version(c),
-            Some(c) if c.is_alphabetic() || is_arabic_char(c) || c == '_' || c == '/' || c == '@' => {
+            Some(c)
+                if c.is_alphabetic() || is_arabic_char(c) || c == '_' || c == '/' || c == '@' =>
+            {
                 let ident = self.read_identifier(c);
                 // التحقق من الكلمات المفتاحية
                 match ident.as_str() {
@@ -318,10 +320,7 @@ impl<'a> Lexer<'a> {
                     _ => Ok(Token::Identifier(ident)),
                 }
             }
-            Some(c) => Err(FormatError::new(
-                FormatErrorKind::UnexpectedChar(c),
-                loc,
-            )),
+            Some(c) => Err(FormatError::new(FormatErrorKind::UnexpectedChar(c), loc)),
         }
     }
 

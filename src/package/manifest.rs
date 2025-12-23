@@ -207,9 +207,9 @@ impl Manifest {
     /// Manifest file names to search for (in order of preference)
     /// الصيغة العربية الجديدة أولاً، ثم TOML للتوافق العكسي
     pub const MANIFEST_NAMES: &'static [&'static str] = &[
-        "ترقيم.حزمة",  // الصيغة العربية الجديدة (أولوية قصوى)
-        "حزمة.toml",   // TOML بالعربية (للتوافق)
-        "trq.toml",    // TOML بالإنجليزية (للتوافق)
+        "ترقيم.حزمة", // الصيغة العربية الجديدة (أولوية قصوى)
+        "حزمة.toml",  // TOML بالعربية (للتوافق)
+        "trq.toml",   // TOML بالإنجليزية (للتوافق)
     ];
 
     /// Default manifest filename for new projects
@@ -260,9 +260,8 @@ impl Manifest {
 
     /// Parse manifest from Arabic format string
     pub fn parse_arabic_format(content: &str) -> PackageResult<Self> {
-        let value = format::parse(content).map_err(|e| {
-            PackageError::InvalidManifest(format!("{}", e))
-        })?;
+        let value =
+            format::parse(content).map_err(|e| PackageError::InvalidManifest(format!("{}", e)))?;
 
         Self::from_format_value(&value)
     }
@@ -270,7 +269,9 @@ impl Manifest {
     /// Convert FormatValue to Manifest
     fn from_format_value(value: &FormatValue) -> PackageResult<Self> {
         let root = value.as_object().ok_or_else(|| {
-            PackageError::InvalidManifest("الملف يجب أن يحتوي على كائن / File must contain an object".to_string())
+            PackageError::InvalidManifest(
+                "الملف يجب أن يحتوي على كائن / File must contain an object".to_string(),
+            )
         })?;
 
         // Parse package section
@@ -283,14 +284,19 @@ impl Manifest {
         };
 
         // Parse dependencies
-        let dependencies = if let Some(deps) = root.get("اعتماديات").or_else(|| root.get("dependencies")) {
+        let dependencies = if let Some(deps) =
+            root.get("اعتماديات").or_else(|| root.get("dependencies"))
+        {
             Self::parse_dependencies(deps)?
         } else {
             HashMap::new()
         };
 
         // Parse dev dependencies
-        let dev_dependencies = if let Some(deps) = root.get("اعتماديات_تطوير").or_else(|| root.get("dev-dependencies")) {
+        let dev_dependencies = if let Some(deps) = root
+            .get("اعتماديات_تطوير")
+            .or_else(|| root.get("dev-dependencies"))
+        {
             Self::parse_dependencies(deps)?
         } else {
             HashMap::new()
@@ -314,19 +320,27 @@ impl Manifest {
     /// Parse package info from FormatValue
     fn parse_package_info(value: &FormatValue) -> PackageResult<PackageInfo> {
         let obj = value.as_object().ok_or_else(|| {
-            PackageError::InvalidManifest("حزمة يجب أن يكون كائناً / package must be an object".to_string())
+            PackageError::InvalidManifest(
+                "حزمة يجب أن يكون كائناً / package must be an object".to_string(),
+            )
         })?;
 
-        let name = obj.get("اسم").or_else(|| obj.get("name"))
+        let name = obj
+            .get("اسم")
+            .or_else(|| obj.get("name"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
 
-        let version = obj.get("نسخة").or_else(|| obj.get("version"))
+        let version = obj
+            .get("نسخة")
+            .or_else(|| obj.get("version"))
             .map(|v| Self::format_version_string(v))
             .unwrap_or_default();
 
-        let description = obj.get("وصف").or_else(|| obj.get("description"))
+        let description = obj
+            .get("وصف")
+            .or_else(|| obj.get("description"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
@@ -342,21 +356,29 @@ impl Manifest {
             Authors::None
         };
 
-        let license = obj.get("رخصة").or_else(|| obj.get("license"))
+        let license = obj
+            .get("رخصة")
+            .or_else(|| obj.get("license"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let repository = obj.get("مستودع").or_else(|| obj.get("repository"))
+        let repository = obj
+            .get("مستودع")
+            .or_else(|| obj.get("repository"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let homepage = obj.get("موقع").or_else(|| obj.get("homepage"))
+        let homepage = obj
+            .get("موقع")
+            .or_else(|| obj.get("homepage"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
         let keywords = if let Some(kw) = obj.get("كلمات").or_else(|| obj.get("keywords")) {
             if let Some(arr) = kw.as_array() {
-                arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
             } else {
                 vec![]
             }
@@ -364,15 +386,22 @@ impl Manifest {
             vec![]
         };
 
-        let entry = obj.get("مدخل").or_else(|| obj.get("entry")).or_else(|| obj.get("main"))
+        let entry = obj
+            .get("مدخل")
+            .or_else(|| obj.get("entry"))
+            .or_else(|| obj.get("main"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let lib = obj.get("مكتبة").or_else(|| obj.get("lib"))
+        let lib = obj
+            .get("مكتبة")
+            .or_else(|| obj.get("lib"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let tarqeem_version = obj.get("ترقيم").or_else(|| obj.get("tarqeem"))
+        let tarqeem_version = obj
+            .get("ترقيم")
+            .or_else(|| obj.get("tarqeem"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
@@ -415,7 +444,8 @@ impl Manifest {
     /// Parse authors from FormatValue
     fn parse_authors(value: &FormatValue) -> Authors {
         if let Some(arr) = value.as_array() {
-            let authors: Vec<String> = arr.iter()
+            let authors: Vec<String> = arr
+                .iter()
                 .filter_map(|v| v.as_str().map(|s| s.to_string()))
                 .collect();
             if authors.is_empty() {
@@ -435,7 +465,9 @@ impl Manifest {
     /// Parse dependencies from FormatValue
     fn parse_dependencies(value: &FormatValue) -> PackageResult<HashMap<String, DependencySpec>> {
         let obj = value.as_object().ok_or_else(|| {
-            PackageError::InvalidManifest("اعتماديات يجب أن يكون كائناً / dependencies must be an object".to_string())
+            PackageError::InvalidManifest(
+                "اعتماديات يجب أن يكون كائناً / dependencies must be an object".to_string(),
+            )
         })?;
 
         let mut deps = HashMap::new();
@@ -447,37 +479,53 @@ impl Manifest {
                 DependencySpec::Version(Self::format_version_string(val))
             } else if let Some(obj) = val.as_object() {
                 // Detailed dependency
-                let version = obj.get("نسخة").or_else(|| obj.get("version"))
+                let version = obj
+                    .get("نسخة")
+                    .or_else(|| obj.get("version"))
                     .map(|v| Self::format_version_string(v))
                     .unwrap_or_else(|| "*".to_string());
 
-                let path = obj.get("مسار").or_else(|| obj.get("path"))
+                let path = obj
+                    .get("مسار")
+                    .or_else(|| obj.get("path"))
                     .and_then(|v| v.as_str())
                     .map(PathBuf::from);
 
-                let git = obj.get("git")
+                let git = obj
+                    .get("git")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
 
-                let branch = obj.get("فرع").or_else(|| obj.get("branch"))
+                let branch = obj
+                    .get("فرع")
+                    .or_else(|| obj.get("branch"))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
 
-                let tag = obj.get("وسم").or_else(|| obj.get("tag"))
+                let tag = obj
+                    .get("وسم")
+                    .or_else(|| obj.get("tag"))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
 
-                let rev = obj.get("مراجعة").or_else(|| obj.get("rev"))
+                let rev = obj
+                    .get("مراجعة")
+                    .or_else(|| obj.get("rev"))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
 
-                let optional = obj.get("اختياري").or_else(|| obj.get("optional"))
+                let optional = obj
+                    .get("اختياري")
+                    .or_else(|| obj.get("optional"))
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
 
-                let features = if let Some(f) = obj.get("ميزات").or_else(|| obj.get("features")) {
+                let features = if let Some(f) = obj.get("ميزات").or_else(|| obj.get("features"))
+                {
                     if let Some(arr) = f.as_array() {
-                        arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
                     } else {
                         vec![]
                     }
@@ -508,7 +556,9 @@ impl Manifest {
     /// Parse scripts from FormatValue
     fn parse_scripts(value: &FormatValue) -> PackageResult<HashMap<String, String>> {
         let obj = value.as_object().ok_or_else(|| {
-            PackageError::InvalidManifest("سكربتات يجب أن يكون كائناً / scripts must be an object".to_string())
+            PackageError::InvalidManifest(
+                "سكربتات يجب أن يكون كائناً / scripts must be an object".to_string(),
+            )
         })?;
 
         let mut scripts = HashMap::new();
@@ -978,7 +1028,9 @@ dev1 = "0.1"
         let manifest = Manifest::parse_arabic_format(content).unwrap();
         assert_eq!(manifest.package.name, "مكتبتي");
         // Version should be converted from Arabic numerals
-        assert!(manifest.package.version.contains("1.0.0") || manifest.package.version.contains("1"));
+        assert!(
+            manifest.package.version.contains("1.0.0") || manifest.package.version.contains("1")
+        );
     }
 
     #[test]
