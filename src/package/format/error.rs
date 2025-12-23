@@ -102,14 +102,10 @@ impl FormatError {
                 "متوقع ':' بعد المفتاح".to_string(),
                 "Expected ':' after key".to_string(),
             ),
-            FormatErrorKind::ExpectedValue => (
-                "متوقع قيمة".to_string(),
-                "Expected value".to_string(),
-            ),
-            FormatErrorKind::ExpectedKey => (
-                "متوقع مفتاح".to_string(),
-                "Expected key".to_string(),
-            ),
+            FormatErrorKind::ExpectedValue => {
+                ("متوقع قيمة".to_string(), "Expected value".to_string())
+            }
+            FormatErrorKind::ExpectedKey => ("متوقع مفتاح".to_string(), "Expected key".to_string()),
             FormatErrorKind::DuplicateKey(k) => (
                 format!("مفتاح مكرر: '{}'", k),
                 format!("Duplicate key: '{}'", k),

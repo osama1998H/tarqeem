@@ -102,8 +102,8 @@ impl LockFile {
     /// Lock file names (in priority order)
     /// أسماء ملفات القفل (بترتيب الأولوية)
     pub const LOCK_NAMES: &'static [&'static str] = &[
-        "ترقيم.قفل",   // الصيغة العربية الجديدة (أولوية قصوى)
-        ".trqlock",    // الصيغة القديمة (للتوافق)
+        "ترقيم.قفل", // الصيغة العربية الجديدة (أولوية قصوى)
+        ".trqlock",  // الصيغة القديمة (للتوافق)
     ];
 
     /// Default lock file name for new projects
@@ -162,27 +162,31 @@ impl LockFile {
 
     /// Parse lock file from Arabic format string
     pub fn parse_arabic_format(content: &str) -> PackageResult<Self> {
-        let value = format::parse(content).map_err(|e| {
-            super::error::PackageError::InvalidManifest(format!("{}", e))
-        })?;
+        let value = format::parse(content)
+            .map_err(|e| super::error::PackageError::InvalidManifest(format!("{}", e)))?;
 
         // For now, use a simplified parsing - the lock file structure is simpler
         let obj = value.as_object().ok_or_else(|| {
             super::error::PackageError::InvalidManifest("القفل يجب أن يكون كائناً".to_string())
         })?;
 
-        let version = obj.get("نسخة_الصيغة")
+        let version = obj
+            .get("نسخة_الصيغة")
             .or_else(|| obj.get("version"))
             .and_then(|v| v.as_i64())
             .unwrap_or(LOCKFILE_VERSION as i64) as u32;
 
         let root = if let Some(root_obj) = obj.get("جذر").or_else(|| obj.get("root")) {
             if let Some(root_map) = root_obj.as_object() {
-                let name = root_map.get("اسم").or_else(|| root_map.get("name"))
+                let name = root_map
+                    .get("اسم")
+                    .or_else(|| root_map.get("name"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let ver = root_map.get("نسخة").or_else(|| root_map.get("version"))
+                let ver = root_map
+                    .get("نسخة")
+                    .or_else(|| root_map.get("version"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
@@ -246,7 +250,10 @@ impl LockFile {
                 output.push_str(&format!("    - اسم: {}\n", pkg.name));
                 output.push_str(&format!("      نسخة: {}\n", pkg.version));
                 output.push_str(&format!("      تحقق: {}\n", pkg.checksum));
-                output.push_str(&format!("      مصدر: {}\n", Self::format_source(&pkg.source)));
+                output.push_str(&format!(
+                    "      مصدر: {}\n",
+                    Self::format_source(&pkg.source)
+                ));
                 if !pkg.dependencies.is_empty() {
                     output.push_str("      اعتماديات:\n");
                     for (name, ver) in &pkg.dependencies {

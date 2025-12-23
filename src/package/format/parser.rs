@@ -201,9 +201,7 @@ impl<'a> Parser<'a> {
                 Ok(value)
             }
             // قائمة
-            Token::Dash => {
-                self.parse_array(current_indent)
-            }
+            Token::Dash => self.parse_array(current_indent),
             // كائن متداخل
             Token::Newline => {
                 self.advance()?;
@@ -247,12 +245,10 @@ impl<'a> Parser<'a> {
                 }
             }
             Token::Eof | Token::Comment(_) => Ok(Value::Null),
-            Token::Colon => {
-                Err(FormatError::new(
-                    FormatErrorKind::ExpectedValue,
-                    self.location(),
-                ))
-            }
+            Token::Colon => Err(FormatError::new(
+                FormatErrorKind::ExpectedValue,
+                self.location(),
+            )),
         }
     }
 

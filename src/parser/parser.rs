@@ -625,7 +625,8 @@ impl Parser {
             self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
             ImportItems::Named(items)
         } else {
-            let name = self.expect_identifier("Expected default import", "متوقع استيراد افتراضي")?;
+            let name =
+                self.expect_identifier("Expected default import", "متوقع استيراد افتراضي")?;
             ImportItems::Default(name)
         };
 
@@ -1481,7 +1482,8 @@ impl Parser {
         if !self.check(&TokenKind::RightParen) {
             loop {
                 let start = self.current_span();
-                let name = self.expect_identifier("Expected parameter name", "متوقع اسم المعامل")?;
+                let name =
+                    self.expect_identifier("Expected parameter name", "متوقع اسم المعامل")?;
 
                 let ty = if self.match_token(&TokenKind::Colon) {
                     Some(self.parse_type_annotation()?)

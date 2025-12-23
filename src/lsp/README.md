@@ -180,14 +180,14 @@ The server uses **full document sync** mode, meaning the entire document content
 
 The server provides completions for:
 
-### Keywords (Arabic/English)
+### Keywords (Arabic)
 
 ```tarqeem
 // Arabic keywords
-متغير، ثابت، دالة، صنف، واجهة، إذا، وإلا، طالما، لكل، أرجع
-
-// English aliases
-let, const, function, class, interface, if, else, while, for, return
+متغير، ثابت، دالة، صنف، ميثاق، إذا، وإلا، طالما، لكل، أرجع
+يلتزم، يرث، عام، خاص، محمي، مشترك، هذا، الأصل، جديد
+حاول، التقط، أخيراً، ارمِ، استورد، صدّر، من، كـ
+صحيح، خطأ، لا_شيء، متوازي، انتظر، تطابق، حالة، غير_ذلك
 ```
 
 ### Types

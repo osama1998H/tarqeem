@@ -2003,7 +2003,11 @@ impl IrBuilder {
             }
         } else {
             // Global variable
-            let var_type = self.global_var_types.get(&name).cloned().unwrap_or(IrType::Int);
+            let var_type = self
+                .global_var_types
+                .get(&name)
+                .cloned()
+                .unwrap_or(IrType::Int);
             match var_type {
                 IrType::Float => IrType::Float,
                 _ => IrType::Int,

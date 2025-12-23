@@ -435,9 +435,12 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             // Build IR
             let ir_builder = IrBuilder::new(filename.clone());
-            let ir_module = ir_builder
-                .build(&ast)
-                .map_err(|e| format!("IR build error: {} / خطأ بناء التمثيل الوسيط: {}", e.message, e.message_ar))?;
+            let ir_module = ir_builder.build(&ast).map_err(|e| {
+                format!(
+                    "IR build error: {} / خطأ بناء التمثيل الوسيط: {}",
+                    e.message, e.message_ar
+                )
+            })?;
 
             // Run interpreter
             let mut interpreter = Interpreter::new(ir_module);
@@ -497,9 +500,12 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             // Build IR
             let ir_builder = IrBuilder::new(filename.clone());
-            let ir_module = ir_builder
-                .build(&ast)
-                .map_err(|e| format!("IR build error: {} / خطأ بناء التمثيل الوسيط: {}", e.message, e.message_ar))?;
+            let ir_module = ir_builder.build(&ast).map_err(|e| {
+                format!(
+                    "IR build error: {} / خطأ بناء التمثيل الوسيط: {}",
+                    e.message, e.message_ar
+                )
+            })?;
 
             // Check if DAP server mode
             if let Some(_port) = dap_port {
