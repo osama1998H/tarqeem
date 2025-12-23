@@ -556,6 +556,88 @@ impl Analyzer {
 
                     self.pop_scope();
                 }
+
+                ClassMember::Property {
+                    name: prop_name,
+                    ty,
+                    accessors,
+                    default_value,
+                    ..
+                } => {
+                    let prop_type = self.resolve_type(ty);
+
+                    // Check default value type matches property type
+                    if let Some(init_expr) = default_value {
+                        let init_type = self.infer_type(init_expr);
+                        if !init_type.is_compatible_with(&prop_type) {
+                            self.error(
+                                &format!(
+                                    "Type mismatch in property '{}': expected {}, got {}",
+                                    prop_name, prop_type, init_type
+                                ),
+                                &format!(
+                                    "عدم تطابق الأنواع في الخاصية '{}': متوقع {}، وُجد {}",
+                                    prop_name,
+                                    prop_type.arabic_name(),
+                                    init_type.arabic_name()
+                                ),
+                                init_expr.span,
+                            );
+                        }
+                    }
+
+                    // Analyze accessor bodies
+                    for accessor in accessors {
+                        match accessor {
+                            crate::parser::PropertyAccessor::Get { body, .. } => {
+                                self.push_function_scope(prop_type.clone());
+                                match body {
+                                    crate::parser::PropertyAccessorBody::Block(block) => {
+                                        for stmt in &block.statements {
+                                            self.analyze_stmt(stmt);
+                                        }
+                                    }
+                                    crate::parser::PropertyAccessorBody::Expr(expr) => {
+                                        let expr_type = self.infer_type(expr);
+                                        if !expr_type.is_compatible_with(&prop_type) {
+                                            self.error(
+                                                &format!(
+                                                    "Getter return type mismatch: expected {}, got {}",
+                                                    prop_type, expr_type
+                                                ),
+                                                &format!(
+                                                    "عدم تطابق نوع إرجاع القارئ: متوقع {}، وُجد {}",
+                                                    prop_type.arabic_name(),
+                                                    expr_type.arabic_name()
+                                                ),
+                                                expr.span,
+                                            );
+                                        }
+                                    }
+                                }
+                                self.pop_scope();
+                            }
+                            crate::parser::PropertyAccessor::Set {
+                                param_name, body, ..
+                            } => {
+                                self.push_function_scope(Type::Void);
+                                self.scope.define(Symbol::variable(
+                                    param_name,
+                                    prop_type.clone(),
+                                    false,
+                                ));
+                                for stmt in &body.statements {
+                                    self.analyze_stmt(stmt);
+                                }
+                                self.pop_scope();
+                            }
+                        }
+                    }
+
+                    // Define property as accessible field
+                    self.scope
+                        .define(Symbol::variable(prop_name, prop_type, true));
+                }
             }
         }
 

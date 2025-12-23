@@ -1075,6 +1075,169 @@ impl IrBuilder {
                 ClassMember::Field { .. } => {
                     // Fields are already collected
                 }
+
+                ClassMember::Property {
+                    name: prop_name,
+                    ty,
+                    accessors,
+                    is_static,
+                    ..
+                } => {
+                    // Properties generate synthetic getter/setter methods
+                    let prop_type = self.convert_type(ty);
+
+                    // Check for getter accessor
+                    let has_getter = accessors
+                        .iter()
+                        .any(|a| matches!(a, crate::parser::PropertyAccessor::Get { .. }));
+
+                    // Generate getter method if accessor exists or auto-property
+                    if has_getter || accessors.is_empty() {
+                        let getter_name = format!("{}::__احصل_{}", name, prop_name);
+                        let getter_params = if *is_static {
+                            vec![]
+                        } else {
+                            vec![Parameter {
+                                id: VarId(0),
+                                name: "هذا".to_string(),
+                                ty: IrType::Struct(ClassId(name.to_string())),
+                            }]
+                        };
+
+                        // Save current state
+                        let saved_function = self.current_function.take();
+                        let saved_variables = std::mem::take(&mut self.variables);
+
+                        self.begin_function(getter_name, getter_params, prop_type.clone())?;
+
+                        if !*is_static {
+                            self.variables.insert("هذا".to_string(), VarId(0));
+                        }
+
+                        // Find the getter accessor body
+                        for accessor in accessors {
+                            if let crate::parser::PropertyAccessor::Get { body, .. } = accessor {
+                                match body {
+                                    crate::parser::PropertyAccessorBody::Block(block) => {
+                                        for stmt in &block.statements {
+                                            self.build_stmt(stmt)?;
+                                        }
+                                    }
+                                    crate::parser::PropertyAccessorBody::Expr(expr) => {
+                                        let result = self.build_expr(expr)?;
+                                        self.emit(Instruction::Return {
+                                            value: Some(result),
+                                        });
+                                    }
+                                }
+                                break;
+                            }
+                        }
+
+                        // For auto-property, return backing field
+                        if accessors.is_empty() {
+                            let this_var = VarId(0);
+                            let backing_field = format!("_{}", prop_name);
+                            let result = self.new_var();
+                            self.emit(Instruction::GetField {
+                                dest: result,
+                                object: this_var,
+                                field: FieldId {
+                                    class: ClassId(name.to_string()),
+                                    name: backing_field,
+                                    index: 0,
+                                },
+                                ty: prop_type.clone(),
+                            });
+                            self.emit(Instruction::Return {
+                                value: Some(result),
+                            });
+                        }
+
+                        self.end_function()?;
+
+                        // Restore state
+                        self.current_function = saved_function;
+                        self.variables = saved_variables;
+                    }
+
+                    // Check for setter accessor
+                    let has_setter = accessors
+                        .iter()
+                        .any(|a| matches!(a, crate::parser::PropertyAccessor::Set { .. }));
+
+                    // Generate setter method if accessor exists or auto-property
+                    if has_setter || accessors.is_empty() {
+                        let setter_name = format!("{}::__عيّن_{}", name, prop_name);
+                        let mut setter_params = if *is_static {
+                            vec![]
+                        } else {
+                            vec![Parameter {
+                                id: VarId(0),
+                                name: "هذا".to_string(),
+                                ty: IrType::Struct(ClassId(name.to_string())),
+                            }]
+                        };
+                        setter_params.push(Parameter {
+                            id: VarId(setter_params.len() as u32),
+                            name: "قيمة".to_string(),
+                            ty: prop_type.clone(),
+                        });
+
+                        // Save current state
+                        let saved_function = self.current_function.take();
+                        let saved_variables = std::mem::take(&mut self.variables);
+
+                        self.begin_function(setter_name, setter_params, IrType::Void)?;
+
+                        if !*is_static {
+                            self.variables.insert("هذا".to_string(), VarId(0));
+                            self.variables.insert("قيمة".to_string(), VarId(1));
+                        } else {
+                            self.variables.insert("قيمة".to_string(), VarId(0));
+                        }
+
+                        // Find the setter accessor body
+                        for accessor in accessors {
+                            if let crate::parser::PropertyAccessor::Set {
+                                param_name, body, ..
+                            } = accessor
+                            {
+                                self.variables.insert(
+                                    param_name.clone(),
+                                    VarId(if *is_static { 0 } else { 1 }),
+                                );
+                                for stmt in &body.statements {
+                                    self.build_stmt(stmt)?;
+                                }
+                                break;
+                            }
+                        }
+
+                        // For auto-property, set backing field
+                        if accessors.is_empty() {
+                            let this_var = VarId(0);
+                            let value_var = VarId(1);
+                            let backing_field = format!("_{}", prop_name);
+                            self.emit(Instruction::SetField {
+                                object: this_var,
+                                field: FieldId {
+                                    class: ClassId(name.to_string()),
+                                    name: backing_field,
+                                    index: 0,
+                                },
+                                value: value_var,
+                            });
+                        }
+
+                        self.emit(Instruction::Return { value: None });
+                        self.end_function()?;
+
+                        // Restore state
+                        self.current_function = saved_function;
+                        self.variables = saved_variables;
+                    }
+                }
             }
         }
 

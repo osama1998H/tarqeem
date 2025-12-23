@@ -304,6 +304,7 @@ fn get_symbol_completions(doc: &mut DocumentState, language: Language) -> Vec<Co
                 SymbolKind::Parameter => CompletionItemKind::VARIABLE,
                 SymbolKind::Field => CompletionItemKind::FIELD,
                 SymbolKind::Method => CompletionItemKind::METHOD,
+                SymbolKind::Property => CompletionItemKind::PROPERTY,
             };
 
             let type_str = match language {

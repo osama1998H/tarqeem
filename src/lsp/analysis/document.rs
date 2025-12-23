@@ -49,6 +49,7 @@ pub enum SymbolKind {
     Parameter,
     Field,
     Method,
+    Property,
 }
 
 /// State of a single document
@@ -313,6 +314,25 @@ impl DocumentState {
                             }
                             ClassMember::Constructor { .. } => {
                                 // Constructor doesn't add a named symbol
+                            }
+                            ClassMember::Property {
+                                name: prop_name,
+                                ty,
+                                doc_comment: prop_doc,
+                                ..
+                            } => {
+                                let prop_type = self.resolve_type_annotation(ty);
+
+                                symbols.insert(
+                                    format!("{}.{}", name, prop_name),
+                                    SymbolInfo {
+                                        ty: prop_type,
+                                        definition_span: stmt.span.clone(),
+                                        kind: SymbolKind::Property,
+                                        mutable: true,
+                                        doc: prop_doc.clone(),
+                                    },
+                                );
                             }
                         }
                     }

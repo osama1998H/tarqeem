@@ -421,6 +421,32 @@ pub struct ImportItem {
     pub alias: Option<String>,
 }
 
+/// Property accessor (getter or setter)
+#[derive(Debug, Clone)]
+pub enum PropertyAccessor {
+    /// Get accessor: احصل { ... } or احصل => expr
+    Get {
+        visibility: Visibility,
+        body: PropertyAccessorBody,
+    },
+    /// Set accessor: عيّن(param) { ... }
+    Set {
+        visibility: Visibility,
+        /// Parameter name (defaults to "قيمة" if not specified)
+        param_name: String,
+        body: Block,
+    },
+}
+
+/// Property accessor body (expression or block)
+#[derive(Debug, Clone)]
+pub enum PropertyAccessorBody {
+    /// Expression body: احصل => expr
+    Expr(Box<Expr>),
+    /// Block body: احصل { ... }
+    Block(Block),
+}
+
 /// Class member
 #[derive(Debug, Clone)]
 pub enum ClassMember {
@@ -453,6 +479,19 @@ pub enum ClassMember {
         params: Vec<Param>,
         body: Block,
         /// Documentation comment attached to this constructor
+        doc_comment: Option<String>,
+    },
+
+    /// Property: خاصية name: type { احصل { ... } عيّن { ... } }
+    Property {
+        visibility: Visibility,
+        name: String,
+        ty: TypeAnnotation,
+        accessors: Vec<PropertyAccessor>,
+        /// Default value for auto-properties
+        default_value: Option<Expr>,
+        is_static: bool,
+        /// Documentation comment attached to this property
         doc_comment: Option<String>,
     },
 }

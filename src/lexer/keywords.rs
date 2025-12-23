@@ -52,6 +52,12 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "الاصل" => TokenKind::Super,  // Without hamza variant
     "جديد" => TokenKind::New,
 
+    // ============ Property Accessors ============
+    "خاصية" => TokenKind::Property,  // تعريف خاصية مع وصول محكوم
+    "احصل" => TokenKind::Get,        // قارئ الخاصية
+    "عيّن" => TokenKind::Set,        // كاتب الخاصية
+    "عين" => TokenKind::Set,         // Without shadda variant
+
     // ============ Error Handling ============
     "حاول" => TokenKind::Try,
     "التقط" => TokenKind::Catch,
@@ -191,5 +197,14 @@ mod tests {
         assert_eq!(lookup_keyword("أساس"), None); // Now الأصل
         assert_eq!(lookup_keyword("عدم"), None); // Now لا_شيء
         assert_eq!(lookup_keyword("غير_متزامن"), None); // Now متوازي
+    }
+
+    #[test]
+    fn test_property_accessor_keywords() {
+        // Property accessor keywords
+        assert_eq!(lookup_keyword("خاصية"), Some(TokenKind::Property));
+        assert_eq!(lookup_keyword("احصل"), Some(TokenKind::Get));
+        assert_eq!(lookup_keyword("عيّن"), Some(TokenKind::Set));
+        assert_eq!(lookup_keyword("عين"), Some(TokenKind::Set)); // Without shadda variant
     }
 }
