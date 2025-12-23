@@ -175,6 +175,130 @@ Persistent memory for AI agents working on Tarqeem. Update after significant cha
 
 ---
 
+---
+
+### 2025-12-23: Arabic Enums Implementation (تعداد)
+
+**Task**: Design and implement enums following Arabic philosophy
+
+## 1. Arabic Keyword Design
+
+Following the four rules from `arabic-philosophy.md`:
+
+| Rule | Application |
+|------|-------------|
+| **الوصف لا الترجمة** | "enum" = enumeration = تعداد (counting/listing items) |
+| **الصحة النحوية** | `تعداد الألوان { ... }` reads naturally in Arabic |
+| **الترتيب العربي** | Name follows keyword (like صنف، ميثاق) |
+| **الاكتمال الذاتي** | تعداد is a complete, self-explanatory word |
+
+**Chosen Keyword**: **تعداد** (ta'dād) - means "enumeration" or "numbered list"
+
+**Rationale**:
+- Proper Arabic word (not transliteration)
+- Describes exactly what an enum is
+- Flows naturally: `تعداد الحجم { صغير، متوسط، كبير }`
+- Similar structure to existing keywords (صنف، ميثاق)
+
+## 2. Proposed Syntax
+
+### Simple Enum (Unit Variants)
+```tarqeem
+تعداد اللون {
+    أحمر
+    أخضر
+    أزرق
+}
+```
+
+### Enum with Explicit Values
+```tarqeem
+تعداد الحجم {
+    صغير = 1
+    متوسط = 2
+    كبير = 3
+}
+```
+
+### Enum with Associated Data (Tagged Unions)
+```tarqeem
+تعداد الرسالة {
+    نص(محتوى: نص)
+    رقم(قيمة: عدد)
+    مركب(اسم: نص، عمر: عدد)
+    فارغ
+}
+```
+
+### Usage
+```tarqeem
+متغير لوني = اللون.أحمر
+متغير رسالتي = الرسالة.نص("مرحباً")
+
+تطابق (رسالتي) {
+    حالة الرسالة.نص(م) => اطبع(م)
+    حالة الرسالة.رقم(ق) => اطبع(ق)
+    حالة الرسالة.فارغ => اطبع("فارغ")
+}
+```
+
+## 3. Implementation Phases
+
+### Phase 1: Lexer
+- Add `Enum` to TokenKind in `src/lexer/token.rs`
+- Add `"تعداد" => TokenKind::Enum` in `src/lexer/keywords.rs`
+
+### Phase 2: Parser
+- Add `EnumDecl`, `EnumVariant`, `EnumVariantField` to `src/parser/ast.rs`
+- Add `parse_enum_declaration()` to `src/parser/parser.rs`
+
+### Phase 3: Semantic Analysis
+- Add `Type::Enum(String)` to `src/semantic/types.rs`
+- Create `src/semantic/enum_resolver.rs` with EnumInfo, EnumVariantInfo
+- Update `src/semantic/analyzer.rs` with enum handling
+
+### Phase 4: IR Generation
+- Add `EnumId`, `IrType::Enum` to `src/ir/instruction.rs`
+- Add `EnumVariant`, `EnumVariantData`, `EnumDiscriminant`, `EnumIs`, `EnumField` instructions
+- Update `src/ir/builder.rs`
+
+### Phase 5: Code Generation
+- Simple enums: represent as i64 discriminants
+- Tagged unions: struct with tag + max-size payload
+- Update `src/codegen/llvm/codegen.rs`
+
+### Phase 6: Testing
+- Lexer tests for keyword
+- Parser tests for all syntax forms
+- Semantic tests for type resolution
+- Integration tests for full programs
+
+## 4. Error Messages (Bilingual)
+
+| Scenario | English | Arabic |
+|----------|---------|--------|
+| Expected enum name | Expected enum name | متوقع اسم التعداد |
+| Duplicate variant | Duplicate enum variant '{name}' | حالة مكررة في التعداد '{name}' |
+| Unknown variant | Unknown variant '{variant}' in enum '{enum}' | حالة غير معروفة '{variant}' في التعداد '{enum}' |
+| Type mismatch | Expected enum type '{expected}' | النوع المتوقع '{expected}' |
+
+## 5. Files to Modify
+
+| File | Changes |
+|------|---------|
+| `src/lexer/token.rs` | Add `Enum` variant |
+| `src/lexer/keywords.rs` | Add `تعداد` mapping |
+| `src/parser/ast.rs` | Add EnumDecl, EnumVariant, EnumVariantField |
+| `src/parser/parser.rs` | Add parse_enum_declaration |
+| `src/semantic/types.rs` | Add Type::Enum |
+| `src/semantic/enum_resolver.rs` | NEW: EnumInfo, EnumResolver |
+| `src/semantic/analyzer.rs` | Add enum handling |
+| `src/ir/instruction.rs` | Add EnumId, IrType::Enum, instructions |
+| `src/ir/builder.rs` | Add enum IR generation |
+| `src/codegen/llvm/codegen.rs` | Add enum codegen |
+
+---
+
 ## Session Template
 
 ```markdown
