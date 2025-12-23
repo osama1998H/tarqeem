@@ -117,7 +117,7 @@ impl Formatter {
                 ..
             } => {
                 if *is_async {
-                    p.write("غير_متزامن");
+                    p.write("متوازي");
                     p.write_space();
                 }
                 p.write("دالة");
@@ -663,7 +663,7 @@ impl Formatter {
             }
 
             ExprKind::Super => {
-                p.write("أساس");
+                p.write("الأصل");
             }
         }
     }
@@ -695,7 +695,7 @@ impl Formatter {
                     p.write("خطأ");
                 }
             }
-            Literal::Null => p.write("عدم"),
+            Literal::Null => p.write("لا_شيء"),
         }
     }
 
@@ -842,7 +842,7 @@ impl Formatter {
 
                 // Async
                 if *is_async {
-                    p.write("غير_متزامن");
+                    p.write("متوازي");
                     p.write_space();
                 }
 

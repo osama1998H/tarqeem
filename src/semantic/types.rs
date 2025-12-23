@@ -15,7 +15,7 @@ pub enum Type {
     Bool,
     /// Void type (فراغ)
     Void,
-    /// Null type (عدم)
+    /// Null type (لا_شيء)
     Null,
 
     /// Array type (مصفوفة)
@@ -201,7 +201,7 @@ impl Type {
             Type::String => "نص".to_string(),
             Type::Bool => "منطقي".to_string(),
             Type::Void => "(لا_إرجاع)".to_string(), // Internal: functions default to no return
-            Type::Null => "عدم".to_string(),
+            Type::Null => "لا_شيء".to_string(),
             Type::Array(inner) => format!("مصفوفة<{}>", inner.arabic_name()),
             Type::Map(k, v) => format!("قاموس<{}، {}>", k.arabic_name(), v.arabic_name()),
             Type::Function {
@@ -265,7 +265,7 @@ pub fn parse_type_name(name: &str) -> Type {
         "نص" | "string" => Type::String,
         "منطقي" | "bool" => Type::Bool,
         "void" => Type::Void, // فراغ eliminated - functions default to no return
-        "عدم" | "null" | "none" => Type::Null,
+        "لا_شيء" | "null" | "none" => Type::Null,
         "أي" | "اي" | "any" => Type::Any,
         _ => Type::Class(name.to_string()),
     }

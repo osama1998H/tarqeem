@@ -375,7 +375,7 @@ impl DocumentState {
             "نص" | "string" => Type::String,
             "منطقي" | "bool" => Type::Bool,
             "void" => Type::Void, // فراغ eliminated - functions default to no return
-            "عدم" | "null" | "none" => Type::Null,
+            "لا_شيء" | "null" | "none" => Type::Null,
             "أي" | "اي" | "any" => Type::Any,
             _ => Type::Class(name.to_string()),
         }

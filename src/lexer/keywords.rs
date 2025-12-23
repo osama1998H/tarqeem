@@ -16,7 +16,7 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "دالة" => TokenKind::Function,
     "أرجع" => TokenKind::Return,
     "ارجع" => TokenKind::Return,  // Without hamza variant
-    "غير_متزامن" => TokenKind::Async,
+    "متوازي" => TokenKind::Async,  // دالة متوازية (غير متزامنة)
     "انتظر" => TokenKind::Await,
 
     // ============ Control Flow ============
@@ -48,8 +48,8 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "مشترك" => TokenKind::Static,  // عضو مشترك بين جميع نسخ الصنف
     "منشئ" => TokenKind::Constructor,
     "هذا" => TokenKind::This,
-    "أساس" => TokenKind::Super,
-    "اساس" => TokenKind::Super,  // Without hamza variant
+    "الأصل" => TokenKind::Super,  // مرجع الصنف الأب في الوراثة
+    "الاصل" => TokenKind::Super,  // Without hamza variant
     "جديد" => TokenKind::New,
 
     // ============ Error Handling ============
@@ -72,7 +72,7 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "صحيح" => TokenKind::True,
     "خطأ" => TokenKind::False,
     "خطا" => TokenKind::False,  // Without hamza variant
-    "عدم" => TokenKind::Null,
+    "لا_شيء" => TokenKind::Null,  // قيمة فارغة
 
     // ============ Logical Operators (Arabic words) ============
     "و" => TokenKind::And,
@@ -121,7 +121,7 @@ mod tests {
         assert_eq!(lookup_keyword("اذا"), Some(TokenKind::If));
         assert_eq!(lookup_keyword("والا"), Some(TokenKind::Else));
         assert_eq!(lookup_keyword("ارجع"), Some(TokenKind::Return));
-        assert_eq!(lookup_keyword("اساس"), Some(TokenKind::Super));
+        assert_eq!(lookup_keyword("الاصل"), Some(TokenKind::Super));
         assert_eq!(lookup_keyword("خطا"), Some(TokenKind::False));
     }
 
@@ -187,5 +187,9 @@ mod tests {
         assert_eq!(lookup_keyword("ثابت_صنف"), None);
         // فراغ eliminated - functions default to no return value
         assert_eq!(lookup_keyword("فراغ"), None);
+        // Phase 2: Old keywords replaced
+        assert_eq!(lookup_keyword("أساس"), None); // Now الأصل
+        assert_eq!(lookup_keyword("عدم"), None); // Now لا_شيء
+        assert_eq!(lookup_keyword("غير_متزامن"), None); // Now متوازي
     }
 }

@@ -1110,7 +1110,7 @@ fn test_parse_new_expression_with_generics() {
 #[test]
 fn test_parse_async_function() {
     let source = r#"
-        غير_متزامن دالة احضر_بيانات() {
+        متوازي دالة احضر_بيانات() {
             أرجع 42;
         }
     "#;
@@ -1129,7 +1129,7 @@ fn test_parse_async_function() {
 #[test]
 fn test_parse_await_expression() {
     let source = r#"
-        غير_متزامن دالة احضر_بيانات() {
+        متوازي دالة احضر_بيانات() {
             متغير بيانات = انتظر احصل_بيانات();
             أرجع بيانات;
         }
@@ -1317,7 +1317,7 @@ fn test_parse_super_expression() {
     let source = r#"
         صنف طالب يرث شخص {
             منشئ(اسم: نص) {
-                أساس(اسم);
+                الأصل(اسم);
             }
         }
     "#;
@@ -1420,7 +1420,7 @@ fn test_parse_semicolon_insertion() {
 #[test]
 fn test_parse_return_without_value() {
     let source = r#"
-        دالة لا_شيء() {
+        دالة بدون_قيمة() {
             أرجع;
         }
     "#;

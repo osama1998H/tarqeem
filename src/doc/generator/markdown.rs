@@ -176,7 +176,7 @@ impl MarkdownGenerator {
         // Signature
         write!(writer, "```tarqeem\n")?;
         if func.is_async {
-            write!(writer, "غير_متزامن ")?;
+            write!(writer, "متوازي ")?;
         }
         write!(writer, "دالة {}(", &func.name)?;
         for (i, param) in func.params.iter().enumerate() {
