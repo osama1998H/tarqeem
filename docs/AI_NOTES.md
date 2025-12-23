@@ -88,6 +88,31 @@ Persistent memory for AI agents working on Tarqeem. Update after significant cha
 
 ---
 
+### 2025-12-23: Phase 1 Arabic Philosophy Audit
+
+**Task**: Remove `__xxx__` pattern from 170+ builtin functions
+
+**Architecture Insight**:
+- scope.rs: Registers builtin functions with Arabic names (type checking)
+- runtime/: C library with `trq_*` functions (actual implementation)
+- stdlib_trq/: Uses `__xxx__` pattern to call internal functions
+- codegen: Generates LLVM IR, needs mapping Arabic→trq_*
+
+**Solution Design**:
+1. Add function name mapping in codegen (Arabic → `trq_*`)
+2. Register all runtime functions in scope.rs
+3. Update stdlib_trq to use clean Arabic function names
+4. Update examples and tests
+
+**Files Modified**:
+- src/codegen/llvm/codegen.rs - Add runtime function mapping
+- src/semantic/scope.rs - Register additional builtin functions
+- stdlib_trq/**/*.ترقيم - Remove __xxx__ pattern
+- examples/ - Update function calls
+- tests/ - Update test code
+
+---
+
 ## Session Template
 
 ```markdown
