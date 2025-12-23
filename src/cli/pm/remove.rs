@@ -34,7 +34,9 @@ pub fn run(package: String) -> PackageResult<()> {
         .green()
     );
 
-    // TODO: Run install to update packages directory
+    // Run install to update packages directory and lockfile
+    println!("{}", "→ Updating packages... / جاري تحديث الحزم...".cyan());
+    super::install::run(false)?;
 
     Ok(())
 }
