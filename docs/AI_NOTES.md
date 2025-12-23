@@ -113,6 +113,68 @@ Persistent memory for AI agents working on Tarqeem. Update after significant cha
 
 ---
 
+---
+
+### 2025-12-23: Arabic File Extensions and Package Format
+
+**Task**: Implement fully Arabic file extensions and custom package configuration format
+
+**Problem**:
+- Current package manifest uses TOML format (`حزمة.toml`)
+- TOML is an English-based format with English syntax (`[section]`, `=`, `{}`)
+- This violates Arabic philosophy: "ترقيم ليست ترجمة - بل لغة برمجة عربية أصيلة"
+
+**Solution**: Create custom Arabic configuration format "صيغة حزمة"
+
+**New File Extensions**:
+| Extension | Purpose |
+|-----------|---------|
+| `.حزمة` | Package manifest (replaces .toml) |
+| `.قفل` | Lock file (replaces .trqlock) |
+
+**Format Design**:
+```
+# تعليق
+حزمة:
+    اسم: مكتبتي
+    نسخة: ١.٠.٠
+    رخصة: MIT
+
+اعتماديات:
+    json: ٢.٠.٠
+```
+
+**Key Features**:
+- Indentation-based (like YAML but Arabic)
+- Arabic numerals support (٠-٩)
+- Arabic booleans (نعم/لا)
+- Arabic comments (#)
+- No English syntax required
+
+**Implementation Phases**:
+1. Add extensions to `src/utils/extensions.rs`
+2. Create parser module `src/package/format/`
+3. Update manifest.rs for new format
+4. Update init.rs to generate new format
+5. Maintain TOML backward compatibility
+
+**Files to Create**:
+- `src/package/format/mod.rs`
+- `src/package/format/lexer.rs`
+- `src/package/format/parser.rs`
+- `src/package/format/value.rs`
+- `src/package/format/error.rs`
+
+**Files to Modify**:
+- `src/utils/extensions.rs`
+- `src/package/mod.rs`
+- `src/package/manifest.rs`
+- `src/package/lockfile.rs`
+- `src/cli/pm/init.rs`
+- `README.md`
+
+---
+
 ## Session Template
 
 ```markdown

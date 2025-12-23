@@ -1,8 +1,13 @@
-//! Lock file management (.trqlock)
+//! Lock file management (ترقيم.قفل / .trqlock)
 //!
 //! Ensures reproducible builds by locking exact versions.
+//!
+//! # أسماء الملفات المدعومة
+//! - `ترقيم.قفل` (الصيغة العربية الجديدة)
+//! - `.trqlock` (للتوافق العكسي)
 
 use super::error::PackageResult;
+use super::format;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -94,7 +99,17 @@ pub enum GitReference {
 }
 
 impl LockFile {
-    /// Lock file name
+    /// Lock file names (in priority order)
+    /// أسماء ملفات القفل (بترتيب الأولوية)
+    pub const LOCK_NAMES: &'static [&'static str] = &[
+        "ترقيم.قفل",   // الصيغة العربية الجديدة (أولوية قصوى)
+        ".trqlock",    // الصيغة القديمة (للتوافق)
+    ];
+
+    /// Default lock file name for new projects
+    pub const DEFAULT_LOCK_NAME: &'static str = "ترقيم.قفل";
+
+    /// Legacy lock file name (for backward compatibility)
     pub const FILENAME: &'static str = ".trqlock";
 
     /// Create a new empty lock file
@@ -118,11 +133,75 @@ impl LockFile {
         }
     }
 
+    /// Find lock file in directory
+    pub fn find_in_dir(dir: &Path) -> Option<std::path::PathBuf> {
+        for name in Self::LOCK_NAMES {
+            let path = dir.join(name);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+        None
+    }
+
     /// Parse lock file from path
+    /// Detects format from file extension
     pub fn parse(path: &Path) -> PackageResult<Self> {
         let content = std::fs::read_to_string(path)?;
-        let lockfile: LockFile = toml::from_str(&content)?;
-        Ok(lockfile)
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+        if ext == "قفل" {
+            // Arabic format
+            Self::parse_arabic_format(&content)
+        } else {
+            // TOML format
+            let lockfile: LockFile = toml::from_str(&content)?;
+            Ok(lockfile)
+        }
+    }
+
+    /// Parse lock file from Arabic format string
+    pub fn parse_arabic_format(content: &str) -> PackageResult<Self> {
+        let value = format::parse(content).map_err(|e| {
+            super::error::PackageError::InvalidManifest(format!("{}", e))
+        })?;
+
+        // For now, use a simplified parsing - the lock file structure is simpler
+        let obj = value.as_object().ok_or_else(|| {
+            super::error::PackageError::InvalidManifest("القفل يجب أن يكون كائناً".to_string())
+        })?;
+
+        let version = obj.get("نسخة_الصيغة")
+            .or_else(|| obj.get("version"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(LOCKFILE_VERSION as i64) as u32;
+
+        let root = if let Some(root_obj) = obj.get("جذر").or_else(|| obj.get("root")) {
+            if let Some(root_map) = root_obj.as_object() {
+                let name = root_map.get("اسم").or_else(|| root_map.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let ver = root_map.get("نسخة").or_else(|| root_map.get("version"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                Some(RootPackage { name, version: ver })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Parse packages array (simplified for now)
+        let packages = Vec::new(); // TODO: Full package parsing
+
+        Ok(Self {
+            version,
+            root,
+            packages,
+        })
     }
 
     /// Try to parse lock file, returns None if not found
@@ -131,10 +210,69 @@ impl LockFile {
     }
 
     /// Save lock file to path
+    /// Detects format from file extension
     pub fn save(&self, path: &Path) -> PackageResult<()> {
-        let content = toml::to_string_pretty(self)?;
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+        let content = if ext == "قفل" {
+            self.to_arabic_format()
+        } else {
+            toml::to_string_pretty(self)?
+        };
+
         std::fs::write(path, content)?;
         Ok(())
+    }
+
+    /// Convert to Arabic format string
+    pub fn to_arabic_format(&self) -> String {
+        let mut output = String::new();
+
+        output.push_str("# ملف قفل حزمة ترقيم\n");
+        output.push_str("# لا تعدل هذا الملف يدوياً\n\n");
+
+        output.push_str(&format!("نسخة_الصيغة: {}\n\n", self.version));
+
+        if let Some(ref root) = self.root {
+            output.push_str("جذر:\n");
+            output.push_str(&format!("    اسم: {}\n", root.name));
+            output.push_str(&format!("    نسخة: {}\n", root.version));
+            output.push('\n');
+        }
+
+        if !self.packages.is_empty() {
+            output.push_str("حزم:\n");
+            for pkg in &self.packages {
+                output.push_str(&format!("    - اسم: {}\n", pkg.name));
+                output.push_str(&format!("      نسخة: {}\n", pkg.version));
+                output.push_str(&format!("      تحقق: {}\n", pkg.checksum));
+                output.push_str(&format!("      مصدر: {}\n", Self::format_source(&pkg.source)));
+                if !pkg.dependencies.is_empty() {
+                    output.push_str("      اعتماديات:\n");
+                    for (name, ver) in &pkg.dependencies {
+                        output.push_str(&format!("          {}: {}\n", name, ver));
+                    }
+                }
+            }
+        }
+
+        output
+    }
+
+    /// Format package source for Arabic output
+    fn format_source(source: &PackageSource) -> String {
+        match source {
+            PackageSource::Registry { url } => format!("سجل ({})", url),
+            PackageSource::Git { url, reference } => {
+                let ref_str = match reference {
+                    GitReference::Branch { branch } => format!("فرع={}", branch),
+                    GitReference::Tag { tag } => format!("وسم={}", tag),
+                    GitReference::Rev { rev } => format!("مراجعة={}", rev),
+                };
+                format!("git ({} {})", url, ref_str)
+            }
+            PackageSource::Path { path } => format!("مسار ({})", path),
+        }
     }
 
     /// Get a locked package by name

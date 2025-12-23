@@ -1,8 +1,21 @@
-//! Package manifest parsing (حزمة.toml / trq.toml)
+//! Package manifest parsing (ترقيم.حزمة / حزمة.toml / trq.toml)
 //!
-//! Supports bilingual keys with Arabic primary and English aliases.
+//! Supports the new Arabic format (.حزمة) and TOML for backward compatibility.
+//!
+//! # صيغة الحزمة العربية
+//!
+//! ```text
+//! حزمة:
+//!     اسم: مكتبتي
+//!     نسخة: ١.٠.٠
+//!     رخصة: MIT
+//!
+//! اعتماديات:
+//!     json: 2.0.0
+//! ```
 
 use super::error::{PackageError, PackageResult};
+use super::format::{self, Value as FormatValue};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -192,7 +205,15 @@ pub struct DetailedDependency {
 
 impl Manifest {
     /// Manifest file names to search for (in order of preference)
-    pub const MANIFEST_NAMES: &'static [&'static str] = &["حزمة.toml", "trq.toml"];
+    /// الصيغة العربية الجديدة أولاً، ثم TOML للتوافق العكسي
+    pub const MANIFEST_NAMES: &'static [&'static str] = &[
+        "ترقيم.حزمة",  // الصيغة العربية الجديدة (أولوية قصوى)
+        "حزمة.toml",   // TOML بالعربية (للتوافق)
+        "trq.toml",    // TOML بالإنجليزية (للتوافق)
+    ];
+
+    /// Default manifest filename for new projects
+    pub const DEFAULT_MANIFEST_NAME: &'static str = "ترقيم.حزمة";
 
     /// Find and parse manifest from current directory or parents
     pub fn find_and_parse() -> PackageResult<(Self, PathBuf)> {
@@ -220,11 +241,284 @@ impl Manifest {
     }
 
     /// Parse manifest from a specific path
+    /// Detects format from file extension
     pub fn parse(path: &Path) -> PackageResult<Self> {
         let content = std::fs::read_to_string(path)?;
-        let manifest: Manifest = toml::from_str(&content)?;
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+        let manifest = if ext == "حزمة" {
+            // الصيغة العربية الجديدة
+            Self::parse_arabic_format(&content)?
+        } else {
+            // TOML format
+            toml::from_str(&content)?
+        };
+
         manifest.validate()?;
         Ok(manifest)
+    }
+
+    /// Parse manifest from Arabic format string
+    pub fn parse_arabic_format(content: &str) -> PackageResult<Self> {
+        let value = format::parse(content).map_err(|e| {
+            PackageError::InvalidManifest(format!("{}", e))
+        })?;
+
+        Self::from_format_value(&value)
+    }
+
+    /// Convert FormatValue to Manifest
+    fn from_format_value(value: &FormatValue) -> PackageResult<Self> {
+        let root = value.as_object().ok_or_else(|| {
+            PackageError::InvalidManifest("الملف يجب أن يحتوي على كائن / File must contain an object".to_string())
+        })?;
+
+        // Parse package section
+        let pkg_value = root.get("حزمة").or_else(|| root.get("package"));
+        let package = if let Some(pkg) = pkg_value {
+            Self::parse_package_info(pkg)?
+        } else {
+            // If no حزمة section, try to parse root as package info
+            Self::parse_package_info(value)?
+        };
+
+        // Parse dependencies
+        let dependencies = if let Some(deps) = root.get("اعتماديات").or_else(|| root.get("dependencies")) {
+            Self::parse_dependencies(deps)?
+        } else {
+            HashMap::new()
+        };
+
+        // Parse dev dependencies
+        let dev_dependencies = if let Some(deps) = root.get("اعتماديات_تطوير").or_else(|| root.get("dev-dependencies")) {
+            Self::parse_dependencies(deps)?
+        } else {
+            HashMap::new()
+        };
+
+        // Parse scripts
+        let scripts = if let Some(s) = root.get("سكربتات").or_else(|| root.get("scripts")) {
+            Self::parse_scripts(s)?
+        } else {
+            HashMap::new()
+        };
+
+        Ok(Self {
+            package,
+            dependencies,
+            dev_dependencies,
+            scripts,
+        })
+    }
+
+    /// Parse package info from FormatValue
+    fn parse_package_info(value: &FormatValue) -> PackageResult<PackageInfo> {
+        let obj = value.as_object().ok_or_else(|| {
+            PackageError::InvalidManifest("حزمة يجب أن يكون كائناً / package must be an object".to_string())
+        })?;
+
+        let name = obj.get("اسم").or_else(|| obj.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let version = obj.get("نسخة").or_else(|| obj.get("version"))
+            .map(|v| Self::format_version_string(v))
+            .unwrap_or_default();
+
+        let description = obj.get("وصف").or_else(|| obj.get("description"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let authors = if let Some(a) = obj.get("مؤلفون").or_else(|| obj.get("authors")) {
+            Self::parse_authors(a)
+        } else if let Some(a) = obj.get("مؤلف").or_else(|| obj.get("author")) {
+            if let Some(s) = a.as_str() {
+                Authors::Single(s.to_string())
+            } else {
+                Authors::None
+            }
+        } else {
+            Authors::None
+        };
+
+        let license = obj.get("رخصة").or_else(|| obj.get("license"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let repository = obj.get("مستودع").or_else(|| obj.get("repository"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let homepage = obj.get("موقع").or_else(|| obj.get("homepage"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let keywords = if let Some(kw) = obj.get("كلمات").or_else(|| obj.get("keywords")) {
+            if let Some(arr) = kw.as_array() {
+                arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
+
+        let entry = obj.get("مدخل").or_else(|| obj.get("entry")).or_else(|| obj.get("main"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let lib = obj.get("مكتبة").or_else(|| obj.get("lib"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let tarqeem_version = obj.get("ترقيم").or_else(|| obj.get("tarqeem"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        Ok(PackageInfo {
+            name,
+            version,
+            description,
+            authors,
+            license,
+            repository,
+            homepage,
+            keywords,
+            entry,
+            lib,
+            tarqeem_version,
+        })
+    }
+
+    /// Format version from number or string
+    fn format_version_string(value: &FormatValue) -> String {
+        if let Some(s) = value.as_str() {
+            s.to_string()
+        } else if let Some(n) = value.as_number() {
+            // Handle version numbers like 1.0 or 1
+            if n.fract() == 0.0 {
+                format!("{}.0.0", n as i64)
+            } else {
+                let s = format!("{}", n);
+                if s.matches('.').count() == 1 {
+                    format!("{}.0", s)
+                } else {
+                    s
+                }
+            }
+        } else {
+            String::new()
+        }
+    }
+
+    /// Parse authors from FormatValue
+    fn parse_authors(value: &FormatValue) -> Authors {
+        if let Some(arr) = value.as_array() {
+            let authors: Vec<String> = arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
+            if authors.is_empty() {
+                Authors::None
+            } else if authors.len() == 1 {
+                Authors::Single(authors.into_iter().next().unwrap())
+            } else {
+                Authors::Multiple(authors)
+            }
+        } else if let Some(s) = value.as_str() {
+            Authors::Single(s.to_string())
+        } else {
+            Authors::None
+        }
+    }
+
+    /// Parse dependencies from FormatValue
+    fn parse_dependencies(value: &FormatValue) -> PackageResult<HashMap<String, DependencySpec>> {
+        let obj = value.as_object().ok_or_else(|| {
+            PackageError::InvalidManifest("اعتماديات يجب أن يكون كائناً / dependencies must be an object".to_string())
+        })?;
+
+        let mut deps = HashMap::new();
+        for (name, val) in obj {
+            let spec = if let Some(s) = val.as_str() {
+                DependencySpec::Version(s.to_string())
+            } else if let Some(n) = val.as_number() {
+                // Version as number like 2.0
+                DependencySpec::Version(Self::format_version_string(val))
+            } else if let Some(obj) = val.as_object() {
+                // Detailed dependency
+                let version = obj.get("نسخة").or_else(|| obj.get("version"))
+                    .map(|v| Self::format_version_string(v))
+                    .unwrap_or_else(|| "*".to_string());
+
+                let path = obj.get("مسار").or_else(|| obj.get("path"))
+                    .and_then(|v| v.as_str())
+                    .map(PathBuf::from);
+
+                let git = obj.get("git")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let branch = obj.get("فرع").or_else(|| obj.get("branch"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let tag = obj.get("وسم").or_else(|| obj.get("tag"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let rev = obj.get("مراجعة").or_else(|| obj.get("rev"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let optional = obj.get("اختياري").or_else(|| obj.get("optional"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                let features = if let Some(f) = obj.get("ميزات").or_else(|| obj.get("features")) {
+                    if let Some(arr) = f.as_array() {
+                        arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                };
+
+                DependencySpec::Detailed(DetailedDependency {
+                    version,
+                    path,
+                    git,
+                    branch,
+                    tag,
+                    rev,
+                    optional,
+                    features,
+                })
+            } else {
+                DependencySpec::Version("*".to_string())
+            };
+
+            deps.insert(name.clone(), spec);
+        }
+
+        Ok(deps)
+    }
+
+    /// Parse scripts from FormatValue
+    fn parse_scripts(value: &FormatValue) -> PackageResult<HashMap<String, String>> {
+        let obj = value.as_object().ok_or_else(|| {
+            PackageError::InvalidManifest("سكربتات يجب أن يكون كائناً / scripts must be an object".to_string())
+        })?;
+
+        let mut scripts = HashMap::new();
+        for (name, val) in obj {
+            if let Some(s) = val.as_str() {
+                scripts.insert(name.clone(), s.to_string());
+            }
+        }
+
+        Ok(scripts)
     }
 
     /// Validate manifest contents
@@ -256,6 +550,7 @@ impl Manifest {
     }
 
     /// Create a new manifest with defaults
+    /// Uses Arabic file extension (.ترقيم) for entry points
     pub fn new(name: &str, version: &str) -> Self {
         Self {
             package: PackageInfo {
@@ -267,7 +562,7 @@ impl Manifest {
                 repository: None,
                 homepage: None,
                 keywords: vec![],
-                entry: Some("مصدر/رئيسي.trq".to_string()),
+                entry: Some("مصدر/رئيسي.ترقيم".to_string()),
                 lib: None,
                 tarqeem_version: None,
             },
@@ -278,18 +573,161 @@ impl Manifest {
     }
 
     /// Create a new library manifest
+    /// Uses Arabic file extension (.ترقيم) for entry points
     pub fn new_lib(name: &str, version: &str) -> Self {
         let mut manifest = Self::new(name, version);
         manifest.package.entry = None;
-        manifest.package.lib = Some("مصدر/lib.trq".to_string());
+        manifest.package.lib = Some("مصدر/مكتبة.ترقيم".to_string());
         manifest
     }
 
     /// Save manifest to file
+    /// Detects format from file extension
     pub fn save(&self, path: &Path) -> PackageResult<()> {
-        let content = toml::to_string_pretty(self)?;
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+        let content = if ext == "حزمة" {
+            // Save in Arabic format
+            self.to_arabic_format()
+        } else {
+            // Save in TOML format
+            toml::to_string_pretty(self)?
+        };
+
         std::fs::write(path, content)?;
         Ok(())
+    }
+
+    /// Convert manifest to Arabic format string
+    pub fn to_arabic_format(&self) -> String {
+        let mut output = String::new();
+
+        // Header comment
+        output.push_str("# ملف تهيئة حزمة ترقيم\n\n");
+
+        // Package section
+        output.push_str("حزمة:\n");
+        output.push_str(&format!("    اسم: {}\n", self.package.name));
+        output.push_str(&format!("    نسخة: {}\n", self.package.version));
+
+        if let Some(ref desc) = self.package.description {
+            output.push_str(&format!("    وصف: \"{}\"\n", desc));
+        }
+
+        match &self.package.authors {
+            Authors::Single(author) => {
+                output.push_str(&format!("    مؤلف: {}\n", author));
+            }
+            Authors::Multiple(authors) if !authors.is_empty() => {
+                output.push_str("    مؤلفون:\n");
+                for author in authors {
+                    output.push_str(&format!("        - {}\n", author));
+                }
+            }
+            _ => {}
+        }
+
+        if let Some(ref license) = self.package.license {
+            output.push_str(&format!("    رخصة: {}\n", license));
+        }
+
+        if let Some(ref repo) = self.package.repository {
+            output.push_str(&format!("    مستودع: {}\n", repo));
+        }
+
+        if let Some(ref homepage) = self.package.homepage {
+            output.push_str(&format!("    موقع: {}\n", homepage));
+        }
+
+        if !self.package.keywords.is_empty() {
+            output.push_str("    كلمات:\n");
+            for keyword in &self.package.keywords {
+                output.push_str(&format!("        - {}\n", keyword));
+            }
+        }
+
+        if let Some(ref entry) = self.package.entry {
+            output.push_str(&format!("    مدخل: {}\n", entry));
+        }
+
+        if let Some(ref lib) = self.package.lib {
+            output.push_str(&format!("    مكتبة: {}\n", lib));
+        }
+
+        if let Some(ref tarqeem) = self.package.tarqeem_version {
+            output.push_str(&format!("    ترقيم: {}\n", tarqeem));
+        }
+
+        // Dependencies
+        if !self.dependencies.is_empty() {
+            output.push('\n');
+            output.push_str("اعتماديات:\n");
+            for (name, spec) in &self.dependencies {
+                output.push_str(&Self::format_dependency(name, spec, 4));
+            }
+        }
+
+        // Dev dependencies
+        if !self.dev_dependencies.is_empty() {
+            output.push('\n');
+            output.push_str("اعتماديات_تطوير:\n");
+            for (name, spec) in &self.dev_dependencies {
+                output.push_str(&Self::format_dependency(name, spec, 4));
+            }
+        }
+
+        // Scripts
+        if !self.scripts.is_empty() {
+            output.push('\n');
+            output.push_str("سكربتات:\n");
+            for (name, cmd) in &self.scripts {
+                output.push_str(&format!("    {}: \"{}\"\n", name, cmd));
+            }
+        }
+
+        output
+    }
+
+    /// Format a dependency for Arabic format output
+    fn format_dependency(name: &str, spec: &DependencySpec, indent: usize) -> String {
+        let spaces = " ".repeat(indent);
+        match spec {
+            DependencySpec::Version(v) => {
+                format!("{}{}: {}\n", spaces, name, v)
+            }
+            DependencySpec::Detailed(d) => {
+                let mut output = format!("{}{}:\n", spaces, name);
+                let inner_spaces = " ".repeat(indent + 4);
+                output.push_str(&format!("{}نسخة: {}\n", inner_spaces, d.version));
+
+                if let Some(ref path) = d.path {
+                    output.push_str(&format!("{}مسار: {}\n", inner_spaces, path.display()));
+                }
+                if let Some(ref git) = d.git {
+                    output.push_str(&format!("{}git: {}\n", inner_spaces, git));
+                }
+                if let Some(ref branch) = d.branch {
+                    output.push_str(&format!("{}فرع: {}\n", inner_spaces, branch));
+                }
+                if let Some(ref tag) = d.tag {
+                    output.push_str(&format!("{}وسم: {}\n", inner_spaces, tag));
+                }
+                if let Some(ref rev) = d.rev {
+                    output.push_str(&format!("{}مراجعة: {}\n", inner_spaces, rev));
+                }
+                if d.optional {
+                    output.push_str(&format!("{}اختياري: نعم\n", inner_spaces));
+                }
+                if !d.features.is_empty() {
+                    output.push_str(&format!("{}ميزات:\n", inner_spaces));
+                    for feature in &d.features {
+                        output.push_str(&format!("{}    - {}\n", inner_spaces, feature));
+                    }
+                }
+
+                output
+            }
+        }
     }
 
     /// Get the project root (directory containing manifest)
@@ -411,7 +849,7 @@ utils = "0.5"
         let manifest = Manifest::new("test-pkg", "0.1.0");
         assert_eq!(manifest.package.name, "test-pkg");
         assert_eq!(manifest.package.version, "0.1.0");
-        assert_eq!(manifest.package.entry, Some("مصدر/رئيسي.trq".to_string()));
+        assert_eq!(manifest.package.entry, Some("مصدر/رئيسي.ترقيم".to_string()));
     }
 
     #[test]
@@ -419,7 +857,7 @@ utils = "0.5"
         let manifest = Manifest::new_lib("test-lib", "0.1.0");
         assert_eq!(manifest.package.name, "test-lib");
         assert!(manifest.package.entry.is_none());
-        assert_eq!(manifest.package.lib, Some("مصدر/lib.trq".to_string()));
+        assert_eq!(manifest.package.lib, Some("مصدر/مكتبة.ترقيم".to_string()));
         assert!(manifest.is_library());
     }
 
@@ -481,5 +919,119 @@ dev1 = "0.1"
         let manifest: Manifest = toml::from_str(toml).unwrap();
         let all_deps: Vec<_> = manifest.all_dependencies().collect();
         assert_eq!(all_deps.len(), 3);
+    }
+
+    // ================== Arabic Format Tests ==================
+
+    #[test]
+    fn test_parse_arabic_format_simple() {
+        let content = r#"
+حزمة:
+    اسم: مكتبتي
+    نسخة: 1.0.0
+    رخصة: MIT
+"#;
+        let manifest = Manifest::parse_arabic_format(content).unwrap();
+        assert_eq!(manifest.package.name, "مكتبتي");
+        assert_eq!(manifest.package.version, "1.0.0");
+        assert_eq!(manifest.package.license, Some("MIT".to_string()));
+    }
+
+    #[test]
+    fn test_parse_arabic_format_with_dependencies() {
+        let content = r#"
+حزمة:
+    اسم: مشروعي
+    نسخة: 0.1.0
+
+اعتماديات:
+    json: 2.0.0
+    http: 1.0.0
+"#;
+        let manifest = Manifest::parse_arabic_format(content).unwrap();
+        assert_eq!(manifest.package.name, "مشروعي");
+        assert!(manifest.dependencies.contains_key("json"));
+        assert!(manifest.dependencies.contains_key("http"));
+    }
+
+    #[test]
+    fn test_parse_arabic_format_with_authors() {
+        let content = r#"
+حزمة:
+    اسم: مكتبتي
+    نسخة: 1.0.0
+    مؤلفون:
+        - أحمد محمد
+        - فاطمة علي
+"#;
+        let manifest = Manifest::parse_arabic_format(content).unwrap();
+        assert_eq!(manifest.package.authors.as_vec().len(), 2);
+    }
+
+    #[test]
+    fn test_parse_arabic_format_arabic_numbers() {
+        let content = r#"
+حزمة:
+    اسم: مكتبتي
+    نسخة: ١.٠.٠
+"#;
+        let manifest = Manifest::parse_arabic_format(content).unwrap();
+        assert_eq!(manifest.package.name, "مكتبتي");
+        // Version should be converted from Arabic numerals
+        assert!(manifest.package.version.contains("1.0.0") || manifest.package.version.contains("1"));
+    }
+
+    #[test]
+    fn test_parse_arabic_format_detailed_dependency() {
+        let content = r#"
+حزمة:
+    اسم: مشروعي
+    نسخة: 0.1.0
+
+اعتماديات:
+    أدوات:
+        نسخة: 1.0.0
+        اختياري: نعم
+"#;
+        let manifest = Manifest::parse_arabic_format(content).unwrap();
+        let dep = manifest.dependencies.get("أدوات").unwrap();
+        assert_eq!(dep.version_req(), "1.0.0");
+        if let DependencySpec::Detailed(d) = dep {
+            assert!(d.optional);
+        } else {
+            panic!("Expected detailed dependency");
+        }
+    }
+
+    #[test]
+    fn test_to_arabic_format() {
+        let manifest = Manifest::new("مشروعي", "0.1.0");
+        let output = manifest.to_arabic_format();
+
+        assert!(output.contains("حزمة:"));
+        assert!(output.contains("اسم: مشروعي"));
+        assert!(output.contains("نسخة: 0.1.0"));
+    }
+
+    #[test]
+    fn test_arabic_format_roundtrip() {
+        let original = Manifest::new("مكتبتي", "1.0.0");
+        let arabic_content = original.to_arabic_format();
+        let parsed = Manifest::parse_arabic_format(&arabic_content).unwrap();
+
+        assert_eq!(parsed.package.name, original.package.name);
+        assert_eq!(parsed.package.version, original.package.version);
+    }
+
+    #[test]
+    fn test_manifest_names_priority() {
+        assert_eq!(Manifest::MANIFEST_NAMES[0], "ترقيم.حزمة");
+        assert_eq!(Manifest::MANIFEST_NAMES[1], "حزمة.toml");
+        assert_eq!(Manifest::MANIFEST_NAMES[2], "trq.toml");
+    }
+
+    #[test]
+    fn test_default_manifest_name() {
+        assert_eq!(Manifest::DEFAULT_MANIFEST_NAME, "ترقيم.حزمة");
     }
 }
