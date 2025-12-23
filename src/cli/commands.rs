@@ -195,7 +195,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             let ir_builder = IrBuilder::new(module_name);
             let mut ir_module = ir_builder.build(&ast).map_err(|e| {
                 format!(
-                    "IR generation error: {} / خطأ في توليد الـ IR: {}",
+                    "IR generation error: {} / خطأ في توليد التمثيل الوسيط: {}",
                     e.message, e.message_ar
                 )
             })?;
@@ -275,7 +275,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 println!(
                     "{}",
                     format!(
-                        "LLVM IR written to: {} / تم كتابة LLVM IR إلى: {}",
+                        "LLVM IR written to: {} / تم كتابة التمثيل الوسيط إلى: {}",
                         output_path.display(),
                         output_path.display()
                     )
@@ -288,7 +288,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     .verbose(cli.verbose);
 
                 if !linker.is_available() {
-                    return Err("No compiler (clang/llc) found. Install LLVM or use --emit-llvm / لم يتم العثور على مترجم. ثبّت LLVM أو استخدم --emit-llvm".to_string());
+                    return Err("No compiler (clang/llc) found. Install LLVM or use --emit-llvm / لم يتم العثور على مترجم. ثبّت مترجم clang أو استخدم --emit-llvm".to_string());
                 }
 
                 if emit_asm {
@@ -366,7 +366,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     })?;
                     println!(
                         "{}",
-                        "Note: No compiler found. LLVM IR written instead. / ملاحظة: لم يتم العثور على مترجم. تم كتابة LLVM IR بدلاً من ذلك.".yellow()
+                        "Note: No compiler found. LLVM IR written instead. / ملاحظة: لم يتم العثور على مترجم. تم كتابة التمثيل الوسيط بدلاً من ذلك.".yellow()
                     );
                     println!(
                         "  You can compile with: clang {} -o {} / يمكنك الترجمة بـ: clang {} -o {}",
@@ -437,7 +437,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             let ir_builder = IrBuilder::new(filename.clone());
             let ir_module = ir_builder
                 .build(&ast)
-                .map_err(|e| format!("IR build error: {} / خطأ بناء التمثيل الوسيط: {}", e, e))?;
+                .map_err(|e| format!("IR build error: {} / خطأ بناء التمثيل الوسيط: {}", e.message, e.message_ar))?;
 
             // Run interpreter
             let mut interpreter = Interpreter::new(ir_module);
@@ -499,7 +499,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             let ir_builder = IrBuilder::new(filename.clone());
             let ir_module = ir_builder
                 .build(&ast)
-                .map_err(|e| format!("IR build error: {} / خطأ بناء التمثيل الوسيط: {}", e, e))?;
+                .map_err(|e| format!("IR build error: {} / خطأ بناء التمثيل الوسيط: {}", e.message, e.message_ar))?;
 
             // Check if DAP server mode
             if let Some(_port) = dap_port {
