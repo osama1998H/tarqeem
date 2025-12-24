@@ -9,11 +9,8 @@ use super::model::{
 };
 use crate::parser::{Ast, ClassMember, Stmt, StmtKind, TypeAnnotation, TypeKind, Visibility};
 
-/// Extracts documentation from an AST
 pub struct DocExtractor {
-    /// Module/file name
     module_name: String,
-    /// Source file path
     source_path: String,
 }
 
@@ -25,7 +22,6 @@ impl DocExtractor {
         }
     }
 
-    /// Extract documentation from an AST
     pub fn extract(&self, ast: &Ast) -> Documentation {
         let mut doc = Documentation::new(self.module_name.clone(), self.source_path.clone());
 
@@ -413,7 +409,6 @@ mod tests {
     use super::*;
     use crate::parser::Parser;
 
-    /// Helper to wrap source code with required file markers
     fn wrap_with_markers(source: &str) -> String {
         format!("بسم_الله\n{}\nالحمد_لله", source.trim())
     }
@@ -421,10 +416,6 @@ mod tests {
     #[test]
     fn test_extract_function() {
         let source = r#"
-            /// دالة لحساب مجموع عددين
-            /// @معامل أ - العدد الأول
-            /// @معامل ب - العدد الثاني
-            /// @أرجع مجموع العددين
             دالة جمع(أ: عدد، ب: عدد) -> عدد {
                 أرجع أ + ب;
             }
@@ -451,17 +442,13 @@ mod tests {
     #[test]
     fn test_extract_class() {
         let source = r#"
-            /// صنف لتمثيل شخص
             صنف شخص {
-                /// اسم الشخص
                 خاص اسم: نص;
 
-                /// إنشاء شخص جديد
                 منشئ(اسم: نص) {
                     هذا.اسم = اسم;
                 }
 
-                /// الحصول على الاسم
                 عام دالة احصل_اسم() -> نص {
                     أرجع هذا.اسم;
                 }
@@ -489,7 +476,6 @@ mod tests {
     #[test]
     fn test_extract_exported_function() {
         let source = r#"
-            /// دالة مُصدَّرة
             صدّر دالة اختبار() {
             }
         "#;

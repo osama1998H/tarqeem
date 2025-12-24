@@ -11,7 +11,6 @@ use crate::parser::{Ast, Parser};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Unique identifier for a module based on its canonical path
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct ModuleId(pub PathBuf);
 
@@ -21,7 +20,6 @@ impl std::fmt::Display for ModuleId {
     }
 }
 
-/// An exported symbol from a module
 #[derive(Debug, Clone)]
 pub struct ExportedSymbol {
     pub name: String,
@@ -29,7 +27,6 @@ pub struct ExportedSymbol {
     pub span: Span,
 }
 
-/// Kind of exported symbol
 #[derive(Debug, Clone)]
 pub enum ExportKind {
     Function,
@@ -39,7 +36,6 @@ pub enum ExportKind {
     Constant,
 }
 
-/// A loaded and parsed module
 #[derive(Debug)]
 pub struct LoadedModule {
     pub id: ModuleId,
@@ -49,23 +45,17 @@ pub struct LoadedModule {
     pub exports: HashMap<String, ExportedSymbol>,
 }
 
-/// Module loader and cache
 pub struct ModuleLoader {
-    /// Search paths for modules (in order of priority)
     search_paths: Vec<PathBuf>,
 
-    /// Loaded and cached modules
     modules: HashMap<ModuleId, LoadedModule>,
 
-    /// Modules currently being loaded (for cycle detection)
     loading_stack: Vec<ModuleId>,
 
-    /// Collected diagnostics
     diagnostics: Vec<Diagnostic>,
 }
 
 impl ModuleLoader {
-    /// Create a new module loader
     pub fn new() -> Self {
         Self {
             search_paths: Vec::new(),
@@ -75,31 +65,20 @@ impl ModuleLoader {
         }
     }
 
-    /// Add a search path for modules
     pub fn add_search_path(&mut self, path: PathBuf) {
         if !self.search_paths.contains(&path) {
             self.search_paths.push(path);
         }
     }
 
-    /// Get collected diagnostics
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
 
-    /// Take the diagnostics, leaving an empty vector
     pub fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
         std::mem::take(&mut self.diagnostics)
     }
 
-    /// Resolve a module path relative to the importing file
-    ///
-    /// # Arguments
-    /// * `from` - The path of the importing file
-    /// * `import_path` - The import specifier (e.g., "./math", "collections")
-    ///
-    /// # Returns
-    /// The canonical path to the module file, or None if not found
     pub fn resolve_path(&self, from: &Path, import_path: &str) -> Option<PathBuf> {
         // Handle relative imports
         if import_path.starts_with("./") || import_path.starts_with("../") {
@@ -123,7 +102,6 @@ impl ModuleLoader {
         None
     }
 
-    /// Find a module file with .ترقيم extension
     fn find_module_file(&self, base: &Path) -> Option<PathBuf> {
         // If the path already has a valid extension
         if base.exists() {
@@ -152,9 +130,6 @@ impl ModuleLoader {
         None
     }
 
-    /// Load a module from the given path
-    ///
-    /// Returns the module if already loaded, or loads and caches it.
     pub fn load_module(&mut self, path: &Path, span: Span) -> Result<&LoadedModule, ()> {
         let canonical_path = match path.canonicalize() {
             Ok(p) => p,
@@ -217,7 +192,6 @@ impl ModuleLoader {
         }
     }
 
-    /// Internal function to load and parse a module
     fn load_module_internal(&mut self, path: &Path, span: Span) -> Result<LoadedModule, ()> {
         // Read file
         let source = match std::fs::read_to_string(path) {
@@ -267,7 +241,6 @@ impl ModuleLoader {
         })
     }
 
-    /// Collect exported symbols from a module's AST
     fn collect_exports(&self, ast: &Ast) -> HashMap<String, ExportedSymbol> {
         use crate::parser::StmtKind;
 
@@ -328,13 +301,11 @@ impl ModuleLoader {
         exports
     }
 
-    /// Get a loaded module by path (if already loaded)
     pub fn get_module(&self, path: &Path) -> Option<&LoadedModule> {
         let canonical_path = path.canonicalize().ok()?;
         self.modules.get(&ModuleId(canonical_path))
     }
 
-    /// Check if a module is already loaded
     pub fn is_loaded(&self, path: &Path) -> bool {
         if let Ok(canonical_path) = path.canonicalize() {
             self.modules.contains_key(&ModuleId(canonical_path))
@@ -343,7 +314,6 @@ impl ModuleLoader {
         }
     }
 
-    /// Get all loaded modules
     pub fn loaded_modules(&self) -> impl Iterator<Item = &LoadedModule> {
         self.modules.values()
     }

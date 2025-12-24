@@ -4,56 +4,41 @@
 use indexmap::IndexMap;
 use std::fmt;
 
-/// قيمة في صيغة الحزمة
-/// A value in the package format
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
-    /// لا شيء / فارغ
     Null,
-    /// قيمة منطقية (نعم/لا، صحيح/خطأ)
     Bool(bool),
-    /// رقم (عدد صحيح أو عشري)
     Number(f64),
-    /// نص
     String(String),
-    /// قائمة من القيم
     Array(Vec<Value>),
-    /// كائن (قاموس مرتب)
     Object(IndexMap<String, Value>),
 }
 
 impl Value {
-    /// هل القيمة فارغة؟
     pub fn is_null(&self) -> bool {
         matches!(self, Value::Null)
     }
 
-    /// هل القيمة منطقية؟
     pub fn is_bool(&self) -> bool {
         matches!(self, Value::Bool(_))
     }
 
-    /// هل القيمة رقم؟
     pub fn is_number(&self) -> bool {
         matches!(self, Value::Number(_))
     }
 
-    /// هل القيمة نص؟
     pub fn is_string(&self) -> bool {
         matches!(self, Value::String(_))
     }
 
-    /// هل القيمة قائمة؟
     pub fn is_array(&self) -> bool {
         matches!(self, Value::Array(_))
     }
 
-    /// هل القيمة كائن؟
     pub fn is_object(&self) -> bool {
         matches!(self, Value::Object(_))
     }
 
-    /// الحصول على القيمة كمنطقي
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Value::Bool(b) => Some(*b),
@@ -61,7 +46,6 @@ impl Value {
         }
     }
 
-    /// الحصول على القيمة كرقم
     pub fn as_number(&self) -> Option<f64> {
         match self {
             Value::Number(n) => Some(*n),
@@ -69,7 +53,6 @@ impl Value {
         }
     }
 
-    /// الحصول على القيمة كعدد صحيح
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             Value::Number(n) => Some(*n as i64),
@@ -77,7 +60,6 @@ impl Value {
         }
     }
 
-    /// الحصول على القيمة كنص
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::String(s) => Some(s),
@@ -85,7 +67,6 @@ impl Value {
         }
     }
 
-    /// الحصول على القيمة كقائمة
     pub fn as_array(&self) -> Option<&Vec<Value>> {
         match self {
             Value::Array(a) => Some(a),
@@ -93,7 +74,6 @@ impl Value {
         }
     }
 
-    /// الحصول على القيمة ككائن
     pub fn as_object(&self) -> Option<&IndexMap<String, Value>> {
         match self {
             Value::Object(o) => Some(o),
@@ -101,7 +81,6 @@ impl Value {
         }
     }
 
-    /// الحصول على قيمة فرعية بالمفتاح
     pub fn get(&self, key: &str) -> Option<&Value> {
         match self {
             Value::Object(o) => o.get(key),
@@ -109,7 +88,6 @@ impl Value {
         }
     }
 
-    /// الحصول على قيمة فرعية بالفهرس
     pub fn get_index(&self, index: usize) -> Option<&Value> {
         match self {
             Value::Array(a) => a.get(index),
@@ -117,7 +95,6 @@ impl Value {
         }
     }
 
-    /// الحصول على اسم النوع بالعربية
     pub fn type_name_ar(&self) -> &'static str {
         match self {
             Value::Null => "فارغ",
@@ -129,7 +106,6 @@ impl Value {
         }
     }
 
-    /// الحصول على اسم النوع بالإنجليزية
     pub fn type_name_en(&self) -> &'static str {
         match self {
             Value::Null => "null",

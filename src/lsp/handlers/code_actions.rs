@@ -10,7 +10,6 @@ use tower_lsp::lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, Range, TextEdit, Url, WorkspaceEdit,
 };
 
-/// Handle code actions request
 pub fn handle_code_actions(
     doc: &mut DocumentState,
     range: Range,
@@ -50,7 +49,6 @@ pub fn handle_code_actions(
     }
 }
 
-/// Check if two ranges overlap
 fn ranges_overlap(a: &Range, b: &Range) -> bool {
     !(a.end.line < b.start.line
         || (a.end.line == b.start.line && a.end.character < b.start.character)
@@ -58,7 +56,6 @@ fn ranges_overlap(a: &Range, b: &Range) -> bool {
         || (b.end.line == a.start.line && b.end.character < a.start.character))
 }
 
-/// Generate quick fixes for a diagnostic
 fn generate_quick_fixes(
     uri: &Url,
     diagnostic: &crate::error::Diagnostic,
@@ -158,7 +155,6 @@ fn generate_quick_fixes(
     }
 }
 
-/// Generate refactoring actions
 fn generate_refactorings(
     uri: &Url,
     content: &str,
@@ -241,7 +237,6 @@ fn generate_refactorings(
     }
 }
 
-/// Extract identifier name from error message
 fn extract_identifier_from_message(message: &str) -> Option<String> {
     // Look for patterns like "'name'" or "«name»" in the message
     // Use char_indices for proper UTF-8 handling

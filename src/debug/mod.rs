@@ -78,12 +78,9 @@ pub use server::{DapMessage, DapProtocol, DapServer, TransportError, TransportRe
 pub use source_map::{SourceLocation, SourceMap};
 pub use state::{DebugEvent, DebugState, DebugVariable, PauseReason, StackFrame, StepMode};
 
-/// Error type for debugger operations
 #[derive(Debug, Clone)]
 pub struct DebugError {
-    /// English error message
     pub message: String,
-    /// Arabic error message
     pub message_ar: String,
 }
 
@@ -142,5 +139,4 @@ impl From<crate::interpreter::RuntimeError> for DebugError {
     }
 }
 
-/// Result type for debugger operations
 pub type DebugResult<T> = Result<T, DebugError>;

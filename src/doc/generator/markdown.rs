@@ -7,11 +7,8 @@ use super::DocGenerator;
 use crate::doc::model::{ClassDoc, Documentation, FunctionDoc, InterfaceDoc, VariableDoc};
 use std::io::Write;
 
-/// Markdown documentation generator
 pub struct MarkdownGenerator {
-    /// Include table of contents
     pub include_toc: bool,
-    /// Use Arabic headers
     pub arabic_headers: bool,
 }
 
@@ -518,7 +515,6 @@ impl MarkdownGenerator {
     }
 }
 
-/// Create a slug from text for anchor links
 fn slug(text: &str) -> String {
     text.chars()
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || c.is_whitespace())

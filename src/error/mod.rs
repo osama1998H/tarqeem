@@ -14,7 +14,6 @@ mod span_tests;
 pub use diagnostic::{Diagnostic, DiagnosticLevel, Note, Suggestion};
 pub use span::Span;
 
-/// Language for error messages
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Language {
     #[default]
@@ -22,5 +21,4 @@ pub enum Language {
     English,
 }
 
-/// Result type for Tarqeem operations
 pub type TarqeemResult<T> = Result<T, Diagnostic>;

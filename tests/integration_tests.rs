@@ -6,17 +6,14 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Helper to get the project root directory
 fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Helper to wrap source code with required file markers (بسم_الله and الحمد_لله)
 fn wrap_with_markers(source: &str) -> String {
     format!("بسم_الله\n{}\nالحمد_لله", source.trim())
 }
 
-/// Helper to run a Tarqeem source file through the interpreter
 fn interpret_source(source: &str) -> Result<String, String> {
     use tarqeem::interpreter::Interpreter;
     use tarqeem::ir::IrBuilder;
@@ -60,7 +57,6 @@ fn interpret_source(source: &str) -> Result<String, String> {
     Ok(format!("{}", result))
 }
 
-/// Helper to check if source parses successfully (wraps with markers)
 fn parses_ok(source: &str) -> bool {
     use tarqeem::parser::Parser;
     let wrapped_source = wrap_with_markers(source);
@@ -68,14 +64,12 @@ fn parses_ok(source: &str) -> bool {
     parser.parse().is_ok()
 }
 
-/// Helper to check if source parses successfully (source already has markers)
 fn parses_ok_with_markers(source: &str) -> bool {
     use tarqeem::parser::Parser;
     let mut parser = Parser::new(source);
     parser.parse().is_ok()
 }
 
-/// Helper to check if source analyzes successfully
 fn analyzes_ok(source: &str) -> bool {
     use tarqeem::parser::Parser;
     use tarqeem::semantic::Analyzer;

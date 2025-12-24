@@ -10,11 +10,8 @@ use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
-/// Default registry URL
 pub const DEFAULT_REGISTRY: &str = "https://registry.tarqeem.dev";
 
-/// Validates that a string is safe to use as a path component.
-/// Returns an error if the string contains path traversal sequences or unsafe characters.
 fn validate_path_component(component: &str, field_name: &str) -> PackageResult<()> {
     // Check for empty string
     if component.is_empty() {
@@ -43,8 +40,6 @@ fn validate_path_component(component: &str, field_name: &str) -> PackageResult<(
     Ok(())
 }
 
-/// Validates that an extracted path stays within the target directory.
-/// Prevents zip-slip attacks where archive entries contain "../" sequences.
 fn validate_extraction_path(entry_path: &Path, target: &Path) -> PackageResult<PathBuf> {
     let full_path = target.join(entry_path);
 
@@ -77,20 +72,15 @@ fn validate_extraction_path(entry_path: &Path, target: &Path) -> PackageResult<P
     Ok(normalized)
 }
 
-/// Local package cache
 pub struct Cache {
-    /// Root cache directory (~/.cache/tarqeem/packages)
     root: PathBuf,
 
-    /// Registry URL
     registry_url: String,
 
-    /// In-memory package info cache
     package_cache: HashMap<String, PackageInfo>,
 }
 
 impl Cache {
-    /// Create a new cache instance
     pub fn new() -> PackageResult<Self> {
         let root = Self::default_cache_dir()?;
         fs::create_dir_all(&root)?;
@@ -102,7 +92,6 @@ impl Cache {
         })
     }
 
-    /// Create cache with custom directory
     pub fn with_root(root: PathBuf) -> PackageResult<Self> {
         fs::create_dir_all(&root)?;
 
@@ -113,7 +102,6 @@ impl Cache {
         })
     }
 
-    /// Get the default cache directory
     pub fn default_cache_dir() -> PackageResult<PathBuf> {
         let cache_dir = dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from(".cache"))
@@ -123,12 +111,10 @@ impl Cache {
         Ok(cache_dir)
     }
 
-    /// Set the registry URL
     pub fn set_registry(&mut self, url: &str) {
         self.registry_url = url.to_string();
     }
 
-    /// Get package information from cache or registry
     pub fn get_package_info(&self, name: &str) -> PackageResult<PackageInfo> {
         // Check in-memory cache first
         if let Some(info) = self.package_cache.get(name) {
@@ -149,7 +135,6 @@ impl Cache {
         Err(PackageError::PackageNotFound(name.to_string()))
     }
 
-    /// Register a local package (for path dependencies and development)
     pub fn register_local_package(&mut self, name: &str, version: &str, path: &Path) {
         let info = PackageInfo {
             name: name.to_string(),
@@ -165,28 +150,22 @@ impl Cache {
         self.package_cache.insert(name.to_string(), info);
     }
 
-    /// Get path to cached package.
-    /// Returns an error if the name or version contain path traversal sequences.
     pub fn get_package_path(&self, name: &str, version: &str) -> PackageResult<PathBuf> {
         validate_path_component(name, "package name")?;
         validate_path_component(version, "version")?;
         Ok(self.root.join(name).join(version))
     }
 
-    /// Get path to cached package without validation (for internal use only).
-    /// SAFETY: Only use when name and version are known to be safe (e.g., from trusted sources).
     fn get_package_path_unchecked(&self, name: &str, version: &str) -> PathBuf {
         self.root.join(name).join(version)
     }
 
-    /// Check if package is cached
     pub fn is_cached(&self, name: &str, version: &str) -> bool {
         self.get_package_path(name, version)
             .map(|p| p.exists())
             .unwrap_or(false)
     }
 
-    /// Download and verify a package
     pub fn download_and_verify(&self, pkg: &ResolvedPackage) -> PackageResult<PathBuf> {
         let pkg_path = self.get_package_path(&pkg.name, &pkg.version)?;
 
@@ -210,7 +189,6 @@ impl Cache {
         Ok(pkg_path)
     }
 
-    /// Download a package from URL
     fn download_from_url(
         &self,
         url: &str,
@@ -232,7 +210,6 @@ impl Cache {
         )))
     }
 
-    /// Clone a git repository
     fn clone_from_git(&self, url: &str, branch: Option<&str>, target: &Path) -> PackageResult<()> {
         // Create parent directory
         if let Some(parent) = target.parent() {
@@ -266,7 +243,6 @@ impl Cache {
         Ok(())
     }
 
-    /// Copy a package from local path
     fn copy_from_path(&self, source: &Path, target: &Path) -> PackageResult<()> {
         if !source.exists() {
             return Err(PackageError::PackageNotFound(
@@ -285,7 +261,6 @@ impl Cache {
         Ok(())
     }
 
-    /// Recursively copy a directory
     fn copy_dir_recursive(&self, src: &Path, dst: &Path) -> PackageResult<()> {
         fs::create_dir_all(dst)?;
 
@@ -310,7 +285,6 @@ impl Cache {
         Ok(())
     }
 
-    /// Link packages to project directory
     pub fn link_packages(&self, packages: &[ResolvedPackage], target: &Path) -> PackageResult<()> {
         fs::create_dir_all(target)?;
 
@@ -347,7 +321,6 @@ impl Cache {
         Ok(())
     }
 
-    /// Calculate checksum of a directory
     pub fn calculate_path_checksum(&self, path: &Path) -> PackageResult<String> {
         let mut hasher = Sha256::new();
 
@@ -358,7 +331,6 @@ impl Cache {
         Ok(format!("sha256:{}", hex::encode(hash)))
     }
 
-    /// Hash all files in a directory
     fn hash_directory(&self, path: &Path, hasher: &mut Sha256) -> PackageResult<()> {
         if path.is_file() {
             let mut file = fs::File::open(path)?;
@@ -392,8 +364,6 @@ impl Cache {
         Ok(())
     }
 
-    /// Extract a tarball to a directory.
-    /// This function validates each entry path to prevent zip-slip attacks.
     pub fn extract_tarball(&self, tarball: &[u8], target: &Path) -> PackageResult<()> {
         use flate2::read::GzDecoder;
         use std::io::Write;
@@ -440,7 +410,6 @@ impl Cache {
         Ok(())
     }
 
-    /// Verify a checksum
     pub fn verify_checksum(&self, data: &[u8], expected: &str) -> bool {
         let hash = Sha256::digest(data);
         let computed = format!("sha256:{}", hex::encode(hash));
@@ -453,8 +422,6 @@ impl Cache {
         }
     }
 
-    /// Clear cached package.
-    /// Validates the package name to prevent path traversal attacks.
     pub fn clear_package(&self, name: &str) -> PackageResult<()> {
         validate_path_component(name, "package name")?;
         let pkg_dir = self.root.join(name);
@@ -464,7 +431,6 @@ impl Cache {
         Ok(())
     }
 
-    /// Clear entire cache
     pub fn clear_all(&self) -> PackageResult<()> {
         if self.root.exists() {
             fs::remove_dir_all(&self.root)?;
@@ -473,12 +439,10 @@ impl Cache {
         Ok(())
     }
 
-    /// Get cache size in bytes
     pub fn cache_size(&self) -> PackageResult<u64> {
         self.dir_size(&self.root)
     }
 
-    /// Calculate directory size recursively
     fn dir_size(&self, path: &Path) -> PackageResult<u64> {
         let mut size = 0;
 

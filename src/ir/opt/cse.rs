@@ -22,7 +22,6 @@ use super::OptStats;
 use crate::ir::{BasicBlock, BinaryOp, Function, Instruction, Module, UnaryOp, VarId};
 use std::collections::HashMap;
 
-/// An expression key for CSE lookup
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum ExprKey {
     Binary {
@@ -37,32 +36,27 @@ enum ExprKey {
     // Could add more expression types here
 }
 
-/// Common subexpression elimination pass
 pub struct CommonSubexprElim {
     stats: OptStats,
 }
 
 impl CommonSubexprElim {
-    /// Create a new CSE pass
     pub fn new() -> Self {
         Self {
             stats: OptStats::new(),
         }
     }
 
-    /// Get optimization statistics
     pub fn stats(&self) -> &OptStats {
         &self.stats
     }
 
-    /// Run CSE on a module
     pub fn run(&mut self, module: &mut Module) {
         for function in &mut module.functions {
             self.eliminate_common_subexpressions(function);
         }
     }
 
-    /// Run CSE on a function
     fn eliminate_common_subexpressions(&mut self, function: &mut Function) {
         // For now, we do local CSE within each basic block
         // Global CSE would require dominator analysis
@@ -71,7 +65,6 @@ impl CommonSubexprElim {
         }
     }
 
-    /// Perform local CSE on a basic block
     fn cse_block(&mut self, block: &mut BasicBlock) {
         // Map from expression key to the VarId that computed it
         let mut available: HashMap<ExprKey, VarId> = HashMap::new();
@@ -155,7 +148,6 @@ impl CommonSubexprElim {
         block.instructions = new_instructions;
     }
 
-    /// Check if a binary operation is commutative
     fn is_commutative(&self, op: BinaryOp) -> bool {
         matches!(
             op,
@@ -171,7 +163,6 @@ impl CommonSubexprElim {
         )
     }
 
-    /// Apply variable replacements to an instruction
     fn apply_replacements(
         &self,
         inst: &Instruction,

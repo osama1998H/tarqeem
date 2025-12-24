@@ -14,23 +14,15 @@ use crate::ir::{
 use super::error::{RuntimeError, RuntimeResult};
 use super::value::Value;
 
-/// Maximum call stack depth to prevent stack overflow.
 const MAX_STACK_DEPTH: usize = 1000;
 
-/// A call frame representing a function invocation.
 #[derive(Debug)]
 struct CallFrame {
-    /// Function being executed
     func_id: FuncId,
-    /// Current block index
     block_idx: usize,
-    /// Current instruction index within the block
     inst_idx: usize,
-    /// Local variables (VarId -> Value)
     locals: HashMap<u32, Value>,
-    /// Previous block (for Phi resolution)
     prev_block: Option<BlockId>,
-    /// Try block stack for exception handling
     try_stack: Vec<BlockId>,
 }
 
@@ -47,26 +39,16 @@ impl CallFrame {
     }
 }
 
-/// The Tarqeem interpreter.
-///
-/// Executes IR modules by interpreting instructions directly.
 pub struct Interpreter {
-    /// The IR module to execute
     module: Module,
-    /// Call stack
     call_stack: Vec<CallFrame>,
-    /// Global variables
     globals: HashMap<String, Value>,
-    /// Current exception (if any)
     current_exception: Option<Value>,
-    /// Output buffer (for testing)
     output: Vec<String>,
-    /// Whether to capture output instead of printing
     capture_output: bool,
 }
 
 impl Interpreter {
-    /// Create a new interpreter for the given module.
     pub fn new(module: Module) -> Self {
         Self {
             module,
@@ -78,19 +60,14 @@ impl Interpreter {
         }
     }
 
-    /// Enable output capture (useful for testing).
     pub fn capture_output(&mut self, capture: bool) {
         self.capture_output = capture;
     }
 
-    /// Get captured output.
     pub fn get_output(&self) -> &[String] {
         &self.output
     }
 
-    /// Run the program starting from the main function.
-    ///
-    /// Looks for a function named "main" or "رئيسية" and executes it.
     pub fn run(&mut self) -> RuntimeResult<Value> {
         // Initialize globals
         self.init_globals()?;
@@ -102,7 +79,6 @@ impl Interpreter {
         self.call_function(&main_func, vec![])
     }
 
-    /// Initialize global variables.
     fn init_globals(&mut self) -> RuntimeResult<()> {
         for (name, _ty, init) in &self.module.globals {
             let value = match init {
@@ -114,7 +90,6 @@ impl Interpreter {
         Ok(())
     }
 
-    /// Find the main function.
     fn find_main_function(&self) -> RuntimeResult<FuncId> {
         // Try common main function names
         // __main__ is the auto-generated wrapper for top-level statements
@@ -135,7 +110,6 @@ impl Interpreter {
         Err(RuntimeError::undefined_function("main/رئيسي/رئيسية"))
     }
 
-    /// Call a function with arguments.
     pub fn call_function(&mut self, func_id: &FuncId, args: Vec<Value>) -> RuntimeResult<Value> {
         // Check stack depth
         if self.call_stack.len() >= MAX_STACK_DEPTH {
@@ -170,7 +144,6 @@ impl Interpreter {
         result
     }
 
-    /// Execute a function.
     fn execute_function(&mut self, func: &Function) -> RuntimeResult<Value> {
         if func.blocks.is_empty() {
             return Ok(Value::Null);
@@ -217,7 +190,6 @@ impl Interpreter {
         }
     }
 
-    /// Find block index by ID.
     fn find_block_index(&self, func: &Function, block_id: BlockId) -> RuntimeResult<usize> {
         func.blocks
             .iter()
@@ -225,7 +197,6 @@ impl Interpreter {
             .ok_or_else(|| RuntimeError::internal(format!("Block {} not found", block_id)))
     }
 
-    /// Execute a basic block.
     fn execute_block(&mut self, block: &BasicBlock, func: &Function) -> RuntimeResult<BlockResult> {
         for inst in &block.instructions {
             match self.execute_instruction(inst, func)? {
@@ -244,7 +215,6 @@ impl Interpreter {
         Ok(BlockResult::Continue)
     }
 
-    /// Execute a single instruction.
     fn execute_instruction(
         &mut self,
         inst: &Instruction,
@@ -768,7 +738,6 @@ impl Interpreter {
         }
     }
 
-    /// Execute a binary operation.
     fn execute_binary_op(
         &self,
         op: BinaryOp,
@@ -919,7 +888,6 @@ impl Interpreter {
         }
     }
 
-    /// Execute a unary operation.
     fn execute_unary_op(&self, op: UnaryOp, operand: Value, _ty: &IrType) -> RuntimeResult<Value> {
         match op {
             UnaryOp::Neg => match operand {
@@ -936,7 +904,6 @@ impl Interpreter {
         }
     }
 
-    /// Convert a constant to a value.
     fn constant_to_value(&self, constant: &Constant) -> Value {
         match constant {
             Constant::Null => Value::Null,
@@ -950,7 +917,6 @@ impl Interpreter {
         }
     }
 
-    /// Get a local variable value.
     fn get_local(&self, var: VarId) -> RuntimeResult<Value> {
         self.call_stack
             .last()
@@ -959,21 +925,18 @@ impl Interpreter {
             .ok_or_else(|| RuntimeError::undefined_variable(&format!("%{}", var.0)))
     }
 
-    /// Set a local variable value.
     fn set_local(&mut self, var: VarId, value: Value) {
         if let Some(frame) = self.call_stack.last_mut() {
             frame.locals.insert(var.0, value);
         }
     }
 
-    /// Pop a try block from the current frame.
     fn pop_try_block(&mut self) -> Option<BlockId> {
         self.call_stack
             .last_mut()
             .and_then(|frame| frame.try_stack.pop())
     }
 
-    /// Check if a function is a built-in.
     fn is_builtin(&self, name: &str) -> bool {
         matches!(
             name,
@@ -1024,7 +987,6 @@ impl Interpreter {
         )
     }
 
-    /// Call a built-in function.
     fn call_builtin(&mut self, name: &str, args: Vec<Value>) -> RuntimeResult<Value> {
         match name {
             "print" | "اطبع" | "println" => {
@@ -1989,27 +1951,17 @@ impl Interpreter {
     }
 }
 
-/// Result of executing a block.
 enum BlockResult {
-    /// Continue to next instruction (should not happen with proper terminators)
     Continue,
-    /// Jump to target block
     Jump(BlockId),
-    /// Return from function
     Return(Value),
-    /// Throw exception
     Throw(Value),
 }
 
-/// Result of executing an instruction.
 enum InstructionResult {
-    /// Continue to next instruction
     Continue,
-    /// Jump to target block
     Jump(BlockId),
-    /// Return from function
     Return(Value),
-    /// Throw exception
     Throw(Value),
 }
 

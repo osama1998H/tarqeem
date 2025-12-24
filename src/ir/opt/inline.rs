@@ -27,16 +27,11 @@ use super::OptStats;
 use crate::ir::{BasicBlock, BlockId, FuncId, Function, Instruction, IrType, Module, VarId};
 use std::collections::{HashMap, HashSet};
 
-/// Configuration for the inliner
 #[derive(Debug, Clone)]
 pub struct InlineConfig {
-    /// Maximum number of instructions for a function to be inlined
     pub max_instructions: usize,
-    /// Maximum number of basic blocks for a function to be inlined
     pub max_blocks: usize,
-    /// Maximum times a function can be called to still be inlined everywhere
     pub max_call_sites: usize,
-    /// Always inline functions with this many or fewer instructions
     pub always_inline_threshold: usize,
 }
 
@@ -51,14 +46,12 @@ impl Default for InlineConfig {
     }
 }
 
-/// Function inlining optimization pass
 pub struct FunctionInliner {
     stats: OptStats,
     config: InlineConfig,
 }
 
 impl FunctionInliner {
-    /// Create a new function inliner with default configuration
     pub fn new() -> Self {
         Self {
             stats: OptStats::new(),
@@ -66,7 +59,6 @@ impl FunctionInliner {
         }
     }
 
-    /// Create a new function inliner with custom configuration
     pub fn with_config(config: InlineConfig) -> Self {
         Self {
             stats: OptStats::new(),
@@ -74,12 +66,10 @@ impl FunctionInliner {
         }
     }
 
-    /// Get optimization statistics
     pub fn stats(&self) -> &OptStats {
         &self.stats
     }
 
-    /// Run inlining on a module
     pub fn run(&mut self, module: &mut Module) {
         // Find functions eligible for inlining
         let inline_candidates = self.find_inline_candidates(module);
@@ -93,7 +83,6 @@ impl FunctionInliner {
         }
     }
 
-    /// Find functions that are candidates for inlining
     fn find_inline_candidates(&self, module: &Module) -> HashSet<FuncId> {
         let mut candidates = HashSet::new();
 
@@ -106,7 +95,6 @@ impl FunctionInliner {
         candidates
     }
 
-    /// Check if a function is a candidate for inlining
     fn is_inline_candidate(&self, func: &Function) -> bool {
         // Count total instructions
         let instruction_count: usize = func.blocks.iter().map(|b| b.instructions.len()).sum();
@@ -133,7 +121,6 @@ impl FunctionInliner {
         true
     }
 
-    /// Check if a function is recursive
     fn is_recursive(&self, func: &Function) -> bool {
         for block in &func.blocks {
             for inst in &block.instructions {
@@ -147,7 +134,6 @@ impl FunctionInliner {
         false
     }
 
-    /// Count how many times each function is called
     fn count_call_sites(&self, module: &Module) -> HashMap<FuncId, usize> {
         let mut counts = HashMap::new();
 
@@ -164,7 +150,6 @@ impl FunctionInliner {
         counts
     }
 
-    /// Inline calls in a specific function
     fn inline_calls_in_function(
         &mut self,
         module: &mut Module,
@@ -196,7 +181,6 @@ impl FunctionInliner {
         }
     }
 
-    /// Find calls in a function that should be inlined
     fn find_calls_to_inline(
         &self,
         func: &Function,
@@ -232,7 +216,6 @@ impl FunctionInliner {
         calls
     }
 
-    /// Inline a specific call
     fn inline_call(
         &mut self,
         caller: &mut Function,
@@ -350,7 +333,6 @@ impl FunctionInliner {
         caller.blocks.push(continuation_block);
     }
 
-    /// Find the maximum VarId used in a function
     fn find_max_var_id(&self, func: &Function) -> u32 {
         let mut max_id = 0u32;
 
@@ -372,17 +354,14 @@ impl FunctionInliner {
         max_id
     }
 
-    /// Find the maximum BlockId used in a function
     fn find_max_block_id(&self, func: &Function) -> u32 {
         func.blocks.iter().map(|b| b.id.0).max().unwrap_or(0)
     }
 
-    /// Map a variable using the substitution map or offset
     fn map_var(&self, var: VarId, map: &HashMap<VarId, VarId>, offset: u32) -> VarId {
         map.get(&var).copied().unwrap_or(VarId(var.0 + offset))
     }
 
-    /// Remap an instruction's variables and blocks
     fn remap_instruction(
         &self,
         inst: &Instruction,
@@ -667,7 +646,6 @@ impl FunctionInliner {
         }
     }
 
-    /// Get the variable defined by an instruction
     fn get_defined_var(&self, inst: &Instruction) -> Option<VarId> {
         match inst {
             Instruction::Const { dest, .. }
@@ -699,7 +677,6 @@ impl FunctionInliner {
         }
     }
 
-    /// Get all variables used by an instruction
     fn get_used_vars(&self, inst: &Instruction) -> Vec<VarId> {
         match inst {
             Instruction::Binary { left, right, .. } => vec![*left, *right],

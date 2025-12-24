@@ -8,9 +8,6 @@ use crate::lsp::utils::{find_word_at_position, span_to_range};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::{Position, PrepareRenameResponse, TextEdit, WorkspaceEdit};
 
-/// Handle prepare rename request
-///
-/// Validates that the symbol at the position can be renamed
 pub fn handle_prepare_rename(
     doc: &mut DocumentState,
     position: Position,
@@ -34,7 +31,6 @@ pub fn handle_prepare_rename(
     Some(PrepareRenameResponse::Range(range))
 }
 
-/// Handle rename request
 pub fn handle_rename(
     doc: &mut DocumentState,
     position: Position,
@@ -78,7 +74,6 @@ pub fn handle_rename(
     })
 }
 
-/// Check if a string is a valid Tarqeem identifier
 fn is_valid_identifier(name: &str) -> bool {
     if name.is_empty() {
         return false;
@@ -96,7 +91,6 @@ fn is_valid_identifier(name: &str) -> bool {
         .all(|c| c.is_alphanumeric() || c == '_' || is_arabic_letter(c))
 }
 
-/// Check if a character is an Arabic letter
 fn is_arabic_letter(c: char) -> bool {
     matches!(c, '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}' | '\u{08A0}'..='\u{08FF}')
 }
@@ -125,7 +119,6 @@ mod tests {
 
     #[test]
     fn test_prepare_rename() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = "متغير س = 5".to_string();
         let mut doc = DocumentState::new(uri, 1, content);
 
@@ -142,7 +135,6 @@ mod tests {
 
     #[test]
     fn test_rename() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = r#"
 متغير س = 5
 اطبع(س)

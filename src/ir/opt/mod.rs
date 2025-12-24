@@ -26,16 +26,11 @@ pub use loop_opt::{LoopAnalysis, LoopOptimizer};
 
 use super::Module;
 
-/// Optimization levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OptLevel {
-    /// No optimization (default for development)
     O0,
-    /// Basic optimizations (constant folding, DCE)
     O1,
-    /// Standard optimizations (+ CSE)
     O2,
-    /// Aggressive optimizations (+ inlining)
     O3,
 }
 
@@ -70,32 +65,22 @@ impl std::str::FromStr for OptLevel {
     }
 }
 
-/// Statistics collected during optimization
 #[derive(Debug, Clone, Default)]
 pub struct OptStats {
-    /// Number of constants folded
     pub constants_folded: usize,
-    /// Number of dead instructions removed
     pub dead_instructions_removed: usize,
-    /// Number of dead blocks removed
     pub dead_blocks_removed: usize,
-    /// Number of common subexpressions eliminated
     pub cse_hits: usize,
-    /// Number of functions inlined
     pub functions_inlined: usize,
-    /// Number of loop-invariant instructions hoisted
     pub loop_invariants_hoisted: usize,
-    /// Number of loops detected
     pub loops_detected: usize,
 }
 
 impl OptStats {
-    /// Create new empty statistics
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Merge another stats into this one
     pub fn merge(&mut self, other: &OptStats) {
         self.constants_folded += other.constants_folded;
         self.dead_instructions_removed += other.dead_instructions_removed;
@@ -106,7 +91,6 @@ impl OptStats {
         self.loops_detected += other.loops_detected;
     }
 
-    /// Check if any optimizations were performed
     pub fn any_changes(&self) -> bool {
         self.constants_folded > 0
             || self.dead_instructions_removed > 0
@@ -141,16 +125,13 @@ impl std::fmt::Display for OptStats {
     }
 }
 
-/// The optimization pipeline
 pub struct Optimizer {
     level: OptLevel,
     stats: OptStats,
-    /// Maximum iterations for fixed-point optimization
     max_iterations: usize,
 }
 
 impl Optimizer {
-    /// Create a new optimizer with the given level
     pub fn new(level: OptLevel) -> Self {
         Self {
             level,
@@ -159,22 +140,18 @@ impl Optimizer {
         }
     }
 
-    /// Get the current optimization level
     pub fn level(&self) -> OptLevel {
         self.level
     }
 
-    /// Get optimization statistics
     pub fn stats(&self) -> &OptStats {
         &self.stats
     }
 
-    /// Set maximum iterations for fixed-point optimization
     pub fn set_max_iterations(&mut self, max: usize) {
         self.max_iterations = max;
     }
 
-    /// Run the optimization pipeline on a module
     pub fn optimize(&mut self, module: &mut Module) {
         if self.level == OptLevel::O0 {
             return; // No optimization

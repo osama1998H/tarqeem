@@ -3,13 +3,9 @@
 
 use std::fmt;
 
-/// موقع في الملف المصدري
-/// Location in source file
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Location {
-    /// رقم السطر (يبدأ من 1)
     pub line: usize,
-    /// رقم العمود (يبدأ من 1)
     pub column: usize,
 }
 
@@ -25,49 +21,28 @@ impl fmt::Display for Location {
     }
 }
 
-/// أنواع أخطاء التحليل
-/// Parse error types
 #[derive(Debug, Clone, PartialEq)]
 pub enum FormatErrorKind {
-    /// حرف غير متوقع
     UnexpectedChar(char),
-    /// نهاية ملف غير متوقعة
     UnexpectedEof,
-    /// مسافة بادئة غير صالحة
     InvalidIndentation,
-    /// قيمة غير صالحة
     InvalidValue(String),
-    /// رقم غير صالح
     InvalidNumber(String),
-    /// نص غير مغلق
     UnterminatedString,
-    /// متوقع نقطتان
     ExpectedColon,
-    /// متوقع قيمة
     ExpectedValue,
-    /// متوقع مفتاح
     ExpectedKey,
-    /// مفتاح مكرر
     DuplicateKey(String),
-    /// قسم غير معروف
     UnknownSection(String),
-    /// حقل مفقود
     MissingField(String),
-    /// نوع غير صحيح
     TypeError { expected: String, found: String },
 }
 
-/// خطأ تحليل صيغة الحزمة
-/// Package format parse error
 #[derive(Debug, Clone)]
 pub struct FormatError {
-    /// نوع الخطأ
     pub kind: FormatErrorKind,
-    /// الموقع في الملف
     pub location: Location,
-    /// الرسالة بالعربية
     pub message_ar: String,
-    /// الرسالة بالإنجليزية
     pub message_en: String,
 }
 
@@ -145,5 +120,4 @@ impl fmt::Display for FormatError {
 
 impl std::error::Error for FormatError {}
 
-/// نتيجة تحليل الصيغة
 pub type FormatResult<T> = Result<T, FormatError>;

@@ -12,7 +12,6 @@ use super::source_map::{SourceLocation, SourceMap};
 use super::state::{DebugState, PauseReason, StepMode};
 use super::{DebugError, DebugResult};
 
-/// Unique identifier for a breakpoint
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BreakpointId(pub u32);
 
@@ -22,31 +21,20 @@ impl std::fmt::Display for BreakpointId {
     }
 }
 
-/// A breakpoint in the source code
 #[derive(Debug, Clone)]
 pub struct Breakpoint {
-    /// Unique identifier
     pub id: BreakpointId,
-    /// Source file
     pub file: PathBuf,
-    /// Line number (1-indexed)
     pub line: usize,
-    /// Whether the breakpoint is enabled
     pub enabled: bool,
-    /// Optional condition expression
     pub condition: Option<String>,
-    /// Hit count (how many times this breakpoint should be skipped)
     pub hit_count: Option<u32>,
-    /// Current hit count
     pub current_hits: u32,
-    /// Log message instead of breaking
     pub log_message: Option<String>,
-    /// Whether this breakpoint has been verified as valid
     pub verified: bool,
 }
 
 impl Breakpoint {
-    /// Create a new breakpoint
     pub fn new(id: BreakpointId, file: PathBuf, line: usize) -> Self {
         Self {
             id,
@@ -61,35 +49,29 @@ impl Breakpoint {
         }
     }
 
-    /// Set a condition for the breakpoint
     pub fn with_condition(mut self, condition: String) -> Self {
         self.condition = Some(condition);
         self
     }
 
-    /// Set a hit count for the breakpoint
     pub fn with_hit_count(mut self, count: u32) -> Self {
         self.hit_count = Some(count);
         self
     }
 
-    /// Set a log message (logpoint)
     pub fn with_log_message(mut self, message: String) -> Self {
         self.log_message = Some(message);
         self
     }
 
-    /// Enable or disable the breakpoint
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
     }
 
-    /// Mark the breakpoint as verified
     pub fn set_verified(&mut self, verified: bool) {
         self.verified = verified;
     }
 
-    /// Check if this breakpoint should trigger
     pub fn should_trigger(&mut self) -> bool {
         if !self.enabled {
             return false;
@@ -106,22 +88,16 @@ impl Breakpoint {
         true
     }
 
-    /// Reset the hit counter
     pub fn reset_hits(&mut self) {
         self.current_hits = 0;
     }
 }
 
-/// A watch expression
 #[derive(Debug, Clone)]
 pub struct WatchExpression {
-    /// Unique identifier
     pub id: u32,
-    /// The expression to evaluate
     pub expression: String,
-    /// Last known value
     pub last_value: Option<String>,
-    /// Whether to break on value change
     pub break_on_change: bool,
 }
 
@@ -141,22 +117,14 @@ impl WatchExpression {
     }
 }
 
-/// Debug configuration options
 #[derive(Debug, Clone)]
 pub struct DebugConfig {
-    /// Stop at entry point
     pub stop_on_entry: bool,
-    /// Maximum stack depth before warning
     pub max_stack_depth: usize,
-    /// Timeout for expression evaluation (ms)
     pub eval_timeout_ms: u64,
-    /// Show Arabic messages
     pub use_arabic: bool,
-    /// Enable console output capture
     pub capture_output: bool,
-    /// Break on all exceptions (caught and uncaught)
     pub break_on_all_exceptions: bool,
-    /// Break on uncaught exceptions only
     pub break_on_uncaught_exceptions: bool,
 }
 
@@ -174,36 +142,21 @@ impl Default for DebugConfig {
     }
 }
 
-/// The main debug context managing the debug session
 #[derive(Debug)]
 pub struct DebugContext {
-    /// Current debug state
     state: DebugState,
-    /// Breakpoints by ID
     breakpoints: HashMap<BreakpointId, Breakpoint>,
-    /// Breakpoints by location (file, line)
     breakpoints_by_location: HashMap<(PathBuf, usize), Vec<BreakpointId>>,
-    /// Next breakpoint ID
     next_breakpoint_id: u32,
-    /// Watch expressions
     watches: HashMap<u32, WatchExpression>,
-    /// Next watch ID
     next_watch_id: u32,
-    /// Source map for IR to source mapping
     source_map: SourceMap,
-    /// Debug configuration
     config: DebugConfig,
-    /// Current step mode (if stepping)
     step_mode: Option<StepMode>,
-    /// Stack depth when step started (for step out)
     step_start_depth: usize,
-    /// Line when step started (for step over)
     step_start_line: Option<usize>,
-    /// Function when step started
     step_start_func: Option<String>,
-    /// Output buffer
     output_buffer: Vec<String>,
-    /// Pause requested by user
     pause_requested: bool,
 }
 
@@ -214,7 +167,6 @@ impl Default for DebugContext {
 }
 
 impl DebugContext {
-    /// Create a new debug context
     pub fn new() -> Self {
         Self {
             state: DebugState::NotStarted,
@@ -234,56 +186,46 @@ impl DebugContext {
         }
     }
 
-    /// Create with configuration
     pub fn with_config(config: DebugConfig) -> Self {
         let mut ctx = Self::new();
         ctx.config = config;
         ctx
     }
 
-    /// Get the current debug state
     pub fn state(&self) -> &DebugState {
         &self.state
     }
 
-    /// Set the debug state
     pub fn set_state(&mut self, state: DebugState) {
         self.state = state;
     }
 
-    /// Get the configuration
     pub fn config(&self) -> &DebugConfig {
         &self.config
     }
 
-    /// Get mutable configuration
     pub fn config_mut(&mut self) -> &mut DebugConfig {
         &mut self.config
     }
 
-    /// Set the source map
     pub fn set_source_map(&mut self, source_map: SourceMap) {
         self.source_map = source_map;
     }
 
-    /// Get the source map
     pub fn source_map(&self) -> &SourceMap {
         &self.source_map
     }
 
-    /// Get mutable source map
     pub fn source_map_mut(&mut self) -> &mut SourceMap {
         &mut self.source_map
     }
 
-    /// Set source content for a file
     pub fn set_source(&mut self, file: PathBuf, content: String) {
         self.source_map.add_source(file, content);
     }
 
     // ==================== Breakpoint Management ====================
 
-    /// Add a breakpoint at the specified location
     pub fn add_breakpoint(&mut self, file: PathBuf, line: usize) -> DebugResult<BreakpointId> {
         let id = BreakpointId(self.next_breakpoint_id);
         self.next_breakpoint_id += 1;
@@ -312,7 +254,6 @@ impl DebugContext {
         Ok(id)
     }
 
-    /// Add a conditional breakpoint
     pub fn add_conditional_breakpoint(
         &mut self,
         file: PathBuf,
@@ -326,7 +267,6 @@ impl DebugContext {
         Ok(id)
     }
 
-    /// Remove a breakpoint
     pub fn remove_breakpoint(&mut self, id: BreakpointId) -> DebugResult<()> {
         let bp = self
             .breakpoints
@@ -344,28 +284,23 @@ impl DebugContext {
         Ok(())
     }
 
-    /// Clear all breakpoints
     pub fn clear_breakpoints(&mut self) {
         self.breakpoints.clear();
         self.breakpoints_by_location.clear();
     }
 
-    /// Get a breakpoint by ID
     pub fn get_breakpoint(&self, id: BreakpointId) -> Option<&Breakpoint> {
         self.breakpoints.get(&id)
     }
 
-    /// Get mutable breakpoint by ID
     pub fn get_breakpoint_mut(&mut self, id: BreakpointId) -> Option<&mut Breakpoint> {
         self.breakpoints.get_mut(&id)
     }
 
-    /// Get all breakpoints
     pub fn breakpoints(&self) -> impl Iterator<Item = &Breakpoint> {
         self.breakpoints.values()
     }
 
-    /// Get breakpoints at a specific location
     pub fn breakpoints_at(&self, file: &PathBuf, line: usize) -> Vec<&Breakpoint> {
         let key = (file.clone(), line);
         self.breakpoints_by_location
@@ -378,7 +313,6 @@ impl DebugContext {
             .unwrap_or_default()
     }
 
-    /// Check if there's a breakpoint at the given location
     pub fn has_breakpoint_at(&self, file: &PathBuf, line: usize) -> bool {
         let key = (file.clone(), line);
         self.breakpoints_by_location
@@ -387,7 +321,6 @@ impl DebugContext {
             .unwrap_or(false)
     }
 
-    /// Enable or disable a breakpoint
     pub fn set_breakpoint_enabled(&mut self, id: BreakpointId, enabled: bool) -> DebugResult<()> {
         self.breakpoints
             .get_mut(&id)
@@ -396,7 +329,6 @@ impl DebugContext {
         Ok(())
     }
 
-    /// Toggle a breakpoint
     pub fn toggle_breakpoint(&mut self, id: BreakpointId) -> DebugResult<bool> {
         let bp = self
             .breakpoints
@@ -408,7 +340,6 @@ impl DebugContext {
 
     // ==================== Watch Expression Management ====================
 
-    /// Add a watch expression
     pub fn add_watch(&mut self, expression: String) -> u32 {
         let id = self.next_watch_id;
         self.next_watch_id += 1;
@@ -419,7 +350,6 @@ impl DebugContext {
         id
     }
 
-    /// Add a data breakpoint (watch with break on change)
     pub fn add_data_breakpoint(&mut self, expression: String) -> u32 {
         let id = self.next_watch_id;
         self.next_watch_id += 1;
@@ -430,24 +360,20 @@ impl DebugContext {
         id
     }
 
-    /// Remove a watch expression
     pub fn remove_watch(&mut self, id: u32) -> bool {
         self.watches.remove(&id).is_some()
     }
 
-    /// Get watch expressions
     pub fn watches(&self) -> impl Iterator<Item = &WatchExpression> {
         self.watches.values()
     }
 
-    /// Get mutable watch expression
     pub fn get_watch_mut(&mut self, id: u32) -> Option<&mut WatchExpression> {
         self.watches.get_mut(&id)
     }
 
     // ==================== Stepping Control ====================
 
-    /// Start stepping
     pub fn start_stepping(
         &mut self,
         mode: StepMode,
@@ -462,7 +388,6 @@ impl DebugContext {
         self.state = DebugState::Stepping { mode };
     }
 
-    /// Stop stepping
     pub fn stop_stepping(&mut self) {
         self.step_mode = None;
         self.step_start_depth = 0;
@@ -470,12 +395,10 @@ impl DebugContext {
         self.step_start_func = None;
     }
 
-    /// Get current step mode
     pub fn step_mode(&self) -> Option<StepMode> {
         self.step_mode
     }
 
-    /// Check if a step is complete based on current state
     pub fn is_step_complete(
         &self,
         current_depth: usize,
@@ -506,26 +429,22 @@ impl DebugContext {
 
     // ==================== Pause Control ====================
 
-    /// Request a pause in execution
     pub fn request_pause(&mut self) {
         self.pause_requested = true;
     }
 
-    /// Check if pause was requested and clear the flag
     pub fn check_and_clear_pause(&mut self) -> bool {
         let was_requested = self.pause_requested;
         self.pause_requested = false;
         was_requested
     }
 
-    /// Check if pause was requested (without clearing)
     pub fn is_pause_requested(&self) -> bool {
         self.pause_requested
     }
 
     // ==================== Exception Breakpoints ====================
 
-    /// Check if we should break on this exception
     pub fn should_break_on_exception(&self, is_caught: bool) -> bool {
         if self.config.break_on_all_exceptions {
             return true;
@@ -536,7 +455,6 @@ impl DebugContext {
         false
     }
 
-    /// Set exception breakpoint filters
     pub fn set_exception_breakpoints(&mut self, break_all: bool, break_uncaught: bool) {
         self.config.break_on_all_exceptions = break_all;
         self.config.break_on_uncaught_exceptions = break_uncaught;
@@ -544,29 +462,24 @@ impl DebugContext {
 
     // ==================== Output Management ====================
 
-    /// Add output to the buffer
     pub fn add_output(&mut self, output: String) {
         self.output_buffer.push(output);
     }
 
-    /// Get and clear output buffer
     pub fn take_output(&mut self) -> Vec<String> {
         std::mem::take(&mut self.output_buffer)
     }
 
-    /// Get output buffer
     pub fn output(&self) -> &[String] {
         &self.output_buffer
     }
 
     // ==================== Source Lookup ====================
 
-    /// Get source line content
     pub fn get_source_line(&self, file: &PathBuf, line: usize) -> Option<&str> {
         self.source_map.get_source_line(file, line)
     }
 
-    /// Get source location for current execution point
     pub fn get_source_location(
         &self,
         func_id: &FuncId,

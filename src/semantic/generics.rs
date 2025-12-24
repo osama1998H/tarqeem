@@ -19,19 +19,14 @@ use crate::error::{Diagnostic, Span};
 use crate::parser::{TypeAnnotation, TypeKind};
 use std::collections::HashMap;
 
-/// A generic type parameter with optional constraints
 #[derive(Debug, Clone)]
 pub struct GenericParam {
-    /// Parameter name (e.g., "ن" or "T")
     pub name: String,
-    /// Constraint (e.g., must implement an interface)
     pub constraint: Option<Type>,
-    /// Default type if not specified
     pub default: Option<Type>,
 }
 
 impl GenericParam {
-    /// Create a new generic parameter
     pub fn new(name: String) -> Self {
         Self {
             name,
@@ -40,7 +35,6 @@ impl GenericParam {
         }
     }
 
-    /// Create a generic parameter with a constraint
     pub fn with_constraint(name: String, constraint: Type) -> Self {
         Self {
             name,
@@ -49,7 +43,6 @@ impl GenericParam {
         }
     }
 
-    /// Check if a type satisfies this parameter's constraint
     pub fn satisfies(&self, ty: &Type) -> bool {
         if let Some(ref constraint) = self.constraint {
             // For now, just check if the type is compatible with the constraint
@@ -60,17 +53,13 @@ impl GenericParam {
     }
 }
 
-/// Context for generic type resolution
 #[derive(Debug, Clone, Default)]
 pub struct GenericContext {
-    /// Mapping from type parameter names to concrete types
     substitutions: HashMap<String, Type>,
-    /// The generic parameters available in this context
     parameters: Vec<GenericParam>,
 }
 
 impl GenericContext {
-    /// Create a new empty generic context
     pub fn new() -> Self {
         Self {
             substitutions: HashMap::new(),
@@ -78,7 +67,6 @@ impl GenericContext {
         }
     }
 
-    /// Create a context with the given parameters
     pub fn with_parameters(params: Vec<GenericParam>) -> Self {
         Self {
             substitutions: HashMap::new(),
@@ -86,27 +74,22 @@ impl GenericContext {
         }
     }
 
-    /// Add a type substitution
     pub fn substitute(&mut self, name: &str, ty: Type) {
         self.substitutions.insert(name.to_string(), ty);
     }
 
-    /// Get a substitution
     pub fn get(&self, name: &str) -> Option<&Type> {
         self.substitutions.get(name)
     }
 
-    /// Check if a name is a generic parameter
     pub fn is_parameter(&self, name: &str) -> bool {
         self.parameters.iter().any(|p| p.name == name)
     }
 
-    /// Get a parameter by name
     pub fn get_parameter(&self, name: &str) -> Option<&GenericParam> {
         self.parameters.iter().find(|p| p.name == name)
     }
 
-    /// Apply substitutions to a type
     pub fn apply(&self, ty: &Type) -> Type {
         match ty {
             Type::Generic(name) => self.substitutions.get(name).cloned().unwrap_or(ty.clone()),
@@ -124,14 +107,12 @@ impl GenericContext {
         }
     }
 
-    /// Check if all parameters have been substituted
     pub fn is_fully_resolved(&self) -> bool {
         self.parameters
             .iter()
             .all(|p| self.substitutions.contains_key(&p.name))
     }
 
-    /// Get unresolved parameters
     pub fn unresolved_params(&self) -> Vec<&str> {
         self.parameters
             .iter()
@@ -141,16 +122,12 @@ impl GenericContext {
     }
 }
 
-/// Generic type resolver
 pub struct GenericResolver {
-    /// Stack of generic contexts (for nested generics)
     contexts: Vec<GenericContext>,
-    /// Collected diagnostics
     diagnostics: Vec<Diagnostic>,
 }
 
 impl GenericResolver {
-    /// Create a new generic resolver
     pub fn new() -> Self {
         Self {
             contexts: Vec::new(),
@@ -158,32 +135,26 @@ impl GenericResolver {
         }
     }
 
-    /// Push a new generic context
     pub fn push_context(&mut self, context: GenericContext) {
         self.contexts.push(context);
     }
 
-    /// Pop the current generic context
     pub fn pop_context(&mut self) -> Option<GenericContext> {
         self.contexts.pop()
     }
 
-    /// Get the current context
     pub fn current_context(&self) -> Option<&GenericContext> {
         self.contexts.last()
     }
 
-    /// Get a mutable reference to the current context
     pub fn current_context_mut(&mut self) -> Option<&mut GenericContext> {
         self.contexts.last_mut()
     }
 
-    /// Check if a name is a generic parameter in any context
     pub fn is_generic_param(&self, name: &str) -> bool {
         self.contexts.iter().rev().any(|ctx| ctx.is_parameter(name))
     }
 
-    /// Resolve a generic type in the current context
     pub fn resolve(&self, ty: &Type) -> Type {
         for ctx in self.contexts.iter().rev() {
             if let Type::Generic(name) = ty {
@@ -195,7 +166,6 @@ impl GenericResolver {
         ty.clone()
     }
 
-    /// Apply all substitutions to a type
     pub fn apply_all(&self, ty: &Type) -> Type {
         let mut result = ty.clone();
         for ctx in self.contexts.iter().rev() {
@@ -204,7 +174,6 @@ impl GenericResolver {
         result
     }
 
-    /// Instantiate a generic type with concrete type arguments
     pub fn instantiate(
         &mut self,
         params: &[GenericParam],
@@ -267,7 +236,6 @@ impl GenericResolver {
         Some(context)
     }
 
-    /// Infer type arguments from usage
     pub fn infer_type_args(
         &mut self,
         params: &[GenericParam],
@@ -288,7 +256,6 @@ impl GenericResolver {
         }
     }
 
-    /// Infer a type from matching a parameter type to an argument type
     fn infer_from_type(&self, context: &mut GenericContext, param_type: &Type, arg_type: &Type) {
         match param_type {
             Type::Generic(name) => {
@@ -331,7 +298,6 @@ impl GenericResolver {
         }
     }
 
-    /// Parse generic parameters from a type annotation
     pub fn parse_generic_params(&self, type_ann: &TypeAnnotation) -> Vec<GenericParam> {
         if let TypeKind::Generic { args, .. } = &type_ann.kind {
             args.iter()
@@ -348,12 +314,10 @@ impl GenericResolver {
         }
     }
 
-    /// Get collected diagnostics
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
 
-    /// Take diagnostics
     pub fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
         std::mem::take(&mut self.diagnostics)
     }

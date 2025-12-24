@@ -4,7 +4,6 @@ use super::{Language, Span};
 use colored::Colorize;
 use std::fmt;
 
-/// Severity level of a diagnostic
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticLevel {
     Error,
@@ -14,7 +13,6 @@ pub enum DiagnosticLevel {
 }
 
 impl DiagnosticLevel {
-    /// Get the Arabic name for this level
     pub fn arabic(&self) -> &'static str {
         match self {
             DiagnosticLevel::Error => "خطأ",
@@ -24,7 +22,6 @@ impl DiagnosticLevel {
         }
     }
 
-    /// Get the English name for this level
     pub fn english(&self) -> &'static str {
         match self {
             DiagnosticLevel::Error => "error",
@@ -35,7 +32,6 @@ impl DiagnosticLevel {
     }
 }
 
-/// A note attached to a diagnostic
 #[derive(Debug, Clone)]
 pub struct Note {
     pub message: String,
@@ -58,7 +54,6 @@ impl Note {
     }
 }
 
-/// A fix suggestion for a diagnostic
 #[derive(Debug, Clone)]
 pub struct Suggestion {
     pub message: String,
@@ -83,7 +78,6 @@ impl Suggestion {
     }
 }
 
-/// A compiler diagnostic with bilingual messages
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     pub level: DiagnosticLevel,
@@ -96,7 +90,6 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    /// Create a new error diagnostic
     pub fn error(message: impl Into<String>, message_ar: impl Into<String>, span: Span) -> Self {
         Self {
             level: DiagnosticLevel::Error,
@@ -109,7 +102,6 @@ impl Diagnostic {
         }
     }
 
-    /// Create a new warning diagnostic
     pub fn warning(message: impl Into<String>, message_ar: impl Into<String>, span: Span) -> Self {
         Self {
             level: DiagnosticLevel::Warning,
@@ -122,25 +114,21 @@ impl Diagnostic {
         }
     }
 
-    /// Add a note to this diagnostic
     pub fn with_note(mut self, note: Note) -> Self {
         self.notes.push(note);
         self
     }
 
-    /// Add a suggestion to this diagnostic
     pub fn with_suggestion(mut self, suggestion: Suggestion) -> Self {
         self.suggestions.push(suggestion);
         self
     }
 
-    /// Set the error code
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
         self
     }
 
-    /// Format and emit the diagnostic to stderr
     pub fn emit(&self, source: &str, filename: &str, lang: Language) {
         let level_str = match lang {
             Language::Arabic => self.level.arabic(),

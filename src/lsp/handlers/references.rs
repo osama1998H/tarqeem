@@ -7,7 +7,6 @@ use crate::lsp::analysis::DocumentState;
 use crate::lsp::utils::{find_word_at_position, span_to_range};
 use tower_lsp::lsp_types::{Location, Position};
 
-/// Handle find-references request
 pub fn handle_references(
     doc: &mut DocumentState,
     position: Position,
@@ -49,7 +48,6 @@ mod tests {
 
     #[test]
     fn test_find_references() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = r#"
 متغير س = 5
 متغير ص = س + 1

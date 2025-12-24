@@ -14,7 +14,6 @@ pub use markdown::MarkdownGenerator;
 use super::model::Documentation;
 use std::io::Write;
 
-/// Output format for documentation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
     Html,
@@ -23,7 +22,6 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
-    /// Get file extension for this format
     pub fn extension(&self) -> &'static str {
         match self {
             OutputFormat::Html => "html",
@@ -32,7 +30,6 @@ impl OutputFormat {
         }
     }
 
-    /// Parse format from string
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "html" | "htm" => Some(OutputFormat::Html),
@@ -43,13 +40,10 @@ impl OutputFormat {
     }
 }
 
-/// Trait for documentation generators
 pub trait DocGenerator {
-    /// Generate documentation output
     fn generate(&self, doc: &Documentation, writer: &mut dyn Write) -> std::io::Result<()>;
 }
 
-/// Generate documentation in the specified format
 pub fn generate_docs(
     doc: &Documentation,
     format: OutputFormat,

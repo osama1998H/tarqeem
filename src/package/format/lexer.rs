@@ -5,31 +5,18 @@ use super::error::{FormatError, FormatErrorKind, FormatResult, Location};
 use std::iter::Peekable;
 use std::str::Chars;
 
-/// رمز في صيغة الحزمة
-/// Token in package format
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    /// نقطتان :
     Colon,
-    /// شرطة -
     Dash,
-    /// سطر جديد
     Newline,
-    /// مسافة بادئة (عدد المسافات)
     Indent(usize),
-    /// معرّف (اسم مفتاح)
     Identifier(String),
-    /// نص مقتبس
     String(String),
-    /// رقم
     Number(f64),
-    /// قيمة منطقية
     Bool(bool),
-    /// لا شيء
     Null,
-    /// تعليق
     Comment(String),
-    /// نهاية الملف
     Eof,
 }
 
@@ -42,8 +29,6 @@ impl Token {
     }
 }
 
-/// محلل الرموز
-/// Lexer for package format
 pub struct Lexer<'a> {
     source: &'a str,
     chars: Peekable<Chars<'a>>,
@@ -63,12 +48,10 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// الموقع الحالي
     pub fn location(&self) -> Location {
         Location::new(self.line, self.column)
     }
 
-    /// قراءة الحرف التالي
     fn advance(&mut self) -> Option<char> {
         let c = self.chars.next();
         if let Some(ch) = c {
@@ -86,12 +69,10 @@ impl<'a> Lexer<'a> {
         c
     }
 
-    /// النظر إلى الحرف التالي دون استهلاكه
     fn peek(&mut self) -> Option<&char> {
         self.chars.peek()
     }
 
-    /// تخطي المسافات البيضاء (ما عدا السطر الجديد)
     fn skip_whitespace(&mut self) {
         while let Some(&c) = self.peek() {
             if c == ' ' || c == '\t' || c == '\r' {
@@ -102,7 +83,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// قراءة المسافة البادئة في بداية السطر
     fn read_indent(&mut self) -> usize {
         let mut count = 0;
         while let Some(&c) = self.peek() {
@@ -122,8 +102,6 @@ impl<'a> Lexer<'a> {
         count
     }
 
-    /// قراءة معرّف (اسم مفتاح أو قيمة)
-    /// يدعم مسارات الملفات والنسخ
     fn read_identifier(&mut self, first: char) -> String {
         let mut result = String::new();
         result.push(first);
@@ -147,7 +125,6 @@ impl<'a> Lexer<'a> {
         result
     }
 
-    /// قراءة نص مقتبس
     fn read_string(&mut self, quote: char) -> FormatResult<String> {
         let start_loc = self.location();
         let mut result = String::new();
@@ -192,8 +169,6 @@ impl<'a> Lexer<'a> {
         Ok(result)
     }
 
-    /// قراءة رقم أو نسخة (يدعم الأرقام العربية والغربية)
-    /// يتعرف على أنماط النسخ مثل 0.1.0 ويعيدها كنص
     fn read_number_or_version(&mut self, first: char) -> FormatResult<Token> {
         let start_loc = self.location();
         let mut result = String::new();
@@ -232,7 +207,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// قراءة تعليق
     fn read_comment(&mut self) -> String {
         let mut result = String::new();
         while let Some(&c) = self.peek() {
@@ -245,7 +219,6 @@ impl<'a> Lexer<'a> {
         result.trim().to_string()
     }
 
-    /// قراءة الرمز التالي
     pub fn next_token(&mut self) -> FormatResult<Token> {
         // في بداية السطر، قراءة المسافة البادئة
         if self.at_line_start {
@@ -324,7 +297,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// تحويل جميع الرموز إلى قائمة
     pub fn tokenize(&mut self) -> FormatResult<Vec<(Token, Location)>> {
         let mut tokens = Vec::new();
 
@@ -342,17 +314,14 @@ impl<'a> Lexer<'a> {
     }
 }
 
-/// هل الحرف عربي؟
 fn is_arabic_char(c: char) -> bool {
     matches!(c, '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}' | '\u{08A0}'..='\u{08FF}')
 }
 
-/// هل الحرف رقم (عربي أو غربي)؟
 fn is_digit(c: char) -> bool {
     c.is_ascii_digit() || matches!(c, '٠'..='٩')
 }
 
-/// تحويل الرقم العربي إلى غربي
 fn convert_arabic_digit(c: char) -> char {
     match c {
         '٠' => '0',

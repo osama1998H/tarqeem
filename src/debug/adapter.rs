@@ -15,10 +15,8 @@ use super::state::{DebugEvent, DebugState, DebugVariable, PauseReason, StackFram
 use super::{DebugError, DebugResult};
 use crate::ir::Module;
 
-/// Sequence number for DAP messages
 type Seq = i64;
 
-/// DAP Request message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DapRequest {
     pub seq: Seq,
@@ -29,7 +27,6 @@ pub struct DapRequest {
     pub arguments: serde_json::Value,
 }
 
-/// DAP Response message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DapResponse {
     pub seq: Seq,
@@ -70,7 +67,6 @@ impl DapResponse {
     }
 }
 
-/// DAP Event message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DapEvent {
     pub seq: Seq,
@@ -153,7 +149,6 @@ impl DapEvent {
     }
 }
 
-/// DAP Breakpoint representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DapBreakpoint {
     pub id: Option<i64>,
@@ -184,7 +179,6 @@ impl From<&Breakpoint> for DapBreakpoint {
     }
 }
 
-/// DAP Source representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DapSource {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -193,7 +187,6 @@ pub struct DapSource {
     pub path: Option<String>,
 }
 
-/// DAP Stack Frame representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DapStackFrame {
     pub id: i64,
@@ -232,7 +225,6 @@ impl From<&StackFrame> for DapStackFrame {
     }
 }
 
-/// DAP Scope representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DapScope {
     pub name: String,
@@ -241,7 +233,6 @@ pub struct DapScope {
     pub expensive: bool,
 }
 
-/// DAP Variable representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DapVariable {
     pub name: String,
@@ -263,25 +254,15 @@ impl From<&DebugVariable> for DapVariable {
     }
 }
 
-/// Debug Adapter for the Tarqeem debugger
 pub struct DapAdapter {
-    /// Debug interpreter
     interpreter: Option<DebugInterpreter>,
-    /// Current sequence number
     seq: Seq,
-    /// Variable reference counter
     var_ref_counter: i64,
-    /// Variable references (for expanding objects/arrays)
     var_refs: HashMap<i64, Vec<DebugVariable>>,
-    /// Is the adapter initialized
     initialized: bool,
-    /// Is the program launched
     launched: bool,
-    /// Source file being debugged
     source_file: Option<PathBuf>,
-    /// Pending events to send
     pending_events: Vec<DapEvent>,
-    /// Thread ID (we use a single thread)
     thread_id: i64,
 }
 
@@ -292,7 +273,6 @@ impl Default for DapAdapter {
 }
 
 impl DapAdapter {
-    /// Create a new DAP adapter
     pub fn new() -> Self {
         Self {
             interpreter: None,
@@ -307,25 +287,21 @@ impl DapAdapter {
         }
     }
 
-    /// Get the next sequence number
     fn next_seq(&mut self) -> Seq {
         let seq = self.seq;
         self.seq += 1;
         seq
     }
 
-    /// Add an event to the pending queue
     fn queue_event(&mut self, mut event: DapEvent) {
         event.seq = self.next_seq();
         self.pending_events.push(event);
     }
 
-    /// Take pending events
     pub fn take_events(&mut self) -> Vec<DapEvent> {
         std::mem::take(&mut self.pending_events)
     }
 
-    /// Handle a DAP request
     pub fn handle_request(&mut self, request: DapRequest) -> DapResponse {
         let mut response = match request.command.as_str() {
             "initialize" => self.handle_initialize(&request),

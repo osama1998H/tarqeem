@@ -28,19 +28,16 @@
 
 use tarqeem::parser::Parser;
 
-/// Helper to wrap source code with required file markers (بسم_الله and الحمد_لله)
 fn wrap_with_markers(source: &str) -> String {
     format!("بسم_الله\n{}\nالحمد_لله", source.trim())
 }
 
-/// Helper function to test if source parses successfully
 fn parses_ok(source: &str) -> bool {
     let wrapped_source = wrap_with_markers(source);
     let mut parser = Parser::new(&wrapped_source);
     parser.parse().is_ok()
 }
 
-/// Helper to get parse error message
 fn parse_error(source: &str) -> String {
     let wrapped_source = wrap_with_markers(source);
     let mut parser = Parser::new(&wrapped_source);
@@ -57,7 +54,6 @@ fn parse_error(source: &str) -> String {
 mod module_system {
     use super::*;
 
-    /// Test that basic import syntax parses correctly
     #[test]
     fn test_import_syntax_named_imports() {
         let source = r#"
@@ -70,7 +66,6 @@ mod module_system {
         );
     }
 
-    /// Test import with alias syntax
     #[test]
     fn test_import_with_alias() {
         let source = r#"
@@ -83,7 +78,6 @@ mod module_system {
         );
     }
 
-    /// Test relative import syntax
     #[test]
     fn test_relative_import() {
         let source = r#"
@@ -96,7 +90,6 @@ mod module_system {
         );
     }
 
-    /// Test export syntax
     #[test]
     fn test_export_function() {
         let source = r#"
@@ -111,7 +104,6 @@ mod module_system {
         );
     }
 
-    /// Test export class syntax
     #[test]
     fn test_export_class() {
         let source = r#"
@@ -130,7 +122,6 @@ mod module_system {
         );
     }
 
-    /// Test re-export syntax
     #[test]
     fn test_reexport() {
         let source = r#"
@@ -152,7 +143,6 @@ mod module_system {
 mod collections {
     use super::*;
 
-    /// Test List (قائمة) class definition syntax
     #[test]
     fn test_list_class_syntax() {
         let source = r#"
@@ -184,7 +174,6 @@ mod collections {
         );
     }
 
-    /// Test Set (مجموعة) class syntax
     #[test]
     fn test_set_class_syntax() {
         let source = r#"
@@ -205,7 +194,6 @@ mod collections {
         );
     }
 
-    /// Test Map (قاموس/خريطة) class syntax
     #[test]
     fn test_map_class_syntax() {
         let source = r#"
@@ -226,7 +214,6 @@ mod collections {
         );
     }
 
-    /// Test Stack (مكدس) class syntax
     #[test]
     fn test_stack_class_syntax() {
         let source = r#"
@@ -244,7 +231,6 @@ mod collections {
         );
     }
 
-    /// Test Queue (طابور) class syntax
     #[test]
     fn test_queue_class_syntax() {
         let source = r#"
@@ -262,7 +248,6 @@ mod collections {
         );
     }
 
-    /// Test Iterator interface syntax
     #[test]
     fn test_iterator_interface_syntax() {
         let source = r#"
@@ -282,7 +267,6 @@ mod collections {
         );
     }
 
-    /// Test Pair (زوج) class for Map entries
     #[test]
     fn test_pair_class_syntax() {
         let source = r#"
@@ -311,7 +295,6 @@ mod collections {
 mod string_utilities {
     use super::*;
 
-    /// Test basic string functions syntax
     #[test]
     fn test_string_basic_functions() {
         let source = r#"
@@ -338,7 +321,6 @@ mod string_utilities {
         );
     }
 
-    /// Test StringBuilder (باني_نص) class
     #[test]
     fn test_string_builder() {
         let source = r#"
@@ -369,7 +351,6 @@ mod string_utilities {
         );
     }
 
-    /// Test string formatting functions
     #[test]
     fn test_string_formatting() {
         let source = r#"
@@ -396,7 +377,6 @@ mod string_utilities {
 mod math_library {
     use super::*;
 
-    /// Test basic math functions
     #[test]
     fn test_basic_math_functions() {
         let source = r#"
@@ -423,7 +403,6 @@ mod math_library {
         );
     }
 
-    /// Test trigonometric functions
     #[test]
     fn test_trig_functions() {
         let source = r#"
@@ -458,7 +437,6 @@ mod math_library {
         );
     }
 
-    /// Test math constants
     #[test]
     fn test_math_constants() {
         let source = r#"
@@ -474,7 +452,6 @@ mod math_library {
         );
     }
 
-    /// Test random number functions
     #[test]
     fn test_random_functions() {
         let source = r#"
@@ -505,7 +482,6 @@ mod math_library {
 mod file_system {
     use super::*;
 
-    /// Test File class syntax
     #[test]
     fn test_file_class() {
         let source = r#"
@@ -537,7 +513,6 @@ mod file_system {
         );
     }
 
-    /// Test Path handling functions
     #[test]
     fn test_path_functions() {
         let source = r#"
@@ -576,7 +551,6 @@ mod file_system {
         );
     }
 
-    /// Test Directory class
     #[test]
     fn test_directory_class() {
         let source = r#"
@@ -611,7 +585,6 @@ mod file_system {
         );
     }
 
-    /// Test convenience file functions
     #[test]
     fn test_file_convenience_functions() {
         let source = r#"
@@ -650,7 +623,6 @@ mod file_system {
 mod date_time {
     use super::*;
 
-    /// Test Date class
     #[test]
     fn test_date_class() {
         let source = r#"
@@ -685,7 +657,6 @@ mod date_time {
         );
     }
 
-    /// Test Time class
     #[test]
     fn test_time_class() {
         let source = r#"
@@ -718,7 +689,6 @@ mod date_time {
         );
     }
 
-    /// Test DateTime class
     #[test]
     fn test_datetime_class() {
         let source = r#"
@@ -754,7 +724,6 @@ mod date_time {
         );
     }
 
-    /// Test Arabic day/month names constants
     #[test]
     fn test_arabic_date_names() {
         let source = r#"
@@ -798,7 +767,6 @@ mod date_time {
 mod error_handling {
     use super::*;
 
-    /// Test base Error class
     #[test]
     fn test_error_class() {
         let source = r#"
@@ -823,7 +791,6 @@ mod error_handling {
         );
     }
 
-    /// Test specific error types with inheritance
     #[test]
     fn test_specific_error_types() {
         let source = r#"
@@ -866,7 +833,6 @@ mod error_handling {
         );
     }
 
-    /// Test Result type
     #[test]
     fn test_result_type() {
         let source = r#"
@@ -906,7 +872,6 @@ mod error_handling {
         );
     }
 
-    /// Test Option type
     #[test]
     fn test_option_type() {
         let source = r#"
@@ -941,7 +906,6 @@ mod error_handling {
         );
     }
 
-    /// Test try-catch syntax
     #[test]
     fn test_try_catch_syntax() {
         let source = r#"
@@ -977,7 +941,6 @@ mod error_handling {
 mod console_io {
     use super::*;
 
-    /// Test basic I/O functions
     #[test]
     fn test_basic_io() {
         let source = r#"
@@ -1005,7 +968,6 @@ mod console_io {
         );
     }
 
-    /// Test ANSI color constants
     #[test]
     fn test_ansi_colors() {
         let source = r#"
@@ -1034,7 +996,6 @@ mod console_io {
 mod networking {
     use super::*;
 
-    /// Test TCP connection class
     #[test]
     fn test_tcp_connection() {
         let source = r#"
@@ -1077,7 +1038,6 @@ mod networking {
         );
     }
 
-    /// Test TCP server class
     #[test]
     fn test_tcp_server() {
         let source = r#"
@@ -1110,7 +1070,6 @@ mod networking {
         );
     }
 
-    /// Test HTTP client
     #[test]
     fn test_http_client() {
         let source = r#"
@@ -1154,7 +1113,6 @@ mod networking {
 mod integration {
     use super::*;
 
-    /// Test a complete program using collections
     #[test]
     fn test_full_program_with_collections() {
         let source = r#"
@@ -1180,7 +1138,6 @@ mod integration {
         );
     }
 
-    /// Test a complete OOP program
     #[test]
     fn test_full_oop_program() {
         let source = r#"
@@ -1234,7 +1191,6 @@ mod integration {
         );
     }
 
-    /// Test a program with generics
     #[test]
     fn test_program_with_generics() {
         let source = r#"

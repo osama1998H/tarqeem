@@ -11,32 +11,23 @@ use semver::{Version, VersionReq};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-/// A resolved package with all details needed for installation
 #[derive(Debug, Clone)]
 pub struct ResolvedPackage {
-    /// Package name
     pub name: String,
 
-    /// Exact version to use
     pub version: String,
 
-    /// SHA256 checksum
     pub checksum: String,
 
-    /// Where to get the package
     pub source: ResolvedSource,
 
-    /// Dependencies of this package
     pub dependencies: Vec<String>,
 }
 
-/// Source of a resolved package
 #[derive(Debug, Clone)]
 pub enum ResolvedSource {
-    /// From the package registry
     Registry { url: String, tarball_url: String },
 
-    /// From a git repository
     Git {
         url: String,
         branch: Option<String>,
@@ -44,12 +35,10 @@ pub enum ResolvedSource {
         rev: Option<String>,
     },
 
-    /// From a local path
     Path(PathBuf),
 }
 
 impl ResolvedPackage {
-    /// Convert to a locked package
     pub fn to_locked(&self) -> LockedPackage {
         let source = match &self.source {
             ResolvedSource::Registry { url, .. } => PackageSource::Registry { url: url.clone() },
@@ -98,49 +87,35 @@ impl ResolvedPackage {
     }
 }
 
-/// Package information from registry or cache
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PackageInfo {
-    /// Package name
     pub name: String,
 
-    /// Available versions
     pub versions: Vec<VersionInfo>,
 
-    /// Registry URL
     pub registry_url: String,
 }
 
-/// Version information
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VersionInfo {
-    /// Version string
     pub version: String,
 
-    /// SHA256 checksum
     pub checksum: String,
 
-    /// Tarball download URL
     pub tarball_url: String,
 
-    /// Dependencies (name -> version requirement)
     pub dependencies: HashMap<String, String>,
 }
 
-/// Dependency resolver
 pub struct Resolver<'a> {
-    /// Package cache
     cache: &'a Cache,
 
-    /// Already resolved packages
     resolved: HashMap<String, ResolvedPackage>,
 
-    /// Currently resolving (for cycle detection)
     resolving: HashSet<String>,
 }
 
 impl<'a> Resolver<'a> {
-    /// Create a new resolver
     pub fn new(cache: &'a Cache) -> Self {
         Self {
             cache,
@@ -149,7 +124,6 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// Resolve all dependencies from a manifest
     pub fn resolve(&mut self, manifest: &Manifest) -> PackageResult<Vec<ResolvedPackage>> {
         // Resolve regular dependencies
         for (name, spec) in &manifest.dependencies {
@@ -165,7 +139,6 @@ impl<'a> Resolver<'a> {
         Ok(self.topological_sort())
     }
 
-    /// Resolve a single package and its dependencies
     fn resolve_package(&mut self, name: &str, spec: &DependencySpec) -> PackageResult<()> {
         // Skip if already resolved
         if self.resolved.contains_key(name) {
@@ -227,7 +200,6 @@ impl<'a> Resolver<'a> {
         Ok(())
     }
 
-    /// Resolve a path dependency
     fn resolve_path_dependency(
         &self,
         name: &str,
@@ -259,7 +231,6 @@ impl<'a> Resolver<'a> {
         })
     }
 
-    /// Parse a version requirement string
     fn parse_version_req(&self, version_str: &str) -> PackageResult<VersionReq> {
         if version_str == "latest" || version_str == "*" {
             return Ok(VersionReq::STAR);
@@ -269,7 +240,6 @@ impl<'a> Resolver<'a> {
             .map_err(|e| PackageError::InvalidVersion(format!("{}: {}", version_str, e)))
     }
 
-    /// Find the best matching version for a requirement
     fn find_best_version<'b>(
         &self,
         pkg_info: &'b PackageInfo,
@@ -294,7 +264,6 @@ impl<'a> Resolver<'a> {
             })
     }
 
-    /// Topologically sort resolved packages
     fn topological_sort(&self) -> Vec<ResolvedPackage> {
         let mut result = vec![];
         let mut visited = HashSet::new();
@@ -306,7 +275,6 @@ impl<'a> Resolver<'a> {
         result
     }
 
-    /// Visit a package for topological sort (DFS)
     fn visit_package(
         &self,
         name: &str,
@@ -327,17 +295,14 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// Get the number of resolved packages
     pub fn resolved_count(&self) -> usize {
         self.resolved.len()
     }
 
-    /// Check if a package is resolved
     pub fn is_resolved(&self, name: &str) -> bool {
         self.resolved.contains_key(name)
     }
 
-    /// Get a resolved package
     pub fn get_resolved(&self, name: &str) -> Option<&ResolvedPackage> {
         self.resolved.get(name)
     }

@@ -8,10 +8,6 @@
 use crate::error::Span;
 use tower_lsp::lsp_types::{Position, Range};
 
-/// Convert a byte offset to an LSP Position
-///
-/// LSP positions are 0-indexed and use UTF-16 code units for character offsets.
-/// However, since Tarqeem uses UTF-8 internally, we calculate based on UTF-8.
 pub fn offset_to_position(content: &str, offset: usize) -> Position {
     let mut line = 0u32;
     let mut character = 0u32;
@@ -36,7 +32,6 @@ pub fn offset_to_position(content: &str, offset: usize) -> Position {
     Position { line, character }
 }
 
-/// Convert an LSP Position to a byte offset
 pub fn position_to_offset(content: &str, position: Position) -> usize {
     let mut current_line = 0u32;
     let mut current_char = 0u32;
@@ -64,7 +59,6 @@ pub fn position_to_offset(content: &str, position: Position) -> usize {
     offset
 }
 
-/// Convert a Tarqeem Span to an LSP Range
 pub fn span_to_range(content: &str, span: &Span) -> Range {
     // If we have line/column information, use it directly (faster)
     // Note: Tarqeem uses 1-indexed lines/columns, LSP uses 0-indexed
@@ -87,9 +81,6 @@ pub fn span_to_range(content: &str, span: &Span) -> Range {
     }
 }
 
-/// Find the word at a given position
-///
-/// Returns the start offset, end offset, and the word itself
 pub fn find_word_at_position(content: &str, position: Position) -> Option<(usize, usize, String)> {
     let offset = position_to_offset(content, position);
 
@@ -122,17 +113,14 @@ pub fn find_word_at_position(content: &str, position: Position) -> Option<(usize
     Some((start, end, content[start..end].to_string()))
 }
 
-/// Check if a character is valid in an identifier
 fn is_identifier_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || is_arabic_letter(c)
 }
 
-/// Check if a character is an Arabic letter
 fn is_arabic_letter(c: char) -> bool {
     matches!(c, '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}' | '\u{08A0}'..='\u{08FF}')
 }
 
-/// Get the line content at a given position
 pub fn get_line_at_position(content: &str, line: u32) -> Option<&str> {
     content.lines().nth(line as usize)
 }

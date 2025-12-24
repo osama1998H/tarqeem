@@ -9,37 +9,24 @@ use crate::semantic::{Analyzer, Type};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::Url;
 
-/// Analysis result for a document
 #[derive(Debug, Clone)]
 pub struct AnalysisResult {
-    /// Parsed tokens (if lexing succeeded)
     pub tokens: Vec<Token>,
-    /// Parsed AST (if parsing succeeded)
     pub ast: Option<Ast>,
-    /// All diagnostics (lexer, parser, semantic)
     pub diagnostics: Vec<Diagnostic>,
-    /// Symbol table: name -> (type, definition span)
     pub symbols: HashMap<String, SymbolInfo>,
-    /// Whether analysis completed without errors
     pub has_errors: bool,
 }
 
-/// Information about a symbol
 #[derive(Debug, Clone)]
 pub struct SymbolInfo {
-    /// The type of the symbol
     pub ty: Type,
-    /// The span where the symbol is defined
     pub definition_span: Span,
-    /// The kind of symbol
     pub kind: SymbolKind,
-    /// Whether the symbol is mutable
     pub mutable: bool,
-    /// Documentation comment (if any)
     pub doc: Option<String>,
 }
 
-/// The kind of symbol
 #[derive(Debug, Clone, PartialEq)]
 pub enum SymbolKind {
     Variable,
@@ -52,21 +39,15 @@ pub enum SymbolKind {
     Property,
 }
 
-/// State of a single document
 #[derive(Debug)]
 pub struct DocumentState {
-    /// The document URI
     pub uri: Url,
-    /// The document version
     pub version: i32,
-    /// The document content
     pub content: String,
-    /// Cached analysis result
     pub analysis: Option<AnalysisResult>,
 }
 
 impl DocumentState {
-    /// Create a new document state
     pub fn new(uri: Url, version: i32, content: String) -> Self {
         Self {
             uri,
@@ -76,14 +57,12 @@ impl DocumentState {
         }
     }
 
-    /// Update the document content
     pub fn update(&mut self, version: i32, content: String) {
         self.version = version;
         self.content = content;
         self.analysis = None; // Invalidate cache
     }
 
-    /// Get or compute the analysis result
     pub fn get_analysis(&mut self, language: Language) -> &AnalysisResult {
         if self.analysis.is_none() {
             self.analysis = Some(self.analyze(language));
@@ -91,7 +70,6 @@ impl DocumentState {
         self.analysis.as_ref().unwrap()
     }
 
-    /// Perform analysis on the document
     fn analyze(&self, _language: Language) -> AnalysisResult {
         let mut diagnostics = Vec::new();
         let mut symbols = HashMap::new();
@@ -149,7 +127,6 @@ impl DocumentState {
         }
     }
 
-    /// Collect symbols from the AST
     fn collect_symbols(&self, ast: &Ast, symbols: &mut HashMap<String, SymbolInfo>) {
         use crate::parser::{ClassMember, StmtKind};
 
@@ -358,7 +335,6 @@ impl DocumentState {
         }
     }
 
-    /// Resolve a type annotation to a Type
     fn resolve_type_annotation(&self, annotation: &TypeAnnotation) -> Type {
         match &annotation.kind {
             TypeKind::Simple(name) => self.parse_type_name(name),
@@ -387,7 +363,6 @@ impl DocumentState {
         }
     }
 
-    /// Parse a type name to a Type
     fn parse_type_name(&self, name: &str) -> Type {
         match name {
             "عدد" | "int" => Type::Int,
@@ -401,7 +376,6 @@ impl DocumentState {
         }
     }
 
-    /// Find the symbol at a given position
     pub fn find_symbol_at(
         &mut self,
         offset: usize,
@@ -423,7 +397,6 @@ impl DocumentState {
         None
     }
 
-    /// Find all references to a symbol
     pub fn find_references(&mut self, symbol_name: &str, language: Language) -> Vec<Span> {
         let analysis = self.get_analysis(language);
         let mut references = Vec::new();
@@ -444,14 +417,12 @@ impl DocumentState {
 mod tests {
     use super::*;
 
-    /// Helper to wrap source code with required file markers
     fn wrap_with_markers(source: &str) -> String {
         format!("بسم_الله\n{}\nالحمد_لله", source.trim())
     }
 
     #[test]
     fn test_document_analysis() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = wrap_with_markers("متغير س = 5");
         let mut doc = DocumentState::new(uri, 1, content);
 
@@ -461,7 +432,6 @@ mod tests {
 
     #[test]
     fn test_document_update() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let mut doc = DocumentState::new(uri, 1, wrap_with_markers("متغير س = 5"));
 
         // First analysis
@@ -475,7 +445,6 @@ mod tests {
 
     #[test]
     fn test_symbol_collection() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = wrap_with_markers(
             r#"
 دالة جمع(أ: عدد، ب: عدد) -> عدد {
@@ -491,10 +460,8 @@ mod tests {
 
     #[test]
     fn test_symbol_with_doc_comment() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = wrap_with_markers(
             r#"
-/// دالة لجمع عددين
 دالة جمع(أ: عدد، ب: عدد) -> عدد {
     أرجع أ + ب
 }

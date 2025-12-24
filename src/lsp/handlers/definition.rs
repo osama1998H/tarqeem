@@ -7,7 +7,6 @@ use crate::lsp::analysis::DocumentState;
 use crate::lsp::utils::{find_word_at_position, span_to_range};
 use tower_lsp::lsp_types::{GotoDefinitionResponse, Location, Position};
 
-/// Handle go-to-definition request
 pub fn handle_definition(
     doc: &mut DocumentState,
     position: Position,
@@ -39,7 +38,6 @@ mod tests {
 
     #[test]
     fn test_handle_definition() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = r#"
 متغير س = 5
 اطبع(س)

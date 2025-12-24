@@ -7,78 +7,61 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
-/// Formatter configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FormatConfig {
     // === Indentation ===
-    /// Number of spaces per indentation level
     #[serde(alias = "حجم_المسافة")]
     pub indent_size: usize,
 
-    /// Use tabs instead of spaces
     #[serde(alias = "استخدم_تاب")]
     pub use_tabs: bool,
 
     // === Line length ===
-    /// Maximum line length before wrapping
     #[serde(alias = "اقصى_طول_سطر")]
     pub max_line_length: usize,
 
     // === Braces ===
-    /// Brace style (same_line or next_line)
     #[serde(alias = "نمط_الأقواس")]
     pub brace_style: BraceStyle,
 
     // === Spacing ===
-    /// Add space after comma
     #[serde(alias = "مسافة_بعد_الفاصلة")]
     pub space_after_comma: bool,
 
-    /// Add space around binary operators
     #[serde(alias = "مسافة_حول_العمليات")]
     pub space_around_operators: bool,
 
-    /// Add space before opening brace
     #[serde(alias = "مسافة_قبل_القوس")]
     pub space_before_brace: bool,
 
-    /// Add space inside parentheses
     #[serde(alias = "مسافة_داخل_الأقواس")]
     pub space_inside_parens: bool,
 
-    /// Add space after colon in type annotations
     #[serde(alias = "مسافة_بعد_النقطتين")]
     pub space_after_colon: bool,
 
     // === Blank lines ===
-    /// Number of blank lines after import statements
     #[serde(alias = "أسطر_فارغة_بعد_الاستيراد")]
     pub blank_lines_after_imports: usize,
 
-    /// Number of blank lines between top-level declarations
     #[serde(alias = "أسطر_فارغة_بين_الدوال")]
     pub blank_lines_between_functions: usize,
 
-    /// Maximum consecutive blank lines allowed inside blocks
     #[serde(alias = "اقصى_أسطر_فارغة_متتالية")]
     pub max_blank_lines: usize,
 
     // === Arabic-specific ===
-    /// Use Arabic comma (،) instead of ASCII comma (,)
     #[serde(alias = "فاصلة_عربية")]
     pub arabic_comma: bool,
 
-    /// Use Arabic semicolon (؛) instead of ASCII semicolon (;)
     #[serde(alias = "فاصلة_منقوطة_عربية")]
     pub arabic_semicolon: bool,
 
     // === Trailing ===
-    /// Add trailing comma in multi-line constructs
     #[serde(alias = "فاصلة_نهائية")]
     pub trailing_comma: bool,
 
-    /// Ensure file ends with newline
     #[serde(alias = "سطر_جديد_نهائي")]
     pub final_newline: bool,
 }
@@ -120,7 +103,6 @@ impl Default for FormatConfig {
 }
 
 impl FormatConfig {
-    /// Load configuration from a TOML file
     pub fn from_file(path: &Path) -> Result<Self, ConfigError> {
         let content = fs::read_to_string(path).map_err(|e| ConfigError::IoError {
             message: format!("{}: {}", path.display(), e),
@@ -129,20 +111,12 @@ impl FormatConfig {
         Self::from_toml(&content)
     }
 
-    /// Parse configuration from TOML string
     pub fn from_toml(content: &str) -> Result<Self, ConfigError> {
         toml::from_str(content).map_err(|e| ConfigError::ParseError {
             message: e.to_string(),
         })
     }
 
-    /// Find and load configuration from the filesystem
-    ///
-    /// Searches for configuration files in this order:
-    /// 1. .trqfmt.toml in current directory
-    /// 2. trqfmt.toml in current directory
-    /// 3. تنسيق.toml in current directory
-    /// 4. Parent directories (up to root)
     pub fn find_and_load() -> Option<Self> {
         let config_names = [".trqfmt.toml", "trqfmt.toml", "تنسيق.toml"];
 
@@ -164,7 +138,6 @@ impl FormatConfig {
         None
     }
 
-    /// Get the indent string based on configuration
     pub fn indent_str(&self) -> String {
         if self.use_tabs {
             "\t".to_string()
@@ -173,7 +146,6 @@ impl FormatConfig {
         }
     }
 
-    /// Get the comma character based on configuration
     pub fn comma(&self) -> char {
         if self.arabic_comma {
             '،'
@@ -182,7 +154,6 @@ impl FormatConfig {
         }
     }
 
-    /// Get the semicolon character based on configuration
     pub fn semicolon(&self) -> char {
         if self.arabic_semicolon {
             '؛'
@@ -191,7 +162,6 @@ impl FormatConfig {
         }
     }
 
-    /// Generate a sample configuration file
     pub fn sample_config() -> String {
         r#"# Tarqeem Formatter Configuration / إعدادات منسق ترقيم
 # .trqfmt.toml
@@ -278,26 +248,17 @@ final_newline = true
     }
 }
 
-/// Brace style options
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum BraceStyle {
-    /// Opening brace on same line as declaration
-    /// `دالة اختبار() {`
     #[default]
     #[serde(alias = "نفس_السطر")]
     SameLine,
 
-    /// Opening brace on next line
-    /// ```text
-    /// دالة اختبار()
-    /// {
-    /// ```
     #[serde(alias = "سطر_جديد")]
     NextLine,
 }
 
-/// Configuration error
 #[derive(Debug, Clone)]
 pub enum ConfigError {
     IoError { message: String },

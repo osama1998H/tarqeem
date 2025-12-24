@@ -33,7 +33,6 @@ use tokio::sync::mpsc;
 use super::adapter::{DapAdapter, DapEvent, DapRequest, DapResponse};
 use super::{DebugError, DebugResult};
 
-/// DAP protocol message envelope
 #[derive(Debug)]
 pub enum DapMessage {
     Request(DapRequest),
@@ -42,7 +41,6 @@ pub enum DapMessage {
 }
 
 impl DapMessage {
-    /// Serialize message to JSON
     pub fn to_json(&self) -> serde_json::Result<String> {
         match self {
             DapMessage::Request(r) => serde_json::to_string(r),
@@ -51,7 +49,6 @@ impl DapMessage {
         }
     }
 
-    /// Deserialize message from JSON
     pub fn from_json(json: &str) -> serde_json::Result<Self> {
         let value: serde_json::Value = serde_json::from_str(json)?;
 
@@ -69,7 +66,6 @@ impl DapMessage {
     }
 }
 
-/// Error type for transport operations
 #[derive(Debug)]
 pub struct TransportError {
     pub message: String,
@@ -126,21 +122,11 @@ impl From<serde_json::Error> for TransportError {
     }
 }
 
-/// Result type for transport operations
 pub type TransportResult<T> = Result<T, TransportError>;
 
-/// DAP wire protocol handler
-///
-/// The DAP protocol uses HTTP-style headers:
-/// ```text
-/// Content-Length: 119\r\n
-/// \r\n
-/// {"seq":1,"type":"request","command":"initialize",...}
-/// ```
 pub struct DapProtocol;
 
 impl DapProtocol {
-    /// Read a single DAP message from a buffered reader
     pub fn read_message<R: BufRead>(reader: &mut R) -> TransportResult<DapMessage> {
         let content_length = Self::read_headers(reader)?;
         let json = Self::read_content(reader, content_length)?;
@@ -148,7 +134,6 @@ impl DapProtocol {
         Ok(message)
     }
 
-    /// Write a single DAP message to a writer
     pub fn write_message<W: Write>(writer: &mut W, message: &DapMessage) -> TransportResult<()> {
         let json = message.to_json()?;
         let header = format!("Content-Length: {}\r\n\r\n", json.len());
@@ -160,7 +145,6 @@ impl DapProtocol {
         Ok(())
     }
 
-    /// Read DAP headers and return Content-Length
     fn read_headers<R: BufRead>(reader: &mut R) -> TransportResult<usize> {
         let mut content_length: Option<usize> = None;
         let mut line = String::new();
@@ -189,7 +173,6 @@ impl DapProtocol {
         content_length.ok_or_else(|| TransportError::parse_error("Missing Content-Length header"))
     }
 
-    /// Read content body with specified length
     fn read_content<R: BufRead>(reader: &mut R, length: usize) -> TransportResult<String> {
         let mut buffer = vec![0u8; length];
         reader.read_exact(&mut buffer)?;
@@ -198,11 +181,9 @@ impl DapProtocol {
     }
 }
 
-/// Async DAP wire protocol handler for tokio
 pub struct DapProtocolAsync;
 
 impl DapProtocolAsync {
-    /// Read a single DAP message asynchronously
     pub async fn read_message<R>(reader: &mut TokioBufReader<R>) -> TransportResult<DapMessage>
     where
         R: tokio::io::AsyncRead + Unpin,
@@ -213,7 +194,6 @@ impl DapProtocolAsync {
         Ok(message)
     }
 
-    /// Write a single DAP message asynchronously
     pub async fn write_message<W>(writer: &mut W, message: &DapMessage) -> TransportResult<()>
     where
         W: tokio::io::AsyncWrite + Unpin,
@@ -228,7 +208,6 @@ impl DapProtocolAsync {
         Ok(())
     }
 
-    /// Read DAP headers and return Content-Length
     async fn read_headers<R>(reader: &mut TokioBufReader<R>) -> TransportResult<usize>
     where
         R: tokio::io::AsyncRead + Unpin,
@@ -260,7 +239,6 @@ impl DapProtocolAsync {
         content_length.ok_or_else(|| TransportError::parse_error("Missing Content-Length header"))
     }
 
-    /// Read content body with specified length
     async fn read_content<R>(
         reader: &mut TokioBufReader<R>,
         length: usize,
@@ -275,14 +253,10 @@ impl DapProtocolAsync {
     }
 }
 
-/// DAP Server configuration
 #[derive(Debug, Clone)]
 pub struct DapServerConfig {
-    /// Source file to debug
     pub program: PathBuf,
-    /// Stop at first line
     pub stop_on_entry: bool,
-    /// Use Arabic for messages
     pub use_arabic: bool,
 }
 
@@ -296,16 +270,12 @@ impl Default for DapServerConfig {
     }
 }
 
-/// DAP Server for handling debug sessions
-///
-/// Manages the connection between an IDE and the Tarqeem debugger.
 pub struct DapServer {
     adapter: DapAdapter,
     shutdown: Arc<AtomicBool>,
 }
 
 impl DapServer {
-    /// Create a new DAP server
     pub fn new() -> Self {
         Self {
             adapter: DapAdapter::new(),
@@ -313,22 +283,18 @@ impl DapServer {
         }
     }
 
-    /// Get a shutdown handle
     pub fn shutdown_handle(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.shutdown)
     }
 
-    /// Request shutdown
     pub fn shutdown(&self) {
         self.shutdown.store(true, Ordering::SeqCst);
     }
 
-    /// Check if shutdown was requested
     fn is_shutdown(&self) -> bool {
         self.shutdown.load(Ordering::SeqCst)
     }
 
-    /// Run the server on a TCP port (synchronous)
     pub fn run_tcp(mut self, port: u16) -> TransportResult<()> {
         let addr = format!("127.0.0.1:{}", port);
         let listener = TcpListener::bind(&addr)?;
@@ -348,7 +314,6 @@ impl DapServer {
         self.handle_connection_sync(stream)
     }
 
-    /// Handle a synchronous TCP connection
     fn handle_connection_sync(&mut self, stream: TcpStream) -> TransportResult<()> {
         let mut reader = BufReader::new(stream.try_clone()?);
         let mut writer = BufWriter::new(stream);
@@ -390,7 +355,6 @@ impl DapServer {
         Ok(())
     }
 
-    /// Run the server on a TCP port (asynchronous)
     pub async fn run_tcp_async(mut self, port: u16) -> TransportResult<()> {
         let addr = format!("127.0.0.1:{}", port);
         let listener = TokioTcpListener::bind(&addr).await?;
@@ -410,7 +374,6 @@ impl DapServer {
         self.handle_connection_async(stream).await
     }
 
-    /// Handle an asynchronous TCP connection
     async fn handle_connection_async(
         &mut self,
         stream: tokio::net::TcpStream,
@@ -457,7 +420,6 @@ impl DapServer {
         Ok(())
     }
 
-    /// Run the server on stdio (for VS Code integration)
     pub fn run_stdio(mut self) -> TransportResult<()> {
         let stdin = io::stdin();
         let stdout = io::stdout();
@@ -501,7 +463,6 @@ impl DapServer {
         Ok(())
     }
 
-    /// Run the server on stdio asynchronously
     pub async fn run_stdio_async(mut self) -> TransportResult<()> {
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();

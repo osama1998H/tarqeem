@@ -15,7 +15,6 @@ use super::{
 
 use std::collections::{HashMap, HashSet};
 
-/// Error type for IR building
 #[derive(Debug, Clone)]
 pub struct IrError {
     pub message: String,
@@ -41,7 +40,6 @@ impl std::error::Error for IrError {}
 
 type Result<T> = std::result::Result<T, IrError>;
 
-/// Converts AST to IR
 pub struct IrBuilder {
     module: Module,
     current_function: Option<Function>,
@@ -64,7 +62,6 @@ pub struct IrBuilder {
 }
 
 impl IrBuilder {
-    /// Create a new IR builder
     pub fn new(module_name: String) -> Self {
         Self {
             module: Module::new(module_name),
@@ -87,7 +84,6 @@ impl IrBuilder {
         }
     }
 
-    /// Build IR from an AST
     pub fn build(mut self, ast: &Ast) -> Result<Module> {
         // First pass: collect global variables (VarDecls at module level)
         for stmt in &ast.statements {
@@ -198,7 +194,6 @@ impl IrBuilder {
         Ok(self.module)
     }
 
-    /// Collect class information for later use
     fn collect_class(&mut self, name: &str, members: &[ClassMember]) -> Result<()> {
         let mut fields = Vec::new();
 
@@ -243,7 +238,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Collect function signature
     fn collect_function_signature(
         &mut self,
         name: &str,
@@ -263,7 +257,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Begin building a new function
     fn begin_function(
         &mut self,
         name: String,
@@ -300,7 +293,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// End the current function and add it to the module
     fn end_function(&mut self) -> Result<()> {
         if let Some(func) = self.current_function.take() {
             self.module.functions.push(func);
@@ -309,7 +301,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Create a new basic block
     fn new_block(&mut self, label: Option<String>) -> BlockId {
         let id = BlockId(self.block_counter);
         self.block_counter += 1;
@@ -327,19 +318,16 @@ impl IrBuilder {
         id
     }
 
-    /// Switch to a different block
     fn switch_to_block(&mut self, block_id: BlockId) {
         self.current_block = block_id;
     }
 
-    /// Allocate a new SSA variable
     fn new_var(&mut self) -> VarId {
         let id = VarId(self.var_counter);
         self.var_counter += 1;
         id
     }
 
-    /// Emit an instruction to the current block
     fn emit(&mut self, inst: Instruction) {
         if let Some(ref mut func) = self.current_function {
             if let Some(block) = func.get_block_mut(self.current_block) {
@@ -348,29 +336,24 @@ impl IrBuilder {
         }
     }
 
-    /// Push a new variable scope
     fn push_scope(&mut self) {
         self.scope_stack.push(self.variables.clone());
     }
 
-    /// Pop a variable scope
     fn pop_scope(&mut self) {
         if let Some(vars) = self.scope_stack.pop() {
             self.variables = vars;
         }
     }
 
-    /// Look up a variable by name
     fn lookup_var(&self, name: &str) -> Option<VarId> {
         self.variables.get(name).copied()
     }
 
-    /// Add a string to the string table
     fn add_string(&mut self, s: String) -> u32 {
         self.module.strings.add(s)
     }
 
-    /// Convert AST type annotation to IR type
     fn convert_type(&self, ty: &TypeAnnotation) -> IrType {
         match &ty.kind {
             TypeKind::Simple(name) => self.convert_simple_type(name),
@@ -413,7 +396,6 @@ impl IrBuilder {
         }
     }
 
-    /// Convert a simple type name to IR type
     fn convert_simple_type(&self, name: &str) -> IrType {
         match name {
             "عدد" | "int" => IrType::Int,
@@ -425,8 +407,6 @@ impl IrBuilder {
         }
     }
 
-    /// Convert semantic type to IR type
-    /// Note: Currently unused, will be used when integrating with typed AST
     #[allow(dead_code)]
     fn semantic_to_ir_type(&self, ty: &crate::semantic::Type) -> IrType {
         use crate::semantic::Type as SemanticType;
@@ -452,7 +432,6 @@ impl IrBuilder {
         }
     }
 
-    /// Try to evaluate an expression as a compile-time constant
     fn try_evaluate_const(&mut self, expr: &Expr) -> Option<Constant> {
         match &expr.kind {
             ExprKind::Literal(lit) => match lit {
@@ -509,7 +488,6 @@ impl IrBuilder {
         }
     }
 
-    /// Get the IR type for a constant value
     fn const_to_type(&self, constant: &Constant) -> IrType {
         match constant {
             Constant::Int(_) => IrType::Int,
@@ -590,7 +568,6 @@ impl IrBuilder {
         }
     }
 
-    /// Build IR for a variable declaration
     fn build_var_decl(
         &mut self,
         name: &str,
@@ -648,7 +625,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Infer IR type from an expression (simplified)
     fn infer_expr_type(&self, expr: &Expr) -> IrType {
         match &expr.kind {
             ExprKind::Literal(lit) => match lit {
@@ -813,7 +789,6 @@ impl IrBuilder {
         }
     }
 
-    /// Build IR for a function declaration
     fn build_func_decl(
         &mut self,
         name: &str,
@@ -897,7 +872,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Build IR for a class declaration
     fn build_class_decl(
         &mut self,
         name: &str,
@@ -1209,7 +1183,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Build IR for an if statement
     fn build_if(
         &mut self,
         condition: &Expr,
@@ -1277,7 +1250,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Build IR for a while loop
     fn build_while(&mut self, condition: &Expr, body: &Block) -> Result<()> {
         let cond_block = self.new_block(Some("while.cond".to_string()));
         let body_block = self.new_block(Some("while.body".to_string()));
@@ -1322,7 +1294,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Build IR for a do-while loop
     fn build_do_while(&mut self, body: &Block, condition: &Expr) -> Result<()> {
         let body_block = self.new_block(Some("dowhile.body".to_string()));
         let cond_block = self.new_block(Some("dowhile.cond".to_string()));
@@ -1367,7 +1338,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Build IR for a for loop
     fn build_for(
         &mut self,
         init: Option<&Stmt>,
@@ -1439,7 +1409,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Build IR for a for-in loop
     fn build_for_in(&mut self, variable: &str, iterable: &Expr, body: &Block) -> Result<()> {
         // For now, implement as a simple indexed loop
         // Later this should use iterator protocol
@@ -1605,7 +1574,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Build IR for a match statement
     fn build_match(&mut self, expr: &Expr, arms: &[MatchArm]) -> Result<()> {
         let match_val = self.build_expr(expr)?;
         let exit_block = self.new_block(Some("match.exit".to_string()));
@@ -1678,7 +1646,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Build IR for a return statement
     fn build_return(&mut self, expr: Option<&Expr>) -> Result<()> {
         let value = if let Some(e) = expr {
             Some(self.build_expr(e)?)
@@ -1690,7 +1657,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Build IR for a break statement
     fn build_break(&mut self) -> Result<()> {
         if let Some((_, exit_block)) = self.loop_stack.last() {
             self.emit(Instruction::Jump {
@@ -1702,7 +1668,6 @@ impl IrBuilder {
         }
     }
 
-    /// Build IR for a continue statement
     fn build_continue(&mut self) -> Result<()> {
         if let Some((continue_block, _)) = self.loop_stack.last() {
             self.emit(Instruction::Jump {
@@ -1714,7 +1679,6 @@ impl IrBuilder {
         }
     }
 
-    /// Build IR for a try statement
     fn build_try(
         &mut self,
         body: &Block,
@@ -1789,14 +1753,12 @@ impl IrBuilder {
         Ok(())
     }
 
-    /// Build IR for a throw statement
     fn build_throw(&mut self, expr: &Expr) -> Result<()> {
         let exception = self.build_expr(expr)?;
         self.emit(Instruction::Throw { exception });
         Ok(())
     }
 
-    /// Build IR for a block
     fn build_block(&mut self, block: &Block) -> Result<()> {
         self.push_scope();
         for stmt in &block.statements {
@@ -1835,7 +1797,6 @@ impl IrBuilder {
         }
     }
 
-    /// Build IR for a literal
     fn build_literal(&mut self, lit: &Literal) -> Result<VarId> {
         let dest = self.new_var();
         let (value, ty) = match lit {
@@ -1856,7 +1817,6 @@ impl IrBuilder {
         Ok(dest)
     }
 
-    /// Build IR for an identifier
     fn build_identifier(&mut self, name: &str) -> Result<VarId> {
         if let Some(var_id) = self.lookup_var(name) {
             // Check if this is a function parameter (passed by value)
@@ -1922,7 +1882,6 @@ impl IrBuilder {
         }
     }
 
-    /// Build IR for a binary expression
     fn build_binary(&mut self, left: &Expr, op: AstBinaryOp, right: &Expr) -> Result<VarId> {
         let left_var = self.build_expr(left)?;
         let right_var = self.build_expr(right)?;
@@ -2028,7 +1987,6 @@ impl IrBuilder {
         Ok(dest)
     }
 
-    /// Convert a value to a string for concatenation
     fn convert_to_string(&mut self, var: VarId, ty: &IrType) -> Result<VarId> {
         let dest = self.new_var();
         let func_name = match ty {
@@ -2048,7 +2006,6 @@ impl IrBuilder {
         Ok(dest)
     }
 
-    /// Build IR for a unary expression
     fn build_unary(&mut self, op: AstUnaryOp, operand: &Expr) -> Result<VarId> {
         match op {
             AstUnaryOp::Neg => {
@@ -2089,7 +2046,6 @@ impl IrBuilder {
         }
     }
 
-    /// Build increment/decrement with store-back
     fn build_increment(
         &mut self,
         operand: &Expr,
@@ -2207,7 +2163,6 @@ impl IrBuilder {
         Ok(if is_prefix { new_val } else { old_val })
     }
 
-    /// Build IR for a function call
     fn build_call(&mut self, callee: &Expr, args: &[Expr]) -> Result<VarId> {
         // Special case: super constructor call (الأصل(...))
         if matches!(callee.kind, ExprKind::Super) {
@@ -2364,7 +2319,6 @@ impl IrBuilder {
         Ok(dest)
     }
 
-    /// Get the return type of a function by name
     fn get_function_return_type(&self, name: &str) -> IrType {
         // First check the pre-collected function signatures (for recursive/forward calls)
         if let Some(ret_ty) = self.function_return_types.get(name) {
@@ -2382,7 +2336,6 @@ impl IrBuilder {
         IrType::Ptr(Box::new(IrType::Void))
     }
 
-    /// Build IR for member access
     fn build_member(&mut self, object: &Expr, property: &str) -> Result<VarId> {
         let obj_type = self.infer_expr_type(object);
         let obj_var = self.build_expr(object)?;
@@ -2431,7 +2384,6 @@ impl IrBuilder {
         Ok(dest)
     }
 
-    /// Get field type from class definition
     fn get_field_type(&self, class_name: &str, field_name: &str) -> IrType {
         if let Some(fields) = self.class_fields.get(class_name) {
             for (name, ty) in fields {
@@ -2443,7 +2395,6 @@ impl IrBuilder {
         IrType::Ptr(Box::new(IrType::Void))
     }
 
-    /// Get field info (index, type) from class definition
     fn get_field_info(&self, class_name: &str, field_name: &str) -> Option<(u32, IrType)> {
         if let Some(fields) = self.class_fields.get(class_name) {
             for (idx, (name, ty)) in fields.iter().enumerate() {
@@ -2455,7 +2406,6 @@ impl IrBuilder {
         None
     }
 
-    /// Build IR for index access
     fn build_index(&mut self, object: &Expr, index: &Expr) -> Result<VarId> {
         let obj_type = self.infer_expr_type(object);
         let obj_var = self.build_expr(object)?;
@@ -2480,7 +2430,6 @@ impl IrBuilder {
         Ok(dest)
     }
 
-    /// Build IR for assignment
     fn build_assignment(&mut self, target: &Expr, value: &Expr) -> Result<VarId> {
         let value_var = self.build_expr(value)?;
 
@@ -2564,7 +2513,6 @@ impl IrBuilder {
         Ok(value_var)
     }
 
-    /// Build IR for compound assignment (+=, -=, etc.)
     fn build_compound_assignment(
         &mut self,
         target: &Expr,
@@ -2645,7 +2593,6 @@ impl IrBuilder {
         Ok(result)
     }
 
-    /// Build IR for array literal
     fn build_array(&mut self, elements: &[Expr]) -> Result<VarId> {
         // Infer element type from first element
         let elem_ty = if let Some(first) = elements.first() {
@@ -2671,7 +2618,6 @@ impl IrBuilder {
         Ok(dest)
     }
 
-    /// Build IR for object literal
     fn build_object(&mut self, fields: &[(String, Expr)]) -> Result<VarId> {
         // Objects are represented as anonymous structs for now
         let dest = self.new_var();
@@ -2698,7 +2644,6 @@ impl IrBuilder {
         Ok(dest)
     }
 
-    /// Build IR for lambda expression
     fn build_lambda(&mut self, params: &[Param], body: &LambdaBody) -> Result<VarId> {
         // Generate a unique name for the lambda
         let lambda_name = format!("__lambda_{}", self.var_counter);
@@ -2772,7 +2717,6 @@ impl IrBuilder {
         Ok(dest)
     }
 
-    /// Build IR for new expression
     fn build_new(&mut self, class: &Expr, args: &[Expr]) -> Result<VarId> {
         // Get class name
         let class_name = if let ExprKind::Identifier(name) = &class.kind {
@@ -2814,14 +2758,12 @@ impl IrBuilder {
         Ok(dest)
     }
 
-    /// Build IR for await expression
     fn build_await(&mut self, inner: &Expr) -> Result<VarId> {
         // For now, just evaluate the inner expression
         // Real async support would require more complex transformation
         self.build_expr(inner)
     }
 
-    /// Build IR for ternary expression
     fn build_ternary(
         &mut self,
         condition: &Expr,
@@ -2882,7 +2824,6 @@ impl IrBuilder {
         Ok(result)
     }
 
-    /// Build IR for 'this' reference
     fn build_this(&mut self) -> Result<VarId> {
         if let Some(var) = self.lookup_var("هذا").or_else(|| self.lookup_var("this")) {
             Ok(var)
@@ -2894,7 +2835,6 @@ impl IrBuilder {
         }
     }
 
-    /// Build IR for 'super' reference
     fn build_super(&mut self) -> Result<VarId> {
         if let Some(var) = self.lookup_var("هذا").or_else(|| self.lookup_var("this")) {
             Ok(var)
@@ -2906,7 +2846,6 @@ impl IrBuilder {
         }
     }
 
-    /// Build IR for a super constructor call: الأصل(args)
     fn build_super_constructor_call(&mut self, args: &[Expr]) -> Result<VarId> {
         // Get 'this' reference
         let this_var = self
@@ -2987,7 +2926,6 @@ mod tests {
     use super::*;
     use crate::parser::Parser;
 
-    /// Helper to wrap source code with required file markers
     fn wrap_with_markers(source: &str) -> String {
         format!("بسم_الله\n{}\nالحمد_لله", source.trim())
     }

@@ -11,7 +11,6 @@ use tower_lsp::lsp_types::{
     TextDocumentSyncOptions, WorkDoneProgressOptions,
 };
 
-/// Get the server capabilities
 pub fn server_capabilities() -> ServerCapabilities {
     ServerCapabilities {
         // Document synchronization

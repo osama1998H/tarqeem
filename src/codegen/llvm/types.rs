@@ -5,7 +5,6 @@
 use crate::ir::{ClassId, IrType};
 use std::collections::HashMap;
 
-/// Type mapper for converting IR types to LLVM types
 pub struct TypeMapper {
     pointer_bits: u32,
     struct_types: HashMap<String, String>,

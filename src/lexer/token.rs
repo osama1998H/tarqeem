@@ -3,7 +3,6 @@
 use crate::error::Span;
 use std::fmt;
 
-/// A token produced by the lexer
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
@@ -27,256 +26,153 @@ impl fmt::Display for Token {
     }
 }
 
-/// The kind of token
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     // ============ Literals ============
-    /// Integer literal: 42, ٤٢
     IntLiteral(i64),
-    /// Float literal: 3.14, ٣.١٤
     FloatLiteral(f64),
-    /// String literal: "مرحبا", 'hello'
     StringLiteral(String),
-    /// Boolean true: صحيح, true
     True,
-    /// Boolean false: خطأ, false
     False,
-    /// Null: لا_شيء
     Null,
 
     // ============ Identifiers ============
-    /// Identifier (variable/function name)
     Identifier(String),
 
     // ============ Keywords - Variables ============
-    /// متغير / let - mutable variable
     Let,
-    /// ثابت / const - immutable constant
     Const,
 
     // ============ Keywords - Functions ============
-    /// دالة / function
     Function,
-    /// أرجع / return
     Return,
-    /// متوازي / async
     Async,
-    /// انتظر / await
     Await,
 
     // ============ Keywords - Control Flow ============
-    /// إذا / if
     If,
-    /// وإلا / else
     Else,
-    /// تطابق / match
     Match,
-    /// حالة / case
     Case,
-    /// غير_ذلك / default
     Default,
 
     // ============ Keywords - Loops ============
-    /// طالما / while
     While,
-    /// لكل / for
     For,
-    /// في / in
     In,
-    /// افعل / do
     Do,
-    /// أوقف / break
     Break,
-    /// استمر / continue
     Continue,
 
     // ============ Keywords - OOP ============
-    /// صنف / class
     Class,
-    /// ميثاق / interface
     Interface,
-    /// يرث / extends
     Extends,
-    /// يلتزم / implements
     Implements,
-    /// عام / public
     Public,
-    /// خاص / private
     Private,
-    /// محمي / protected
     Protected,
-    /// مشترك / static
     Static,
-    /// منشئ / constructor
     Constructor,
-    /// هذا / this
     This,
-    /// الأصل / super
     Super,
-    /// جديد / new
     New,
-    /// تعداد / enum
     Enum,
 
     // ============ Keywords - Property Accessors ============
-    /// خاصية / property
     Property,
-    /// احصل / get
     Get,
-    /// عيّن / set
     Set,
 
     // ============ Keywords - Error Handling ============
-    /// حاول / try
     Try,
-    /// التقط / catch
     Catch,
-    /// أخيراً / finally
     Finally,
-    /// ارمِ / throw
     Throw,
 
     // ============ Keywords - Modules ============
-    /// استورد / import
     Import,
-    /// صدّر / export
     Export,
-    /// من / from
     From,
-    /// كـ / as
     As,
 
     // ============ Type Keywords ============
-    /// عدد / int
     TypeInt,
-    /// عدد_عشري / float
     TypeFloat,
-    /// نص / string
     TypeString,
-    /// منطقي / bool
     TypeBool,
-    /// مصفوفة / array
     TypeArray,
-    /// قاموس / map
     TypeMap,
-    /// Internal void type (no keyword - functions default to no return)
     TypeVoid,
-    /// أي / any
     TypeAny,
 
     // ============ Operators - Arithmetic ============
-    /// +
     Plus,
-    /// -
     Minus,
-    /// *
     Star,
-    /// /
     Slash,
-    /// %
     Percent,
-    /// **
     StarStar,
 
     // ============ Operators - Comparison ============
-    /// ==
     EqualEqual,
-    /// !=
     BangEqual,
-    /// <
     Less,
-    /// <=
     LessEqual,
-    /// >
     Greater,
-    /// >=
     GreaterEqual,
 
     // ============ Operators - Logical ============
-    /// && / و
     And,
-    /// || / أو
     Or,
-    /// ! / ليس
     Bang,
 
     // ============ Operators - Assignment ============
-    /// =
     Equal,
-    /// +=
     PlusEqual,
-    /// -=
     MinusEqual,
-    /// *=
     StarEqual,
-    /// /=
     SlashEqual,
-    /// %=
     PercentEqual,
 
     // ============ Operators - Increment/Decrement ============
-    /// ++
     PlusPlus,
-    /// --
     MinusMinus,
 
     // ============ Delimiters ============
-    /// (
     LeftParen,
-    /// )
     RightParen,
-    /// {
     LeftBrace,
-    /// }
     RightBrace,
-    /// [
     LeftBracket,
-    /// ]
     RightBracket,
-    /// ,
     Comma,
-    /// . (dot)
     Dot,
-    /// :
     Colon,
-    /// ;
     Semicolon,
-    /// ->
     Arrow,
-    /// =>
     FatArrow,
-    /// ?
     Question,
 
     // ============ Arabic Punctuation ============
-    /// ، (Arabic comma)
     ArabicComma,
-    /// ؛ (Arabic semicolon)
     ArabicSemicolon,
 
     // ============ Documentation Comments ============
-    /// Single-line doc comment: /// comment
     DocComment(String),
-    /// Block doc comment: /** comment */
     BlockDocComment(String),
 
     // ============ File Markers ============
-    /// بسم_الله / bismillah - File start marker (In the name of God)
     Bismillah,
-    /// الحمد_لله / alhamdulillah - File end marker (Praise be to God)
     Alhamdulillah,
 
     // ============ Special ============
-    /// End of file
     Eof,
-    /// Newline (may be significant in some contexts)
     Newline,
-    /// Error token
     Error(String),
 }
 
 impl TokenKind {
-    /// Check if this token is a literal
     pub fn is_literal(&self) -> bool {
         matches!(
             self,
@@ -289,7 +185,6 @@ impl TokenKind {
         )
     }
 
-    /// Check if this token is a keyword
     pub fn is_keyword(&self) -> bool {
         matches!(
             self,
@@ -342,7 +237,6 @@ impl TokenKind {
         )
     }
 
-    /// Check if this token is a type keyword
     pub fn is_type_keyword(&self) -> bool {
         matches!(
             self,
@@ -357,7 +251,6 @@ impl TokenKind {
         )
     }
 
-    /// Check if this token is a documentation comment
     pub fn is_doc_comment(&self) -> bool {
         matches!(
             self,
@@ -365,7 +258,6 @@ impl TokenKind {
         )
     }
 
-    /// Check if this token is an operator
     pub fn is_operator(&self) -> bool {
         matches!(
             self,

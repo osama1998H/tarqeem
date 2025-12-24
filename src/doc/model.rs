@@ -4,16 +4,11 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Complete documentation for a module/file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Documentation {
-    /// Module/file name
     pub name: String,
-    /// Module-level description
     pub description: Option<String>,
-    /// Source file path
     pub source_path: String,
-    /// All documented items
     pub items: Vec<DocItem>,
 }
 
@@ -27,7 +22,6 @@ impl Documentation {
         }
     }
 
-    /// Get all functions in the documentation
     pub fn functions(&self) -> impl Iterator<Item = &FunctionDoc> {
         self.items.iter().filter_map(|item| {
             if let DocItem::Function(f) = item {
@@ -38,7 +32,6 @@ impl Documentation {
         })
     }
 
-    /// Get all classes in the documentation
     pub fn classes(&self) -> impl Iterator<Item = &ClassDoc> {
         self.items.iter().filter_map(|item| {
             if let DocItem::Class(c) = item {
@@ -49,7 +42,6 @@ impl Documentation {
         })
     }
 
-    /// Get all interfaces in the documentation
     pub fn interfaces(&self) -> impl Iterator<Item = &InterfaceDoc> {
         self.items.iter().filter_map(|item| {
             if let DocItem::Interface(i) = item {
@@ -60,7 +52,6 @@ impl Documentation {
         })
     }
 
-    /// Get all variables/constants in the documentation
     pub fn variables(&self) -> impl Iterator<Item = &VariableDoc> {
         self.items.iter().filter_map(|item| {
             if let DocItem::Variable(v) = item {
@@ -72,7 +63,6 @@ impl Documentation {
     }
 }
 
-/// A documented item (function, class, interface, or variable)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum DocItem {
@@ -82,28 +72,17 @@ pub enum DocItem {
     Variable(VariableDoc),
 }
 
-/// Documentation for a function
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionDoc {
-    /// Function name
     pub name: String,
-    /// Arabic name (for bilingual support)
     pub name_ar: Option<String>,
-    /// Description extracted from doc comment
     pub description: Option<String>,
-    /// Parameter documentation
     pub params: Vec<ParamDoc>,
-    /// Return type documentation
     pub returns: Option<ReturnDoc>,
-    /// Example code
     pub examples: Vec<String>,
-    /// Related items
     pub see_also: Vec<String>,
-    /// Whether the function is async
     pub is_async: bool,
-    /// Whether the function is exported
     pub is_exported: bool,
-    /// Source location (line number)
     pub line: usize,
 }
 
@@ -124,52 +103,32 @@ impl FunctionDoc {
     }
 }
 
-/// Documentation for a parameter
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParamDoc {
-    /// Parameter name
     pub name: String,
-    /// Parameter type
     pub ty: Option<String>,
-    /// Description
     pub description: Option<String>,
-    /// Whether the parameter has a default value
     pub has_default: bool,
 }
 
-/// Documentation for a return value
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReturnDoc {
-    /// Return type
     pub ty: Option<String>,
-    /// Description of what is returned
     pub description: Option<String>,
 }
 
-/// Documentation for a class
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassDoc {
-    /// Class name
     pub name: String,
-    /// Description
     pub description: Option<String>,
-    /// Generic type parameters
     pub type_params: Vec<String>,
-    /// Parent class (if extends)
     pub extends: Option<String>,
-    /// Implemented interfaces
     pub implements: Vec<String>,
-    /// Fields
     pub fields: Vec<FieldDoc>,
-    /// Methods
     pub methods: Vec<MethodDoc>,
-    /// Constructor documentation
     pub constructor: Option<ConstructorDoc>,
-    /// Example code
     pub examples: Vec<String>,
-    /// Whether the class is exported
     pub is_exported: bool,
-    /// Source location (line number)
     pub line: usize,
 }
 
@@ -191,37 +150,23 @@ impl ClassDoc {
     }
 }
 
-/// Documentation for a class field
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldDoc {
-    /// Field name
     pub name: String,
-    /// Field type
     pub ty: Option<String>,
-    /// Description
     pub description: Option<String>,
-    /// Visibility (عام, خاص, محمي)
     pub visibility: String,
-    /// Whether the field is static
     pub is_static: bool,
 }
 
-/// Documentation for a method
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MethodDoc {
-    /// Method name
     pub name: String,
-    /// Description
     pub description: Option<String>,
-    /// Parameters
     pub params: Vec<ParamDoc>,
-    /// Return documentation
     pub returns: Option<ReturnDoc>,
-    /// Visibility
     pub visibility: String,
-    /// Whether the method is static
     pub is_static: bool,
-    /// Whether the method is async
     pub is_async: bool,
 }
 
@@ -239,29 +184,19 @@ impl MethodDoc {
     }
 }
 
-/// Documentation for a constructor
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConstructorDoc {
-    /// Description
     pub description: Option<String>,
-    /// Parameters
     pub params: Vec<ParamDoc>,
 }
 
-/// Documentation for an interface
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterfaceDoc {
-    /// Interface name
     pub name: String,
-    /// Description
     pub description: Option<String>,
-    /// Generic type parameters
     pub type_params: Vec<String>,
-    /// Method signatures
     pub methods: Vec<MethodSignatureDoc>,
-    /// Whether the interface is exported
     pub is_exported: bool,
-    /// Source location (line number)
     pub line: usize,
 }
 
@@ -278,33 +213,21 @@ impl InterfaceDoc {
     }
 }
 
-/// Documentation for a method signature in an interface
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MethodSignatureDoc {
-    /// Method name
     pub name: String,
-    /// Description
     pub description: Option<String>,
-    /// Parameters
     pub params: Vec<ParamDoc>,
-    /// Return type
     pub return_type: Option<String>,
 }
 
-/// Documentation for a variable or constant
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariableDoc {
-    /// Variable name
     pub name: String,
-    /// Type
     pub ty: Option<String>,
-    /// Description
     pub description: Option<String>,
-    /// Whether it's mutable (متغير) or constant (ثابت)
     pub is_mutable: bool,
-    /// Whether it's exported
     pub is_exported: bool,
-    /// Source location (line number)
     pub line: usize,
 }
 

@@ -10,7 +10,6 @@ use tower_lsp::lsp_types::{
     NumberOrString, PublishDiagnosticsParams, Url,
 };
 
-/// Convert Tarqeem diagnostics to LSP format
 pub fn publish_diagnostics(
     doc: &mut DocumentState,
     language: Language,
@@ -35,7 +34,6 @@ pub fn publish_diagnostics(
     }
 }
 
-/// Convert a single Tarqeem diagnostic to LSP format
 fn convert_diagnostic(
     diag: &Diagnostic,
     content: &str,
@@ -111,7 +109,6 @@ mod tests {
             Span::new(0, 1, 1, 1),
         );
 
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = "x";
 
         let lsp_diag = convert_diagnostic(&diag, content, &uri, Language::Arabic);
@@ -124,7 +121,6 @@ mod tests {
 
     #[test]
     fn test_severity_mapping() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = "x";
         let span = Span::new(0, 1, 1, 1);
 

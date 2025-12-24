@@ -12,84 +12,61 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Lock file format version
 pub const LOCKFILE_VERSION: u32 = 1;
 
-/// Lock file for deterministic builds (.trqlock)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LockFile {
-    /// Lock file format version
     pub version: u32,
 
-    /// Root package info
     #[serde(default)]
     pub root: Option<RootPackage>,
 
-    /// Locked packages
     #[serde(default)]
     pub packages: Vec<LockedPackage>,
 }
 
-/// Root package information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RootPackage {
-    /// Package name
     pub name: String,
 
-    /// Package version
     pub version: String,
 }
 
-/// A locked package with exact version
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LockedPackage {
-    /// Package name
     pub name: String,
 
-    /// Exact version
     pub version: String,
 
-    /// Source type and location
     pub source: PackageSource,
 
-    /// SHA256 checksum of the package
     pub checksum: String,
 
-    /// Dependencies of this package (name = version)
     #[serde(default)]
     pub dependencies: HashMap<String, String>,
 }
 
-/// Source of a package
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum PackageSource {
-    /// From the package registry
     #[serde(rename = "registry")]
     Registry {
-        /// Registry URL
         url: String,
     },
 
-    /// From a git repository
     #[serde(rename = "git")]
     Git {
-        /// Git repository URL
         url: String,
-        /// Branch, tag, or commit
         #[serde(flatten)]
         reference: GitReference,
     },
 
-    /// From a local path
     #[serde(rename = "path")]
     Path {
-        /// Local path
         path: String,
     },
 }
 
-/// Git reference type
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum GitReference {
@@ -99,20 +76,15 @@ pub enum GitReference {
 }
 
 impl LockFile {
-    /// Lock file names (in priority order)
-    /// أسماء ملفات القفل (بترتيب الأولوية)
     pub const LOCK_NAMES: &'static [&'static str] = &[
         "ترقيم.قفل", // الصيغة العربية الجديدة (أولوية قصوى)
         ".trqlock",  // الصيغة القديمة (للتوافق)
     ];
 
-    /// Default lock file name for new projects
     pub const DEFAULT_LOCK_NAME: &'static str = "ترقيم.قفل";
 
-    /// Legacy lock file name (for backward compatibility)
     pub const FILENAME: &'static str = ".trqlock";
 
-    /// Create a new empty lock file
     pub fn new() -> Self {
         Self {
             version: LOCKFILE_VERSION,
@@ -121,7 +93,6 @@ impl LockFile {
         }
     }
 
-    /// Create a lock file with root package info
     pub fn with_root(name: &str, version: &str) -> Self {
         Self {
             version: LOCKFILE_VERSION,
@@ -133,7 +104,6 @@ impl LockFile {
         }
     }
 
-    /// Find lock file in directory
     pub fn find_in_dir(dir: &Path) -> Option<std::path::PathBuf> {
         for name in Self::LOCK_NAMES {
             let path = dir.join(name);
@@ -144,8 +114,6 @@ impl LockFile {
         None
     }
 
-    /// Parse lock file from path
-    /// Detects format from file extension
     pub fn parse(path: &Path) -> PackageResult<Self> {
         let content = std::fs::read_to_string(path)?;
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -160,7 +128,6 @@ impl LockFile {
         }
     }
 
-    /// Parse lock file from Arabic format string
     pub fn parse_arabic_format(content: &str) -> PackageResult<Self> {
         let value = format::parse(content)
             .map_err(|e| super::error::PackageError::InvalidManifest(format!("{}", e)))?;
@@ -208,13 +175,10 @@ impl LockFile {
         })
     }
 
-    /// Try to parse lock file, returns None if not found
     pub fn try_parse(path: &Path) -> Option<Self> {
         Self::parse(path).ok()
     }
 
-    /// Save lock file to path
-    /// Detects format from file extension
     pub fn save(&self, path: &Path) -> PackageResult<()> {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
@@ -228,7 +192,6 @@ impl LockFile {
         Ok(())
     }
 
-    /// Convert to Arabic format string
     pub fn to_arabic_format(&self) -> String {
         let mut output = String::new();
 
@@ -266,7 +229,6 @@ impl LockFile {
         output
     }
 
-    /// Format package source for Arabic output
     fn format_source(source: &PackageSource) -> String {
         match source {
             PackageSource::Registry { url } => format!("سجل ({})", url),
@@ -282,22 +244,18 @@ impl LockFile {
         }
     }
 
-    /// Get a locked package by name
     pub fn get_package(&self, name: &str) -> Option<&LockedPackage> {
         self.packages.iter().find(|p| p.name == name)
     }
 
-    /// Get a locked package by name (mutable)
     pub fn get_package_mut(&mut self, name: &str) -> Option<&mut LockedPackage> {
         self.packages.iter_mut().find(|p| p.name == name)
     }
 
-    /// Check if a package is locked
     pub fn has_package(&self, name: &str) -> bool {
         self.packages.iter().any(|p| p.name == name)
     }
 
-    /// Add or update a locked package
     pub fn upsert_package(&mut self, package: LockedPackage) {
         if let Some(existing) = self.get_package_mut(&package.name) {
             *existing = package;
@@ -306,7 +264,6 @@ impl LockFile {
         }
     }
 
-    /// Remove a package from the lock file
     pub fn remove_package(&mut self, name: &str) -> Option<LockedPackage> {
         if let Some(idx) = self.packages.iter().position(|p| p.name == name) {
             Some(self.packages.remove(idx))
@@ -315,24 +272,20 @@ impl LockFile {
         }
     }
 
-    /// Check if a package version matches the lock
     pub fn matches(&self, name: &str, version: &str) -> bool {
         self.get_package(name)
             .map(|p| p.version == version)
             .unwrap_or(false)
     }
 
-    /// Get all package names
     pub fn package_names(&self) -> impl Iterator<Item = &str> {
         self.packages.iter().map(|p| p.name.as_str())
     }
 
-    /// Sort packages by name for consistent output
     pub fn sort_packages(&mut self) {
         self.packages.sort_by(|a, b| a.name.cmp(&b.name));
     }
 
-    /// Clear all packages
     pub fn clear(&mut self) {
         self.packages.clear();
     }
@@ -345,7 +298,6 @@ impl Default for LockFile {
 }
 
 impl LockedPackage {
-    /// Create a new locked package from registry
     pub fn from_registry(
         name: String,
         version: String,
@@ -361,7 +313,6 @@ impl LockedPackage {
         }
     }
 
-    /// Create a new locked package from path
     pub fn from_path(name: String, version: String, path: String, checksum: String) -> Self {
         Self {
             name,
@@ -372,29 +323,24 @@ impl LockedPackage {
         }
     }
 
-    /// Add a dependency
     pub fn add_dependency(&mut self, name: String, version: String) {
         self.dependencies.insert(name, version);
     }
 }
 
 impl PackageSource {
-    /// Check if this is a registry source
     pub fn is_registry(&self) -> bool {
         matches!(self, PackageSource::Registry { .. })
     }
 
-    /// Check if this is a git source
     pub fn is_git(&self) -> bool {
         matches!(self, PackageSource::Git { .. })
     }
 
-    /// Check if this is a path source
     pub fn is_path(&self) -> bool {
         matches!(self, PackageSource::Path { .. })
     }
 
-    /// Get a display string for the source
     pub fn display(&self) -> String {
         match self {
             PackageSource::Registry { url } => format!("registry: {}", url),

@@ -5,8 +5,6 @@
 use super::TokenKind;
 use phf::phf_map;
 
-/// Static map of Arabic keywords to token kinds
-/// Only Arabic keywords are supported - English keywords are not allowed
 pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     // ============ Variables ============
     "متغير" => TokenKind::Let,
@@ -104,7 +102,6 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "الحمد_لله" => TokenKind::Alhamdulillah,
 };
 
-/// Look up a keyword in the keyword map
 pub fn lookup_keyword(ident: &str) -> Option<TokenKind> {
     KEYWORDS.get(ident).cloned()
 }

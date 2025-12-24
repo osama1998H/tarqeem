@@ -11,40 +11,28 @@ use super::class_resolver::{ClassResolver, FieldInfo, MethodInfo};
 use super::types::Type;
 use crate::error::{Diagnostic, Span};
 
-/// Result of resolving a member access
 #[derive(Debug, Clone)]
 pub enum MemberResolution {
-    /// A field access
     Field(FieldInfo),
-    /// A method reference
     Method(MethodInfo),
-    /// Built-in property (like .length for arrays)
     BuiltinProperty { name: String, ty: Type },
-    /// Not found
     NotFound,
 }
 
-/// Result of resolving a method call
 #[derive(Debug, Clone)]
 pub struct MethodCallResolution {
-    /// The resolved method
     pub method: MethodInfo,
-    /// Whether this is a virtual call (through vtable)
     pub is_virtual: bool,
-    /// The class that defines this method
     pub defining_class: String,
-    /// VTable index (for virtual calls)
     pub vtable_index: Option<usize>,
 }
 
-/// The method resolver
 pub struct MethodResolver<'a> {
     class_resolver: &'a ClassResolver,
     diagnostics: Vec<Diagnostic>,
 }
 
 impl<'a> MethodResolver<'a> {
-    /// Create a new method resolver
     pub fn new(class_resolver: &'a ClassResolver) -> Self {
         Self {
             class_resolver,
@@ -52,7 +40,6 @@ impl<'a> MethodResolver<'a> {
         }
     }
 
-    /// Resolve a member access on a type
     pub fn resolve_member(&mut self, object_type: &Type, member_name: &str) -> MemberResolution {
         match object_type {
             Type::Class(class_name) => self.resolve_class_member(class_name, member_name),
@@ -70,7 +57,6 @@ impl<'a> MethodResolver<'a> {
         }
     }
 
-    /// Resolve a member on a class type
     fn resolve_class_member(&self, class_name: &str, member_name: &str) -> MemberResolution {
         if let Some(class) = self.class_resolver.get_class(class_name) {
             // First check for methods
@@ -87,7 +73,6 @@ impl<'a> MethodResolver<'a> {
         MemberResolution::NotFound
     }
 
-    /// Resolve built-in array members
     fn resolve_array_member(&self, member_name: &str) -> MemberResolution {
         match member_name {
             "طول" | "length" => MemberResolution::BuiltinProperty {
@@ -120,7 +105,6 @@ impl<'a> MethodResolver<'a> {
         }
     }
 
-    /// Resolve built-in string members
     fn resolve_string_member(&self, member_name: &str) -> MemberResolution {
         match member_name {
             "طول" | "length" => MemberResolution::BuiltinProperty {
@@ -187,7 +171,6 @@ impl<'a> MethodResolver<'a> {
         }
     }
 
-    /// Resolve built-in map members
     fn resolve_map_member(&self, member_name: &str) -> MemberResolution {
         match member_name {
             "طول" | "size" | "length" => MemberResolution::BuiltinProperty {
@@ -220,7 +203,6 @@ impl<'a> MethodResolver<'a> {
         }
     }
 
-    /// Resolve a method call
     pub fn resolve_method_call(
         &mut self,
         object_type: &Type,
@@ -253,7 +235,6 @@ impl<'a> MethodResolver<'a> {
         }
     }
 
-    /// Resolve a method call on a class
     fn resolve_class_method_call(
         &mut self,
         class_name: &str,
@@ -289,7 +270,6 @@ impl<'a> MethodResolver<'a> {
         None
     }
 
-    /// Find which class in the hierarchy defines a method
     fn find_defining_class(&self, class_name: &str, method_name: &str) -> String {
         if let Some(class) = self.class_resolver.get_class(class_name) {
             if class.has_own_method(method_name) {
@@ -304,7 +284,6 @@ impl<'a> MethodResolver<'a> {
         class_name.to_string()
     }
 
-    /// Resolve a super method call
     pub fn resolve_super_call(
         &mut self,
         current_class: &str,
@@ -326,7 +305,6 @@ impl<'a> MethodResolver<'a> {
         None
     }
 
-    /// Check method call arguments
     pub fn check_method_args(
         &mut self,
         method: &MethodInfo,
@@ -378,12 +356,10 @@ impl<'a> MethodResolver<'a> {
         true
     }
 
-    /// Get collected diagnostics
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
 
-    /// Take diagnostics (consuming)
     pub fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
         std::mem::take(&mut self.diagnostics)
     }

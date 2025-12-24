@@ -25,9 +25,6 @@ pub use printer::Printer;
 
 use crate::parser::Parser;
 
-/// Format Tarqeem source code
-///
-/// Returns the formatted source code string.
 pub fn format_source(source: &str, config: &FormatConfig) -> Result<String, FormatError> {
     // Parse the source
     let mut parser = Parser::new(source);
@@ -40,15 +37,11 @@ pub fn format_source(source: &str, config: &FormatConfig) -> Result<String, Form
     Ok(formatter.format(&ast))
 }
 
-/// Check if source is already formatted
-///
-/// Returns true if the source matches the formatted output.
 pub fn check_formatted(source: &str, config: &FormatConfig) -> Result<bool, FormatError> {
     let formatted = format_source(source, config)?;
     Ok(source == formatted)
 }
 
-/// Show diff between original and formatted source
 pub fn show_diff(source: &str, config: &FormatConfig) -> Result<String, FormatError> {
     let formatted = format_source(source, config)?;
 
@@ -86,14 +79,10 @@ pub fn show_diff(source: &str, config: &FormatConfig) -> Result<String, FormatEr
     Ok(diff)
 }
 
-/// Format error
 #[derive(Debug, Clone)]
 pub enum FormatError {
-    /// Error parsing the source code
     ParseError { message: String },
-    /// Error reading/writing files
     IoError { message: String },
-    /// Error parsing config file
     ConfigError { message: String },
 }
 
@@ -119,7 +108,6 @@ impl std::error::Error for FormatError {}
 mod tests {
     use super::*;
 
-    /// Helper to wrap source code with required file markers
     fn wrap_with_markers(source: &str) -> String {
         format!("بسم_الله\n{}\nالحمد_لله", source.trim())
     }

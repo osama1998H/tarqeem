@@ -17,32 +17,21 @@
 
 use super::model::{ParamDoc, ReturnDoc};
 
-/// Parsed documentation comment
 #[derive(Debug, Clone, Default)]
 pub struct ParsedDocComment {
-    /// Main description text
     pub description: Option<String>,
-    /// Parameter documentation (@معامل / @param)
     pub params: Vec<ParamDoc>,
-    /// Return value documentation (@أرجع / @returns)
     pub returns: Option<ReturnDoc>,
-    /// Example code blocks (@مثال / @example)
     pub examples: Vec<String>,
-    /// See also references (@انظر / @see)
     pub see_also: Vec<String>,
-    /// Notes (@ملاحظة / @note)
     pub notes: Vec<String>,
-    /// Warnings (@تحذير / @warning)
     pub warnings: Vec<String>,
-    /// Version added (@منذ / @since)
     pub since: Option<String>,
 }
 
-/// Parser for documentation comments
 pub struct DocCommentParser;
 
 impl DocCommentParser {
-    /// Parse a doc comment string and extract structured information
     pub fn parse(comment: &str) -> ParsedDocComment {
         let mut result = ParsedDocComment::default();
         let mut description_lines = Vec::new();
@@ -124,7 +113,6 @@ impl DocCommentParser {
         result
     }
 
-    /// Parse a tag from a line (returns tag name and content)
     fn parse_tag(line: &str) -> Option<(&'static str, String)> {
         let trimmed = line.trim();
 
@@ -183,7 +171,6 @@ impl DocCommentParser {
         None
     }
 
-    /// Save a tag to the result
     fn save_tag(result: &mut ParsedDocComment, tag: &str, content: &str) {
         match tag {
             "param" => {
@@ -218,9 +205,6 @@ impl DocCommentParser {
         }
     }
 
-    /// Parse a @param tag content
-    /// Format: @معامل اسم - وصف
-    /// or: @معامل {نوع} اسم - وصف
     fn parse_param(content: &str) -> Option<ParamDoc> {
         let content = content.trim();
         if content.is_empty() {
@@ -266,9 +250,6 @@ impl DocCommentParser {
         })
     }
 
-    /// Parse a @returns tag content
-    /// Format: @أرجع وصف
-    /// or: @أرجع {نوع} وصف
     fn parse_return(content: &str) -> ReturnDoc {
         let content = content.trim();
 

@@ -9,13 +9,9 @@ use crate::doc::model::{
 };
 use std::io::Write;
 
-/// HTML documentation generator
 pub struct HtmlGenerator {
-    /// Include navigation sidebar
     pub include_nav: bool,
-    /// Include search functionality
     pub include_search: bool,
-    /// Custom CSS (optional)
     pub custom_css: Option<String>,
 }
 
@@ -916,7 +912,6 @@ footer {
     }
 }
 
-/// Escape HTML special characters
 fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")

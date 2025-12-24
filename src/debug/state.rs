@@ -9,25 +9,18 @@ use crate::ir::{BlockId, FuncId, VarId};
 use super::source_map::SourceLocation;
 use super::BreakpointId;
 
-/// The current state of a debug session
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DebugState {
-    /// The debugger has not started execution
     NotStarted,
 
-    /// The program is currently running
     Running,
 
-    /// The program is paused
     Paused { reason: PauseReason },
 
-    /// The program is stepping (executing one step at a time)
     Stepping { mode: StepMode },
 
-    /// The program has terminated normally
     Terminated { exit_value: Option<String> },
 
-    /// The program terminated due to an error
     Error { message: String, message_ar: String },
 }
 
@@ -38,17 +31,14 @@ impl Default for DebugState {
 }
 
 impl DebugState {
-    /// Check if the debugger is in a paused state
     pub fn is_paused(&self) -> bool {
         matches!(self, DebugState::Paused { .. })
     }
 
-    /// Check if the debugger is running
     pub fn is_running(&self) -> bool {
         matches!(self, DebugState::Running | DebugState::Stepping { .. })
     }
 
-    /// Check if execution has ended
     pub fn is_terminated(&self) -> bool {
         matches!(
             self,
@@ -56,7 +46,6 @@ impl DebugState {
         )
     }
 
-    /// Get a human-readable state description
     pub fn description(&self) -> &str {
         match self {
             DebugState::NotStarted => "Not started / لم يبدأ",
@@ -68,7 +57,6 @@ impl DebugState {
         }
     }
 
-    /// Get Arabic state description
     pub fn description_ar(&self) -> &str {
         match self {
             DebugState::NotStarted => "لم يبدأ",
@@ -81,25 +69,18 @@ impl DebugState {
     }
 }
 
-/// Reason for pausing execution
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PauseReason {
-    /// Hit a breakpoint
     Breakpoint { id: BreakpointId },
 
-    /// Completed a step operation
     Step,
 
-    /// User requested pause
     UserRequest,
 
-    /// Entry point reached (when starting in paused mode)
     Entry,
 
-    /// Exception was thrown
     Exception { message: String },
 
-    /// Data breakpoint/watchpoint hit
     DataBreakpoint {
         variable: String,
         old_value: String,
@@ -108,7 +89,6 @@ pub enum PauseReason {
 }
 
 impl PauseReason {
-    /// Get a human-readable description
     pub fn description(&self) -> String {
         match self {
             PauseReason::Breakpoint { id } => {
@@ -133,7 +113,6 @@ impl PauseReason {
         }
     }
 
-    /// Get Arabic description
     pub fn description_ar(&self) -> String {
         match self {
             PauseReason::Breakpoint { id } => format!("وصل إلى نقطة التوقف {}", id.0),
@@ -155,28 +134,18 @@ impl PauseReason {
     }
 }
 
-/// Step execution mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepMode {
-    /// Step to next source line (step over function calls)
-    /// خطوة فوق
     Over,
 
-    /// Step into function calls
-    /// خطوة داخل
     Into,
 
-    /// Step out of current function
-    /// خطوة خارج
     Out,
 
-    /// Step one instruction (regardless of source line)
-    /// خطوة تعليمة
     Instruction,
 }
 
 impl StepMode {
-    /// Get human-readable name
     pub fn name(&self) -> &str {
         match self {
             StepMode::Over => "Step Over / خطوة فوق",
@@ -186,7 +155,6 @@ impl StepMode {
         }
     }
 
-    /// Get Arabic name
     pub fn name_ar(&self) -> &str {
         match self {
             StepMode::Over => "خطوة فوق",
@@ -197,71 +165,51 @@ impl StepMode {
     }
 }
 
-/// Events emitted by the debugger
 #[derive(Debug, Clone)]
 pub enum DebugEvent {
-    /// Debug session started
     Started,
 
-    /// Execution paused
     Stopped {
         reason: PauseReason,
         location: Option<SourceLocation>,
     },
 
-    /// Execution continued
     Continued,
 
-    /// A breakpoint was hit
     BreakpointHit {
         id: BreakpointId,
         location: SourceLocation,
     },
 
-    /// An exception occurred
     ExceptionOccurred {
         message: String,
         location: Option<SourceLocation>,
     },
 
-    /// Output was produced
     Output {
         text: String,
         category: OutputCategory,
     },
 
-    /// Program terminated
     Exited { exit_code: i32 },
 
-    /// Debug session ended
     Terminated,
 }
 
-/// Category of debug output
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputCategory {
-    /// Standard output
     Stdout,
-    /// Standard error
     Stderr,
-    /// Debug console output
     Console,
 }
 
-/// A stack frame in the call stack
 #[derive(Debug, Clone)]
 pub struct StackFrame {
-    /// Frame ID (unique within session)
     pub id: u32,
-    /// Function name
     pub name: String,
-    /// Source location (if available)
     pub location: Option<SourceLocation>,
-    /// Function ID
     pub func_id: FuncId,
-    /// Current block
     pub block_id: BlockId,
-    /// Current instruction index
     pub inst_idx: usize,
 }
 
@@ -283,20 +231,13 @@ impl StackFrame {
     }
 }
 
-/// A variable in the debug context
 #[derive(Debug, Clone)]
 pub struct DebugVariable {
-    /// Variable name
     pub name: String,
-    /// Variable value (formatted for display)
     pub value: String,
-    /// Variable type
     pub type_name: String,
-    /// VarId if this is a local variable
     pub var_id: Option<VarId>,
-    /// Whether the value can be modified
     pub is_mutable: bool,
-    /// Number of child variables (for expandable types)
     pub children_count: usize,
 }
 
@@ -326,14 +267,10 @@ impl DebugVariable {
     }
 }
 
-/// A scope containing variables
 #[derive(Debug, Clone)]
 pub struct DebugScope {
-    /// Scope name
     pub name: String,
-    /// Variables in this scope
     pub variables: Vec<DebugVariable>,
-    /// Whether this is an expensive scope to evaluate
     pub expensive: bool,
 }
 

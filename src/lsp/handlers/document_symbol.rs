@@ -7,7 +7,6 @@ use crate::lsp::analysis::{DocumentState, SymbolKind as TrqSymbolKind};
 use crate::lsp::utils::span_to_range;
 use tower_lsp::lsp_types::{DocumentSymbol, SymbolKind};
 
-/// Handle document symbols request
 pub fn handle_document_symbol(
     doc: &mut DocumentState,
     language: Language,
@@ -113,7 +112,6 @@ mod tests {
 
     #[test]
     fn test_document_symbols_function() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = r#"
 دالة جمع(أ: عدد، ب: عدد) -> عدد {
     أرجع أ + ب
@@ -131,7 +129,6 @@ mod tests {
 
     #[test]
     fn test_document_symbols_class() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = r#"
 صنف شخص {
     خاص اسم: نص

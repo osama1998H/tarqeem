@@ -6,7 +6,6 @@ use crate::ir::{
 };
 use std::path::PathBuf;
 
-/// Create a simple test module with a main function
 fn create_test_module() -> Module {
     let mut module = Module::new("test".to_string());
 
@@ -68,7 +67,6 @@ fn create_test_module() -> Module {
     module
 }
 
-/// Create a module with branching for testing breakpoints
 fn create_branching_module() -> Module {
     let mut module = Module::new("test".to_string());
 

@@ -55,24 +55,16 @@ pub use lexer::{Lexer, Token};
 pub use parser::{parse, Parser};
 pub use value::Value;
 
-/// اسم ملف الحزمة الافتراضي
-/// Default package manifest filename
 pub const DEFAULT_MANIFEST_NAME: &str = "ترقيم.حزمة";
 
-/// اسم ملف القفل الافتراضي
-/// Default lock filename
 pub const DEFAULT_LOCK_NAME: &str = "ترقيم.قفل";
 
-/// أسماء ملفات الحزمة المدعومة (بترتيب الأولوية)
-/// Supported manifest filenames (in priority order)
 pub const MANIFEST_NAMES: &[&str] = &[
     "ترقيم.حزمة", // الصيغة العربية الجديدة (أولوية قصوى)
     "حزمة.toml",  // TOML بالعربية (للتوافق)
     "trq.toml",   // TOML بالإنجليزية (للتوافق)
 ];
 
-/// أسماء ملفات القفل المدعومة (بترتيب الأولوية)
-/// Supported lock filenames (in priority order)
 pub const LOCK_NAMES: &[&str] = &[
     "ترقيم.قفل", // الصيغة العربية الجديدة (أولوية قصوى)
     ".trqlock",  // الصيغة القديمة (للتوافق)

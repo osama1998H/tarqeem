@@ -13,10 +13,6 @@ use tower_lsp::lsp_types::{
     SignatureHelp, SignatureInformation,
 };
 
-/// Handle signature help request
-///
-/// This is called when the user is typing inside a function call,
-/// typically after '(' or ',' characters.
 pub fn handle_signature_help(
     doc: &mut DocumentState,
     position: Position,
@@ -166,21 +162,12 @@ pub fn handle_signature_help(
     })
 }
 
-/// Context information about a function call
 #[derive(Debug)]
 struct CallContext {
-    /// The name of the function being called
     function_name: String,
-    /// The index of the parameter the cursor is on (0-indexed)
     active_parameter: usize,
 }
 
-/// Find the function call context at the given offset
-///
-/// This searches backwards from the cursor to find:
-/// 1. The opening parenthesis of the function call
-/// 2. The function name before the parenthesis
-/// 3. How many commas are before the cursor (to determine active parameter)
 fn find_call_context(content: &str, offset: usize) -> Option<CallContext> {
     let chars: Vec<char> = content.chars().collect();
 
@@ -249,17 +236,14 @@ fn find_call_context(content: &str, offset: usize) -> Option<CallContext> {
     })
 }
 
-/// Check if a character is valid in an identifier
 fn is_identifier_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || is_arabic_letter(c)
 }
 
-/// Check if a character is an Arabic letter
 fn is_arabic_letter(c: char) -> bool {
     matches!(c, '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}' | '\u{08A0}'..='\u{08FF}')
 }
 
-/// Format a placeholder parameter name when doc is not available
 fn format_param_placeholder(index: usize, language: Language) -> String {
     match language {
         Language::Arabic => format!("معامل{}", index + 1),
@@ -267,7 +251,6 @@ fn format_param_placeholder(index: usize, language: Language) -> String {
     }
 }
 
-/// Get signature help for built-in functions
 pub fn get_builtin_signature_help(
     name: &str,
     active_parameter: usize,

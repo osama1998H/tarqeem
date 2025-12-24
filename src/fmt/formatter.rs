@@ -9,25 +9,21 @@ use crate::parser::{
     Visibility,
 };
 
-/// Code formatter that traverses the AST
 pub struct Formatter {
     config: FormatConfig,
 }
 
 impl Formatter {
-    /// Create a new formatter with the given configuration
     pub fn new(config: FormatConfig) -> Self {
         Self { config }
     }
 
-    /// Format an AST into a string
     pub fn format(&self, ast: &Ast) -> String {
         let mut printer = Printer::new(self.config.clone());
         self.format_ast(ast, &mut printer);
         printer.finish()
     }
 
-    /// Format the AST
     fn format_ast(&self, ast: &Ast, p: &mut Printer) {
         // Output file start marker if present
         if ast.has_file_markers() {
@@ -73,7 +69,6 @@ impl Formatter {
         }
     }
 
-    /// Format a statement
     fn format_stmt(&self, stmt: &Stmt, p: &mut Printer) {
         // Format doc comment if present
         self.format_doc_comment_for_stmt(&stmt.kind, p);
@@ -471,7 +466,6 @@ impl Formatter {
         }
     }
 
-    /// Format a statement inline (without trailing newline)
     fn format_stmt_inline(&self, stmt: &Stmt, p: &mut Printer) {
         match &stmt.kind {
             StmtKind::VarDecl {
@@ -509,14 +503,12 @@ impl Formatter {
         }
     }
 
-    /// Format a block of statements
     fn format_block(&self, block: &Block, p: &mut Printer) {
         for stmt in &block.statements {
             self.format_stmt(stmt, p);
         }
     }
 
-    /// Format an expression
     fn format_expr(&self, expr: &Expr, p: &mut Printer) {
         match &expr.kind {
             ExprKind::Literal(lit) => self.format_literal(lit, p),
@@ -701,7 +693,6 @@ impl Formatter {
         }
     }
 
-    /// Format a literal value
     fn format_literal(&self, lit: &Literal, p: &mut Printer) {
         match lit {
             Literal::Int(n) => p.write(&n.to_string()),
@@ -732,7 +723,6 @@ impl Formatter {
         }
     }
 
-    /// Format a type annotation
     fn format_type(&self, ty: &TypeAnnotation, p: &mut Printer) {
         match &ty.kind {
             TypeKind::Simple(name) => {
@@ -787,7 +777,6 @@ impl Formatter {
         }
     }
 
-    /// Format function/method parameters
     fn format_params(&self, params: &[Param], p: &mut Printer) {
         for (i, param) in params.iter().enumerate() {
             if i > 0 {
@@ -805,7 +794,6 @@ impl Formatter {
         }
     }
 
-    /// Format a class member
     fn format_class_member(&self, member: &ClassMember, p: &mut Printer) {
         match member {
             ClassMember::Field {
@@ -1013,7 +1001,6 @@ impl Formatter {
         }
     }
 
-    /// Format a method signature (for interfaces)
     fn format_method_signature(&self, sig: &MethodSignature, p: &mut Printer) {
         // Doc comment
         if let Some(doc) = &sig.doc_comment {
@@ -1036,7 +1023,6 @@ impl Formatter {
         p.newline();
     }
 
-    /// Format an enum variant
     fn format_enum_variant(&self, variant: &EnumVariant, p: &mut Printer) {
         // Doc comment
         if let Some(doc) = &variant.doc_comment {
@@ -1070,7 +1056,6 @@ impl Formatter {
         p.newline();
     }
 
-    /// Format a match arm
     fn format_match_arm(&self, arm: &MatchArm, p: &mut Printer) {
         p.write("حالة");
         p.write_space();
@@ -1089,7 +1074,6 @@ impl Formatter {
         p.newline();
     }
 
-    /// Format import items
     fn format_import_items(&self, items: &ImportItems, p: &mut Printer) {
         match items {
             ImportItems::Named(imports) => {
@@ -1123,7 +1107,6 @@ impl Formatter {
         }
     }
 
-    /// Format visibility modifier
     fn format_visibility(&self, vis: Visibility, p: &mut Printer) {
         match vis {
             Visibility::Public => {
@@ -1141,10 +1124,8 @@ impl Formatter {
         }
     }
 
-    /// Format a documentation comment
     fn format_doc_comment(&self, doc: &str, p: &mut Printer) {
         for line in doc.lines() {
-            p.write("///");
             if !line.is_empty() {
                 p.write_space();
                 p.write(line);
@@ -1153,7 +1134,6 @@ impl Formatter {
         }
     }
 
-    /// Format doc comment for a statement if present
     fn format_doc_comment_for_stmt(&self, kind: &StmtKind, p: &mut Printer) {
         let doc = match kind {
             StmtKind::VarDecl { doc_comment, .. } => doc_comment.as_ref(),
@@ -1169,7 +1149,6 @@ impl Formatter {
         }
     }
 
-    /// Get string representation of binary operator
     fn binary_op_str(&self, op: BinaryOp) -> &'static str {
         match op {
             BinaryOp::Add => "+",
@@ -1194,7 +1173,6 @@ impl Formatter {
 mod tests {
     use super::*;
 
-    /// Helper to wrap source code with required file markers
     fn wrap_with_markers(source: &str) -> String {
         format!("بسم_الله\n{}\nالحمد_لله", source.trim())
     }

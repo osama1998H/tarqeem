@@ -12,27 +12,18 @@ use crate::ir::{
 };
 use std::collections::{HashMap, HashSet};
 
-/// Loop information
 #[derive(Debug, Clone)]
 pub struct Loop {
-    /// Header block (entry point)
     pub header: BlockId,
-    /// All blocks in the loop
     pub blocks: HashSet<BlockId>,
-    /// Back edges (blocks that jump back to header)
     pub back_edges: Vec<BlockId>,
-    /// Preheader block (if exists, for LICM)
     pub preheader: Option<BlockId>,
-    /// Exit blocks (blocks with successors outside the loop)
     pub exits: HashSet<BlockId>,
-    /// Induction variables
     pub induction_vars: Vec<InductionVar>,
-    /// Nesting depth
     pub depth: usize,
 }
 
 impl Loop {
-    /// Create a new loop
     pub fn new(header: BlockId) -> Self {
         Self {
             header,
@@ -45,47 +36,33 @@ impl Loop {
         }
     }
 
-    /// Check if a block is part of this loop
     pub fn contains(&self, block: BlockId) -> bool {
         self.blocks.contains(&block)
     }
 }
 
-/// Induction variable information
 #[derive(Debug, Clone)]
 pub struct InductionVar {
-    /// Variable ID
     pub var: VarId,
-    /// Initial value (before loop)
     pub init: VarId,
-    /// Step value per iteration
     pub step: InductionStep,
-    /// Final value (after loop exit)
     pub final_val: Option<VarId>,
 }
 
-/// Step pattern for induction variables
 #[derive(Debug, Clone)]
 pub enum InductionStep {
-    /// Constant step (e.g., i += 1)
     Constant(i64),
-    /// Variable step (e.g., i += x)
     Variable(VarId),
-    /// Multiplicative step (e.g., i *= 2)
     Multiply(i64),
 }
 
-/// Loop analysis result
 #[derive(Debug)]
 pub struct LoopAnalysis {
-    /// All detected loops
     pub loops: Vec<Loop>,
-    /// Block -> innermost containing loop
     pub block_to_loop: HashMap<BlockId, usize>,
 }
 
 impl LoopAnalysis {
-    /// Create empty analysis
     pub fn new() -> Self {
         Self {
             loops: Vec::new(),
@@ -93,7 +70,6 @@ impl LoopAnalysis {
         }
     }
 
-    /// Analyze loops in a function
     pub fn analyze(func: &Function) -> Self {
         let mut analysis = Self::new();
 
@@ -203,7 +179,6 @@ impl LoopAnalysis {
     }
 }
 
-/// Analyze induction variables in a loop
 fn analyze_induction_vars(func: &Function, loop_info: &Loop) -> Vec<InductionVar> {
     let mut induction_vars = Vec::new();
 
@@ -245,7 +220,6 @@ fn analyze_induction_vars(func: &Function, loop_info: &Loop) -> Vec<InductionVar
     induction_vars
 }
 
-/// Find the step pattern for a potential induction variable
 fn find_induction_step(
     func: &Function,
     block_id: BlockId,
@@ -314,7 +288,6 @@ fn find_induction_step(
     None
 }
 
-/// Try to find the constant value of a variable
 fn find_constant_value(func: &Function, var: VarId) -> Option<i64> {
     for block in &func.blocks {
         for inst in &block.instructions {
@@ -333,35 +306,27 @@ fn find_constant_value(func: &Function, var: VarId) -> Option<i64> {
     None
 }
 
-/// Loop-Invariant Code Motion (LICM)
-///
-/// Moves instructions that compute the same value on every iteration
-/// out of the loop into the preheader.
 pub struct LoopInvariantCodeMotion {
     stats: OptStats,
 }
 
 impl LoopInvariantCodeMotion {
-    /// Create a new LICM pass
     pub fn new() -> Self {
         Self {
             stats: OptStats::new(),
         }
     }
 
-    /// Get optimization statistics
     pub fn stats(&self) -> &OptStats {
         &self.stats
     }
 
-    /// Run LICM on a module
     pub fn run(&mut self, module: &mut Module) {
         for func in &mut module.functions {
             self.optimize_function(func);
         }
     }
 
-    /// Optimize a single function
     fn optimize_function(&mut self, func: &mut Function) {
         let analysis = LoopAnalysis::analyze(func);
 
@@ -383,7 +348,6 @@ impl LoopInvariantCodeMotion {
         }
     }
 
-    /// Find loop-invariant instructions
     fn find_loop_invariants(&self, func: &Function, loop_info: &Loop) -> Vec<(BlockId, usize)> {
         let mut invariants = Vec::new();
 
@@ -422,7 +386,6 @@ impl LoopInvariantCodeMotion {
         invariants
     }
 
-    /// Check if an instruction is loop-invariant
     fn is_loop_invariant(
         &self,
         inst: &Instruction,
@@ -468,7 +431,6 @@ impl LoopInvariantCodeMotion {
         operands.iter().all(|op| invariant_defs.contains(op))
     }
 
-    /// Move instructions to preheader
     fn hoist_instructions(
         &mut self,
         func: &mut Function,
@@ -502,35 +464,27 @@ impl LoopInvariantCodeMotion {
     }
 }
 
-/// Strength Reduction
-///
-/// Replaces expensive operations (like multiplication) with cheaper ones
-/// (like addition) for induction variable-derived expressions.
 pub struct StrengthReduction {
     stats: OptStats,
 }
 
 impl StrengthReduction {
-    /// Create a new strength reduction pass
     pub fn new() -> Self {
         Self {
             stats: OptStats::new(),
         }
     }
 
-    /// Get optimization statistics
     pub fn stats(&self) -> &OptStats {
         &self.stats
     }
 
-    /// Run strength reduction on a module
     pub fn run(&mut self, module: &mut Module) {
         for func in &mut module.functions {
             self.optimize_function(func);
         }
     }
 
-    /// Optimize a single function
     fn optimize_function(&mut self, func: &mut Function) {
         let analysis = LoopAnalysis::analyze(func);
 
@@ -542,7 +496,6 @@ impl StrengthReduction {
         }
     }
 
-    /// Reduce expressions derived from an induction variable
     fn reduce_derived_expressions(
         &mut self,
         func: &mut Function,
@@ -561,7 +514,6 @@ impl StrengthReduction {
         }
     }
 
-    /// Reduce multiplications in a single block
     fn reduce_in_block(&mut self, func: &mut Function, block_id: BlockId, iv: VarId, iv_step: i64) {
         let Some(block) = func.get_block_mut(block_id) else {
             return;
@@ -612,7 +564,6 @@ impl StrengthReduction {
     }
 }
 
-/// Find constant value in a single block
 fn find_constant_value_in_block(block: &BasicBlock, var: VarId) -> Option<i64> {
     for inst in &block.instructions {
         if let Instruction::Const {
@@ -629,21 +580,14 @@ fn find_constant_value_in_block(block: &BasicBlock, var: VarId) -> Option<i64> {
     None
 }
 
-/// Loop Unrolling
-///
-/// Duplicates loop body to reduce loop overhead and enable further optimizations.
 pub struct LoopUnroller {
     stats: OptStats,
-    /// Maximum loop body size to unroll
     max_body_size: usize,
-    /// Unroll factor
     unroll_factor: usize,
-    /// Only unroll loops with known trip count
     require_known_trip_count: bool,
 }
 
 impl LoopUnroller {
-    /// Create a new loop unroller
     pub fn new() -> Self {
         Self {
             stats: OptStats::new(),
@@ -653,29 +597,24 @@ impl LoopUnroller {
         }
     }
 
-    /// Set the unroll factor
     pub fn set_unroll_factor(&mut self, factor: usize) {
         self.unroll_factor = factor;
     }
 
-    /// Set maximum loop body size
     pub fn set_max_body_size(&mut self, size: usize) {
         self.max_body_size = size;
     }
 
-    /// Get optimization statistics
     pub fn stats(&self) -> &OptStats {
         &self.stats
     }
 
-    /// Run loop unrolling on a module
     pub fn run(&mut self, module: &mut Module) {
         for func in &mut module.functions {
             self.optimize_function(func);
         }
     }
 
-    /// Optimize a single function
     fn optimize_function(&mut self, func: &mut Function) {
         let analysis = LoopAnalysis::analyze(func);
 
@@ -710,7 +649,6 @@ impl LoopUnroller {
         }
     }
 
-    /// Check if a loop is a candidate for unrolling
     fn is_unroll_candidate(&self, func: &Function, loop_info: &Loop) -> bool {
         // Must have exactly one back edge
         if loop_info.back_edges.len() != 1 {
@@ -739,7 +677,6 @@ impl LoopUnroller {
         true
     }
 
-    /// Check if the loop has a known trip count
     fn has_known_trip_count(&self, func: &Function, loop_info: &Loop) -> bool {
         // Look for pattern: for i = 0; i < N; i++
         // where N is a constant
@@ -780,7 +717,6 @@ impl LoopUnroller {
         false
     }
 
-    /// Check if a condition is a comparison of IV with a constant
     fn is_constant_bound_comparison(
         &self,
         func: &Function,
@@ -828,18 +764,15 @@ impl LoopUnroller {
     }
 }
 
-/// Combined loop optimizer that runs all loop optimizations
 pub struct LoopOptimizer {
     stats: OptStats,
     licm: LoopInvariantCodeMotion,
     strength_reduction: StrengthReduction,
     unroller: LoopUnroller,
-    /// Enable loop unrolling (disabled by default)
     enable_unrolling: bool,
 }
 
 impl LoopOptimizer {
-    /// Create a new loop optimizer
     pub fn new() -> Self {
         Self {
             stats: OptStats::new(),
@@ -850,17 +783,14 @@ impl LoopOptimizer {
         }
     }
 
-    /// Enable loop unrolling
     pub fn enable_unrolling(&mut self, enable: bool) {
         self.enable_unrolling = enable;
     }
 
-    /// Get optimization statistics
     pub fn stats(&self) -> &OptStats {
         &self.stats
     }
 
-    /// Run all loop optimizations on a module
     pub fn run(&mut self, module: &mut Module) {
         // Run LICM first
         self.licm.run(module);
@@ -884,7 +814,6 @@ impl Default for LoopOptimizer {
     }
 }
 
-/// Get the destination variable of an instruction, if any
 fn instruction_dest(inst: &Instruction) -> Option<VarId> {
     match inst {
         Instruction::Const { dest, .. }
@@ -916,7 +845,6 @@ fn instruction_dest(inst: &Instruction) -> Option<VarId> {
     }
 }
 
-/// Get the operand variables of an instruction
 fn instruction_operands(inst: &Instruction) -> Vec<VarId> {
     match inst {
         Instruction::Const { .. } => vec![],

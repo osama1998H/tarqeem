@@ -4,14 +4,10 @@ use super::types::Type;
 use indexmap::IndexMap;
 use unicode_normalization::UnicodeNormalization;
 
-/// Normalize a string to NFC form for consistent identifier comparison.
-/// This ensures that Arabic identifiers with different Unicode representations
-/// (e.g., composed vs decomposed forms) are treated as identical.
 fn normalize_name(name: &str) -> String {
     name.nfc().collect()
 }
 
-/// A symbol in the symbol table
 #[derive(Debug, Clone)]
 pub struct Symbol {
     pub name: String,
@@ -67,7 +63,6 @@ impl Symbol {
     }
 }
 
-/// The kind of symbol
 #[derive(Debug, Clone, PartialEq)]
 pub enum SymbolKind {
     Variable,
@@ -78,20 +73,14 @@ pub enum SymbolKind {
     Parameter,
 }
 
-/// A scope in the program
 #[derive(Debug)]
 pub struct Scope {
-    /// Symbols defined in this scope
     symbols: IndexMap<String, Symbol>,
-    /// Parent scope (if any)
     parent: Option<Box<Scope>>,
-    /// Scope kind
     kind: ScopeKind,
-    /// Return type for function scopes (used for return statement validation)
     return_type: Option<Type>,
 }
 
-/// The kind of scope
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ScopeKind {
     Global,
@@ -102,7 +91,6 @@ pub enum ScopeKind {
 }
 
 impl Scope {
-    /// Create a new global scope
     pub fn new_global() -> Self {
         let mut scope = Self {
             symbols: IndexMap::new(),
@@ -117,7 +105,6 @@ impl Scope {
         scope
     }
 
-    /// Register all built-in functions in the scope (Arabic-only)
     fn register_builtins(scope: &mut Scope) {
         // ==========================================================================
         // دوال الإدخال والإخراج
@@ -648,7 +635,6 @@ impl Scope {
         ));
     }
 
-    /// Create a new child scope
     pub fn new_child(parent: Scope, kind: ScopeKind) -> Self {
         Self {
             symbols: IndexMap::new(),
@@ -658,8 +644,6 @@ impl Scope {
         }
     }
 
-    /// Create a new function scope with a specified return type.
-    /// This is used for function scopes to enable return type validation.
     pub fn new_function(parent: Scope, ret_type: Type) -> Self {
         Self {
             symbols: IndexMap::new(),
@@ -669,13 +653,10 @@ impl Scope {
         }
     }
 
-    /// Get the scope kind
     pub fn kind(&self) -> ScopeKind {
         self.kind
     }
 
-    /// Define a new symbol in this scope.
-    /// The symbol name is normalized to NFC form for consistent comparison.
     pub fn define(&mut self, symbol: Symbol) -> bool {
         let normalized = normalize_name(&symbol.name);
         if self.symbols.contains_key(&normalized) {
@@ -688,8 +669,6 @@ impl Scope {
         }
     }
 
-    /// Look up a symbol in this scope or parent scopes.
-    /// The name is normalized to NFC form for consistent comparison.
     pub fn lookup(&self, name: &str) -> Option<&Symbol> {
         let normalized = normalize_name(name);
         if let Some(symbol) = self.symbols.get(&normalized) {
@@ -701,15 +680,11 @@ impl Scope {
         }
     }
 
-    /// Look up a symbol only in this scope (not parents).
-    /// The name is normalized to NFC form for consistent comparison.
     pub fn lookup_local(&self, name: &str) -> Option<&Symbol> {
         let normalized = normalize_name(name);
         self.symbols.get(&normalized)
     }
 
-    /// Get a mutable reference to a symbol.
-    /// The name is normalized to NFC form for consistent comparison.
     pub fn lookup_mut(&mut self, name: &str) -> Option<&mut Symbol> {
         let normalized = normalize_name(name);
         if self.symbols.contains_key(&normalized) {
@@ -721,7 +696,6 @@ impl Scope {
         }
     }
 
-    /// Check if we're inside a loop
     pub fn is_in_loop(&self) -> bool {
         if self.kind == ScopeKind::Loop {
             true
@@ -732,7 +706,6 @@ impl Scope {
         }
     }
 
-    /// Check if we're inside a function
     pub fn is_in_function(&self) -> bool {
         if self.kind == ScopeKind::Function {
             true
@@ -743,7 +716,6 @@ impl Scope {
         }
     }
 
-    /// Check if we're inside a class
     pub fn is_in_class(&self) -> bool {
         if self.kind == ScopeKind::Class {
             true
@@ -754,7 +726,6 @@ impl Scope {
         }
     }
 
-    /// Get the return type of the enclosing function
     pub fn get_function_return_type(&self) -> Option<Type> {
         if self.kind == ScopeKind::Function {
             // Return the stored return type if available
@@ -766,12 +737,10 @@ impl Scope {
         }
     }
 
-    /// Pop this scope and return the parent
     pub fn pop(self) -> Option<Scope> {
         self.parent.map(|p| *p)
     }
 
-    /// Get all symbols in this scope
     pub fn symbols(&self) -> impl Iterator<Item = &Symbol> {
         self.symbols.values()
     }

@@ -20,18 +20,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Package manifest (حزمة.toml / trq.toml)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Manifest {
-    /// Package metadata
     #[serde(rename = "حزمة", alias = "package")]
     pub package: PackageInfo,
 
-    /// Dependencies
     #[serde(rename = "اعتماديات", alias = "dependencies", default)]
     pub dependencies: HashMap<String, DependencySpec>,
 
-    /// Dev dependencies
     #[serde(
         rename = "اعتماديات_تطوير",
         alias = "اعتماديات-تطوير",
@@ -41,27 +37,21 @@ pub struct Manifest {
     )]
     pub dev_dependencies: HashMap<String, DependencySpec>,
 
-    /// Build scripts
     #[serde(rename = "سكربتات", alias = "scripts", default)]
     pub scripts: HashMap<String, String>,
 }
 
-/// Package metadata
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PackageInfo {
-    /// Package name (Arabic or English)
     #[serde(rename = "اسم", alias = "name")]
     pub name: String,
 
-    /// Semantic version
     #[serde(rename = "نسخة", alias = "version")]
     pub version: String,
 
-    /// Package description
     #[serde(rename = "وصف", alias = "description", default)]
     pub description: Option<String>,
 
-    /// Author(s)
     #[serde(
         rename = "مؤلفون",
         alias = "مؤلف",
@@ -71,36 +61,28 @@ pub struct PackageInfo {
     )]
     pub authors: Authors,
 
-    /// License identifier
     #[serde(rename = "رخصة", alias = "license", default)]
     pub license: Option<String>,
 
-    /// Repository URL
     #[serde(rename = "مستودع", alias = "repository", default)]
     pub repository: Option<String>,
 
-    /// Homepage URL
     #[serde(rename = "موقع", alias = "homepage", default)]
     pub homepage: Option<String>,
 
-    /// Keywords for search
     #[serde(rename = "كلمات", alias = "keywords", default)]
     pub keywords: Vec<String>,
 
-    /// Entry point for binaries
     #[serde(rename = "مدخل", alias = "entry", alias = "main", default)]
     pub entry: Option<String>,
 
-    /// Library entry point
     #[serde(rename = "مكتبة", alias = "lib", default)]
     pub lib: Option<String>,
 
-    /// Minimum Tarqeem version required
     #[serde(rename = "ترقيم", alias = "tarqeem", default)]
     pub tarqeem_version: Option<String>,
 }
 
-/// Author(s) can be a single string or array
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(untagged)]
 pub enum Authors {
@@ -128,19 +110,15 @@ impl Authors {
     }
 }
 
-/// Dependency specification
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum DependencySpec {
-    /// Simple version string: "1.0.0" or "^1.0" or "*"
     Version(String),
 
-    /// Detailed dependency specification
     Detailed(DetailedDependency),
 }
 
 impl DependencySpec {
-    /// Get the version requirement string
     pub fn version_req(&self) -> &str {
         match self {
             DependencySpec::Version(v) => v,
@@ -148,17 +126,14 @@ impl DependencySpec {
         }
     }
 
-    /// Check if this is a path dependency
     pub fn is_path(&self) -> bool {
         matches!(self, DependencySpec::Detailed(d) if d.path.is_some())
     }
 
-    /// Check if this is a git dependency
     pub fn is_git(&self) -> bool {
         matches!(self, DependencySpec::Detailed(d) if d.git.is_some())
     }
 
-    /// Get path if this is a path dependency
     pub fn path(&self) -> Option<&PathBuf> {
         match self {
             DependencySpec::Detailed(d) => d.path.as_ref(),
@@ -167,61 +142,47 @@ impl DependencySpec {
     }
 }
 
-/// Detailed dependency specification
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetailedDependency {
-    /// Version requirement
     #[serde(rename = "نسخة", alias = "version")]
     pub version: String,
 
-    /// Local path (for development)
     #[serde(rename = "مسار", alias = "path", default)]
     pub path: Option<PathBuf>,
 
-    /// Git repository URL
     #[serde(default)]
     pub git: Option<String>,
 
-    /// Git branch
     #[serde(rename = "فرع", alias = "branch", default)]
     pub branch: Option<String>,
 
-    /// Git tag
     #[serde(rename = "وسم", alias = "tag", default)]
     pub tag: Option<String>,
 
-    /// Git revision (commit hash)
     #[serde(rename = "مراجعة", alias = "rev", default)]
     pub rev: Option<String>,
 
-    /// Optional dependency
     #[serde(rename = "اختياري", alias = "optional", default)]
     pub optional: bool,
 
-    /// Features to enable
     #[serde(rename = "ميزات", alias = "features", default)]
     pub features: Vec<String>,
 }
 
 impl Manifest {
-    /// Manifest file names to search for (in order of preference)
-    /// الصيغة العربية الجديدة أولاً، ثم TOML للتوافق العكسي
     pub const MANIFEST_NAMES: &'static [&'static str] = &[
         "ترقيم.حزمة", // الصيغة العربية الجديدة (أولوية قصوى)
         "حزمة.toml",  // TOML بالعربية (للتوافق)
         "trq.toml",   // TOML بالإنجليزية (للتوافق)
     ];
 
-    /// Default manifest filename for new projects
     pub const DEFAULT_MANIFEST_NAME: &'static str = "ترقيم.حزمة";
 
-    /// Find and parse manifest from current directory or parents
     pub fn find_and_parse() -> PackageResult<(Self, PathBuf)> {
         let current = std::env::current_dir()?;
         Self::find_and_parse_from(&current)
     }
 
-    /// Find and parse manifest starting from a specific directory
     pub fn find_and_parse_from(start: &Path) -> PackageResult<(Self, PathBuf)> {
         let mut current = start.to_path_buf();
 
@@ -240,8 +201,6 @@ impl Manifest {
         }
     }
 
-    /// Parse manifest from a specific path
-    /// Detects format from file extension
     pub fn parse(path: &Path) -> PackageResult<Self> {
         let content = std::fs::read_to_string(path)?;
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -258,7 +217,6 @@ impl Manifest {
         Ok(manifest)
     }
 
-    /// Parse manifest from Arabic format string
     pub fn parse_arabic_format(content: &str) -> PackageResult<Self> {
         let value =
             format::parse(content).map_err(|e| PackageError::InvalidManifest(format!("{}", e)))?;
@@ -266,7 +224,6 @@ impl Manifest {
         Self::from_format_value(&value)
     }
 
-    /// Convert FormatValue to Manifest
     fn from_format_value(value: &FormatValue) -> PackageResult<Self> {
         let root = value.as_object().ok_or_else(|| {
             PackageError::InvalidManifest(
@@ -317,7 +274,6 @@ impl Manifest {
         })
     }
 
-    /// Parse package info from FormatValue
     fn parse_package_info(value: &FormatValue) -> PackageResult<PackageInfo> {
         let obj = value.as_object().ok_or_else(|| {
             PackageError::InvalidManifest(
@@ -420,7 +376,6 @@ impl Manifest {
         })
     }
 
-    /// Format version from number or string
     fn format_version_string(value: &FormatValue) -> String {
         if let Some(s) = value.as_str() {
             s.to_string()
@@ -441,7 +396,6 @@ impl Manifest {
         }
     }
 
-    /// Parse authors from FormatValue
     fn parse_authors(value: &FormatValue) -> Authors {
         if let Some(arr) = value.as_array() {
             let authors: Vec<String> = arr
@@ -462,7 +416,6 @@ impl Manifest {
         }
     }
 
-    /// Parse dependencies from FormatValue
     fn parse_dependencies(value: &FormatValue) -> PackageResult<HashMap<String, DependencySpec>> {
         let obj = value.as_object().ok_or_else(|| {
             PackageError::InvalidManifest(
@@ -553,7 +506,6 @@ impl Manifest {
         Ok(deps)
     }
 
-    /// Parse scripts from FormatValue
     fn parse_scripts(value: &FormatValue) -> PackageResult<HashMap<String, String>> {
         let obj = value.as_object().ok_or_else(|| {
             PackageError::InvalidManifest(
@@ -571,7 +523,6 @@ impl Manifest {
         Ok(scripts)
     }
 
-    /// Validate manifest contents
     pub fn validate(&self) -> PackageResult<()> {
         // Validate package name
         if self.package.name.is_empty() {
@@ -599,8 +550,6 @@ impl Manifest {
         Ok(())
     }
 
-    /// Create a new manifest with defaults
-    /// Uses Arabic file extension (.ترقيم) for entry points
     pub fn new(name: &str, version: &str) -> Self {
         Self {
             package: PackageInfo {
@@ -622,8 +571,6 @@ impl Manifest {
         }
     }
 
-    /// Create a new library manifest
-    /// Uses Arabic file extension (.ترقيم) for entry points
     pub fn new_lib(name: &str, version: &str) -> Self {
         let mut manifest = Self::new(name, version);
         manifest.package.entry = None;
@@ -631,8 +578,6 @@ impl Manifest {
         manifest
     }
 
-    /// Save manifest to file
-    /// Detects format from file extension
     pub fn save(&self, path: &Path) -> PackageResult<()> {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
@@ -648,7 +593,6 @@ impl Manifest {
         Ok(())
     }
 
-    /// Convert manifest to Arabic format string
     pub fn to_arabic_format(&self) -> String {
         let mut output = String::new();
 
@@ -738,7 +682,6 @@ impl Manifest {
         output
     }
 
-    /// Format a dependency for Arabic format output
     fn format_dependency(name: &str, spec: &DependencySpec, indent: usize) -> String {
         let spaces = " ".repeat(indent);
         match spec {
@@ -780,12 +723,10 @@ impl Manifest {
         }
     }
 
-    /// Get the project root (directory containing manifest)
     pub fn project_root(manifest_path: &Path) -> Option<&Path> {
         manifest_path.parent()
     }
 
-    /// Get the entry point path
     pub fn entry_path(&self, project_root: &Path) -> Option<PathBuf> {
         self.package
             .entry
@@ -794,12 +735,10 @@ impl Manifest {
             .map(|e| project_root.join(e))
     }
 
-    /// Check if this is a library package
     pub fn is_library(&self) -> bool {
         self.package.lib.is_some() && self.package.entry.is_none()
     }
 
-    /// Get all dependencies (regular + dev)
     pub fn all_dependencies(&self) -> impl Iterator<Item = (&String, &DependencySpec)> {
         self.dependencies.iter().chain(self.dev_dependencies.iter())
     }

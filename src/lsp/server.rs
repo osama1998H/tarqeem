@@ -20,18 +20,13 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-/// Tarqeem Language Server
 pub struct TarqeemLanguageServer {
-    /// LSP client for sending notifications
     client: Client,
-    /// Open documents
     documents: DashMap<Url, DocumentState>,
-    /// Server state
     state: Arc<RwLock<ServerState>>,
 }
 
 impl TarqeemLanguageServer {
-    /// Create a new language server instance
     pub fn new(client: Client) -> Self {
         Self {
             client,
@@ -40,12 +35,10 @@ impl TarqeemLanguageServer {
         }
     }
 
-    /// Get the current language setting
     async fn get_language(&self) -> Language {
         self.state.read().await.language()
     }
 
-    /// Publish diagnostics for a document
     async fn publish_diagnostics_for(&self, uri: &Url) {
         let language = self.get_language().await;
 
@@ -60,7 +53,6 @@ impl TarqeemLanguageServer {
 
 #[async_trait]
 impl LanguageServer for TarqeemLanguageServer {
-    /// Initialize the server
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         // Set workspace root if provided
         if let Some(root_uri) = params.root_uri {
@@ -86,7 +78,6 @@ impl LanguageServer for TarqeemLanguageServer {
         })
     }
 
-    /// Handle initialized notification
     async fn initialized(&self, _: InitializedParams) {
         self.client
             .log_message(
@@ -96,12 +87,10 @@ impl LanguageServer for TarqeemLanguageServer {
             .await;
     }
 
-    /// Handle shutdown request
     async fn shutdown(&self) -> Result<()> {
         Ok(())
     }
 
-    /// Handle text document open
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
@@ -115,7 +104,6 @@ impl LanguageServer for TarqeemLanguageServer {
         self.publish_diagnostics_for(&uri).await;
     }
 
-    /// Handle text document change
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
@@ -130,7 +118,6 @@ impl LanguageServer for TarqeemLanguageServer {
         self.publish_diagnostics_for(&uri).await;
     }
 
-    /// Handle text document close
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
         self.documents.remove(&uri);
@@ -139,14 +126,12 @@ impl LanguageServer for TarqeemLanguageServer {
         self.client.publish_diagnostics(uri, vec![], None).await;
     }
 
-    /// Handle text document save
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         // Re-publish diagnostics on save
         self.publish_diagnostics_for(&params.text_document.uri)
             .await;
     }
 
-    /// Handle hover request
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
@@ -159,7 +144,6 @@ impl LanguageServer for TarqeemLanguageServer {
         }
     }
 
-    /// Handle signature help request
     async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
@@ -172,7 +156,6 @@ impl LanguageServer for TarqeemLanguageServer {
         }
     }
 
-    /// Handle completion request
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
@@ -185,7 +168,6 @@ impl LanguageServer for TarqeemLanguageServer {
         }
     }
 
-    /// Handle go to definition request
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -201,7 +183,6 @@ impl LanguageServer for TarqeemLanguageServer {
         }
     }
 
-    /// Handle find references request
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
@@ -220,7 +201,6 @@ impl LanguageServer for TarqeemLanguageServer {
         }
     }
 
-    /// Handle prepare rename request
     async fn prepare_rename(
         &self,
         params: TextDocumentPositionParams,
@@ -236,7 +216,6 @@ impl LanguageServer for TarqeemLanguageServer {
         }
     }
 
-    /// Handle rename request
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
@@ -250,7 +229,6 @@ impl LanguageServer for TarqeemLanguageServer {
         }
     }
 
-    /// Handle document symbol request
     async fn document_symbol(
         &self,
         params: DocumentSymbolParams,
@@ -269,7 +247,6 @@ impl LanguageServer for TarqeemLanguageServer {
         }
     }
 
-    /// Handle formatting request
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         let uri = params.text_document.uri;
 
@@ -282,7 +259,6 @@ impl LanguageServer for TarqeemLanguageServer {
 
     // ============ P2 Features ============
 
-    /// Handle code action request
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri;
         let range = params.range;
@@ -295,7 +271,6 @@ impl LanguageServer for TarqeemLanguageServer {
         }
     }
 
-    /// Handle folding range request
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
         let uri = params.text_document.uri;
         let language = self.get_language().await;
@@ -307,7 +282,6 @@ impl LanguageServer for TarqeemLanguageServer {
         }
     }
 
-    /// Handle semantic tokens full request
     async fn semantic_tokens_full(
         &self,
         params: SemanticTokensParams,
@@ -322,7 +296,6 @@ impl LanguageServer for TarqeemLanguageServer {
         }
     }
 
-    /// Handle inlay hint request
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
         let uri = params.text_document.uri;
         let range = params.range;

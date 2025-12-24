@@ -7,9 +7,7 @@ use super::DocGenerator;
 use crate::doc::model::Documentation;
 use std::io::Write;
 
-/// JSON documentation generator
 pub struct JsonGenerator {
-    /// Pretty print the output
     pub pretty: bool,
 }
 
@@ -18,7 +16,6 @@ impl JsonGenerator {
         Self { pretty: true }
     }
 
-    /// Create a minified JSON generator
     pub fn minified() -> Self {
         Self { pretty: false }
     }

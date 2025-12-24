@@ -19,25 +19,21 @@ use super::OptStats;
 use crate::ir::{BasicBlock, BinaryOp, Constant, Instruction, Module, StringTable, VarId};
 use std::collections::HashMap;
 
-/// Constant folding optimization pass
 pub struct ConstantFolder {
     stats: OptStats,
 }
 
 impl ConstantFolder {
-    /// Create a new constant folder
     pub fn new() -> Self {
         Self {
             stats: OptStats::new(),
         }
     }
 
-    /// Get optimization statistics
     pub fn stats(&self) -> &OptStats {
         &self.stats
     }
 
-    /// Run constant folding on a module
     pub fn run(&mut self, module: &mut Module) {
         // We need to collect function indices first to avoid borrowing issues
         let func_count = module.functions.len();
@@ -57,7 +53,6 @@ impl ConstantFolder {
         }
     }
 
-    /// Fold constants in a basic block with string table access
     fn fold_block_with_strings(
         &mut self,
         block: &mut BasicBlock,
@@ -176,7 +171,6 @@ impl ConstantFolder {
         block.instructions = new_instructions;
     }
 
-    /// Try to fold a binary operation on constants
     fn fold_binary(&self, op: BinaryOp, left: &Constant, right: &Constant) -> Option<Constant> {
         match (left, right) {
             // Integer operations
@@ -230,7 +224,6 @@ impl ConstantFolder {
         }
     }
 
-    /// Try to fold a unary operation on a constant
     fn fold_unary(&self, op: crate::ir::UnaryOp, operand: &Constant) -> Option<Constant> {
         match (op, operand) {
             (crate::ir::UnaryOp::Neg, Constant::Int(i)) => Some(Constant::Int(-i)),

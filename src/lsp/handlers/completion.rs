@@ -10,7 +10,6 @@ use tower_lsp::lsp_types::{
     MarkupContent, MarkupKind, Position,
 };
 
-/// Handle completion request
 pub fn handle_completion(
     doc: &mut DocumentState,
     position: Position,
@@ -60,7 +59,6 @@ pub fn handle_completion(
     }
 }
 
-/// Completion context
 enum CompletionContext {
     TopLevel,
     InFunction,
@@ -69,7 +67,6 @@ enum CompletionContext {
     InImport,
 }
 
-/// Determine the completion context from the cursor position
 fn get_completion_context(content: &str, offset: usize) -> CompletionContext {
     // Get the text before the cursor
     let before = &content[..offset.min(content.len())];
@@ -106,12 +103,10 @@ fn get_completion_context(content: &str, offset: usize) -> CompletionContext {
     }
 }
 
-/// Check if a character is an Arabic letter
 fn is_arabic_letter(c: char) -> bool {
     matches!(c, '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}' | '\u{08A0}'..='\u{08FF}')
 }
 
-/// Get keyword completions
 fn get_keyword_completions(language: Language) -> Vec<CompletionItem> {
     let keywords = match language {
         Language::Arabic => vec![
@@ -155,7 +150,6 @@ fn get_keyword_completions(language: Language) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// Get statement keyword completions
 fn get_statement_keyword_completions(language: Language) -> Vec<CompletionItem> {
     let keywords = match language {
         Language::Arabic => vec![
@@ -209,7 +203,6 @@ fn get_statement_keyword_completions(language: Language) -> Vec<CompletionItem> 
         .collect()
 }
 
-/// Get built-in function completions
 fn get_builtin_completions(language: Language) -> Vec<CompletionItem> {
     let builtins = match language {
         Language::Arabic => vec![
@@ -251,7 +244,6 @@ fn get_builtin_completions(language: Language) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// Get type completions
 fn get_type_completions(language: Language) -> Vec<CompletionItem> {
     let types = match language {
         Language::Arabic => vec![
@@ -287,7 +279,6 @@ fn get_type_completions(language: Language) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// Get symbol completions from the document
 fn get_symbol_completions(doc: &mut DocumentState, language: Language) -> Vec<CompletionItem> {
     let analysis = doc.get_analysis(language);
 
@@ -328,7 +319,6 @@ fn get_symbol_completions(doc: &mut DocumentState, language: Language) -> Vec<Co
         .collect()
 }
 
-/// Get member completions for a type
 fn get_member_completions(
     _doc: &mut DocumentState,
     _prefix: &str,
@@ -377,7 +367,6 @@ fn get_member_completions(
         .collect()
 }
 
-/// Get module completions
 fn get_module_completions(language: Language) -> Vec<CompletionItem> {
     let modules = match language {
         Language::Arabic => vec![

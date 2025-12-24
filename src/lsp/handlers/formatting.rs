@@ -4,12 +4,6 @@
 
 use tower_lsp::lsp_types::{Position, Range, TextEdit};
 
-/// Handle document formatting request
-///
-/// For now, this provides basic formatting:
-/// - Normalize indentation (4 spaces)
-/// - Ensure consistent spacing around operators
-/// - Trim trailing whitespace
 pub fn handle_formatting(content: &str) -> Option<Vec<TextEdit>> {
     let formatted = format_content(content);
 
@@ -37,7 +31,6 @@ pub fn handle_formatting(content: &str) -> Option<Vec<TextEdit>> {
     }])
 }
 
-/// Format the content
 fn format_content(content: &str) -> String {
     let mut result = String::with_capacity(content.len());
     let mut indent_level = 0u32;
@@ -107,7 +100,6 @@ fn format_content(content: &str) -> String {
     result
 }
 
-/// Format a single line
 fn format_line(line: &str) -> String {
     let mut result = String::with_capacity(line.len() * 2);
     let mut chars = line.chars().peekable();
@@ -211,14 +203,12 @@ fn format_line(line: &str) -> String {
     result
 }
 
-/// Ensure there's a space before the current position
 fn ensure_space_before(result: &mut String) {
     if !result.is_empty() && !result.ends_with(' ') && !result.ends_with('\t') {
         result.push(' ');
     }
 }
 
-/// Ensure there's a space after an operator
 fn ensure_space_after(result: &mut String, chars: &mut std::iter::Peekable<std::str::Chars>) {
     if let Some(&next) = chars.peek() {
         if !next.is_whitespace() && next != '\n' {

@@ -17,18 +17,15 @@ use serde_json::json;
 
 use tarqeem::debug::{DapEvent, DapMessage, DapProtocol, DapRequest, DapResponse, DapServer};
 
-/// Helper to get the project root directory
 fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Find an available port for testing
 fn find_available_port() -> u16 {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.local_addr().unwrap().port()
 }
 
-/// DAP test client for sending requests and receiving responses
 struct DapTestClient {
     reader: BufReader<TcpStream>,
     writer: BufWriter<TcpStream>,
@@ -36,7 +33,6 @@ struct DapTestClient {
 }
 
 impl DapTestClient {
-    /// Connect to a DAP server
     fn connect(port: u16) -> Result<Self, std::io::Error> {
         // Retry connection a few times as server may still be starting
         let mut attempts = 0;
@@ -65,7 +61,6 @@ impl DapTestClient {
         })
     }
 
-    /// Send a DAP request
     fn send_request(&mut self, command: &str, arguments: serde_json::Value) -> std::io::Result<()> {
         self.seq += 1;
         let request = DapRequest {
@@ -80,7 +75,6 @@ impl DapTestClient {
             .map_err(|e| std::io::Error::other(e.message))
     }
 
-    /// Read a DAP response
     fn read_response(&mut self) -> std::io::Result<DapResponse> {
         match DapProtocol::read_message(&mut self.reader) {
             Ok(DapMessage::Response(resp)) => Ok(resp),
@@ -92,7 +86,6 @@ impl DapTestClient {
         }
     }
 
-    /// Read a DAP event
     fn read_event(&mut self) -> std::io::Result<DapEvent> {
         match DapProtocol::read_message(&mut self.reader) {
             Ok(DapMessage::Event(evt)) => Ok(evt),
@@ -104,12 +97,10 @@ impl DapTestClient {
         }
     }
 
-    /// Read next message (could be response or event)
     fn read_message(&mut self) -> std::io::Result<DapMessage> {
         DapProtocol::read_message(&mut self.reader).map_err(|e| std::io::Error::other(e.message))
     }
 
-    /// Send initialize request
     fn initialize(&mut self) -> std::io::Result<DapResponse> {
         self.send_request(
             "initialize",
@@ -123,7 +114,6 @@ impl DapTestClient {
         self.read_response()
     }
 
-    /// Send launch request
     fn launch(&mut self, program: &str, stop_on_entry: bool) -> std::io::Result<DapResponse> {
         self.send_request(
             "launch",
@@ -135,7 +125,6 @@ impl DapTestClient {
         self.read_response()
     }
 
-    /// Send setBreakpoints request
     fn set_breakpoints(
         &mut self,
         source_path: &str,
@@ -153,55 +142,46 @@ impl DapTestClient {
         self.read_response()
     }
 
-    /// Send configurationDone request
     fn configuration_done(&mut self) -> std::io::Result<DapResponse> {
         self.send_request("configurationDone", json!({}))?;
         self.read_response()
     }
 
-    /// Send continue request
     fn continue_execution(&mut self, thread_id: i64) -> std::io::Result<DapResponse> {
         self.send_request("continue", json!({ "threadId": thread_id }))?;
         self.read_response()
     }
 
-    /// Send next (step over) request
     fn next(&mut self, thread_id: i64) -> std::io::Result<DapResponse> {
         self.send_request("next", json!({ "threadId": thread_id }))?;
         self.read_response()
     }
 
-    /// Send stepIn request
     fn step_in(&mut self, thread_id: i64) -> std::io::Result<DapResponse> {
         self.send_request("stepIn", json!({ "threadId": thread_id }))?;
         self.read_response()
     }
 
-    /// Send stepOut request
     fn step_out(&mut self, thread_id: i64) -> std::io::Result<DapResponse> {
         self.send_request("stepOut", json!({ "threadId": thread_id }))?;
         self.read_response()
     }
 
-    /// Send threads request
     fn threads(&mut self) -> std::io::Result<DapResponse> {
         self.send_request("threads", json!({}))?;
         self.read_response()
     }
 
-    /// Send stackTrace request
     fn stack_trace(&mut self, thread_id: i64) -> std::io::Result<DapResponse> {
         self.send_request("stackTrace", json!({ "threadId": thread_id }))?;
         self.read_response()
     }
 
-    /// Send scopes request
     fn scopes(&mut self, frame_id: i64) -> std::io::Result<DapResponse> {
         self.send_request("scopes", json!({ "frameId": frame_id }))?;
         self.read_response()
     }
 
-    /// Send variables request
     fn variables(&mut self, variables_reference: i64) -> std::io::Result<DapResponse> {
         self.send_request(
             "variables",
@@ -210,14 +190,12 @@ impl DapTestClient {
         self.read_response()
     }
 
-    /// Send disconnect request
     fn disconnect(&mut self) -> std::io::Result<DapResponse> {
         self.send_request("disconnect", json!({}))?;
         self.read_response()
     }
 }
 
-/// Start a DAP server in a background thread
 fn start_dap_server(port: u16) -> (thread::JoinHandle<()>, Arc<AtomicBool>) {
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = Arc::clone(&shutdown);

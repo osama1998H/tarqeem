@@ -11,7 +11,6 @@ use tower_lsp::lsp_types::{
     SemanticTokensResult,
 };
 
-/// Standard semantic token types used by Tarqeem
 pub const TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::NAMESPACE,      // 0
     SemanticTokenType::TYPE,           // 1
@@ -37,7 +36,6 @@ pub const TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::OPERATOR,       // 21
 ];
 
-/// Standard semantic token modifiers
 pub const TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
     SemanticTokenModifier::DECLARATION,     // 0
     SemanticTokenModifier::DEFINITION,      // 1
@@ -51,7 +49,6 @@ pub const TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
     SemanticTokenModifier::DEFAULT_LIBRARY, // 9
 ];
 
-/// Get the semantic tokens legend
 pub fn get_semantic_tokens_legend() -> SemanticTokensLegend {
     SemanticTokensLegend {
         token_types: TOKEN_TYPES.to_vec(),
@@ -59,7 +56,6 @@ pub fn get_semantic_tokens_legend() -> SemanticTokensLegend {
     }
 }
 
-/// Handle full semantic tokens request
 pub fn handle_semantic_tokens_full(
     doc: &mut DocumentState,
     language: Language,
@@ -97,7 +93,6 @@ pub fn handle_semantic_tokens_full(
     }))
 }
 
-/// Semantic token data before encoding
 #[derive(Debug)]
 struct SemanticTokenData {
     line: u32,
@@ -107,7 +102,6 @@ struct SemanticTokenData {
     modifiers: u32,
 }
 
-/// Classify a token into semantic token type and modifiers
 fn classify_token(
     kind: &TokenKind,
     symbols: &std::collections::HashMap<String, crate::lsp::analysis::SymbolInfo>,
@@ -221,7 +215,6 @@ fn classify_token(
     }
 }
 
-/// Compute modifier bits for a symbol
 fn compute_modifiers(info: &crate::lsp::analysis::SymbolInfo) -> u32 {
     let mut modifiers = 0u32;
 
@@ -236,7 +229,6 @@ fn compute_modifiers(info: &crate::lsp::analysis::SymbolInfo) -> u32 {
     modifiers
 }
 
-/// Check if a name is a built-in function
 fn is_builtin_function(name: &str) -> bool {
     matches!(
         name,
@@ -274,7 +266,6 @@ fn is_builtin_function(name: &str) -> bool {
     )
 }
 
-/// Encode tokens into LSP delta format
 fn encode_tokens(tokens: &[SemanticTokenData]) -> Vec<SemanticToken> {
     let mut result = Vec::with_capacity(tokens.len());
     let mut prev_line = 0u32;
@@ -404,7 +395,6 @@ mod tests {
 
     #[test]
     fn test_semantic_tokens_full() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = "متغير س = 5".to_string();
         let mut doc = DocumentState::new(uri, 1, content);
 

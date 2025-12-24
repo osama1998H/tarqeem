@@ -22,32 +22,27 @@ use super::OptStats;
 use crate::ir::{BasicBlock, BlockId, Function, Instruction, Module, VarId};
 use std::collections::{HashSet, VecDeque};
 
-/// Dead code elimination pass
 pub struct DeadCodeEliminator {
     stats: OptStats,
 }
 
 impl DeadCodeEliminator {
-    /// Create a new DCE pass
     pub fn new() -> Self {
         Self {
             stats: OptStats::new(),
         }
     }
 
-    /// Get optimization statistics
     pub fn stats(&self) -> &OptStats {
         &self.stats
     }
 
-    /// Run DCE on a module
     pub fn run(&mut self, module: &mut Module) {
         for function in &mut module.functions {
             self.eliminate_dead_code(function);
         }
     }
 
-    /// Eliminate dead code in a function
     fn eliminate_dead_code(&mut self, function: &mut Function) {
         // First, remove unreachable blocks
         self.remove_unreachable_blocks(function);
@@ -56,7 +51,6 @@ impl DeadCodeEliminator {
         self.remove_dead_instructions(function);
     }
 
-    /// Remove unreachable basic blocks
     fn remove_unreachable_blocks(&mut self, function: &mut Function) {
         if function.blocks.is_empty() {
             return;
@@ -77,7 +71,6 @@ impl DeadCodeEliminator {
         self.stats.dead_blocks_removed += removed;
     }
 
-    /// Find all reachable blocks from the entry block
     fn find_reachable_blocks(&self, function: &Function) -> HashSet<BlockId> {
         let mut reachable = HashSet::new();
         let mut worklist = VecDeque::new();
@@ -106,7 +99,6 @@ impl DeadCodeEliminator {
         reachable
     }
 
-    /// Get successor blocks from a block's terminator
     fn get_successors(&self, block: &BasicBlock) -> Vec<BlockId> {
         let mut successors = Vec::new();
 
@@ -133,7 +125,6 @@ impl DeadCodeEliminator {
         successors
     }
 
-    /// Remove dead instructions (instructions whose results are never used)
     fn remove_dead_instructions(&mut self, function: &mut Function) {
         // Find all used variables
         let used_vars = self.find_used_variables(function);
@@ -162,7 +153,6 @@ impl DeadCodeEliminator {
         }
     }
 
-    /// Find all variables that are used in the function
     fn find_used_variables(&self, function: &Function) -> HashSet<VarId> {
         let mut used = HashSet::new();
 
@@ -176,7 +166,6 @@ impl DeadCodeEliminator {
         used
     }
 
-    /// Collect all variable uses from an instruction
     fn collect_uses(&self, inst: &Instruction, used: &mut HashSet<VarId>) {
         match inst {
             Instruction::Binary { left, right, .. } => {
@@ -298,7 +287,6 @@ impl DeadCodeEliminator {
         }
     }
 
-    /// Get the variable defined by an instruction, if any
     fn get_defined_var(&self, inst: &Instruction) -> Option<VarId> {
         match inst {
             Instruction::Const { dest, .. }
@@ -330,7 +318,6 @@ impl DeadCodeEliminator {
         }
     }
 
-    /// Check if an instruction has side effects (and thus cannot be removed)
     fn has_side_effects(&self, inst: &Instruction) -> bool {
         matches!(
             inst,

@@ -7,51 +7,34 @@ use std::rc::Rc;
 
 use crate::ir::ClassId;
 
-/// Runtime value in the interpreter.
-///
-/// Values are immutable by default but arrays and objects use interior
-/// mutability through `Rc<RefCell<...>>` for efficient sharing and mutation.
 #[derive(Clone)]
 pub enum Value {
-    /// Null value (لا_شيء)
     Null,
 
-    /// Boolean value (منطقي)
     Bool(bool),
 
-    /// 64-bit signed integer (عدد)
     Int(i64),
 
-    /// 64-bit floating point (عدد_عشري)
     Float(f64),
 
-    /// String value (نص)
     String(Rc<String>),
 
-    /// Array value (مصفوفة)
     Array(Rc<RefCell<Vec<Value>>>),
 
-    /// Object instance (كائن)
     Object(Rc<RefCell<TrqObject>>),
 
-    /// Function reference (for first-class functions)
     Function(String),
 
-    /// Pointer to a memory location (for Alloca/Load/Store)
     Ptr(Rc<RefCell<Value>>),
 }
 
-/// Object instance with class information and fields.
 #[derive(Debug, Clone)]
 pub struct TrqObject {
-    /// Class identifier
     pub class_id: ClassId,
-    /// Field values (by field name)
     pub fields: HashMap<String, Value>,
 }
 
 impl TrqObject {
-    /// Create a new object of the given class.
     pub fn new(class_id: ClassId) -> Self {
         Self {
             class_id,
@@ -59,64 +42,52 @@ impl TrqObject {
         }
     }
 
-    /// Get a field value.
     pub fn get_field(&self, name: &str) -> Option<&Value> {
         self.fields.get(name)
     }
 
-    /// Set a field value.
     pub fn set_field(&mut self, name: String, value: Value) {
         self.fields.insert(name, value);
     }
 }
 
 impl Value {
-    /// Create a null value.
     pub fn null() -> Self {
         Value::Null
     }
 
-    /// Create a boolean value.
     pub fn bool(b: bool) -> Self {
         Value::Bool(b)
     }
 
-    /// Create an integer value.
     pub fn int(i: i64) -> Self {
         Value::Int(i)
     }
 
-    /// Create a float value.
     pub fn float(f: f64) -> Self {
         Value::Float(f)
     }
 
-    /// Create a string value.
     pub fn string(s: impl Into<String>) -> Self {
         Value::String(Rc::new(s.into()))
     }
 
-    /// Create an empty array.
     pub fn array() -> Self {
         Value::Array(Rc::new(RefCell::new(Vec::new())))
     }
 
-    /// Create an array from a vector of values.
     pub fn array_from(values: Vec<Value>) -> Self {
         Value::Array(Rc::new(RefCell::new(values)))
     }
 
-    /// Create a new object of the given class.
     pub fn object(class_id: ClassId) -> Self {
         Value::Object(Rc::new(RefCell::new(TrqObject::new(class_id))))
     }
 
-    /// Create a pointer to a value.
     pub fn ptr(value: Value) -> Self {
         Value::Ptr(Rc::new(RefCell::new(value)))
     }
 
-    /// Check if this value is truthy.
     pub fn is_truthy(&self) -> bool {
         match self {
             Value::Null => false,
@@ -131,7 +102,6 @@ impl Value {
         }
     }
 
-    /// Get the type name of this value (English).
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Null => "null",
@@ -146,7 +116,6 @@ impl Value {
         }
     }
 
-    /// Get the type name of this value (Arabic).
     pub fn type_name_ar(&self) -> &'static str {
         match self {
             Value::Null => "لا_شيء",
@@ -161,7 +130,6 @@ impl Value {
         }
     }
 
-    /// Try to get as an integer.
     pub fn as_int(&self) -> Option<i64> {
         match self {
             Value::Int(i) => Some(*i),
@@ -169,7 +137,6 @@ impl Value {
         }
     }
 
-    /// Try to get as a float.
     pub fn as_float(&self) -> Option<f64> {
         match self {
             Value::Float(f) => Some(*f),
@@ -178,7 +145,6 @@ impl Value {
         }
     }
 
-    /// Try to get as a boolean.
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Value::Bool(b) => Some(*b),
@@ -186,7 +152,6 @@ impl Value {
         }
     }
 
-    /// Try to get as a string reference.
     pub fn as_string(&self) -> Option<&str> {
         match self {
             Value::String(s) => Some(s.as_str()),
@@ -194,7 +159,6 @@ impl Value {
         }
     }
 
-    /// Convert this value to a string representation.
     pub fn to_display_string(&self) -> String {
         match self {
             Value::Null => "لا_شيء".to_string(),

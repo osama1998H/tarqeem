@@ -2,69 +2,48 @@
 
 use std::fmt;
 
-/// Represents a type in Tarqeem
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
-    /// Integer type (عدد)
     Int,
-    /// Float type (عدد_عشري)
     Float,
-    /// String type (نص)
     String,
-    /// Boolean type (منطقي)
     Bool,
-    /// Void type (فراغ)
     Void,
-    /// Null type (لا_شيء)
     Null,
 
-    /// Array type (مصفوفة)
     Array(Box<Type>),
 
-    /// Map type (قاموس)
     Map(Box<Type>, Box<Type>),
 
-    /// Function type
     Function {
         params: Vec<Type>,
         return_type: Box<Type>,
     },
 
-    /// Class type
     Class(String),
 
-    /// Interface type
     Interface(String),
 
-    /// Enum type (تعداد)
     Enum(String),
 
-    /// Generic type parameter
     Generic(String),
 
-    /// Optional type (?)
     Optional(Box<Type>),
 
-    /// Any type (أي)
     Any,
 
-    /// Never type (for functions that never return)
     Never,
 
-    /// Unknown type (for type inference)
     Unknown,
 
-    /// Error type (for error recovery)
     Error,
 }
 
 impl Type {
-    /// Check if this type is numeric
     pub fn is_numeric(&self) -> bool {
         matches!(self, Type::Int | Type::Float)
     }
 
-    /// Check if this type is a primitive
     pub fn is_primitive(&self) -> bool {
         matches!(
             self,
@@ -72,7 +51,6 @@ impl Type {
         )
     }
 
-    /// Check if this type is compatible with another type
     pub fn is_compatible_with(&self, other: &Type) -> bool {
         match (self, other) {
             // Same types are compatible
@@ -124,7 +102,6 @@ impl Type {
         }
     }
 
-    /// Get the result type of a binary operation
     pub fn binary_result_type(&self, op: &str, other: &Type) -> Option<Type> {
         match (self, op, other) {
             // Arithmetic with numbers
@@ -185,7 +162,6 @@ impl Type {
         }
     }
 
-    /// Get the result type of a unary operation
     pub fn unary_result_type(&self, op: &str) -> Option<Type> {
         match (self, op) {
             (Type::Int, "-") => Some(Type::Int),
@@ -196,7 +172,6 @@ impl Type {
         }
     }
 
-    /// Get the Arabic name for this type
     pub fn arabic_name(&self) -> String {
         match self {
             Type::Int => "عدد".to_string(),
@@ -262,7 +237,6 @@ impl fmt::Display for Type {
     }
 }
 
-/// Parse a type name into a Type
 pub fn parse_type_name(name: &str) -> Type {
     match name {
         "عدد" | "int" => Type::Int,

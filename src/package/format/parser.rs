@@ -6,8 +6,6 @@ use super::lexer::{Lexer, Token};
 use super::value::Value;
 use indexmap::IndexMap;
 
-/// محلل صيغة الحزمة
-/// Parser for package format
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
     current: Token,
@@ -29,12 +27,10 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// الموقع الحالي
     fn location(&self) -> Location {
         self.current_loc
     }
 
-    /// التقدم للرمز التالي
     fn advance(&mut self) -> FormatResult<Token> {
         let old = std::mem::replace(&mut self.current, Token::Eof);
         let old_loc = self.current_loc;
@@ -50,12 +46,10 @@ impl<'a> Parser<'a> {
         Ok(old)
     }
 
-    /// التحقق من الرمز الحالي
     fn check(&self, expected: &Token) -> bool {
         std::mem::discriminant(&self.current) == std::mem::discriminant(expected)
     }
 
-    /// تخطي الأسطر الجديدة والتعليقات
     fn skip_newlines_and_comments(&mut self) -> FormatResult<()> {
         loop {
             match &self.current {
@@ -68,7 +62,6 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// تخطي إلى نهاية السطر
     fn skip_to_end_of_line(&mut self) -> FormatResult<()> {
         loop {
             match &self.current {
@@ -81,13 +74,11 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// تحليل المستند بالكامل
     pub fn parse(&mut self) -> FormatResult<Value> {
         self.skip_newlines_and_comments()?;
         self.parse_object(0)
     }
 
-    /// تحليل كائن (قاموس) في مستوى مسافة بادئة معين
     fn parse_object(&mut self, min_indent: usize) -> FormatResult<Value> {
         let mut map = IndexMap::new();
 
@@ -166,7 +157,6 @@ impl<'a> Parser<'a> {
         Ok(Value::Object(map))
     }
 
-    /// تحليل قيمة
     fn parse_value(&mut self, current_indent: usize) -> FormatResult<Value> {
         match &self.current {
             // قيمة مباشرة
@@ -252,7 +242,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// تحليل قائمة
     fn parse_array(&mut self, min_indent: usize) -> FormatResult<Value> {
         let mut items = Vec::new();
 
@@ -290,7 +279,6 @@ impl<'a> Parser<'a> {
         Ok(Value::Array(items))
     }
 
-    /// تحليل قائمة في مستوى مسافة بادئة معين
     fn parse_array_at_indent(&mut self, indent: usize) -> FormatResult<Value> {
         let mut items = Vec::new();
 
@@ -323,8 +311,6 @@ impl<'a> Parser<'a> {
         Ok(Value::Array(items))
     }
 
-    /// تحليل عنصر في قائمة
-    /// يدعم النصوص متعددة الكلمات بدون علامات اقتباس
     fn parse_array_item(&mut self, _indent: usize) -> FormatResult<Value> {
         match &self.current {
             Token::String(s) => {
@@ -382,7 +368,6 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// تحليل نص إلى قيمة
 pub fn parse(source: &str) -> FormatResult<Value> {
     let mut parser = Parser::new(source)?;
     parser.parse()

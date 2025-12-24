@@ -7,103 +7,72 @@ use std::path::PathBuf;
 use super::context::BreakpointId;
 use super::state::StepMode;
 
-/// Debug commands that can be executed
 #[derive(Debug, Clone, PartialEq)]
 pub enum DebugCommand {
-    /// Continue execution until next breakpoint
     Continue,
 
-    /// Step to next line (step over function calls)
     StepOver,
 
-    /// Step into function calls
     StepInto,
 
-    /// Step out of current function
     StepOut,
 
-    /// Step one instruction
     StepInstruction,
 
-    /// Set a breakpoint at a line
     Break { file: Option<PathBuf>, line: usize },
 
-    /// Set a conditional breakpoint
     BreakIf {
         file: Option<PathBuf>,
         line: usize,
         condition: String,
     },
 
-    /// Remove a breakpoint
     DeleteBreakpoint { id: BreakpointId },
 
-    /// Clear all breakpoints
     ClearBreakpoints,
 
-    /// Enable a breakpoint
     EnableBreakpoint { id: BreakpointId },
 
-    /// Disable a breakpoint
     DisableBreakpoint { id: BreakpointId },
 
-    /// List all breakpoints
     ListBreakpoints,
 
-    /// Print a variable or expression
     Print { expression: String },
 
-    /// Print all local variables
     Locals,
 
-    /// Print all global variables
     Globals,
 
-    /// Show call stack
     Backtrace,
 
-    /// Show current location
     Where,
 
-    /// Add a watch expression
     Watch { expression: String },
 
-    /// Remove a watch expression
     Unwatch { id: u32 },
 
-    /// List watch expressions
     ListWatches,
 
-    /// Show source code around current line
     List { lines: Option<usize> },
 
-    /// Show help
     Help,
 
-    /// Quit debugger
     Quit,
 
-    /// Run the program
     Run,
 
-    /// Restart the program
     Restart,
 
-    /// Set a variable value
     Set { variable: String, value: String },
 
-    /// Show information about something
     Info { topic: String },
 
-    /// Unknown command
     Unknown { command: String },
 }
 
-/// Parser for debug commands
 pub struct DebugCommandParser;
 
 impl DebugCommandParser {
-    /// Parse a command string into a DebugCommand
     pub fn parse(input: &str) -> DebugCommand {
         let input = input.trim();
 
@@ -271,7 +240,6 @@ impl DebugCommandParser {
         }
     }
 
-    /// Parse breakpoint command arguments
     fn parse_breakpoint(args: &str) -> DebugCommand {
         if args.is_empty() {
             return DebugCommand::Unknown {
@@ -303,7 +271,6 @@ impl DebugCommandParser {
         }
     }
 
-    /// Parse a location string (file:line or just line)
     fn parse_location(s: &str) -> Option<(Option<PathBuf>, usize)> {
         let s = s.trim();
 
@@ -325,7 +292,6 @@ impl DebugCommandParser {
         None
     }
 
-    /// Get help text for the debugger
     pub fn help_text() -> &'static str {
         r#"
 Tarqeem Debugger Commands / أوامر مصحح ترقيم
@@ -369,7 +335,6 @@ Other / أخرى:
 }
 
 impl DebugCommand {
-    /// Get the step mode for step commands
     pub fn as_step_mode(&self) -> Option<StepMode> {
         match self {
             DebugCommand::StepOver => Some(StepMode::Over),

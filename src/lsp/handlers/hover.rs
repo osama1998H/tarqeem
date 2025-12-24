@@ -8,7 +8,6 @@ use crate::lsp::utils::{find_word_at_position, position_to_offset, span_to_range
 use crate::semantic::Type;
 use tower_lsp::lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 
-/// Handle hover request
 pub fn handle_hover(
     doc: &mut DocumentState,
     position: Position,
@@ -53,7 +52,6 @@ pub fn handle_hover(
     })
 }
 
-/// Format type information for display
 fn format_type_info(ty: &Type, kind: &SymbolKind, language: Language) -> (String, String) {
     let type_str = match language {
         Language::Arabic => ty.arabic_name(),
@@ -82,7 +80,6 @@ fn format_type_info(ty: &Type, kind: &SymbolKind, language: Language) -> (String
     (type_str, kind_label.to_string())
 }
 
-/// Get hover information for built-in functions
 pub fn get_builtin_hover(name: &str, language: Language) -> Option<Hover> {
     let (signature, description_ar, description_en) = match name {
         // I/O Functions

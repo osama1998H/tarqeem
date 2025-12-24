@@ -23,7 +23,6 @@ use std::error::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tower_lsp::{LspService, Server};
 
-/// Start the LSP server on stdin/stdout
 pub async fn run_server() -> Result<(), Box<dyn Error + Send + Sync>> {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
@@ -31,7 +30,6 @@ pub async fn run_server() -> Result<(), Box<dyn Error + Send + Sync>> {
     run_server_with_io(stdin, stdout).await
 }
 
-/// Start the LSP server with custom I/O
 pub async fn run_server_with_io<I, O>(
     input: I,
     output: O,

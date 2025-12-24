@@ -11,33 +11,20 @@ use crate::parser::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// The semantic analyzer
 pub struct Analyzer {
-    /// Current scope
     scope: Scope,
-    /// Class resolver for OOP type checking
     class_resolver: ClassResolver,
-    /// Generic type resolver for handling generic types
     generic_resolver: GenericResolver,
-    /// Module loader for handling imports
     module_loader: ModuleLoader,
-    /// Current file being analyzed
     current_file: Option<PathBuf>,
-    /// Exported symbols from this module
     exports: HashMap<String, Type>,
-    /// Collected diagnostics
     diagnostics: Vec<Diagnostic>,
-    /// Language for error messages
     language: Language,
-    /// Current class being analyzed (if any)
     current_class: Option<String>,
-    /// Expected type for context-aware inference (e.g., for empty arrays)
-    /// This is set before calling infer_type to provide context
     expected_type: Option<Type>,
 }
 
 impl Analyzer {
-    /// Create a new analyzer
     pub fn new() -> Self {
         Self {
             scope: Scope::new_global(),
@@ -53,35 +40,29 @@ impl Analyzer {
         }
     }
 
-    /// Create a new analyzer for a specific file
     pub fn for_file(path: PathBuf) -> Self {
         let mut analyzer = Self::new();
         analyzer.current_file = Some(path);
         analyzer
     }
 
-    /// Add a module search path
     pub fn add_search_path(&mut self, path: PathBuf) {
         self.module_loader.add_search_path(path);
     }
 
-    /// Get exported symbols from this module
     pub fn exports(&self) -> &HashMap<String, Type> {
         &self.exports
     }
 
-    /// Get the class resolver
     pub fn class_resolver(&self) -> &ClassResolver {
         &self.class_resolver
     }
 
-    /// Set the language for error messages
     pub fn with_language(mut self, lang: Language) -> Self {
         self.language = lang;
         self
     }
 
-    /// Analyze a program
     pub fn analyze(&mut self, ast: &Ast) -> Result<(), Vec<Diagnostic>> {
         // First pass: Register all classes and interfaces
         for stmt in &ast.statements {
@@ -113,7 +94,6 @@ impl Analyzer {
         }
     }
 
-    /// First pass: Register type declarations
     fn register_types(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::ClassDecl {
@@ -138,7 +118,6 @@ impl Analyzer {
         }
     }
 
-    /// Second pass: Add members to types
     fn add_type_members(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::ClassDecl { name, members, .. } => {
@@ -154,7 +133,6 @@ impl Analyzer {
         }
     }
 
-    /// Get collected diagnostics
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
@@ -875,7 +853,6 @@ impl Analyzer {
         }
     }
 
-    /// Analyze a throw statement - requires an error object
     fn analyze_throw(&mut self, expr: &Expr, span: Span) {
         let expr_type = self.analyze_expr(expr);
 
@@ -983,7 +960,6 @@ impl Analyzer {
         }
     }
 
-    /// Helper to register imports as Type::Any when module loading fails
     fn register_imports_as_any(&mut self, items: &ImportItems) {
         match items {
             ImportItems::Named(imports) => {
@@ -1001,7 +977,6 @@ impl Analyzer {
         }
     }
 
-    /// Convert ExportKind to Type
     fn export_kind_to_type(&self, kind: &ExportKind, name: &str) -> Type {
         match kind {
             ExportKind::Function => Type::Function {
@@ -1014,7 +989,6 @@ impl Analyzer {
         }
     }
 
-    /// Add a warning diagnostic
     fn warn(&mut self, message: &str, message_ar: &str, span: Span) {
         self.diagnostics
             .push(Diagnostic::warning(message, message_ar, span));
@@ -1022,11 +996,8 @@ impl Analyzer {
 
     // ============ Error Type Checking ============
 
-    /// Base error class names (Arabic and English)
-    /// Note: "خطأ" is reserved for the `false` boolean, so we use "استثناء" (exception)
     const ERROR_BASE_CLASSES: &'static [&'static str] = &["استثناء", "Exception", "Error"];
 
-    /// Check if a type is an error type (is استثناء or inherits from it)
     fn is_error_type(&self, ty: &Type) -> bool {
         match ty {
             Type::Class(class_name) => {
@@ -1047,7 +1018,6 @@ impl Analyzer {
         }
     }
 
-    /// Analyze a super constructor call: الأصل(args)
     fn analyze_super_constructor_call(&mut self, args: &[Expr], span: Span) -> Type {
         // Must be inside a class
         if !self.scope.is_in_class() {
@@ -1809,7 +1779,6 @@ impl Analyzer {
 
     // ============ Member Resolution ============
 
-    /// Resolve the type of a member access
     fn resolve_member_type(&mut self, object_type: &Type, property: &str, span: Span) -> Type {
         let mut method_resolver = MethodResolver::new(&self.class_resolver);
 
@@ -1897,8 +1866,6 @@ impl Analyzer {
         self.scope = Scope::new_child(old_scope, kind);
     }
 
-    /// Push a function scope with a specified return type.
-    /// This enables proper return type validation within the function body.
     fn push_function_scope(&mut self, return_type: Type) {
         let old_scope = std::mem::replace(&mut self.scope, Scope::new_global());
         self.scope = Scope::new_function(old_scope, return_type);
@@ -1912,8 +1879,6 @@ impl Analyzer {
 
     // ============ Generic Context Management ============
 
-    /// Enter a generic context for a class or function with type parameters.
-    /// This registers the type parameters so they can be recognized during type resolution.
     fn enter_generic_context(&mut self, type_params: &[String]) {
         use super::generics::{GenericContext, GenericParam};
 
@@ -1925,12 +1890,10 @@ impl Analyzer {
             .push_context(GenericContext::with_parameters(params));
     }
 
-    /// Exit the current generic context.
     fn exit_generic_context(&mut self) {
         self.generic_resolver.pop_context();
     }
 
-    /// Check if a name is a generic type parameter in the current context.
     #[allow(dead_code)]
     fn is_generic_param(&self, name: &str) -> bool {
         self.generic_resolver.is_generic_param(name)
@@ -1956,7 +1919,6 @@ impl Default for Analyzer {
     }
 }
 
-/// Standalone function for type resolution (used to avoid borrow conflicts)
 fn resolve_type_annotation(type_ann: &TypeAnnotation) -> Type {
     match &type_ann.kind {
         TypeKind::Simple(name) => parse_type_name(name),
@@ -2004,7 +1966,6 @@ mod tests {
     use super::*;
     use crate::parser::Parser;
 
-    /// Helper to wrap source code with required file markers
     fn wrap_with_markers(source: &str) -> String {
         format!("بسم_الله\n{}\nالحمد_لله", source.trim())
     }

@@ -2,7 +2,6 @@
 
 use crate::lexer::TokenKind;
 
-/// Operator precedence levels (higher = binds tighter)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Precedence {
     None = 0,
@@ -21,7 +20,6 @@ pub enum Precedence {
 }
 
 impl Precedence {
-    /// Get the precedence of a token
     pub fn of(kind: &TokenKind) -> Precedence {
         match kind {
             TokenKind::Equal
@@ -62,7 +60,6 @@ impl Precedence {
         }
     }
 
-    /// Get the next higher precedence level
     pub fn next(self) -> Precedence {
         match self {
             Precedence::None => Precedence::Assignment,
@@ -81,7 +78,6 @@ impl Precedence {
         }
     }
 
-    /// Check if this operator is right-associative
     pub fn is_right_associative(kind: &TokenKind) -> bool {
         matches!(
             kind,

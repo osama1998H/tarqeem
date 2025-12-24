@@ -8,7 +8,6 @@ use crate::lsp::utils::offset_to_position;
 use crate::parser::{ClassMember, StmtKind};
 use tower_lsp::lsp_types::{FoldingRange, FoldingRangeKind};
 
-/// Handle folding range request
 pub fn handle_folding_ranges(
     doc: &mut DocumentState,
     language: Language,
@@ -38,7 +37,6 @@ pub fn handle_folding_ranges(
     }
 }
 
-/// Collect folding ranges from a statement
 fn collect_folding_ranges(
     content: &str,
     stmt: &StmtKind,
@@ -290,7 +288,6 @@ fn collect_folding_ranges(
     }
 }
 
-/// Collect folding ranges for comment blocks
 fn collect_comment_folding_ranges(content: &str, ranges: &mut Vec<FoldingRange>) {
     let mut comment_start: Option<u32> = None;
     let mut comment_end: u32 = 0;
@@ -337,7 +334,6 @@ fn collect_comment_folding_ranges(content: &str, ranges: &mut Vec<FoldingRange>)
     }
 }
 
-/// Collect folding ranges for import groups
 fn collect_import_folding_ranges(
     content: &str,
     ast: &Option<crate::parser::Ast>,
@@ -382,14 +378,12 @@ mod tests {
     use super::*;
     use tower_lsp::lsp_types::Url;
 
-    /// Helper to wrap source code with required file markers
     fn wrap_with_markers(source: &str) -> String {
         format!("بسم_الله\n{}\nالحمد_لله", source.trim())
     }
 
     #[test]
     fn test_folding_ranges_function() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = wrap_with_markers(
             r#"
 دالة جمع_م(أ: عدد، ب: عدد) -> عدد {
@@ -407,7 +401,6 @@ mod tests {
 
     #[test]
     fn test_folding_ranges_arabic_function() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = wrap_with_markers(
             r#"
 دالة جمع(أ: عدد، ب: عدد) -> عدد {
@@ -427,7 +420,6 @@ mod tests {
 
     #[test]
     fn test_folding_ranges_class() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = wrap_with_markers(
             r#"
 صنف شخص {
@@ -459,7 +451,6 @@ mod tests {
 
     #[test]
     fn test_no_folding_single_line() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = wrap_with_markers("متغير س = 5");
         let mut doc = DocumentState::new(uri, 1, content);
 

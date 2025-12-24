@@ -12,7 +12,6 @@ use crate::parser::{ClassMember, MethodSignature, TypeAnnotation, Visibility};
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 
-/// Information about a class field
 #[derive(Debug, Clone)]
 pub struct FieldInfo {
     pub name: String,
@@ -22,7 +21,6 @@ pub struct FieldInfo {
     pub has_initializer: bool,
 }
 
-/// Information about a class method
 #[derive(Debug, Clone)]
 pub struct MethodInfo {
     pub name: String,
@@ -32,28 +30,23 @@ pub struct MethodInfo {
     pub is_static: bool,
     pub is_async: bool,
     pub is_abstract: bool,
-    /// Index in the vtable (None for static methods)
     pub vtable_index: Option<usize>,
 }
 
-/// Complete class information
 #[derive(Debug, Clone)]
 pub struct ClassInfo {
     pub name: String,
-    /// Generic type parameters (e.g., ["ن", "م"] for صنف قائمة<ن, م>)
     pub type_params: Vec<String>,
     pub parent: Option<String>,
     pub interfaces: Vec<String>,
     pub fields: IndexMap<String, FieldInfo>,
     pub methods: IndexMap<String, MethodInfo>,
     pub constructor: Option<MethodInfo>,
-    /// Virtual method table: method names in order
     pub vtable: Vec<String>,
     pub span: Span,
 }
 
 impl ClassInfo {
-    /// Create a new class info
     pub fn new(name: String, span: Span) -> Self {
         Self {
             name,
@@ -68,7 +61,6 @@ impl ClassInfo {
         }
     }
 
-    /// Create a new class info with type parameters
     pub fn with_type_params(name: String, type_params: Vec<String>, span: Span) -> Self {
         Self {
             name,
@@ -83,12 +75,10 @@ impl ClassInfo {
         }
     }
 
-    /// Check if this class is generic
     pub fn is_generic(&self) -> bool {
         !self.type_params.is_empty()
     }
 
-    /// Get a field by name, including inherited fields
     pub fn get_field<'a>(
         &'a self,
         name: &str,
@@ -98,7 +88,6 @@ impl ClassInfo {
         self.get_field_with_cycle_check(name, resolver, &mut visited)
     }
 
-    /// Internal helper to get field with cycle detection
     fn get_field_with_cycle_check<'a>(
         &'a self,
         name: &str,
@@ -124,7 +113,6 @@ impl ClassInfo {
         None
     }
 
-    /// Get a method by name, including inherited methods
     pub fn get_method<'a>(
         &'a self,
         name: &str,
@@ -134,7 +122,6 @@ impl ClassInfo {
         self.get_method_with_cycle_check(name, resolver, &mut visited)
     }
 
-    /// Internal helper to get method with cycle detection
     fn get_method_with_cycle_check<'a>(
         &'a self,
         name: &str,
@@ -160,18 +147,15 @@ impl ClassInfo {
         None
     }
 
-    /// Check if this class has a method (directly, not inherited)
     pub fn has_own_method(&self, name: &str) -> bool {
         self.methods.contains_key(name)
     }
 
-    /// Get all fields including inherited ones
     pub fn all_fields<'a>(&'a self, resolver: &'a ClassResolver) -> Vec<(&'a str, &'a FieldInfo)> {
         let mut visited = HashSet::new();
         self.all_fields_with_cycle_check(resolver, &mut visited)
     }
 
-    /// Internal helper to get all fields with cycle detection
     fn all_fields_with_cycle_check<'a>(
         &'a self,
         resolver: &'a ClassResolver,
@@ -197,7 +181,6 @@ impl ClassInfo {
         fields
     }
 
-    /// Get all methods including inherited ones
     pub fn all_methods<'a>(
         &'a self,
         resolver: &'a ClassResolver,
@@ -206,7 +189,6 @@ impl ClassInfo {
         self.all_methods_with_cycle_check(resolver, &mut visited)
     }
 
-    /// Internal helper to get all methods with cycle detection
     fn all_methods_with_cycle_check<'a>(
         &'a self,
         resolver: &'a ClassResolver,
@@ -235,7 +217,6 @@ impl ClassInfo {
     }
 }
 
-/// Information about an interface
 #[derive(Debug, Clone)]
 pub struct InterfaceInfo {
     pub name: String,
@@ -244,7 +225,6 @@ pub struct InterfaceInfo {
     pub span: Span,
 }
 
-/// Method signature in an interface
 #[derive(Debug, Clone)]
 pub struct MethodSignatureInfo {
     pub name: String,
@@ -253,7 +233,6 @@ pub struct MethodSignatureInfo {
 }
 
 impl InterfaceInfo {
-    /// Get all methods including from extended interfaces
     pub fn all_methods<'a>(
         &'a self,
         resolver: &'a ClassResolver,
@@ -262,7 +241,6 @@ impl InterfaceInfo {
         self.all_methods_with_cycle_check(resolver, &mut visited)
     }
 
-    /// Internal helper to get all methods with cycle detection
     fn all_methods_with_cycle_check<'a>(
         &'a self,
         resolver: &'a ClassResolver,
@@ -293,18 +271,13 @@ impl InterfaceInfo {
     }
 }
 
-/// The class resolver - builds and validates class hierarchy
 pub struct ClassResolver {
-    /// All classes, keyed by name
     classes: HashMap<String, ClassInfo>,
-    /// All interfaces, keyed by name
     interfaces: HashMap<String, InterfaceInfo>,
-    /// Collected diagnostics
     diagnostics: Vec<Diagnostic>,
 }
 
 impl ClassResolver {
-    /// Create a new class resolver
     pub fn new() -> Self {
         Self {
             classes: HashMap::new(),
@@ -313,27 +286,22 @@ impl ClassResolver {
         }
     }
 
-    /// Get a class by name
     pub fn get_class(&self, name: &str) -> Option<&ClassInfo> {
         self.classes.get(name)
     }
 
-    /// Get a mutable class by name
     pub fn get_class_mut(&mut self, name: &str) -> Option<&mut ClassInfo> {
         self.classes.get_mut(name)
     }
 
-    /// Get an interface by name
     pub fn get_interface(&self, name: &str) -> Option<&InterfaceInfo> {
         self.interfaces.get(name)
     }
 
-    /// Check if a type exists (class or interface)
     pub fn type_exists(&self, name: &str) -> bool {
         self.classes.contains_key(name) || self.interfaces.contains_key(name)
     }
 
-    /// Register a class (first pass - just the declaration)
     pub fn register_class(
         &mut self,
         name: &str,
@@ -349,7 +317,6 @@ impl ClassResolver {
         self.classes.insert(name.to_string(), class_info);
     }
 
-    /// Register an interface (first pass)
     pub fn register_interface(&mut self, name: &str, extends: &[String], span: Span) {
         let interface_info = InterfaceInfo {
             name: name.to_string(),
@@ -360,7 +327,6 @@ impl ClassResolver {
         self.interfaces.insert(name.to_string(), interface_info);
     }
 
-    /// Add methods to an interface
     pub fn add_interface_methods(
         &mut self,
         interface_name: &str,
@@ -395,7 +361,6 @@ impl ClassResolver {
         }
     }
 
-    /// Add members to a class (second pass)
     pub fn add_class_members(
         &mut self,
         class_name: &str,
@@ -571,7 +536,6 @@ impl ClassResolver {
         }
     }
 
-    /// Build vtables for all classes
     pub fn build_vtables(&mut self) {
         // We need to process classes in topological order (parents before children)
         let order = self.topological_sort_classes();
@@ -581,7 +545,6 @@ impl ClassResolver {
         }
     }
 
-    /// Build vtable for a single class
     fn build_vtable_for_class(&mut self, class_name: &str) {
         // Get parent vtable if exists
         let parent_vtable: Vec<String> = if let Some(class) = self.classes.get(class_name) {
@@ -637,7 +600,6 @@ impl ClassResolver {
         }
     }
 
-    /// Topological sort of classes (parents before children)
     fn topological_sort_classes(&self) -> Vec<String> {
         let mut visited = HashSet::new();
         let mut result = Vec::new();
@@ -665,7 +627,6 @@ impl ClassResolver {
         result.push(name.to_string());
     }
 
-    /// Validate the class hierarchy
     pub fn validate(&mut self) -> Result<(), Vec<Diagnostic>> {
         self.check_circular_inheritance();
         self.check_interface_implementations();
@@ -679,7 +640,6 @@ impl ClassResolver {
         }
     }
 
-    /// Check for circular inheritance
     fn check_circular_inheritance(&mut self) {
         for (name, class) in &self.classes {
             let mut visited = HashSet::new();
@@ -704,7 +664,6 @@ impl ClassResolver {
         }
     }
 
-    /// Check that all interface methods are implemented
     fn check_interface_implementations(&mut self) {
         // Collect all violations first
         let mut violations = Vec::new();
@@ -790,7 +749,6 @@ impl ClassResolver {
         }
     }
 
-    /// Check method override validity
     fn check_method_overrides(&mut self) {
         let mut violations = Vec::new();
 
@@ -894,12 +852,6 @@ impl ClassResolver {
         }
     }
 
-    /// Check that concrete classes implement all abstract methods from parent classes
-    ///
-    /// Note: Currently, the AST doesn't track the `is_abstract` modifier, so all methods
-    /// have `is_abstract: false`. This validation framework is ready for when abstract
-    /// method support is added to the lexer/parser (requires adding an abstract keyword
-    /// and `is_abstract` field to `ClassMember::Method`).
     fn check_abstract_implementations(&mut self) {
         let mut violations = Vec::new();
 
@@ -964,13 +916,11 @@ impl ClassResolver {
         }
     }
 
-    /// Check if a class is a subclass of another
     pub fn is_subclass(&self, class_name: &str, potential_parent: &str) -> bool {
         let mut visited = HashSet::new();
         self.is_subclass_with_cycle_check(class_name, potential_parent, &mut visited)
     }
 
-    /// Internal helper with cycle detection
     fn is_subclass_with_cycle_check(
         &self,
         class_name: &str,
@@ -996,13 +946,11 @@ impl ClassResolver {
         false
     }
 
-    /// Check if a class implements an interface
     pub fn implements_interface(&self, class_name: &str, interface_name: &str) -> bool {
         let mut visited = HashSet::new();
         self.implements_interface_with_cycle_check(class_name, interface_name, &mut visited)
     }
 
-    /// Internal helper with cycle detection
     fn implements_interface_with_cycle_check(
         &self,
         class_name: &str,
@@ -1034,7 +982,6 @@ impl ClassResolver {
         false
     }
 
-    /// Get all diagnostics
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }

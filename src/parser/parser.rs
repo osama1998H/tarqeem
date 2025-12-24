@@ -5,18 +5,14 @@ use super::precedence::Precedence;
 use crate::error::{Diagnostic, Span};
 use crate::lexer::{Lexer, Token, TokenKind};
 
-/// The Tarqeem parser
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
-    /// Collected errors during parsing (for error recovery)
     errors: Vec<Diagnostic>,
-    /// Whether we're in panic mode (recovering from an error)
     panic_mode: bool,
 }
 
 impl Parser {
-    /// Create a new parser from source code
     pub fn new(source: &str) -> Self {
         let mut lexer = Lexer::new(source);
         let tokens: Vec<Token> = lexer
@@ -34,7 +30,6 @@ impl Parser {
         }
     }
 
-    /// Create a new parser from pre-lexed tokens
     pub fn from_tokens(tokens: Vec<Token>) -> Self {
         let tokens: Vec<Token> = tokens
             .into_iter()
@@ -48,8 +43,6 @@ impl Parser {
         }
     }
 
-    /// Synchronize after a parse error by skipping to the next statement boundary.
-    /// This enables parsing to continue and collect multiple errors.
     fn synchronize(&mut self) {
         self.panic_mode = false;
 
@@ -90,8 +83,6 @@ impl Parser {
         }
     }
 
-    /// Synchronize to the next class member boundary.
-    /// Used for error recovery within class declarations.
     fn synchronize_to_member(&mut self) {
         self.panic_mode = false;
 
@@ -123,8 +114,6 @@ impl Parser {
         }
     }
 
-    /// Synchronize to the next match arm boundary.
-    /// Used for error recovery within match statements.
     fn synchronize_to_arm(&mut self) {
         self.panic_mode = false;
 
@@ -145,8 +134,6 @@ impl Parser {
         }
     }
 
-    /// Report an error and enter panic mode.
-    /// The error is collected for later reporting.
     fn report_error(&mut self, diagnostic: Diagnostic) {
         if !self.panic_mode {
             self.errors.push(diagnostic);
@@ -154,12 +141,10 @@ impl Parser {
         }
     }
 
-    /// Get all collected errors
     pub fn get_errors(&self) -> &[Diagnostic] {
         &self.errors
     }
 
-    /// Consume any doc comment token and return its content
     fn consume_doc_comment(&mut self) -> Option<String> {
         match &self.peek().kind {
             TokenKind::DocComment(content) => {
@@ -176,9 +161,6 @@ impl Parser {
         }
     }
 
-    /// Parse the entire program
-    /// Files must start with بسم_الله (bismillah) and end with الحمد_لله (alhamdulillah)
-    /// Uses error recovery to collect multiple errors.
     pub fn parse(&mut self) -> Result<Ast, Diagnostic> {
         // Require file start marker: بسم_الله
         let bismillah_span = if self.check(&TokenKind::Bismillah) {
@@ -421,7 +403,6 @@ impl Parser {
         ))
     }
 
-    /// Parse generic type parameters: <T, U, V>
     fn parse_type_parameters(&mut self) -> Result<Vec<String>, Diagnostic> {
         let mut params = Vec::new();
 
@@ -462,7 +443,6 @@ impl Parser {
         Ok(members)
     }
 
-    /// Parse a single class member (field, method, or constructor)
     fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
         // Capture any doc comment before the member
         let member_doc = self.consume_doc_comment();
@@ -566,7 +546,6 @@ impl Parser {
         }
     }
 
-    /// Parse property accessors (احصل and عيّن blocks)
     fn parse_property_accessors(&mut self) -> Result<Vec<PropertyAccessor>, Diagnostic> {
         let mut accessors = Vec::new();
 
@@ -685,7 +664,6 @@ impl Parser {
         ))
     }
 
-    /// Parse enum declaration: تعداد Color { Red, Green = 1, Blue(r: عدد) }
     fn parse_enum_declaration(&mut self, doc_comment: Option<String>) -> Result<Stmt, Diagnostic> {
         let start = self.current_span();
         self.advance(); // consume 'تعداد'
@@ -721,7 +699,6 @@ impl Parser {
         ))
     }
 
-    /// Parse a single enum variant
     fn parse_enum_variant(&mut self) -> Result<EnumVariant, Diagnostic> {
         let start = self.current_span();
 
@@ -770,7 +747,6 @@ impl Parser {
         })
     }
 
-    /// Parse enum variant fields: (name: type, ...) or (type, ...)
     fn parse_enum_variant_fields(&mut self) -> Result<Vec<EnumVariantField>, Diagnostic> {
         self.advance(); // consume '('
 
@@ -1071,7 +1047,6 @@ impl Parser {
         Ok(Stmt::new(StmtKind::Match { expr, arms }, span))
     }
 
-    /// Parse a single match arm (case or default)
     fn parse_match_arm(&mut self) -> Result<MatchArm, Diagnostic> {
         let arm_start = self.current_span();
 
@@ -1729,9 +1704,6 @@ impl Parser {
         Ok(params)
     }
 
-    /// Try to parse an arrow function starting after '('.
-    /// Returns Some(Lambda) if successful, None if this is not an arrow function.
-    /// The caller has already consumed the '('.
     fn try_parse_arrow_function(&mut self, start_span: Span) -> Result<Option<Expr>, Diagnostic> {
         // Save position for backtracking
         let saved_pos = self.current;
@@ -1770,9 +1742,6 @@ impl Parser {
         )))
     }
 
-    /// Try to parse arrow function parameter list.
-    /// Returns Some(params) if this looks like arrow function params followed by ')'.
-    /// Returns None if this doesn't look like arrow function params.
     fn try_parse_arrow_params(&mut self) -> Result<Option<Vec<Param>>, Diagnostic> {
         let mut params = Vec::new();
 
@@ -2124,7 +2093,6 @@ mod tests {
     fn test_parse_doc_comment_on_function() {
         let source = r#"
             بسم_الله
-            /// دالة لحساب مجموع عددين
             دالة جمع(أ: عدد، ب: عدد) -> عدد {
                 أرجع أ + ب;
             }
@@ -2159,10 +2127,8 @@ mod tests {
              * @معامل اسم - اسم الشخص
              */
             صنف شخص {
-                /// اسم الشخص
                 خاص اسم: نص;
 
-                /// دالة للحصول على الاسم
                 عام دالة احصل_اسم() -> نص {
                     أرجع هذا.اسم;
                 }

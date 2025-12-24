@@ -6,7 +6,6 @@
 
 use std::fmt;
 
-/// Unique identifier for a virtual register (SSA value)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VarId(pub u32);
 
@@ -16,7 +15,6 @@ impl fmt::Display for VarId {
     }
 }
 
-/// Unique identifier for a basic block
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockId(pub u32);
 
@@ -26,7 +24,6 @@ impl fmt::Display for BlockId {
     }
 }
 
-/// Unique identifier for a function
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FuncId(pub String);
 
@@ -36,7 +33,6 @@ impl fmt::Display for FuncId {
     }
 }
 
-/// Unique identifier for a class
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClassId(pub String);
 
@@ -46,7 +42,6 @@ impl fmt::Display for ClassId {
     }
 }
 
-/// Unique identifier for a field within a class
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FieldId {
     pub class: ClassId,
@@ -60,7 +55,6 @@ impl fmt::Display for FieldId {
     }
 }
 
-/// Unique identifier for a method within a class
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MethodId {
     pub class: ClassId,
@@ -73,7 +67,6 @@ impl fmt::Display for MethodId {
     }
 }
 
-/// IR type representation
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IrType {
     Void,
@@ -115,7 +108,6 @@ impl fmt::Display for IrType {
     }
 }
 
-/// Constant values in IR
 #[derive(Debug, Clone, PartialEq)]
 pub enum Constant {
     Null,
@@ -137,7 +129,6 @@ impl fmt::Display for Constant {
     }
 }
 
-/// Binary operation types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOp {
     Add,
@@ -187,7 +178,6 @@ impl fmt::Display for BinaryOp {
     }
 }
 
-/// Unary operation types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
     Neg,
@@ -205,17 +195,14 @@ impl fmt::Display for UnaryOp {
     }
 }
 
-/// IR Instructions in SSA form
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
-    /// dest = const value
     Const {
         dest: VarId,
         value: Constant,
         ty: IrType,
     },
 
-    /// dest = left op right
     Binary {
         dest: VarId,
         op: BinaryOp,
@@ -224,7 +211,6 @@ pub enum Instruction {
         ty: IrType,
     },
 
-    /// dest = op operand
     Unary {
         dest: VarId,
         op: UnaryOp,
@@ -250,20 +236,17 @@ pub enum Instruction {
         to_ty: IrType,
     },
 
-    /// dest = alloca ty
     Alloca {
         dest: VarId,
         ty: IrType,
     },
 
-    /// dest = load ptr
     Load {
         dest: VarId,
         ptr: VarId,
         ty: IrType,
     },
 
-    /// store value -> ptr
     Store {
         ptr: VarId,
         value: VarId,
@@ -279,7 +262,6 @@ pub enum Instruction {
         value: VarId,
     },
 
-    /// dest = gep ptr, index
     GetElementPtr {
         dest: VarId,
         ptr: VarId,
@@ -291,7 +273,6 @@ pub enum Instruction {
         target: BlockId,
     },
 
-    /// if cond goto then_block else goto else_block
     Branch {
         cond: VarId,
         then_block: BlockId,
@@ -302,7 +283,6 @@ pub enum Instruction {
         value: Option<VarId>,
     },
 
-    /// dest = call func(args...)
     Call {
         dest: Option<VarId>,
         func: FuncId,
@@ -317,13 +297,11 @@ pub enum Instruction {
         ret_ty: IrType,
     },
 
-    /// dest = new class
     NewObject {
         dest: VarId,
         class: ClassId,
     },
 
-    /// dest = obj.field
     GetField {
         dest: VarId,
         object: VarId,
@@ -331,14 +309,12 @@ pub enum Instruction {
         ty: IrType,
     },
 
-    /// obj.field = value
     SetField {
         object: VarId,
         field: FieldId,
         value: VarId,
     },
 
-    /// dest = obj.method(args...)
     CallMethod {
         dest: Option<VarId>,
         object: VarId,
@@ -347,7 +323,6 @@ pub enum Instruction {
         ret_ty: IrType,
     },
 
-    /// Call through vtable
     CallVirtual {
         dest: Option<VarId>,
         object: VarId,
@@ -399,7 +374,6 @@ pub enum Instruction {
         dest: VarId,
     },
 
-    /// dest = phi [val1, block1], [val2, block2], ...
     Phi {
         dest: VarId,
         ty: IrType,
@@ -650,23 +624,16 @@ impl fmt::Display for Instruction {
     }
 }
 
-/// A basic block containing a sequence of instructions
 #[derive(Debug, Clone)]
 pub struct BasicBlock {
-    /// Block identifier
     pub id: BlockId,
-    /// Optional label (for debugging)
     pub label: Option<String>,
-    /// Instructions in this block
     pub instructions: Vec<Instruction>,
-    /// Predecessor blocks
     pub predecessors: Vec<BlockId>,
-    /// Successor blocks (derived from terminator)
     pub successors: Vec<BlockId>,
 }
 
 impl BasicBlock {
-    /// Create a new basic block
     pub fn new(id: BlockId) -> Self {
         Self {
             id,
@@ -677,7 +644,6 @@ impl BasicBlock {
         }
     }
 
-    /// Create a new basic block with a label
     pub fn with_label(id: BlockId, label: String) -> Self {
         Self {
             id,
@@ -688,7 +654,6 @@ impl BasicBlock {
         }
     }
 
-    /// Check if this block has a terminator instruction
     pub fn has_terminator(&self) -> bool {
         self.instructions.last().map_or(false, |inst| {
             matches!(
@@ -701,7 +666,6 @@ impl BasicBlock {
         })
     }
 
-    /// Get the terminator instruction, if any
     pub fn terminator(&self) -> Option<&Instruction> {
         self.instructions.last().filter(|inst| {
             matches!(
@@ -731,7 +695,6 @@ impl fmt::Display for BasicBlock {
     }
 }
 
-/// A function parameter
 #[derive(Debug, Clone)]
 pub struct Parameter {
     pub id: VarId,
@@ -739,29 +702,19 @@ pub struct Parameter {
     pub ty: IrType,
 }
 
-/// IR representation of a function
 #[derive(Debug, Clone)]
 pub struct Function {
-    /// Function identifier
     pub id: FuncId,
-    /// Original name (may be Arabic)
     pub name: String,
-    /// Parameters
     pub params: Vec<Parameter>,
-    /// Return type
     pub return_type: IrType,
-    /// Basic blocks (first block is entry)
     pub blocks: Vec<BasicBlock>,
-    /// Local variable count (for SSA numbering)
     pub var_counter: u32,
-    /// Block counter
     pub block_counter: u32,
-    /// Is this an async function?
     pub is_async: bool,
 }
 
 impl Function {
-    /// Create a new function
     pub fn new(id: FuncId, name: String, params: Vec<Parameter>, return_type: IrType) -> Self {
         Self {
             id,
@@ -775,22 +728,18 @@ impl Function {
         }
     }
 
-    /// Get the entry block
     pub fn entry_block(&self) -> Option<&BasicBlock> {
         self.blocks.first()
     }
 
-    /// Get a mutable reference to the entry block
     pub fn entry_block_mut(&mut self) -> Option<&mut BasicBlock> {
         self.blocks.first_mut()
     }
 
-    /// Get a block by ID
     pub fn get_block(&self, id: BlockId) -> Option<&BasicBlock> {
         self.blocks.iter().find(|b| b.id == id)
     }
 
-    /// Get a mutable block by ID
     pub fn get_block_mut(&mut self, id: BlockId) -> Option<&mut BasicBlock> {
         self.blocks.iter_mut().find(|b| b.id == id)
     }
@@ -815,27 +764,18 @@ impl fmt::Display for Function {
     }
 }
 
-/// IR representation of a class
 #[derive(Debug, Clone)]
 pub struct Class {
-    /// Class identifier
     pub id: ClassId,
-    /// Original name
     pub name: String,
-    /// Parent class (for inheritance)
     pub parent: Option<ClassId>,
-    /// Implemented interfaces
     pub interfaces: Vec<ClassId>,
-    /// Fields with their types
     pub fields: Vec<(String, IrType)>,
-    /// Methods
     pub methods: Vec<FuncId>,
-    /// Virtual table (method name -> vtable index)
     pub vtable: Vec<MethodId>,
 }
 
 impl Class {
-    /// Create a new class
     pub fn new(id: ClassId, name: String) -> Self {
         Self {
             id,
@@ -848,7 +788,6 @@ impl Class {
         }
     }
 
-    /// Get field index by name
     pub fn field_index(&self, name: &str) -> Option<u32> {
         self.fields
             .iter()
@@ -857,21 +796,18 @@ impl Class {
     }
 }
 
-/// Global string table for string literals
 #[derive(Debug, Clone, Default)]
 pub struct StringTable {
     strings: Vec<String>,
 }
 
 impl StringTable {
-    /// Create a new string table
     pub fn new() -> Self {
         Self {
             strings: Vec::new(),
         }
     }
 
-    /// Add a string and return its index
     pub fn add(&mut self, s: String) -> u32 {
         // Check if string already exists
         if let Some(idx) = self.strings.iter().position(|x| x == &s) {
@@ -882,12 +818,10 @@ impl StringTable {
         idx
     }
 
-    /// Get a string by index
     pub fn get(&self, idx: u32) -> Option<&str> {
         self.strings.get(idx as usize).map(|s| s.as_str())
     }
 
-    /// Iterate over all strings
     pub fn iter(&self) -> impl Iterator<Item = (u32, &str)> {
         self.strings
             .iter()
@@ -896,23 +830,16 @@ impl StringTable {
     }
 }
 
-/// The complete IR module (compilation unit)
 #[derive(Debug, Clone)]
 pub struct Module {
-    /// Module name
     pub name: String,
-    /// String literal table
     pub strings: StringTable,
-    /// Classes defined in this module
     pub classes: Vec<Class>,
-    /// Functions defined in this module
     pub functions: Vec<Function>,
-    /// Global variables
     pub globals: Vec<(String, IrType, Option<Constant>)>,
 }
 
 impl Module {
-    /// Create a new module
     pub fn new(name: String) -> Self {
         Self {
             name,
@@ -923,12 +850,10 @@ impl Module {
         }
     }
 
-    /// Get a function by ID
     pub fn get_function(&self, id: &FuncId) -> Option<&Function> {
         self.functions.iter().find(|f| &f.id == id)
     }
 
-    /// Get a class by ID
     pub fn get_class(&self, id: &ClassId) -> Option<&Class> {
         self.classes.iter().find(|c| &c.id == id)
     }

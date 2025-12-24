@@ -9,21 +9,15 @@ use std::path::PathBuf;
 use crate::error::Span;
 use crate::ir::{BlockId, FuncId, VarId};
 
-/// Represents a location in source code
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceLocation {
-    /// File path
     pub file: PathBuf,
-    /// Line number (1-indexed)
     pub line: usize,
-    /// Column number (1-indexed)
     pub column: usize,
-    /// The source span
     pub span: Span,
 }
 
 impl SourceLocation {
-    /// Create a new source location
     pub fn new(file: PathBuf, span: Span) -> Self {
         Self {
             file,
@@ -33,7 +27,6 @@ impl SourceLocation {
         }
     }
 
-    /// Create from just line/column
     pub fn from_position(file: PathBuf, line: usize, column: usize) -> Self {
         Self {
             file,
@@ -50,7 +43,6 @@ impl std::fmt::Display for SourceLocation {
     }
 }
 
-/// Key for looking up instruction source locations
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct InstructionKey {
     pub func_id: String,
@@ -68,7 +60,6 @@ impl InstructionKey {
     }
 }
 
-/// Key for looking up variable source information
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VariableKey {
     pub func_id: String,
@@ -84,18 +75,12 @@ impl VariableKey {
     }
 }
 
-/// Variable debug information
 #[derive(Debug, Clone)]
 pub struct VariableInfo {
-    /// Original source name
     pub name: String,
-    /// Arabic name (if different)
     pub name_ar: Option<String>,
-    /// Type description
     pub type_name: String,
-    /// Whether the variable is mutable
     pub is_mutable: bool,
-    /// Source location of declaration
     pub decl_location: Option<SourceLocation>,
 }
 
@@ -116,18 +101,12 @@ impl VariableInfo {
     }
 }
 
-/// Function debug information
 #[derive(Debug, Clone)]
 pub struct FunctionInfo {
-    /// Function name
     pub name: String,
-    /// Arabic name (if different)
     pub name_ar: Option<String>,
-    /// Source location of declaration
     pub decl_location: Option<SourceLocation>,
-    /// Parameter names
     pub param_names: Vec<String>,
-    /// Return type description
     pub return_type: String,
 }
 
@@ -143,35 +122,26 @@ impl FunctionInfo {
     }
 }
 
-/// Maps IR instructions and variables back to source locations
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap {
-    /// Map from instruction key to source location
     instruction_map: HashMap<InstructionKey, SourceLocation>,
 
-    /// Map from (line, file) to instruction keys at that line
     line_map: HashMap<(usize, PathBuf), Vec<InstructionKey>>,
 
-    /// Map from variable key to variable info
     variable_map: HashMap<VariableKey, VariableInfo>,
 
-    /// Map from function ID to function info
     function_map: HashMap<String, FunctionInfo>,
 
-    /// Source files referenced by this map
     source_files: Vec<PathBuf>,
 
-    /// Source content by file (for showing context)
     source_content: HashMap<PathBuf, String>,
 }
 
 impl SourceMap {
-    /// Create a new empty source map
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Add source file content
     pub fn add_source(&mut self, file: PathBuf, content: String) {
         if !self.source_files.contains(&file) {
             self.source_files.push(file.clone());
@@ -179,7 +149,6 @@ impl SourceMap {
         self.source_content.insert(file, content);
     }
 
-    /// Add an instruction mapping
     pub fn add_instruction(
         &mut self,
         func_id: &FuncId,
@@ -197,18 +166,15 @@ impl SourceMap {
         self.instruction_map.insert(key, location);
     }
 
-    /// Add a variable mapping
     pub fn add_variable(&mut self, func_id: &FuncId, var_id: VarId, info: VariableInfo) {
         let key = VariableKey::new(func_id, var_id);
         self.variable_map.insert(key, info);
     }
 
-    /// Add a function mapping
     pub fn add_function(&mut self, func_id: &FuncId, info: FunctionInfo) {
         self.function_map.insert(func_id.0.clone(), info);
     }
 
-    /// Get source location for an instruction
     pub fn get_instruction_location(
         &self,
         func_id: &FuncId,
@@ -219,7 +185,6 @@ impl SourceMap {
         self.instruction_map.get(&key)
     }
 
-    /// Get instruction keys at a specific line
     pub fn get_instructions_at_line(&self, file: &PathBuf, line: usize) -> Vec<&InstructionKey> {
         let key = (line, file.clone());
         self.line_map
@@ -228,13 +193,11 @@ impl SourceMap {
             .unwrap_or_default()
     }
 
-    /// Get variable info
     pub fn get_variable_info(&self, func_id: &FuncId, var_id: VarId) -> Option<&VariableInfo> {
         let key = VariableKey::new(func_id, var_id);
         self.variable_map.get(&key)
     }
 
-    /// Find variable by name within a function
     pub fn find_variable_by_name(&self, func_id: &FuncId, name: &str) -> Option<VarId> {
         for (key, info) in &self.variable_map {
             if key.func_id == func_id.0 && info.name == name {
@@ -252,34 +215,28 @@ impl SourceMap {
         None
     }
 
-    /// Get function info
     pub fn get_function_info(&self, func_id: &FuncId) -> Option<&FunctionInfo> {
         self.function_map.get(&func_id.0)
     }
 
-    /// Get source line content
     pub fn get_source_line(&self, file: &PathBuf, line: usize) -> Option<&str> {
         self.source_content
             .get(file)
             .and_then(|content| content.lines().nth(line.saturating_sub(1)))
     }
 
-    /// Get source files
     pub fn source_files(&self) -> &[PathBuf] {
         &self.source_files
     }
 
-    /// Check if the source map has any entries
     pub fn is_empty(&self) -> bool {
         self.instruction_map.is_empty()
     }
 
-    /// Get number of instruction mappings
     pub fn instruction_count(&self) -> usize {
         self.instruction_map.len()
     }
 
-    /// Get all lines that have instructions (for breakpoint suggestions)
     pub fn get_valid_breakpoint_lines(&self, file: &PathBuf) -> Vec<usize> {
         let mut lines: Vec<usize> = self
             .line_map
@@ -292,7 +249,6 @@ impl SourceMap {
         lines
     }
 
-    /// Find the nearest valid breakpoint line
     pub fn find_nearest_breakpoint_line(
         &self,
         file: &PathBuf,
@@ -315,7 +271,6 @@ impl SourceMap {
         valid_lines.last().copied()
     }
 
-    /// Merge another source map into this one
     pub fn merge(&mut self, other: SourceMap) {
         for (key, loc) in other.instruction_map {
             self.instruction_map.insert(key.clone(), loc.clone());

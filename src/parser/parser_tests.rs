@@ -6,12 +6,10 @@
 use super::ast::*;
 use super::parser::Parser;
 
-/// Helper to wrap source code with required file markers (بسم_الله and الحمد_لله)
 fn wrap_with_markers(source: &str) -> String {
     format!("بسم_الله\n{}\nالحمد_لله", source.trim())
 }
 
-/// Helper to create a parser with file markers
 fn parser_with_markers(source: &str) -> Parser {
     Parser::new(&wrap_with_markers(source))
 }

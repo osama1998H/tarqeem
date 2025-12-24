@@ -5,7 +5,6 @@
 use std::path::PathBuf;
 use thiserror::Error;
 
-/// Package manager errors with bilingual messages
 #[derive(Debug, Error)]
 pub enum PackageError {
     #[error("Manifest not found (حزمة.toml or trq.toml) / لم يتم العثور على ملف الحزمة")]
@@ -66,5 +65,4 @@ pub enum PackageError {
     CacheError(String),
 }
 
-/// Result type for package operations
 pub type PackageResult<T> = Result<T, PackageError>;

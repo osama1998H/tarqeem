@@ -8,7 +8,6 @@ use crate::lsp::utils::offset_to_position;
 use crate::semantic::Type;
 use tower_lsp::lsp_types::{InlayHint, InlayHintKind, InlayHintLabel, Position, Range};
 
-/// Handle inlay hints request
 pub fn handle_inlay_hints(
     doc: &mut DocumentState,
     range: Range,
@@ -73,7 +72,6 @@ pub fn handle_inlay_hints(
     }
 }
 
-/// Check if a position is within a range
 fn position_in_range(pos: &Position, range: &Range) -> bool {
     if pos.line < range.start.line || pos.line > range.end.line {
         return false;
@@ -87,7 +85,6 @@ fn position_in_range(pos: &Position, range: &Range) -> bool {
     true
 }
 
-/// Collect parameter hints from function calls in the AST
 fn collect_parameter_hints(
     content: &str,
     ast: &crate::parser::Ast,
@@ -100,7 +97,6 @@ fn collect_parameter_hints(
     }
 }
 
-/// Collect parameter hints from a statement
 fn collect_parameter_hints_from_stmt(
     content: &str,
     stmt: &crate::parser::StmtKind,
@@ -182,7 +178,6 @@ fn collect_parameter_hints_from_stmt(
     }
 }
 
-/// Collect parameter hints from an expression
 fn collect_parameter_hints_from_expr(
     content: &str,
     expr: &crate::parser::ExprKind,
@@ -258,7 +253,6 @@ fn collect_parameter_hints_from_expr(
     }
 }
 
-/// Get parameter names for built-in functions
 fn get_builtin_param_names(name: &str, language: Language) -> Option<Vec<&'static str>> {
     match (name, language) {
         // Arabic built-ins
@@ -356,7 +350,6 @@ mod tests {
 
     #[test]
     fn test_inlay_hints_basic() {
-        let uri = Url::parse("file:///test.trq").unwrap();
         let content = "متغير س = 5".to_string();
         let mut doc = DocumentState::new(uri, 1, content);
 

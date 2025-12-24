@@ -8,29 +8,17 @@ use super::token::{Token, TokenKind};
 use crate::error::Span;
 use unicode_normalization::UnicodeNormalization;
 
-/// The Tarqeem lexer
-///
-/// Converts source code into a stream of tokens.
-/// Only Arabic identifiers and keywords are supported.
 pub struct Lexer {
-    /// Source code (NFC normalized)
     source: Vec<char>,
-    /// Current position in source
     position: usize,
-    /// Current line number (1-indexed)
     line: usize,
-    /// Current column number (1-indexed)
     column: usize,
-    /// Start position of current token
     token_start: usize,
-    /// Start line of current token
     token_start_line: usize,
-    /// Start column of current token
     token_start_column: usize,
 }
 
 impl Lexer {
-    /// Create a new lexer from source code
     pub fn new(source: &str) -> Self {
         // Normalize Unicode to NFC form for consistent comparison
         let normalized: String = source.nfc().collect();
@@ -45,7 +33,6 @@ impl Lexer {
         }
     }
 
-    /// Get the next token
     pub fn next_token(&mut self) -> Token {
         // Check for doc comments first
         if let Some(doc_token) = self.skip_whitespace_and_comments() {
@@ -85,7 +72,6 @@ impl Lexer {
         self.scan_operator(c)
     }
 
-    /// Tokenize entire source and return all tokens
     pub fn tokenize(&mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
         loop {
@@ -249,8 +235,6 @@ impl Lexer {
         )
     }
 
-    /// Skip whitespace and regular comments, but return doc comments as tokens
-    /// Returns Some(Token) if a doc comment was found, None otherwise
     fn skip_whitespace_and_comments(&mut self) -> Option<Token> {
         loop {
             if self.is_at_end() {
@@ -263,7 +247,6 @@ impl Lexer {
                     self.advance();
                 }
                 '/' if self.peek_next() == '/' => {
-                    // Check if it's a doc comment ///
                     if self.position + 2 < self.source.len()
                         && self.source[self.position + 2] == '/'
                     {
@@ -314,13 +297,11 @@ impl Lexer {
         None
     }
 
-    /// Scan a single-line doc comment (///)
     fn scan_doc_comment(&mut self) -> Token {
         self.token_start = self.position;
         self.token_start_line = self.line;
         self.token_start_column = self.column;
 
-        // Skip the /// prefix
         self.advance(); // first /
         self.advance(); // second /
         self.advance(); // third /
@@ -330,7 +311,6 @@ impl Lexer {
 
         // Handle multiple consecutive doc comment lines
         loop {
-            // Skip leading space after ///
             if self.peek() == ' ' {
                 self.advance();
             }
@@ -377,7 +357,6 @@ impl Lexer {
         self.make_token(TokenKind::DocComment(content.trim_end().to_string()))
     }
 
-    /// Scan a block doc comment (/** ... */)
     fn scan_block_doc_comment(&mut self) -> Token {
         self.token_start = self.position;
         self.token_start_line = self.line;
@@ -501,7 +480,6 @@ impl Lexer {
         }
     }
 
-    /// Scan an English identifier and produce a helpful error message
     fn scan_english_identifier_error(&mut self, first: char) -> Token {
         let mut ident = String::new();
         ident.push(first);
@@ -840,7 +818,6 @@ mod tests {
 
     #[test]
     fn test_doc_comment_single_line() {
-        let source = r#"/// هذا تعليق توثيقي
 دالة اختبار() {}"#;
         let mut lexer = Lexer::new(source);
         let tokens: Vec<_> = lexer.tokenize();
@@ -853,8 +830,6 @@ mod tests {
 
     #[test]
     fn test_doc_comment_multi_line() {
-        let source = r#"/// سطر أول
-/// سطر ثاني
 دالة اختبار() {}"#;
         let mut lexer = Lexer::new(source);
         let tokens: Vec<_> = lexer.tokenize();

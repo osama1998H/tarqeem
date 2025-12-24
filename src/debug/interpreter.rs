@@ -20,23 +20,15 @@ use super::state::{
 };
 use super::{DebugError, DebugResult};
 
-/// Maximum call stack depth to prevent stack overflow
 const MAX_STACK_DEPTH: usize = 1000;
 
-/// A call frame for debug execution
 #[derive(Debug)]
 struct DebugCallFrame {
-    /// Function being executed
     func_id: FuncId,
-    /// Current block index
     block_idx: usize,
-    /// Current instruction index within the block
     inst_idx: usize,
-    /// Local variables (VarId -> Value)
     locals: HashMap<u32, Value>,
-    /// Previous block (for Phi resolution)
     prev_block: Option<BlockId>,
-    /// Try block stack for exception handling
     try_stack: Vec<BlockId>,
 }
 
@@ -53,43 +45,27 @@ impl DebugCallFrame {
     }
 }
 
-/// Result of executing a single step
 #[derive(Debug)]
 pub enum StepResult {
-    /// Continue to next instruction
     Continue,
-    /// Execution paused
     Paused(PauseReason),
-    /// Function returned a value
     Returned(Value),
-    /// Exception was thrown
     Exception(Value),
-    /// Execution completed
     Completed(Value),
 }
 
-/// Debug-aware interpreter for Tarqeem programs
 pub struct DebugInterpreter {
-    /// The IR module to execute
     module: Module,
-    /// Call stack
     call_stack: Vec<DebugCallFrame>,
-    /// Global variables
     globals: HashMap<String, Value>,
-    /// Current exception (if any)
     current_exception: Option<Value>,
-    /// Debug context (breakpoints, state, etc.)
     context: DebugContext,
-    /// Event callback
     event_callback: Option<Box<dyn FnMut(DebugEvent)>>,
-    /// Current source file
     current_file: PathBuf,
-    /// Frame ID counter
     frame_id_counter: u32,
 }
 
 impl DebugInterpreter {
-    /// Create a new debug interpreter for the given module
     pub fn new(module: Module, context: DebugContext) -> Self {
         Self {
             module,
@@ -103,12 +79,10 @@ impl DebugInterpreter {
         }
     }
 
-    /// Set the current source file
     pub fn set_source_file(&mut self, file: PathBuf) {
         self.current_file = file;
     }
 
-    /// Set event callback
     pub fn set_event_callback<F>(&mut self, callback: F)
     where
         F: FnMut(DebugEvent) + 'static,
@@ -116,22 +90,18 @@ impl DebugInterpreter {
         self.event_callback = Some(Box::new(callback));
     }
 
-    /// Get the debug context
     pub fn context(&self) -> &DebugContext {
         &self.context
     }
 
-    /// Get mutable debug context
     pub fn context_mut(&mut self) -> &mut DebugContext {
         &mut self.context
     }
 
-    /// Request a pause in execution (will pause at next instruction)
     pub fn request_pause(&mut self) {
         self.context.request_pause();
     }
 
-    /// Set a local variable value by name
     pub fn set_local_variable(&mut self, name: &str, value_str: &str) -> DebugResult<Value> {
         // Get func_id from immutable borrow first
         let func_id = {
@@ -167,7 +137,6 @@ impl DebugInterpreter {
         Ok(new_value)
     }
 
-    /// Set a global variable value by name
     pub fn set_global_variable(&mut self, name: &str, value_str: &str) -> DebugResult<Value> {
         if !self.globals.contains_key(name) {
             return Err(DebugError::new(
@@ -182,7 +151,6 @@ impl DebugInterpreter {
         Ok(new_value)
     }
 
-    /// Set a variable by name (tries local first, then global)
     pub fn set_variable(&mut self, name: &str, value_str: &str) -> DebugResult<Value> {
         // Try local first
         if self.set_local_variable(name, value_str).is_ok() {
@@ -193,7 +161,6 @@ impl DebugInterpreter {
         self.set_global_variable(name, value_str)
     }
 
-    /// Parse a value string into a Value
     pub fn parse_value_string(&self, value_str: &str) -> DebugResult<Value> {
         let trimmed = value_str.trim();
 
@@ -227,14 +194,12 @@ impl DebugInterpreter {
         Ok(Value::String(trimmed.to_string().into()))
     }
 
-    /// Emit a debug event
     fn emit_event(&mut self, event: DebugEvent) {
         if let Some(ref mut callback) = self.event_callback {
             callback(event);
         }
     }
 
-    /// Initialize and start debugging
     pub fn start(&mut self) -> DebugResult<()> {
         // Initialize globals
         self.init_globals()?;
@@ -252,7 +217,6 @@ impl DebugInterpreter {
         Ok(())
     }
 
-    /// Run until a breakpoint, step completion, or termination
     pub fn run(&mut self) -> DebugResult<StepResult> {
         // Find main function
         let main_func = self.find_main_function()?;
@@ -276,14 +240,12 @@ impl DebugInterpreter {
         }
     }
 
-    /// Continue execution until next breakpoint or termination
     pub fn continue_execution(&mut self) -> DebugResult<StepResult> {
         self.context.set_state(DebugState::Running);
         self.emit_event(DebugEvent::Continued);
         self.run()
     }
 
-    /// Step to next instruction
     pub fn step(&mut self, mode: StepMode) -> DebugResult<StepResult> {
         let current_depth = self.call_stack.len();
         let current_location = self.get_current_location();
@@ -333,7 +295,6 @@ impl DebugInterpreter {
         }
     }
 
-    /// Execute a single instruction
     fn execute_one_instruction(&mut self) -> DebugResult<StepResult> {
         let Some(frame) = self.call_stack.last() else {
             return Ok(StepResult::Completed(Value::Null));
@@ -438,7 +399,6 @@ impl DebugInterpreter {
         }
     }
 
-    /// Check if there's a breakpoint at the current location
     fn check_breakpoint(&mut self, location: &SourceLocation) -> Option<BreakpointId> {
         // Collect enabled breakpoint IDs first to avoid borrow conflict
         let bp_ids: Vec<BreakpointId> = self
@@ -460,7 +420,6 @@ impl DebugInterpreter {
         None
     }
 
-    /// Get current source location
     fn get_current_location(&self) -> Option<SourceLocation> {
         let frame = self.call_stack.last()?;
         let func = self.module.get_function(&frame.func_id)?;
@@ -477,7 +436,6 @@ impl DebugInterpreter {
             .cloned()
     }
 
-    /// Get the current call stack
     pub fn get_stack_trace(&self) -> Vec<StackFrame> {
         self.call_stack
             .iter()
@@ -516,7 +474,6 @@ impl DebugInterpreter {
             .collect()
     }
 
-    /// Get local variables for the current frame
     pub fn get_locals(&self) -> Vec<DebugVariable> {
         let Some(frame) = self.call_stack.last() else {
             return Vec::new();
@@ -543,7 +500,6 @@ impl DebugInterpreter {
             .collect()
     }
 
-    /// Get global variables
     pub fn get_globals(&self) -> Vec<DebugVariable> {
         self.globals
             .iter()
@@ -551,7 +507,6 @@ impl DebugInterpreter {
             .collect()
     }
 
-    /// Get scopes for the current frame
     pub fn get_scopes(&self) -> Vec<DebugScope> {
         vec![
             DebugScope::new("Locals / محليات".to_string()).with_variables(self.get_locals()),
@@ -559,7 +514,6 @@ impl DebugInterpreter {
         ]
     }
 
-    /// Evaluate an expression in the current context
     pub fn evaluate(&self, expression: &str) -> DebugResult<Value> {
         // For now, just handle simple variable lookups
         let frame = self.call_stack.last();
@@ -602,7 +556,6 @@ impl DebugInterpreter {
 
     // ==================== Interpreter Core Logic ====================
 
-    /// Initialize global variables
     fn init_globals(&mut self) -> DebugResult<()> {
         for (name, _ty, init) in &self.module.globals {
             let value = match init {
@@ -614,7 +567,6 @@ impl DebugInterpreter {
         Ok(())
     }
 
-    /// Find the main function
     fn find_main_function(&self) -> DebugResult<FuncId> {
         let main_names = ["__main__", "main", "رئيسية", "البداية"];
 
@@ -635,7 +587,6 @@ impl DebugInterpreter {
         ))
     }
 
-    /// Call a function with arguments
     fn call_function(&mut self, func_id: &FuncId, args: Vec<Value>) -> RuntimeResult<Value> {
         if self.call_stack.len() >= MAX_STACK_DEPTH {
             return Err(RuntimeError::stack_overflow());
@@ -663,7 +614,6 @@ impl DebugInterpreter {
         result
     }
 
-    /// Execute a function
     fn execute_function(&mut self, func: &Function) -> RuntimeResult<Value> {
         if func.blocks.is_empty() {
             return Ok(Value::Null);
@@ -721,7 +671,6 @@ impl DebugInterpreter {
         }
     }
 
-    /// Find block index by ID
     fn find_block_index(&self, func: &Function, block_id: BlockId) -> RuntimeResult<usize> {
         func.blocks
             .iter()
@@ -729,7 +678,6 @@ impl DebugInterpreter {
             .ok_or_else(|| RuntimeError::internal(format!("Block {} not found", block_id)))
     }
 
-    /// Execute a basic block
     fn execute_block(&mut self, block: &BasicBlock, func: &Function) -> RuntimeResult<BlockResult> {
         // Update frame instruction index
         if let Some(frame) = self.call_stack.last_mut() {
@@ -767,7 +715,6 @@ impl DebugInterpreter {
         Ok(BlockResult::Continue)
     }
 
-    /// Execute a single instruction
     fn execute_instruction(
         &mut self,
         inst: &Instruction,
@@ -1710,7 +1657,6 @@ impl DebugInterpreter {
     }
 }
 
-/// Result of executing a block
 enum BlockResult {
     Continue,
     Jump(BlockId),
@@ -1718,7 +1664,6 @@ enum BlockResult {
     Throw(Value),
 }
 
-/// Result of executing an instruction
 enum InstructionResult {
     Continue,
     Jump(BlockId),
