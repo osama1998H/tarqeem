@@ -732,11 +732,14 @@ impl Parser {
 
         let name = self.expect_identifier("Expected variant name", "متوقع اسم الحالة")?;
 
-        // Check for explicit discriminant: = 1
+        // Check for explicit discriminant: = 1 or = -1
         let discriminant = if self.match_token(&TokenKind::Equal) {
+            // Check for negative number
+            let is_negative = self.match_token(&TokenKind::Minus);
+
             match &self.peek().kind {
                 TokenKind::IntLiteral(n) => {
-                    let value = *n;
+                    let value = if is_negative { -(*n) } else { *n };
                     self.advance();
                     Some(value)
                 }
