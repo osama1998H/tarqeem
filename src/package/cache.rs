@@ -8,10 +8,74 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Default registry URL
 pub const DEFAULT_REGISTRY: &str = "https://registry.tarqeem.dev";
+
+/// Validates that a string is safe to use as a path component.
+/// Returns an error if the string contains path traversal sequences or unsafe characters.
+fn validate_path_component(component: &str, field_name: &str) -> PackageResult<()> {
+    // Check for empty string
+    if component.is_empty() {
+        return Err(PackageError::InvalidPackageName(format!(
+            "{} cannot be empty / {} لا يمكن أن يكون فارغاً",
+            field_name, field_name
+        )));
+    }
+
+    // Check for path traversal sequences
+    if component.contains("..") || component.contains('/') || component.contains('\\') {
+        return Err(PackageError::InvalidPackageName(format!(
+            "{} contains invalid characters (path traversal attempt) / {} يحتوي على أحرف غير صالحة (محاولة اجتياز المسار)",
+            field_name, field_name
+        )));
+    }
+
+    // Check for null bytes
+    if component.contains('\0') {
+        return Err(PackageError::InvalidPackageName(format!(
+            "{} contains null bytes / {} يحتوي على بايتات فارغة",
+            field_name, field_name
+        )));
+    }
+
+    Ok(())
+}
+
+/// Validates that an extracted path stays within the target directory.
+/// Prevents zip-slip attacks where archive entries contain "../" sequences.
+fn validate_extraction_path(entry_path: &Path, target: &Path) -> PackageResult<PathBuf> {
+    let full_path = target.join(entry_path);
+
+    // Canonicalize would require the path to exist, so we normalize manually
+    let mut normalized = PathBuf::new();
+    for component in full_path.components() {
+        match component {
+            Component::ParentDir => {
+                // Don't allow going above target
+                if !normalized.pop() {
+                    return Err(PackageError::CacheError(
+                        "Archive contains path traversal (zip-slip attack) / الأرشيف يحتوي على اجتياز مسار (هجوم zip-slip)".to_string()
+                    ));
+                }
+            }
+            Component::Normal(c) => normalized.push(c),
+            Component::RootDir => normalized.push("/"),
+            Component::CurDir => {}
+            Component::Prefix(p) => normalized.push(p.as_os_str()),
+        }
+    }
+
+    // Verify the normalized path starts with target
+    if !normalized.starts_with(target) {
+        return Err(PackageError::CacheError(
+            "Archive entry escapes target directory (zip-slip attack) / عنصر الأرشيف يهرب من المجلد المستهدف (هجوم zip-slip)".to_string()
+        ));
+    }
+
+    Ok(normalized)
+}
 
 /// Local package cache
 pub struct Cache {
@@ -101,19 +165,30 @@ impl Cache {
         self.package_cache.insert(name.to_string(), info);
     }
 
-    /// Get path to cached package
-    pub fn get_package_path(&self, name: &str, version: &str) -> PathBuf {
+    /// Get path to cached package.
+    /// Returns an error if the name or version contain path traversal sequences.
+    pub fn get_package_path(&self, name: &str, version: &str) -> PackageResult<PathBuf> {
+        validate_path_component(name, "package name")?;
+        validate_path_component(version, "version")?;
+        Ok(self.root.join(name).join(version))
+    }
+
+    /// Get path to cached package without validation (for internal use only).
+    /// SAFETY: Only use when name and version are known to be safe (e.g., from trusted sources).
+    fn get_package_path_unchecked(&self, name: &str, version: &str) -> PathBuf {
         self.root.join(name).join(version)
     }
 
     /// Check if package is cached
     pub fn is_cached(&self, name: &str, version: &str) -> bool {
-        self.get_package_path(name, version).exists()
+        self.get_package_path(name, version)
+            .map(|p| p.exists())
+            .unwrap_or(false)
     }
 
     /// Download and verify a package
     pub fn download_and_verify(&self, pkg: &ResolvedPackage) -> PackageResult<PathBuf> {
-        let pkg_path = self.get_package_path(&pkg.name, &pkg.version);
+        let pkg_path = self.get_package_path(&pkg.name, &pkg.version)?;
 
         // Skip if already cached
         if pkg_path.exists() {
@@ -242,7 +317,7 @@ impl Cache {
         for pkg in packages {
             let source = match &pkg.source {
                 ResolvedSource::Path(p) => p.clone(),
-                _ => self.get_package_path(&pkg.name, &pkg.version),
+                _ => self.get_package_path(&pkg.name, &pkg.version)?,
             };
 
             let link_path = target.join(&pkg.name);
@@ -317,16 +392,50 @@ impl Cache {
         Ok(())
     }
 
-    /// Extract a tarball to a directory
+    /// Extract a tarball to a directory.
+    /// This function validates each entry path to prevent zip-slip attacks.
     pub fn extract_tarball(&self, tarball: &[u8], target: &Path) -> PackageResult<()> {
         use flate2::read::GzDecoder;
+        use std::io::Write;
         use tar::Archive;
 
         fs::create_dir_all(target)?;
 
         let decoder = GzDecoder::new(tarball);
         let mut archive = Archive::new(decoder);
-        archive.unpack(target)?;
+
+        // Manually iterate entries to validate paths (prevents zip-slip)
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            let entry_path = entry.path()?;
+
+            // Validate the path doesn't escape target directory
+            let safe_path = validate_extraction_path(&entry_path, target)?;
+
+            // Create parent directories if needed
+            if let Some(parent) = safe_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+
+            // Extract the entry
+            if entry.header().entry_type().is_dir() {
+                fs::create_dir_all(&safe_path)?;
+            } else {
+                let mut file = fs::File::create(&safe_path)?;
+                std::io::copy(&mut entry, &mut file)?;
+                file.flush()?;
+
+                // Preserve permissions on Unix
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Ok(mode) = entry.header().mode() {
+                        let permissions = std::fs::Permissions::from_mode(mode);
+                        let _ = std::fs::set_permissions(&safe_path, permissions);
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
@@ -344,8 +453,10 @@ impl Cache {
         }
     }
 
-    /// Clear cached package
+    /// Clear cached package.
+    /// Validates the package name to prevent path traversal attacks.
     pub fn clear_package(&self, name: &str) -> PackageResult<()> {
+        validate_path_component(name, "package name")?;
         let pkg_dir = self.root.join(name);
         if pkg_dir.exists() {
             fs::remove_dir_all(&pkg_dir)?;
@@ -407,8 +518,27 @@ mod tests {
         let temp = tempdir().unwrap();
         let cache = Cache::with_root(temp.path().to_path_buf()).unwrap();
 
-        let path = cache.get_package_path("json", "1.0.0");
+        let path = cache.get_package_path("json", "1.0.0").unwrap();
         assert!(path.ends_with("json/1.0.0"));
+    }
+
+    #[test]
+    fn test_package_path_traversal_blocked() {
+        let temp = tempdir().unwrap();
+        let cache = Cache::with_root(temp.path().to_path_buf()).unwrap();
+
+        // Path traversal in package name should be rejected
+        assert!(cache.get_package_path("../etc", "1.0.0").is_err());
+        assert!(cache.get_package_path("..\\etc", "1.0.0").is_err());
+        assert!(cache.get_package_path("foo/../bar", "1.0.0").is_err());
+
+        // Path traversal in version should be rejected
+        assert!(cache.get_package_path("json", "../1.0.0").is_err());
+        assert!(cache.get_package_path("json", "1.0.0/../../etc").is_err());
+
+        // Empty strings should be rejected
+        assert!(cache.get_package_path("", "1.0.0").is_err());
+        assert!(cache.get_package_path("json", "").is_err());
     }
 
     #[test]
@@ -419,10 +549,20 @@ mod tests {
         assert!(!cache.is_cached("json", "1.0.0"));
 
         // Create the package directory
-        let pkg_path = cache.get_package_path("json", "1.0.0");
+        let pkg_path = cache.get_package_path("json", "1.0.0").unwrap();
         fs::create_dir_all(&pkg_path).unwrap();
 
         assert!(cache.is_cached("json", "1.0.0"));
+    }
+
+    #[test]
+    fn test_clear_package_traversal_blocked() {
+        let temp = tempdir().unwrap();
+        let cache = Cache::with_root(temp.path().to_path_buf()).unwrap();
+
+        // Path traversal in clear_package should be rejected
+        assert!(cache.clear_package("../etc").is_err());
+        assert!(cache.clear_package("foo/bar").is_err());
     }
 
     #[test]
