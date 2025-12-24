@@ -40,6 +40,7 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     // ============ OOP ============
     "صنف" => TokenKind::Class,
     "ميثاق" => TokenKind::Interface,  // عقد يُلزم الصنف بتنفيذ دوال معينة
+    "تعداد" => TokenKind::Enum,       // مجموعة من القيم المسماة المحددة مسبقاً
     "يرث" => TokenKind::Extends,
     "يلتزم" => TokenKind::Implements,  // الصنف يلتزم بتنفيذ الميثاق
     "عام" => TokenKind::Public,
@@ -174,6 +175,7 @@ mod tests {
     fn test_oop_keywords() {
         assert_eq!(lookup_keyword("صنف"), Some(TokenKind::Class));
         assert_eq!(lookup_keyword("ميثاق"), Some(TokenKind::Interface)); // ميثاق بدلاً من واجهة
+        assert_eq!(lookup_keyword("تعداد"), Some(TokenKind::Enum)); // تعداد للقيم المسماة
         assert_eq!(lookup_keyword("يرث"), Some(TokenKind::Extends));
         assert_eq!(lookup_keyword("يلتزم"), Some(TokenKind::Implements)); // يلتزم بدلاً من يطبق
         assert_eq!(lookup_keyword("عام"), Some(TokenKind::Public));

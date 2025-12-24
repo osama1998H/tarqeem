@@ -36,6 +36,9 @@ pub enum Type {
     /// Interface type
     Interface(String),
 
+    /// Enum type (تعداد)
+    Enum(String),
+
     /// Generic type parameter
     Generic(String),
 
@@ -217,6 +220,7 @@ impl Type {
             }
             Type::Class(name) => name.clone(),
             Type::Interface(name) => name.clone(),
+            Type::Enum(name) => name.clone(),
             Type::Generic(name) => name.clone(),
             Type::Optional(inner) => format!("{}?", inner.arabic_name()),
             Type::Any => "أي".to_string(),
@@ -247,6 +251,7 @@ impl fmt::Display for Type {
             }
             Type::Class(name) => write!(f, "{}", name),
             Type::Interface(name) => write!(f, "{}", name),
+            Type::Enum(name) => write!(f, "{}", name),
             Type::Generic(name) => write!(f, "{}", name),
             Type::Optional(inner) => write!(f, "{}?", inner),
             Type::Any => write!(f, "any"),

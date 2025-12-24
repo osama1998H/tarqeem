@@ -4,8 +4,9 @@
 
 use super::{FormatConfig, Printer};
 use crate::parser::{
-    Ast, BinaryOp, Block, ClassMember, Expr, ExprKind, ImportItems, LambdaBody, Literal, MatchArm,
-    MethodSignature, Param, Stmt, StmtKind, TypeAnnotation, TypeKind, UnaryOp, Visibility,
+    Ast, BinaryOp, Block, ClassMember, EnumVariant, Expr, ExprKind, ImportItems, LambdaBody,
+    Literal, MatchArm, MethodSignature, Param, Stmt, StmtKind, TypeAnnotation, TypeKind, UnaryOp,
+    Visibility,
 };
 
 /// Code formatter that traverses the AST
@@ -51,6 +52,7 @@ impl Formatter {
                     StmtKind::FuncDecl { .. }
                         | StmtKind::ClassDecl { .. }
                         | StmtKind::InterfaceDecl { .. }
+                        | StmtKind::EnumDecl { .. }
                 ) {
                     // Blank line between top-level declarations
                     p.blank_lines(self.config.blank_lines_between_functions);
@@ -222,6 +224,37 @@ impl Formatter {
                 p.write_block(|p| {
                     for method in methods {
                         self.format_method_signature(method, p);
+                    }
+                });
+                p.newline();
+            }
+
+            StmtKind::EnumDecl {
+                name,
+                type_params,
+                variants,
+                ..
+            } => {
+                p.write("تعداد");
+                p.write_space();
+                p.write(name);
+
+                // Generic type parameters
+                if !type_params.is_empty() {
+                    p.write_char('<');
+                    for (i, param) in type_params.iter().enumerate() {
+                        if i > 0 {
+                            p.write_comma();
+                        }
+                        p.write(param);
+                    }
+                    p.write_char('>');
+                }
+
+                // Body
+                p.write_block(|p| {
+                    for variant in variants {
+                        self.format_enum_variant(variant, p);
                     }
                 });
                 p.newline();
@@ -1003,6 +1036,40 @@ impl Formatter {
         p.newline();
     }
 
+    /// Format an enum variant
+    fn format_enum_variant(&self, variant: &EnumVariant, p: &mut Printer) {
+        // Doc comment
+        if let Some(doc) = &variant.doc_comment {
+            self.format_doc_comment(doc, p);
+        }
+
+        p.write(&variant.name);
+
+        // Explicit discriminant: = 1
+        if let Some(disc) = variant.discriminant {
+            p.write_operator("=");
+            p.write(&disc.to_string());
+        }
+
+        // Associated data: (name: type, ...)
+        if !variant.fields.is_empty() {
+            p.write_parens(|p| {
+                for (i, field) in variant.fields.iter().enumerate() {
+                    if i > 0 {
+                        p.write_comma();
+                    }
+                    if let Some(name) = &field.name {
+                        p.write(name);
+                        p.write_colon();
+                    }
+                    self.format_type(&field.ty, p);
+                }
+            });
+        }
+
+        p.newline();
+    }
+
     /// Format a match arm
     fn format_match_arm(&self, arm: &MatchArm, p: &mut Printer) {
         p.write("حالة");
@@ -1093,6 +1160,7 @@ impl Formatter {
             StmtKind::FuncDecl { doc_comment, .. } => doc_comment.as_ref(),
             StmtKind::ClassDecl { doc_comment, .. } => doc_comment.as_ref(),
             StmtKind::InterfaceDecl { doc_comment, .. } => doc_comment.as_ref(),
+            StmtKind::EnumDecl { doc_comment, .. } => doc_comment.as_ref(),
             _ => None,
         };
 

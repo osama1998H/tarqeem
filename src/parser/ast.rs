@@ -97,6 +97,15 @@ pub enum StmtKind {
         doc_comment: Option<String>,
     },
 
+    /// Enum declaration: تعداد Color { Red, Green, Blue }
+    EnumDecl {
+        name: String,
+        type_params: Vec<String>,
+        variants: Vec<EnumVariant>,
+        /// Documentation comment attached to this declaration
+        doc_comment: Option<String>,
+    },
+
     /// If statement: إذا (cond) { ... } وإلا { ... }
     If {
         condition: Expr,
@@ -504,6 +513,29 @@ pub struct MethodSignature {
     pub return_type: Option<TypeAnnotation>,
     /// Documentation comment attached to this method signature
     pub doc_comment: Option<String>,
+}
+
+/// Enum variant: أحمر, أحمر = 1, or نص(محتوى: نص)
+#[derive(Debug, Clone)]
+pub struct EnumVariant {
+    pub name: String,
+    /// Explicit discriminant value: أحمر = 1
+    pub discriminant: Option<i64>,
+    /// Associated data fields: نص(محتوى: نص, عدد: عدد)
+    pub fields: Vec<EnumVariantField>,
+    /// Documentation comment attached to this variant
+    pub doc_comment: Option<String>,
+    pub span: Span,
+}
+
+/// Enum variant field (for tagged unions)
+#[derive(Debug, Clone)]
+pub struct EnumVariantField {
+    /// Field name (optional for tuple-style variants)
+    pub name: Option<String>,
+    /// Field type
+    pub ty: TypeAnnotation,
+    pub span: Span,
 }
 
 /// Visibility modifier

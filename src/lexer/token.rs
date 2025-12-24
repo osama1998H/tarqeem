@@ -115,6 +115,8 @@ pub enum TokenKind {
     Super,
     /// جديد / new
     New,
+    /// تعداد / enum
+    Enum,
 
     // ============ Keywords - Property Accessors ============
     /// خاصية / property
@@ -312,6 +314,7 @@ impl TokenKind {
                 | TokenKind::This
                 | TokenKind::Super
                 | TokenKind::New
+                | TokenKind::Enum
                 | TokenKind::Property
                 | TokenKind::Get
                 | TokenKind::Set
