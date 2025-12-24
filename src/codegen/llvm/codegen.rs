@@ -11,8 +11,6 @@ use crate::ir::{
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 
-/// Macro for emitting LLVM IR output with proper error handling.
-/// Wraps writeln! and converts fmt::Error to CodegenError.
 macro_rules! emit {
     ($self:expr) => {
         writeln!($self.output).map_err(|e| CodegenError {
@@ -28,38 +26,23 @@ macro_rules! emit {
     };
 }
 
-/// LLVM IR Code Generator
 pub struct LlvmCodegen {
-    /// Target configuration
     target: Target,
-    /// Type mapper
     type_mapper: TypeMapper,
-    /// Output buffer
     output: String,
-    /// Current function being generated
     current_func: Option<String>,
-    /// Variable name mapping (IR VarId -> LLVM name)
     var_map: HashMap<u32, String>,
-    /// Variable type mapping (IR VarId -> IrType)
     var_types: HashMap<u32, IrType>,
-    /// Block label mapping (IR BlockId -> LLVM label)
     block_map: HashMap<u32, String>,
-    /// String literal table (index -> (global name, byte length))
     string_globals: HashMap<u32, (String, usize)>,
-    /// Counter for unique names
     name_counter: u32,
-    /// Class definitions for field access
     class_defs: HashMap<String, Vec<(String, IrType)>>,
-    /// VTable globals
     vtable_globals: HashMap<String, String>,
-    /// Current function's return type (for Return instruction)
     current_return_type: IrType,
-    /// Global variable names (name -> mangled LLVM name)
     global_vars: HashMap<String, String>,
 }
 
 impl LlvmCodegen {
-    /// Create a new LLVM code generator
     pub fn new(target: Target) -> Self {
         let pointer_bits = target.triple.pointer_bits();
         Self {
@@ -79,11 +62,9 @@ impl LlvmCodegen {
         }
     }
 
-    /// Generate LLVM IR for a module
     pub fn generate(&mut self, module: &Module) -> Result<String, CodegenError> {
         self.output.clear();
 
-        // Module header
         self.emit_header(&module.name)?;
 
         // Runtime type definitions
@@ -117,7 +98,6 @@ impl LlvmCodegen {
         Ok(self.output.clone())
     }
 
-    /// Emit C main entry point that calls __main__
     fn emit_c_main_entry(&mut self) -> Result<(), CodegenError> {
         emit!(self);
         emit!(self, "; C entry point");
@@ -129,7 +109,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Emit module header with target info
     fn emit_header(&mut self, name: &str) -> Result<(), CodegenError> {
         emit!(self, "; ModuleID = '{}'", name);
         // Note: source_filename is metadata only. Tarqeem supports both .trq and .ترقيم extensions
@@ -144,7 +123,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Emit runtime type definitions
     fn emit_runtime_types(&mut self) -> Result<(), CodegenError> {
         emit!(self, "; Runtime types");
         emit!(self, "{}", TypeMapper::string_struct_type());
@@ -153,7 +131,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Emit string literal table
     fn emit_string_table(&mut self, module: &Module) -> Result<(), CodegenError> {
         if module.strings.iter().count() == 0 {
             return Ok(());
@@ -177,7 +154,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Emit global variable definitions
     fn emit_global_variables(&mut self, module: &Module) -> Result<(), CodegenError> {
         if module.globals.is_empty() {
             return Ok(());
@@ -227,7 +203,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Get zero initializer for a type
     fn zero_initializer(&self, ty: &IrType) -> String {
         match ty {
             IrType::Int => "0".to_string(),
@@ -242,7 +217,6 @@ impl LlvmCodegen {
         }
     }
 
-    /// Emit class/struct definition
     fn emit_class_definition(&mut self, class: &Class) -> Result<(), CodegenError> {
         emit!(self, "; Class: {}", class.name);
 
@@ -265,7 +239,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Emit vtable for a class
     fn emit_vtable(&mut self, class: &Class) -> Result<(), CodegenError> {
         let mangled_class = mangle_class_name(&class.id.0);
         let vtable_name = format!("@vtable.{}", mangled_class);
@@ -293,7 +266,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Emit runtime function declarations
     fn emit_runtime_declarations(&mut self) -> Result<(), CodegenError> {
         emit!(self, "; Runtime function declarations");
 
@@ -547,7 +519,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Emit a function definition
     fn emit_function(&mut self, func: &Function) -> Result<(), CodegenError> {
         // Reset per-function state
         self.var_map.clear();
@@ -608,7 +579,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Emit a basic block
     fn emit_block(&mut self, block: &BasicBlock) -> Result<(), CodegenError> {
         let label = self.get_block(block.id)?;
         emit!(self, "{}:", label);
@@ -625,7 +595,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Emit an instruction
     fn emit_instruction(&mut self, inst: &Instruction) -> Result<(), CodegenError> {
         match inst {
             Instruction::Const { dest, value, ty } => {
@@ -1396,7 +1365,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Emit a constant instruction
     fn emit_const(
         &mut self,
         dest: VarId,
@@ -1463,7 +1431,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Emit a binary operation
     fn emit_binary(
         &mut self,
         dest: VarId,
@@ -1563,7 +1530,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Emit a unary operation
     fn emit_unary(
         &mut self,
         dest: VarId,
@@ -1598,7 +1564,6 @@ impl LlvmCodegen {
         Ok(())
     }
 
-    /// Get or create a variable name
     fn get_or_create_var(&mut self, var: VarId) -> String {
         if let Some(name) = self.var_map.get(&var.0) {
             name.clone()
@@ -1609,7 +1574,6 @@ impl LlvmCodegen {
         }
     }
 
-    /// Get variable name (must exist)
     fn get_var(&self, var: VarId) -> Result<String, CodegenError> {
         self.var_map
             .get(&var.0)
@@ -1620,7 +1584,6 @@ impl LlvmCodegen {
             })
     }
 
-    /// Get block label
     fn get_block(&self, block: BlockId) -> Result<String, CodegenError> {
         self.block_map
             .get(&block.0)
@@ -1631,14 +1594,12 @@ impl LlvmCodegen {
             })
     }
 
-    /// Generate a fresh unique name
     fn fresh_name(&mut self, prefix: &str) -> String {
         self.name_counter += 1;
         format!("%{}.{}", prefix, self.name_counter)
     }
 }
 
-/// Code generation error
 #[derive(Debug)]
 pub struct CodegenError {
     pub message: String,
@@ -1653,7 +1614,6 @@ impl std::fmt::Display for CodegenError {
 
 impl std::error::Error for CodegenError {}
 
-/// Mangle a function name to be valid for LLVM
 fn mangle_function_name(name: &str) -> String {
     // First check if this is a builtin function with a runtime mapping
     if let Some(runtime_name) = get_runtime_function_name(name) {
@@ -1662,8 +1622,6 @@ fn mangle_function_name(name: &str) -> String {
     mangle_name(name)
 }
 
-/// Map Arabic builtin function names to their C runtime equivalents (trq_* prefix).
-/// This eliminates the need for the __xxx__ pattern in stdlib.
 fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
     match arabic_name {
         // ==========================================================================
@@ -1867,12 +1825,10 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
     }
 }
 
-/// Mangle a class name to be valid for LLVM
 fn mangle_class_name(name: &str) -> String {
     mangle_name(name)
 }
 
-/// Sanitize a block label
 fn sanitize_label(label: &str) -> String {
     label
         .chars()
@@ -1886,7 +1842,6 @@ fn sanitize_label(label: &str) -> String {
         .collect()
 }
 
-/// Escape a string for LLVM IR
 fn escape_llvm_string(s: &str) -> String {
     let mut result = String::new();
     for byte in s.bytes() {

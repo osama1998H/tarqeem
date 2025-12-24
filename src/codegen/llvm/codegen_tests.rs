@@ -4,16 +4,13 @@
 //! Tarqeem IR to valid LLVM IR text format.
 
 use super::codegen::*;
-use super::types::*;
 use crate::codegen::Target;
 use crate::ir::*;
 
-/// Helper to create a simple IR module for testing
 fn create_test_module(name: &str) -> Module {
     Module::new(name.to_string())
 }
 
-/// Helper to create a basic function with entry block
 fn create_test_function(name: &str, params: Vec<Parameter>, return_type: IrType) -> Function {
     let mut func = Function::new(
         FuncId(name.to_string()),
@@ -26,7 +23,6 @@ fn create_test_function(name: &str, params: Vec<Parameter>, return_type: IrType)
     func
 }
 
-/// Helper to create a codegen instance
 fn create_codegen() -> LlvmCodegen {
     LlvmCodegen::new(Target::native())
 }

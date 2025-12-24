@@ -7,16 +7,12 @@ use std::collections::HashMap;
 
 /// Type mapper for converting IR types to LLVM types
 pub struct TypeMapper {
-    /// Pointer size in bits
     pointer_bits: u32,
-    /// Cached struct type definitions
     struct_types: HashMap<String, String>,
-    /// Struct field information for size calculation
     struct_fields: HashMap<String, Vec<IrType>>,
 }
 
 impl TypeMapper {
-    /// Create a new type mapper
     pub fn new(pointer_bits: u32) -> Self {
         Self {
             pointer_bits,
@@ -25,7 +21,6 @@ impl TypeMapper {
         }
     }
 
-    /// Map an IR type to LLVM type string
     pub fn map_type(&self, ty: &IrType) -> String {
         match ty {
             IrType::Void => "void".to_string(),
@@ -51,8 +46,6 @@ impl TypeMapper {
         }
     }
 
-    /// Map an IR type to LLVM type string for function parameters
-    /// (handles by-value struct passing)
     pub fn map_param_type(&self, ty: &IrType) -> String {
         match ty {
             // Pass strings by pointer
@@ -66,7 +59,6 @@ impl TypeMapper {
         }
     }
 
-    /// Get the size of a type in bytes
     pub fn type_size(&self, ty: &IrType) -> u64 {
         match ty {
             IrType::Void => 0,
@@ -104,7 +96,6 @@ impl TypeMapper {
         }
     }
 
-    /// Get the alignment of a type in bytes
     pub fn type_align(&self, ty: &IrType) -> u64 {
         match ty {
             IrType::Void => 1,
@@ -119,7 +110,6 @@ impl TypeMapper {
         }
     }
 
-    /// Generate LLVM struct type definition for a class
     pub fn generate_struct_type(
         &mut self,
         class_id: &ClassId,
@@ -141,19 +131,16 @@ impl TypeMapper {
         type_def
     }
 
-    /// Get the LLVM type for the string runtime structure
     pub fn string_struct_type() -> &'static str {
         // String structure: { i64 len, i64 cap, ptr data }
         "%struct.TrqString = type { i64, i64, ptr }"
     }
 
-    /// Get the LLVM type for the array runtime structure
     pub fn array_struct_type() -> &'static str {
         // Array structure: { i64 len, i64 cap, ptr data }
         "%struct.TrqArray = type { i64, i64, ptr }"
     }
 
-    /// Get LLVM zero initializer for a type
     pub fn zero_init(&self, ty: &IrType) -> String {
         match ty {
             IrType::Void => "void".to_string(),
@@ -169,8 +156,6 @@ impl TypeMapper {
     }
 }
 
-/// Mangle a name to be valid for LLVM (no non-ASCII characters)
-/// Used for encoding Arabic identifiers as valid LLVM names
 pub fn mangle_name(name: &str) -> String {
     let mut result = String::new();
     for ch in name.chars() {
