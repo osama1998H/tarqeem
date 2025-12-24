@@ -8,26 +8,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Linker for creating executables from LLVM IR
 pub struct Linker {
-    /// Target configuration
     target: Target,
-    /// Path to clang (if available)
     clang_path: Option<PathBuf>,
-    /// Path to llc (if available)
     llc_path: Option<PathBuf>,
-    /// Path to system linker
     ld_path: Option<PathBuf>,
-    /// Optimization level (0-3)
     opt_level: u32,
-    /// Enable debug info
     debug: bool,
-    /// Verbose output
     verbose: bool,
 }
 
 impl Linker {
-    /// Create a new linker for the given target
     pub fn new(target: Target) -> Self {
         let clang_path = find_program("clang");
         let llc_path = find_program("llc");
@@ -44,25 +35,21 @@ impl Linker {
         }
     }
 
-    /// Set optimization level
     pub fn optimization_level(mut self, level: u32) -> Self {
         self.opt_level = level.min(3);
         self
     }
 
-    /// Enable debug info
     pub fn debug(mut self, enable: bool) -> Self {
         self.debug = enable;
         self
     }
 
-    /// Enable verbose output
     pub fn verbose(mut self, enable: bool) -> Self {
         self.verbose = enable;
         self
     }
 
-    /// Compile LLVM IR to an object file
     pub fn compile_to_object(&self, llvm_ir: &str, output: &Path) -> Result<(), LinkerError> {
         // Write IR to temporary file
         let ir_path = output.with_extension("ll");
@@ -91,7 +78,6 @@ impl Linker {
         Ok(())
     }
 
-    /// Compile LLVM IR directly to an executable
     pub fn compile_to_executable(
         &self,
         llvm_ir: &str,
@@ -128,7 +114,6 @@ impl Linker {
         Ok(())
     }
 
-    /// Compile LLVM IR to assembly
     pub fn compile_to_assembly(&self, llvm_ir: &str, output: &Path) -> Result<(), LinkerError> {
         // Write IR to temporary file
         let ir_path = output.with_extension("ll");
@@ -177,7 +162,6 @@ impl Linker {
         Ok(())
     }
 
-    /// Compile with clang
     fn compile_with_clang(
         &self,
         clang: &Path,
@@ -200,7 +184,6 @@ impl Linker {
         self.run_command(cmd, "clang")
     }
 
-    /// Compile with llc
     fn compile_with_llc(
         &self,
         llc: &Path,
@@ -219,7 +202,6 @@ impl Linker {
         self.run_command(cmd, "llc")
     }
 
-    /// Compile and link with clang in one step
     fn compile_and_link_with_clang(
         &self,
         clang: &Path,
@@ -250,7 +232,6 @@ impl Linker {
         self.run_command(cmd, "clang")
     }
 
-    /// Link object file to executable
     fn link_object(
         &self,
         obj_path: &Path,
@@ -284,7 +265,6 @@ impl Linker {
         self.run_command(cmd, "linker")
     }
 
-    /// Run a command and check for errors
     fn run_command(&self, mut cmd: Command, name: &str) -> Result<(), LinkerError> {
         if self.verbose {
             eprintln!("Running: {:?}", cmd);
@@ -306,12 +286,10 @@ impl Linker {
         Ok(())
     }
 
-    /// Check if compilation is available
     pub fn is_available(&self) -> bool {
         self.clang_path.is_some() || self.llc_path.is_some()
     }
 
-    /// Get the clang version if available
     pub fn clang_version(&self) -> Option<String> {
         let clang = self.clang_path.as_ref()?;
         let output = Command::new(clang).arg("--version").output().ok()?;
@@ -320,7 +298,6 @@ impl Linker {
     }
 }
 
-/// Linker error
 #[derive(Debug)]
 pub struct LinkerError {
     pub message: String,
@@ -335,7 +312,6 @@ impl std::fmt::Display for LinkerError {
 
 impl std::error::Error for LinkerError {}
 
-/// Find a program in PATH
 fn find_program(name: &str) -> Option<PathBuf> {
     // Try the command itself
     if Command::new(name).arg("--version").output().is_ok() {
@@ -360,7 +336,6 @@ fn find_program(name: &str) -> Option<PathBuf> {
     None
 }
 
-/// Find the system linker
 fn find_linker(target: &Target) -> Option<PathBuf> {
     if target.triple.os == "darwin" {
         find_program("ld")
@@ -370,21 +345,15 @@ fn find_linker(target: &Target) -> Option<PathBuf> {
     }
 }
 
-/// Emit options for output type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmitType {
-    /// Emit LLVM IR (.ll)
     LlvmIr,
-    /// Emit assembly (.s)
     Assembly,
-    /// Emit object file (.o)
     Object,
-    /// Emit executable
     Executable,
 }
 
 impl EmitType {
-    /// Get the file extension for this emit type
     pub fn extension(&self) -> &'static str {
         match self {
             EmitType::LlvmIr => "ll",

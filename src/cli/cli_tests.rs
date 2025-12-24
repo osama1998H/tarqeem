@@ -1077,12 +1077,10 @@ use crate::lexer::Lexer;
 use crate::parser::Parser as TarqeemParser;
 use crate::semantic::Analyzer;
 
-/// Helper to wrap source code with required file markers
 fn wrap_source(source: &str) -> String {
     format!("بسم_الله\n{}\nالحمد_لله", source.trim())
 }
 
-/// Helper: Parse and analyze source code, return errors if any
 fn check_source(source: &str) -> Result<(), Vec<String>> {
     let wrapped = wrap_source(source);
     let mut parser = TarqeemParser::new(&wrapped);
@@ -1099,7 +1097,6 @@ fn check_source(source: &str) -> Result<(), Vec<String>> {
     Ok(())
 }
 
-/// Helper: Parse, analyze, and generate IR from source code
 fn compile_to_ir(source: &str) -> Result<crate::ir::Module, String> {
     let wrapped = wrap_source(source);
     let mut parser = TarqeemParser::new(&wrapped);

@@ -4,7 +4,6 @@ use crate::package::{DependencySpec, DetailedDependency, Manifest, PackageResult
 use colored::*;
 use std::path::PathBuf;
 
-/// Run the add command
 pub fn run(package: String, dev: bool, path: Option<PathBuf>) -> PackageResult<()> {
     // Find and parse manifest
     let (mut manifest, manifest_path) = Manifest::find_and_parse()?;
@@ -83,7 +82,6 @@ pub fn run(package: String, dev: bool, path: Option<PathBuf>) -> PackageResult<(
     Ok(())
 }
 
-/// Parse package@version format
 fn parse_package_spec(spec: &str) -> (String, String) {
     if let Some(idx) = spec.find('@') {
         let (name, version) = spec.split_at(idx);

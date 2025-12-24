@@ -3,7 +3,6 @@
 use crate::package::{Manifest, PackageResult};
 use colored::*;
 
-/// Run the info command
 pub fn run() -> PackageResult<()> {
     // Find and parse manifest
     let (manifest, manifest_path) = Manifest::find_and_parse()?;

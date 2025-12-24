@@ -5,21 +5,15 @@
 use std::fmt;
 use std::process::Command;
 
-/// Target triple representation
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetTriple {
-    /// Architecture (x86_64, aarch64, wasm32)
     pub arch: String,
-    /// Vendor (unknown, apple, pc)
     pub vendor: String,
-    /// Operating system (linux, darwin, windows)
     pub os: String,
-    /// Environment/ABI (gnu, musl, msvc)
     pub env: Option<String>,
 }
 
 impl TargetTriple {
-    /// Create a new target triple
     pub fn new(arch: &str, vendor: &str, os: &str, env: Option<&str>) -> Self {
         Self {
             arch: arch.to_string(),
@@ -29,7 +23,6 @@ impl TargetTriple {
         }
     }
 
-    /// Parse a target triple string
     pub fn parse(s: &str) -> Option<Self> {
         let parts: Vec<&str> = s.split('-').collect();
         if parts.len() < 3 {
@@ -44,7 +37,6 @@ impl TargetTriple {
         })
     }
 
-    /// Get the native target triple for the current platform
     pub fn native() -> Self {
         #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
         {
@@ -78,12 +70,10 @@ impl TargetTriple {
         }
     }
 
-    /// Check if this is a 64-bit target
     pub fn is_64bit(&self) -> bool {
         matches!(self.arch.as_str(), "x86_64" | "aarch64")
     }
 
-    /// Get pointer size in bytes
     pub fn pointer_size(&self) -> u32 {
         if self.is_64bit() {
             8
@@ -92,7 +82,6 @@ impl TargetTriple {
         }
     }
 
-    /// Get pointer size in bits
     pub fn pointer_bits(&self) -> u32 {
         self.pointer_size() * 8
     }
@@ -108,21 +97,15 @@ impl fmt::Display for TargetTriple {
     }
 }
 
-/// Data layout specification for LLVM
 #[derive(Debug, Clone)]
 pub struct DataLayout {
-    /// Endianness (e = little, E = big)
     pub endianness: char,
-    /// Pointer size in bits
     pub pointer_bits: u32,
-    /// Stack alignment
     pub stack_alignment: u32,
-    /// Native integer widths
     pub native_integers: Vec<u32>,
 }
 
 impl DataLayout {
-    /// Create data layout for x86_64
     pub fn x86_64() -> Self {
         Self {
             endianness: 'e',
@@ -132,7 +115,6 @@ impl DataLayout {
         }
     }
 
-    /// Create data layout for aarch64
     pub fn aarch64() -> Self {
         Self {
             endianness: 'e',
@@ -142,7 +124,6 @@ impl DataLayout {
         }
     }
 
-    /// Get LLVM data layout string
     pub fn to_llvm_string(&self) -> String {
         // Format: e-m:e-p:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f64:64:64-n8:16:32:64-S128
         let native: Vec<String> = self.native_integers.iter().map(|i| i.to_string()).collect();
@@ -157,21 +138,15 @@ impl DataLayout {
     }
 }
 
-/// Complete target configuration
 #[derive(Debug, Clone)]
 pub struct Target {
-    /// Target triple
     pub triple: TargetTriple,
-    /// Data layout
     pub data_layout: DataLayout,
-    /// CPU name (optional)
     pub cpu: Option<String>,
-    /// CPU features (optional)
     pub features: Option<String>,
 }
 
 impl Target {
-    /// Create a target from a triple
     pub fn from_triple(triple: TargetTriple) -> Self {
         let data_layout = match triple.arch.as_str() {
             "x86_64" => DataLayout::x86_64(),
@@ -187,22 +162,18 @@ impl Target {
         }
     }
 
-    /// Create native target
     pub fn native() -> Self {
         Self::from_triple(TargetTriple::native())
     }
 
-    /// Get LLVM target triple string
     pub fn llvm_triple(&self) -> String {
         self.triple.to_string()
     }
 
-    /// Get LLVM data layout string
     pub fn llvm_data_layout(&self) -> String {
         self.data_layout.to_llvm_string()
     }
 
-    /// Check if clang is available
     pub fn has_clang() -> bool {
         Command::new("clang")
             .arg("--version")
@@ -211,7 +182,6 @@ impl Target {
             .unwrap_or(false)
     }
 
-    /// Check if llc is available
     pub fn has_llc() -> bool {
         Command::new("llc")
             .arg("--version")

@@ -4,7 +4,6 @@ use crate::package::{Manifest, PackageError, PackageResult};
 use colored::*;
 use std::process::Command;
 
-/// Run the run command
 pub fn run(args: Vec<String>) -> PackageResult<()> {
     // Find and parse manifest
     let (manifest, manifest_path) = Manifest::find_and_parse()?;

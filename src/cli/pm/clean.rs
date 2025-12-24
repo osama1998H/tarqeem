@@ -4,7 +4,6 @@ use crate::package::{Manifest, PackageResult};
 use colored::*;
 use std::fs;
 
-/// Run the clean command
 pub fn run() -> PackageResult<()> {
     // Find and parse manifest
     let (manifest, manifest_path) = Manifest::find_and_parse()?;

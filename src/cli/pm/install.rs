@@ -3,7 +3,6 @@
 use crate::package::{Cache, LockFile, Manifest, PackageResult, Resolver};
 use colored::*;
 
-/// Run the install command
 pub fn run(force: bool) -> PackageResult<()> {
     // Find and parse manifest
     let (manifest, manifest_path) = Manifest::find_and_parse()?;

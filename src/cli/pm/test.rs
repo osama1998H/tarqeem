@@ -5,7 +5,6 @@ use colored::*;
 use std::process::Command;
 use walkdir::WalkDir;
 
-/// Run the test command
 pub fn run(filter: Option<String>) -> PackageResult<()> {
     // Find and parse manifest
     let (manifest, manifest_path) = Manifest::find_and_parse()?;

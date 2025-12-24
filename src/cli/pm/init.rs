@@ -8,7 +8,6 @@ use colored::*;
 use std::fs;
 use std::path::Path;
 
-/// Run the init command
 pub fn run(name: Option<String>, lib: bool) -> PackageResult<()> {
     // Check if already initialized - check all manifest names
     for manifest_name in Manifest::MANIFEST_NAMES {

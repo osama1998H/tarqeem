@@ -3,7 +3,6 @@
 use crate::package::{Manifest, PackageError, PackageResult};
 use colored::*;
 
-/// Run the remove command
 pub fn run(package: String) -> PackageResult<()> {
     // Find and parse manifest
     let (mut manifest, manifest_path) = Manifest::find_and_parse()?;

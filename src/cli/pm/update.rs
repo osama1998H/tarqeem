@@ -3,7 +3,6 @@
 use crate::package::{LockFile, Manifest, PackageResult};
 use colored::*;
 
-/// Run the update command
 pub fn run(package: Option<String>) -> PackageResult<()> {
     // Find and parse manifest
     let (manifest, manifest_path) = Manifest::find_and_parse()?;

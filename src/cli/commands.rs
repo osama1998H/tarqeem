@@ -20,7 +20,6 @@ use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
-/// Warn if file doesn't have a valid Tarqeem extension
 fn warn_invalid_extension(file: &Path) {
     if !is_valid_source_extension(file) {
         eprintln!(
@@ -42,7 +41,6 @@ fn warn_invalid_extension(file: &Path) {
     }
 }
 
-/// Find the Tarqeem runtime library (libtrq.a)
 fn find_runtime() -> Option<PathBuf> {
     // Try several locations
     let search_paths = [
@@ -71,7 +69,6 @@ fn find_runtime() -> Option<PathBuf> {
     None
 }
 
-/// Find the Tarqeem standard library directory (stdlib_trq/)
 fn find_stdlib_path() -> Option<PathBuf> {
     // Try several locations in priority order
     let search_paths: Vec<Option<PathBuf>> = vec![
@@ -100,7 +97,6 @@ fn find_stdlib_path() -> Option<PathBuf> {
     None
 }
 
-/// Configure the analyzer with stdlib search path
 fn configure_analyzer(analyzer: &mut Analyzer, verbose: bool) {
     if let Some(stdlib_path) = find_stdlib_path() {
         if verbose {
@@ -118,7 +114,6 @@ fn configure_analyzer(analyzer: &mut Analyzer, verbose: bool) {
     }
 }
 
-/// Run the CLI
 pub fn run(cli: Cli) -> Result<(), String> {
     let lang = if cli.english {
         Language::English
@@ -1660,7 +1655,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
     }
 }
 
-/// Collect all Tarqeem source files from a directory
 fn collect_source_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
 
@@ -1690,7 +1684,6 @@ fn collect_source_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(files)
 }
 
-/// Generate an HTML index page for multiple documentation files
 fn generate_html_index(docs: &[(String, crate::doc::model::Documentation)]) -> String {
     let mut html = String::from(
         r#"<!DOCTYPE html>
