@@ -162,7 +162,7 @@ impl MarkdownGenerator {
         writeln!(writer, "### `{}`", &func.name)?;
         writeln!(writer)?;
 
-        write!(writer, "```tarqeem\n")?;
+        writeln!(writer, "```tarqeem")?;
         if func.is_async {
             write!(writer, "متوازي ")?;
         }
@@ -272,7 +272,7 @@ impl MarkdownGenerator {
         writeln!(writer, "### `{}`", &class.name)?;
         writeln!(writer)?;
 
-        write!(writer, "```tarqeem\n")?;
+        writeln!(writer, "```tarqeem")?;
         write!(writer, "صنف {}", &class.name)?;
         if !class.type_params.is_empty() {
             write!(writer, "<")?;
@@ -403,7 +403,7 @@ impl MarkdownGenerator {
         writeln!(writer, "### `{}`", &interface.name)?;
         writeln!(writer)?;
 
-        write!(writer, "```tarqeem\n")?;
+        writeln!(writer, "```tarqeem")?;
         write!(writer, "ميثاق {}", &interface.name)?;
         if !interface.type_params.is_empty() {
             write!(writer, "<")?;
@@ -470,7 +470,7 @@ impl MarkdownGenerator {
         } else {
             "ثابت"
         };
-        write!(writer, "```tarqeem\n")?;
+        writeln!(writer, "```tarqeem")?;
         write!(writer, "{} {}", keyword, &var.name)?;
         if let Some(ty) = &var.ty {
             write!(writer, ": {}", ty)?;

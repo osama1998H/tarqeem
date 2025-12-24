@@ -78,10 +78,8 @@ impl DocCommentParser {
                         content.push_str(trimmed);
                     }
                 }
-            } else {
-                if !trimmed.is_empty() {
-                    description_lines.push(trimmed.to_string());
-                }
+            } else if !trimmed.is_empty() {
+                description_lines.push(trimmed.to_string());
             }
         }
 

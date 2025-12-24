@@ -20,7 +20,7 @@
 //!                              └──────────────────────┘
 //! ```
 
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,10 +28,8 @@ use std::sync::Arc;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 use tokio::net::TcpListener as TokioTcpListener;
-use tokio::sync::mpsc;
 
 use super::adapter::{DapAdapter, DapEvent, DapRequest, DapResponse};
-use super::{DebugError, DebugResult};
 
 #[derive(Debug)]
 pub enum DapMessage {
@@ -253,6 +251,7 @@ impl DapProtocolAsync {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct DapServerConfig {
     pub program: PathBuf,

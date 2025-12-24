@@ -54,6 +54,7 @@ pub enum StepResult {
     Completed(Value),
 }
 
+#[allow(dead_code)]
 pub struct DebugInterpreter {
     module: Module,
     call_stack: Vec<DebugCallFrame>,

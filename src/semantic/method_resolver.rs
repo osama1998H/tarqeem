@@ -251,11 +251,11 @@ impl<'a> MethodResolver<'a> {
         }
 
         self.diagnostics.push(Diagnostic::error(
-            &format!(
+            format!(
                 "Method '{}' not found on type '{}'",
                 method_name, class_name
             ),
-            &format!(
+            format!(
                 "الدالة '{}' غير موجودة في النوع '{}'",
                 method_name, class_name
             ),
@@ -290,8 +290,8 @@ impl<'a> MethodResolver<'a> {
                 return self.resolve_class_method_call(parent_name, method_name, span);
             } else {
                 self.diagnostics.push(Diagnostic::error(
-                    &format!("Class '{}' has no superclass", current_class),
-                    &format!("الصنف '{}' ليس له صنف أب", current_class),
+                    format!("Class '{}' has no superclass", current_class),
+                    format!("الصنف '{}' ليس له صنف أب", current_class),
                     span,
                 ));
             }
@@ -308,13 +308,13 @@ impl<'a> MethodResolver<'a> {
     ) -> bool {
         if arg_types.len() != method.params.len() {
             self.diagnostics.push(Diagnostic::error(
-                &format!(
+                format!(
                     "Method '{}' expects {} arguments, got {}",
                     method.name,
                     method.params.len(),
                     arg_types.len()
                 ),
-                &format!(
+                format!(
                     "الدالة '{}' تتوقع {} معاملات، وُجد {}",
                     method.name,
                     method.params.len(),
@@ -330,13 +330,13 @@ impl<'a> MethodResolver<'a> {
         {
             if !arg_type.is_compatible_with(param_type) {
                 self.diagnostics.push(Diagnostic::error(
-                    &format!(
+                    format!(
                         "Argument {} has wrong type: expected {}, got {}",
                         i + 1,
                         param_type,
                         arg_type
                     ),
-                    &format!(
+                    format!(
                         "المعامل {} نوعه خاطئ: متوقع {}، وُجد {}",
                         i + 1,
                         param_type.arabic_name(),

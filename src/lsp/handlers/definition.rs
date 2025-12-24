@@ -33,6 +33,10 @@ mod tests {
     use super::*;
     use tower_lsp::lsp_types::Url;
 
+    fn test_uri() -> Url {
+        Url::parse("file:///test.trq").unwrap()
+    }
+
     #[test]
     fn test_handle_definition() {
         let content = r#"
@@ -40,7 +44,7 @@ mod tests {
 اطبع(س)
 "#
         .to_string();
-        let mut doc = DocumentState::new(uri.clone(), 1, content);
+        let mut doc = DocumentState::new(test_uri(), 1, content);
 
         let position = Position {
             line: 2,

@@ -90,6 +90,10 @@ mod tests {
     use super::*;
     use tower_lsp::lsp_types::Url;
 
+    fn test_uri() -> Url {
+        Url::parse("file:///test.trq").unwrap()
+    }
+
     #[test]
     fn test_is_valid_identifier() {
         assert!(is_valid_identifier("foo"));
@@ -108,7 +112,7 @@ mod tests {
     #[test]
     fn test_prepare_rename() {
         let content = "متغير س = 5".to_string();
-        let mut doc = DocumentState::new(uri, 1, content);
+        let mut doc = DocumentState::new(test_uri(), 1, content);
 
         let position = Position {
             line: 0,
@@ -126,7 +130,7 @@ mod tests {
 اطبع(س)
 "#
         .to_string();
-        let mut doc = DocumentState::new(uri, 1, content);
+        let mut doc = DocumentState::new(test_uri(), 1, content);
 
         let position = Position {
             line: 1,

@@ -233,6 +233,7 @@ fn format_param_placeholder(index: usize, language: Language) -> String {
     }
 }
 
+#[allow(dead_code)]
 pub fn get_builtin_signature_help(
     name: &str,
     active_parameter: usize,

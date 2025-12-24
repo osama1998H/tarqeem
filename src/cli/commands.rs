@@ -3,8 +3,7 @@
 use super::{Cli, Commands, PkgCommands};
 use crate::codegen::{target::TargetTriple, Linker, LlvmCodegen, Target};
 use crate::debug::{
-    DebugCommand, DebugCommandParser, DebugContext, DebugInterpreter, DebugState, PauseReason,
-    StepResult,
+    DebugCommand, DebugCommandParser, DebugContext, DebugInterpreter, DebugState, StepResult,
 };
 use crate::doc::generator::DocGenerator;
 use crate::doc::{DocExtractor, HtmlGenerator, JsonGenerator, MarkdownGenerator, OutputFormat};
@@ -145,7 +144,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             let mut parser = Parser::new(&source);
             let ast = parser.parse().map_err(|e| {
                 e.emit(&source, &filename, lang);
-                format!("Parse error / خطأ في التحليل")
+                "Parse error / خطأ في التحليل".to_string()
             })?;
 
             if dump_ast {
@@ -386,7 +385,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             let mut parser = Parser::new(&source);
             let ast = parser.parse().map_err(|e| {
                 e.emit(&source, &filename, lang);
-                format!("Parse error / خطأ في التحليل")
+                "Parse error / خطأ في التحليل".to_string()
             })?;
 
             let mut analyzer = Analyzer::new();
@@ -422,7 +421,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 }
                 Err(e) => {
                     eprintln!("{} {}", "Runtime error / خطأ وقت التشغيل:".red().bold(), e);
-                    return Err(format!("Runtime error / خطأ وقت التشغيل"));
+                    return Err("Runtime error / خطأ وقت التشغيل".to_string());
                 }
             }
 
@@ -446,7 +445,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             let mut parser = Parser::new(&source);
             let ast = parser.parse().map_err(|e| {
                 e.emit(&source, &filename, lang);
-                format!("Parse error / خطأ في التحليل")
+                "Parse error / خطأ في التحليل".to_string()
             })?;
 
             let mut analyzer = Analyzer::new();
@@ -833,12 +832,10 @@ pub fn run(cli: Cli) -> Result<(), String> {
                                             frame.name, frame.block_id.0, frame.inst_idx
                                         );
                                     }
+                                } else if arabic {
+                                    println!("موقع غير معروف");
                                 } else {
-                                    if arabic {
-                                        println!("موقع غير معروف");
-                                    } else {
-                                        println!("Unknown location");
-                                    }
+                                    println!("Unknown location");
                                 }
                             }
                             DebugCommand::List { lines } => {
@@ -1000,7 +997,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             let mut parser = Parser::new(&source);
             let ast = parser.parse().map_err(|e| {
                 e.emit(&source, &filename, lang);
-                format!("Parse error / خطأ في التحليل")
+                "Parse error / خطأ في التحليل".to_string()
             })?;
 
             let mut analyzer = Analyzer::new();

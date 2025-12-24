@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use crate::ir::FuncId;
 
 use super::source_map::{SourceLocation, SourceMap};
-use super::state::{DebugState, PauseReason, StepMode};
+use super::state::{DebugState, StepMode};
 use super::{DebugError, DebugResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -1697,7 +1697,7 @@ fn sanitize_label(label: &str) -> String {
 fn escape_llvm_string(s: &str) -> String {
     let mut result = String::new();
     for byte in s.bytes() {
-        if byte == b'"' || byte == b'\\' || byte < 32 || byte > 126 {
+        if byte == b'"' || byte == b'\\' || !(32..=126).contains(&byte) {
             result.push_str(&format!("\\{:02X}", byte));
         } else {
             result.push(byte as char);

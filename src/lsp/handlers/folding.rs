@@ -361,6 +361,10 @@ mod tests {
         format!("بسم_الله\n{}\nالحمد_لله", source.trim())
     }
 
+    fn test_uri() -> Url {
+        Url::parse("file:///test.trq").unwrap()
+    }
+
     #[test]
     fn test_folding_ranges_function() {
         let content = wrap_with_markers(
@@ -370,7 +374,7 @@ mod tests {
 }
 "#,
         );
-        let mut doc = DocumentState::new(uri, 1, content);
+        let mut doc = DocumentState::new(test_uri(), 1, content);
 
         let ranges = handle_folding_ranges(&mut doc, Language::Arabic);
         assert!(ranges.is_some());
@@ -387,7 +391,7 @@ mod tests {
 }
 "#,
         );
-        let mut doc = DocumentState::new(uri, 1, content);
+        let mut doc = DocumentState::new(test_uri(), 1, content);
 
         let ranges = handle_folding_ranges(&mut doc, Language::Arabic);
         if let Some(ranges) = ranges {
@@ -408,7 +412,7 @@ mod tests {
 }
 "#,
         );
-        let mut doc = DocumentState::new(uri, 1, content);
+        let mut doc = DocumentState::new(test_uri(), 1, content);
 
         let ranges = handle_folding_ranges(&mut doc, Language::Arabic);
         assert!(ranges.is_some());
@@ -429,7 +433,7 @@ mod tests {
     #[test]
     fn test_no_folding_single_line() {
         let content = wrap_with_markers("متغير س = 5");
-        let mut doc = DocumentState::new(uri, 1, content);
+        let mut doc = DocumentState::new(test_uri(), 1, content);
 
         let ranges = handle_folding_ranges(&mut doc, Language::Arabic);
         assert!(ranges.is_none() || ranges.unwrap().is_empty());

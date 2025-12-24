@@ -62,6 +62,12 @@ pub struct LoopAnalysis {
     pub block_to_loop: HashMap<BlockId, usize>,
 }
 
+impl Default for LoopAnalysis {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LoopAnalysis {
     pub fn new() -> Self {
         Self {
@@ -293,6 +299,12 @@ pub struct LoopInvariantCodeMotion {
     stats: OptStats,
 }
 
+impl Default for LoopInvariantCodeMotion {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LoopInvariantCodeMotion {
     pub fn new() -> Self {
         Self {
@@ -435,6 +447,12 @@ pub struct StrengthReduction {
     stats: OptStats,
 }
 
+impl Default for StrengthReduction {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StrengthReduction {
     pub fn new() -> Self {
         Self {
@@ -540,6 +558,12 @@ pub struct LoopUnroller {
     require_known_trip_count: bool,
 }
 
+impl Default for LoopUnroller {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LoopUnroller {
     pub fn new() -> Self {
         Self {
@@ -587,11 +611,10 @@ impl LoopUnroller {
                 continue;
             }
 
-            if self.require_known_trip_count {
-                if !self.has_known_trip_count(func, loop_info) {
+            if self.require_known_trip_count
+                && !self.has_known_trip_count(func, loop_info) {
                     continue;
                 }
-            }
 
             self.stats.constants_folded += 1; // Placeholder counter
         }
@@ -688,11 +711,10 @@ impl LoopUnroller {
                     if find_constant_value(func, *right).is_some() {
                         return true;
                     }
-                } else if *right == iv {
-                    if find_constant_value(func, *left).is_some() {
+                } else if *right == iv
+                    && find_constant_value(func, *left).is_some() {
                         return true;
                     }
-                }
             }
         }
 

@@ -328,7 +328,7 @@ impl ClassResolver {
                     .params
                     .iter()
                     .map(|p| {
-                        let ty = p.ty.as_ref().map(|t| resolve_type(t)).unwrap_or(Type::Any);
+                        let ty = p.ty.as_ref().map(&resolve_type).unwrap_or(Type::Any);
                         (p.name.clone(), ty)
                     })
                     .collect();
@@ -336,7 +336,7 @@ impl ClassResolver {
                 let return_type = method
                     .return_type
                     .as_ref()
-                    .map(|t| resolve_type(t))
+                    .map(&resolve_type)
                     .unwrap_or(Type::Void);
 
                 let sig = MethodSignatureInfo {
@@ -370,7 +370,7 @@ impl ClassResolver {
                     is_static,
                     ..
                 } => {
-                    let field_type = ty.as_ref().map(|t| resolve_type(t)).unwrap_or(Type::Any);
+                    let field_type = ty.as_ref().map(&resolve_type).unwrap_or(Type::Any);
 
                     let field_info = FieldInfo {
                         name: name.clone(),
@@ -395,14 +395,14 @@ impl ClassResolver {
                     let param_types: Vec<(String, Type)> = params
                         .iter()
                         .map(|p| {
-                            let ty = p.ty.as_ref().map(|t| resolve_type(t)).unwrap_or(Type::Any);
+                            let ty = p.ty.as_ref().map(&resolve_type).unwrap_or(Type::Any);
                             (p.name.clone(), ty)
                         })
                         .collect();
 
                     let ret_type = return_type
                         .as_ref()
-                        .map(|t| resolve_type(t))
+                        .map(&resolve_type)
                         .unwrap_or(Type::Void);
 
                     let method_info = MethodInfo {
@@ -423,7 +423,7 @@ impl ClassResolver {
                     let param_types: Vec<(String, Type)> = params
                         .iter()
                         .map(|p| {
-                            let ty = p.ty.as_ref().map(|t| resolve_type(t)).unwrap_or(Type::Any);
+                            let ty = p.ty.as_ref().map(&resolve_type).unwrap_or(Type::Any);
                             (p.name.clone(), ty)
                         })
                         .collect();
@@ -619,8 +619,8 @@ impl ClassResolver {
             while let Some(class_name) = current {
                 if visited.contains(class_name) {
                     self.diagnostics.push(Diagnostic::error(
-                        &format!("Circular inheritance detected for class '{}'", name),
-                        &format!("وراثة دائرية مكتشفة للصنف '{}'", name),
+                        format!("Circular inheritance detected for class '{}'", name),
+                        format!("وراثة دائرية مكتشفة للصنف '{}'", name),
                         class.span,
                     ));
                     break;
@@ -717,7 +717,7 @@ impl ClassResolver {
     fn check_method_overrides(&mut self) {
         let mut violations = Vec::new();
 
-        for (_class_name, class) in &self.classes {
+        for class in self.classes.values() {
             if let Some(parent_name) = &class.parent {
                 if let Some(parent) = self.classes.get(parent_name) {
                     for (method_name, method) in &class.methods {
@@ -830,11 +830,10 @@ impl ClassResolver {
 
                 if let Some(parent_class) = self.classes.get(&parent_name) {
                     for (method_name, method) in &parent_class.methods {
-                        if method.is_abstract {
-                            if !abstract_methods.iter().any(|(m, _)| m == method_name) {
+                        if method.is_abstract
+                            && !abstract_methods.iter().any(|(m, _)| m == method_name) {
                                 abstract_methods.push((method_name.clone(), parent_name.clone()));
                             }
-                        }
                     }
                     current_parent = parent_class.parent.clone();
                 } else {
@@ -845,7 +844,7 @@ impl ClassResolver {
             for (method_name, defining_class) in abstract_methods {
                 let is_implemented = class
                     .get_method(&method_name, self)
-                    .map_or(false, |m| !m.is_abstract);
+                    .is_some_and(|m| !m.is_abstract);
                 if !is_implemented {
                     violations.push((
                         format!(

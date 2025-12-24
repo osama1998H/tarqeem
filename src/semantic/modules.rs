@@ -128,8 +128,8 @@ impl ModuleLoader {
             Ok(p) => p,
             Err(e) => {
                 self.diagnostics.push(Diagnostic::error(
-                    &format!("Cannot resolve module path '{}': {}", path.display(), e),
-                    &format!("لا يمكن تحديد مسار الوحدة '{}': {}", path.display(), e),
+                    format!("Cannot resolve module path '{}': {}", path.display(), e),
+                    format!("لا يمكن تحديد مسار الوحدة '{}': {}", path.display(), e),
                     span,
                 ));
                 return Err(());
@@ -148,12 +148,12 @@ impl ModuleLoader {
                 .join(" -> ");
 
             self.diagnostics.push(Diagnostic::error(
-                &format!(
+                format!(
                     "Circular dependency detected: {} -> {}",
                     cycle,
                     canonical_path.display()
                 ),
-                &format!(
+                format!(
                     "تم اكتشاف اعتماد دائري: {} -> {}",
                     cycle,
                     canonical_path.display()
@@ -187,8 +187,8 @@ impl ModuleLoader {
             Ok(s) => s,
             Err(e) => {
                 self.diagnostics.push(Diagnostic::error(
-                    &format!("Cannot read module '{}': {}", path.display(), e),
-                    &format!("لا يمكن قراءة الوحدة '{}': {}", path.display(), e),
+                    format!("Cannot read module '{}': {}", path.display(), e),
+                    format!("لا يمكن قراءة الوحدة '{}': {}", path.display(), e),
                     span,
                 ));
                 return Err(());
@@ -201,12 +201,12 @@ impl ModuleLoader {
             Ok(ast) => ast,
             Err(error) => {
                 self.diagnostics.push(Diagnostic::error(
-                    &format!(
+                    format!(
                         "Parse error in module '{}': {}",
                         path.display(),
                         error.message
                     ),
-                    &format!(
+                    format!(
                         "خطأ تحليل في الوحدة '{}': {}",
                         path.display(),
                         error.message_ar

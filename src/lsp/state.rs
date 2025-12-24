@@ -84,15 +84,22 @@ impl Default for ServerState {
     }
 }
 
+#[allow(dead_code)]
 pub type SharedState = Arc<tokio::sync::RwLock<ServerState>>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tower_lsp::lsp_types::Url;
+
+    fn test_uri() -> Url {
+        Url::parse("file:///test.trq").unwrap()
+    }
 
     #[test]
     fn test_document_lifecycle() {
         let state = ServerState::new();
+        let uri = test_uri();
 
         state.open_document(uri.clone(), 1, "متغير س = 5".to_string());
         assert!(state.is_document_open(&uri));

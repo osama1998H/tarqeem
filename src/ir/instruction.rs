@@ -655,7 +655,7 @@ impl BasicBlock {
     }
 
     pub fn has_terminator(&self) -> bool {
-        self.instructions.last().map_or(false, |inst| {
+        self.instructions.last().is_some_and(|inst| {
             matches!(
                 inst,
                 Instruction::Jump { .. }

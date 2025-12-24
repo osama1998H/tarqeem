@@ -212,7 +212,7 @@ impl FunctionInliner {
         let call_inst = caller.blocks[block_idx].instructions[inst_idx].clone();
 
         let (dest, args) = match &call_inst {
-            Instruction::Call { dest, args, .. } => (dest.clone(), args.clone()),
+            Instruction::Call { dest, args, .. } => (*dest, args.clone()),
             _ => return,
         };
 

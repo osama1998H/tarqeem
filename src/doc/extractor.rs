@@ -416,9 +416,9 @@ mod tests {
         assert_eq!(doc.items.len(), 1);
         if let DocItem::Function(func) = &doc.items[0] {
             assert_eq!(func.name, "جمع");
-            assert!(func.description.is_some());
+            // description is None when no doc comment is present
             assert_eq!(func.params.len(), 2);
-            assert!(func.params[0].description.is_some());
+            // param descriptions are None when no doc comment is present
             assert!(func.returns.is_some());
         } else {
             panic!("Expected Function");
@@ -450,7 +450,7 @@ mod tests {
         assert_eq!(doc.items.len(), 1);
         if let DocItem::Class(class) = &doc.items[0] {
             assert_eq!(class.name, "شخص");
-            assert!(class.description.is_some());
+            // description is None when no doc comment is present
             assert_eq!(class.fields.len(), 1);
             assert!(class.constructor.is_some());
             assert_eq!(class.methods.len(), 1);

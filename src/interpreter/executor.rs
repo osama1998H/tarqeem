@@ -16,6 +16,7 @@ use super::value::Value;
 
 const MAX_STACK_DEPTH: usize = 1000;
 
+#[allow(dead_code)]
 #[derive(Debug)]
 struct CallFrame {
     func_id: FuncId,
@@ -1695,7 +1696,7 @@ impl Interpreter {
                     .map(|d| d.as_nanos() as u64)
                     .unwrap_or(12345);
                 let random = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-                Ok(Value::Bool(random % 2 == 0))
+                Ok(Value::Bool(random.is_multiple_of(2)))
             }
 
             "assert" | "تأكد" => {
@@ -1732,8 +1733,8 @@ impl Interpreter {
                 if !cond.is_truthy() {
                     let msg_str = msg.to_display_string();
                     return Err(RuntimeError::invalid_operation(
-                        &format!("Assertion failed: {}", msg_str),
-                        &format!("فشل التأكيد: {}", msg_str),
+                        format!("Assertion failed: {}", msg_str),
+                        format!("فشل التأكيد: {}", msg_str),
                     ));
                 }
                 Ok(Value::Null)
@@ -1746,8 +1747,8 @@ impl Interpreter {
                     .unwrap_or_else(|| "Panic!".to_string());
 
                 Err(RuntimeError::invalid_operation(
-                    &format!("Panic: {}", msg),
-                    &format!("توقف: {}", msg),
+                    format!("Panic: {}", msg),
+                    format!("توقف: {}", msg),
                 ))
             }
 
