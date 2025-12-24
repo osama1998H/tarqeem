@@ -253,13 +253,11 @@ impl Lexer {
                 '/' if self.peek_next() == '*' => {
                     if self.position + 2 < self.source.len()
                         && self.source[self.position + 2] == '*'
-                    {
-                        if self.position + 3 >= self.source.len()
-                            || self.source[self.position + 3] != '*'
+                        && (self.position + 3 >= self.source.len()
+                            || self.source[self.position + 3] != '*')
                         {
                             return Some(self.scan_block_doc_comment());
                         }
-                    }
                     self.advance(); // consume /
                     self.advance(); // consume *
                     let mut depth = 1;
@@ -314,15 +312,14 @@ impl Lexer {
                 self.advance();
             }
 
-            if self.peek() == '/' && self.peek_next() == '/' {
-                if self.position + 2 < self.source.len() && self.source[self.position + 2] == '/' {
+            if self.peek() == '/' && self.peek_next() == '/'
+                && self.position + 2 < self.source.len() && self.source[self.position + 2] == '/' {
                     content.push('\n');
                     self.advance(); // first /
                     self.advance(); // second /
                     self.advance(); // third /
                     continue;
                 }
-            }
 
             self.position = newline_pos + 1;
             self.line = self.token_start_line + content.matches('\n').count() + 1;

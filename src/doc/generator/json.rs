@@ -40,7 +40,7 @@ impl DocGenerator for JsonGenerator {
                 writeln!(writer, "{}", s)?;
                 Ok(())
             }
-            Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Err(e) => Err(std::io::Error::other(e)),
         }
     }
 }

@@ -29,6 +29,7 @@ impl Token {
     }
 }
 
+#[allow(dead_code)]
 pub struct Lexer<'a> {
     source: &'a str,
     chars: Peekable<Chars<'a>>,

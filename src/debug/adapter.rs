@@ -8,12 +8,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::context::{Breakpoint, BreakpointId, DebugContext};
+use super::context::{Breakpoint, DebugContext};
 use super::interpreter::{DebugInterpreter, StepResult};
-use super::source_map::SourceMap;
-use super::state::{DebugEvent, DebugState, DebugVariable, PauseReason, StackFrame, StepMode};
-use super::{DebugError, DebugResult};
-use crate::ir::Module;
+use super::state::{DebugVariable, PauseReason, StackFrame, StepMode};
 
 type Seq = i64;
 
@@ -225,6 +222,7 @@ impl From<&StackFrame> for DapStackFrame {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DapScope {
     pub name: String,
@@ -833,9 +831,9 @@ impl DapAdapter {
     }
 
     fn handle_source(&mut self, request: &DapRequest) -> DapResponse {
-        if let Some(ref interpreter) = self.interpreter {
+        if let Some(ref _interpreter) = self.interpreter {
             if let Some(ref source_file) = self.source_file {
-                if let Some(content) = std::fs::read_to_string(source_file).ok() {
+                if let Ok(content) = std::fs::read_to_string(source_file) {
                     return DapResponse::success(
                         request,
                         Some(serde_json::json!({

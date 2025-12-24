@@ -33,7 +33,7 @@ impl<'a> Parser<'a> {
 
     fn advance(&mut self) -> FormatResult<Token> {
         let old = std::mem::replace(&mut self.current, Token::Eof);
-        let old_loc = self.current_loc;
+        let _old_loc = self.current_loc;
 
         if let Some((token, loc)) = self.peeked.take() {
             self.current = token;

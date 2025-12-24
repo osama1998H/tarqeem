@@ -146,6 +146,7 @@ impl Cache {
         Ok(self.root.join(name).join(version))
     }
 
+    #[allow(dead_code)]
     fn get_package_path_unchecked(&self, name: &str, version: &str) -> PathBuf {
         self.root.join(name).join(version)
     }

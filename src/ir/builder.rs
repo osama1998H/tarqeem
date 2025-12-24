@@ -2644,8 +2644,8 @@ impl IrBuilder {
             .map(|p| p.0.clone())
             .ok_or_else(|| {
                 IrError::new(
-                    &format!("Class '{}' has no parent class", current_class_name),
-                    &format!("الصنف '{}' ليس له صنف أب", current_class_name),
+                    format!("Class '{}' has no parent class", current_class_name),
+                    format!("الصنف '{}' ليس له صنف أب", current_class_name),
                 )
             })?;
 

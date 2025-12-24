@@ -149,7 +149,7 @@ fn generate_quick_fixes(
 }
 
 fn generate_refactorings(
-    uri: &Url,
+    _uri: &Url,
     content: &str,
     range: &Range,
     analysis: &crate::lsp::analysis::AnalysisResult,

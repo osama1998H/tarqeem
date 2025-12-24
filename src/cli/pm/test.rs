@@ -42,10 +42,10 @@ pub fn run(filter: Option<String>) -> PackageResult<()> {
         .filter(|e| {
             let path = e.path();
             path.is_file()
-                && (path.extension().map_or(false, |ext| ext == "trq")
+                && (path.extension().is_some_and(|ext| ext == "trq")
                     || path
                         .file_name()
-                        .map_or(false, |n| n.to_string_lossy().ends_with(".ترقيم")))
+                        .is_some_and(|n| n.to_string_lossy().ends_with(".ترقيم")))
         })
         .filter(|e| {
             if let Some(ref f) = filter {

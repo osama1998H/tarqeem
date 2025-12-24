@@ -284,7 +284,7 @@ impl Manifest {
         let version = obj
             .get("نسخة")
             .or_else(|| obj.get("version"))
-            .map(|v| Self::format_version_string(v))
+            .map(Self::format_version_string)
             .unwrap_or_default();
 
         let description = obj
@@ -419,13 +419,13 @@ impl Manifest {
         for (name, val) in obj {
             let spec = if let Some(s) = val.as_str() {
                 DependencySpec::Version(s.to_string())
-            } else if let Some(n) = val.as_number() {
+            } else if let Some(_n) = val.as_number() {
                 DependencySpec::Version(Self::format_version_string(val))
             } else if let Some(obj) = val.as_object() {
                 let version = obj
                     .get("نسخة")
                     .or_else(|| obj.get("version"))
-                    .map(|v| Self::format_version_string(v))
+                    .map(Self::format_version_string)
                     .unwrap_or_else(|| "*".to_string());
 
                 let path = obj

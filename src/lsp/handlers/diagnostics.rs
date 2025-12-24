@@ -98,6 +98,11 @@ fn convert_diagnostic(
 mod tests {
     use super::*;
     use crate::error::Span;
+    use tower_lsp::lsp_types::Url;
+
+    fn test_uri() -> Url {
+        Url::parse("file:///test.trq").unwrap()
+    }
 
     #[test]
     fn test_convert_diagnostic() {
@@ -108,6 +113,7 @@ mod tests {
         );
 
         let content = "x";
+        let uri = test_uri();
 
         let lsp_diag = convert_diagnostic(&diag, content, &uri, Language::Arabic);
         assert_eq!(lsp_diag.message, "المتغير 'x' غير معرف");
@@ -121,6 +127,7 @@ mod tests {
     fn test_severity_mapping() {
         let content = "x";
         let span = Span::new(0, 1, 1, 1);
+        let uri = test_uri();
 
         let error = Diagnostic::error("error", "خطأ", span.clone());
         let warning = Diagnostic::warning("warning", "تحذير", span);

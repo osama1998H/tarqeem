@@ -113,6 +113,7 @@ fn is_arabic_letter(c: char) -> bool {
     matches!(c, '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}' | '\u{08A0}'..='\u{08FF}')
 }
 
+#[allow(dead_code)]
 pub fn get_line_at_position(content: &str, line: u32) -> Option<&str> {
     content.lines().nth(line as usize)
 }

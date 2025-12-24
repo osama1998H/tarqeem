@@ -10,7 +10,9 @@ use super::source_map::SourceLocation;
 use super::BreakpointId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub enum DebugState {
+    #[default]
     NotStarted,
 
     Running,
@@ -24,11 +26,6 @@ pub enum DebugState {
     Error { message: String, message_ar: String },
 }
 
-impl Default for DebugState {
-    fn default() -> Self {
-        Self::NotStarted
-    }
-}
 
 impl DebugState {
     pub fn is_paused(&self) -> bool {

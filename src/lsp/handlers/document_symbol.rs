@@ -106,6 +106,10 @@ mod tests {
     use super::*;
     use tower_lsp::lsp_types::Url;
 
+    fn test_uri() -> Url {
+        Url::parse("file:///test.trq").unwrap()
+    }
+
     #[test]
     fn test_document_symbols_function() {
         let content = r#"
@@ -114,7 +118,7 @@ mod tests {
 }
 "#
         .to_string();
-        let mut doc = DocumentState::new(uri, 1, content);
+        let mut doc = DocumentState::new(test_uri(), 1, content);
 
         let result = handle_document_symbol(&mut doc, Language::Arabic);
 
@@ -139,7 +143,7 @@ mod tests {
 }
 "#
         .to_string();
-        let mut doc = DocumentState::new(uri, 1, content);
+        let mut doc = DocumentState::new(test_uri(), 1, content);
 
         let result = handle_document_symbol(&mut doc, Language::Arabic);
 

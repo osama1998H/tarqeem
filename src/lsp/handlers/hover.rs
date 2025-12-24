@@ -76,6 +76,7 @@ fn format_type_info(ty: &Type, kind: &SymbolKind, language: Language) -> (String
     (type_str, kind_label.to_string())
 }
 
+#[allow(dead_code)]
 pub fn get_builtin_hover(name: &str, language: Language) -> Option<Hover> {
     let (signature, description_ar, description_en) = match name {
         "اطبع" | "print" => (
