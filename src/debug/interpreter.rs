@@ -126,6 +126,107 @@ impl DebugInterpreter {
         &mut self.context
     }
 
+    /// Request a pause in execution (will pause at next instruction)
+    pub fn request_pause(&mut self) {
+        self.context.request_pause();
+    }
+
+    /// Set a local variable value by name
+    pub fn set_local_variable(&mut self, name: &str, value_str: &str) -> DebugResult<Value> {
+        // Get func_id from immutable borrow first
+        let func_id = {
+            let Some(frame) = self.call_stack.last() else {
+                return Err(DebugError::new(
+                    "No active call frame",
+                    "لا يوجد إطار استدعاء نشط",
+                ));
+            };
+            frame.func_id.clone()
+        };
+
+        // Find variable by name in source map
+        let var_id = self
+            .context
+            .source_map()
+            .find_variable_by_name(&func_id, name)
+            .ok_or_else(|| {
+                DebugError::new(
+                    format!("Variable '{}' not found", name),
+                    format!("المتغير '{}' غير موجود", name),
+                )
+            })?;
+
+        // Parse the value string to a Value
+        let new_value = self.parse_value_string(value_str)?;
+
+        // Now get mutable access to frame and set the variable
+        if let Some(frame) = self.call_stack.last_mut() {
+            frame.locals.insert(var_id.0, new_value.clone());
+        }
+
+        Ok(new_value)
+    }
+
+    /// Set a global variable value by name
+    pub fn set_global_variable(&mut self, name: &str, value_str: &str) -> DebugResult<Value> {
+        if !self.globals.contains_key(name) {
+            return Err(DebugError::new(
+                format!("Global variable '{}' not found", name),
+                format!("المتغير العام '{}' غير موجود", name),
+            ));
+        }
+
+        let new_value = self.parse_value_string(value_str)?;
+        self.globals.insert(name.to_string(), new_value.clone());
+
+        Ok(new_value)
+    }
+
+    /// Set a variable by name (tries local first, then global)
+    pub fn set_variable(&mut self, name: &str, value_str: &str) -> DebugResult<Value> {
+        // Try local first
+        if self.set_local_variable(name, value_str).is_ok() {
+            return self.set_local_variable(name, value_str);
+        }
+
+        // Try global
+        self.set_global_variable(name, value_str)
+    }
+
+    /// Parse a value string into a Value
+    pub fn parse_value_string(&self, value_str: &str) -> DebugResult<Value> {
+        let trimmed = value_str.trim();
+
+        // Try parsing as integer
+        if let Ok(n) = trimmed.parse::<i64>() {
+            return Ok(Value::Int(n));
+        }
+
+        // Try parsing as float
+        if let Ok(f) = trimmed.parse::<f64>() {
+            return Ok(Value::Float(f));
+        }
+
+        // Try parsing as boolean
+        match trimmed {
+            "true" | "صحيح" => return Ok(Value::Bool(true)),
+            "false" | "خطأ" => return Ok(Value::Bool(false)),
+            "null" | "لا_شيء" => return Ok(Value::Null),
+            _ => {}
+        }
+
+        // Try parsing as string (with quotes)
+        if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+            || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+        {
+            let s = &trimmed[1..trimmed.len() - 1];
+            return Ok(Value::String(s.to_string().into()));
+        }
+
+        // Treat as plain string
+        Ok(Value::String(trimmed.to_string().into()))
+    }
+
     /// Emit a debug event
     fn emit_event(&mut self, event: DebugEvent) {
         if let Some(ref mut callback) = self.event_callback {
@@ -249,6 +350,20 @@ impl DebugInterpreter {
         }
 
         let block = &func.blocks[frame.block_idx];
+
+        // Check for user-requested pause
+        if self.context.check_and_clear_pause() {
+            let reason = PauseReason::UserRequest;
+            self.context.set_state(DebugState::Paused {
+                reason: reason.clone(),
+            });
+            let location = self.get_current_location();
+            self.emit_event(DebugEvent::Stopped {
+                reason: reason.clone(),
+                location,
+            });
+            return Ok(StepResult::Paused(reason));
+        }
 
         // Check for breakpoint before executing
         if let Some(location) = self.get_current_location() {

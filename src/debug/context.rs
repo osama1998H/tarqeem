@@ -154,6 +154,10 @@ pub struct DebugConfig {
     pub use_arabic: bool,
     /// Enable console output capture
     pub capture_output: bool,
+    /// Break on all exceptions (caught and uncaught)
+    pub break_on_all_exceptions: bool,
+    /// Break on uncaught exceptions only
+    pub break_on_uncaught_exceptions: bool,
 }
 
 impl Default for DebugConfig {
@@ -164,6 +168,8 @@ impl Default for DebugConfig {
             eval_timeout_ms: 5000,
             use_arabic: true,
             capture_output: true,
+            break_on_all_exceptions: false,
+            break_on_uncaught_exceptions: true,
         }
     }
 }
@@ -197,6 +203,8 @@ pub struct DebugContext {
     step_start_func: Option<String>,
     /// Output buffer
     output_buffer: Vec<String>,
+    /// Pause requested by user
+    pause_requested: bool,
 }
 
 impl Default for DebugContext {
@@ -222,6 +230,7 @@ impl DebugContext {
             step_start_line: None,
             step_start_func: None,
             output_buffer: Vec::new(),
+            pause_requested: false,
         }
     }
 
@@ -493,6 +502,44 @@ impl DebugContext {
                 current_depth < self.step_start_depth
             }
         }
+    }
+
+    // ==================== Pause Control ====================
+
+    /// Request a pause in execution
+    pub fn request_pause(&mut self) {
+        self.pause_requested = true;
+    }
+
+    /// Check if pause was requested and clear the flag
+    pub fn check_and_clear_pause(&mut self) -> bool {
+        let was_requested = self.pause_requested;
+        self.pause_requested = false;
+        was_requested
+    }
+
+    /// Check if pause was requested (without clearing)
+    pub fn is_pause_requested(&self) -> bool {
+        self.pause_requested
+    }
+
+    // ==================== Exception Breakpoints ====================
+
+    /// Check if we should break on this exception
+    pub fn should_break_on_exception(&self, is_caught: bool) -> bool {
+        if self.config.break_on_all_exceptions {
+            return true;
+        }
+        if !is_caught && self.config.break_on_uncaught_exceptions {
+            return true;
+        }
+        false
+    }
+
+    /// Set exception breakpoint filters
+    pub fn set_exception_breakpoints(&mut self, break_all: bool, break_uncaught: bool) {
+        self.config.break_on_all_exceptions = break_all;
+        self.config.break_on_uncaught_exceptions = break_uncaught;
     }
 
     // ==================== Output Management ====================

@@ -503,3 +503,133 @@ fn test_output_capture() {
     assert!(!output.is_empty());
     assert!(output[0].contains("Hello, Debug!"));
 }
+
+// ==================== Phase 2 Tests ====================
+
+#[test]
+fn test_pause_request() {
+    let mut context = DebugContext::new();
+
+    // Initially no pause requested
+    assert!(!context.is_pause_requested());
+
+    // Request pause
+    context.request_pause();
+    assert!(context.is_pause_requested());
+
+    // Check and clear should return true and clear the flag
+    assert!(context.check_and_clear_pause());
+    assert!(!context.is_pause_requested());
+
+    // Second check should return false
+    assert!(!context.check_and_clear_pause());
+}
+
+#[test]
+fn test_exception_breakpoints_config() {
+    let mut context = DebugContext::new();
+
+    // Default: break on uncaught only
+    assert!(!context.config().break_on_all_exceptions);
+    assert!(context.config().break_on_uncaught_exceptions);
+
+    // Should not break on caught exceptions by default
+    assert!(!context.should_break_on_exception(true));
+    // Should break on uncaught
+    assert!(context.should_break_on_exception(false));
+
+    // Enable break on all
+    context.set_exception_breakpoints(true, false);
+    assert!(context.should_break_on_exception(true));
+    assert!(context.should_break_on_exception(false));
+
+    // Disable all
+    context.set_exception_breakpoints(false, false);
+    assert!(!context.should_break_on_exception(true));
+    assert!(!context.should_break_on_exception(false));
+}
+
+#[test]
+fn test_parse_value_string() {
+    let module = create_test_module();
+    let context = DebugContext::new();
+    let interpreter = DebugInterpreter::new(module, context);
+
+    // Test integer parsing
+    let value = interpreter.parse_value_string("42").unwrap();
+    assert_eq!(value, crate::interpreter::Value::Int(42));
+
+    // Test float parsing
+    let value = interpreter.parse_value_string("3.14").unwrap();
+    if let crate::interpreter::Value::Float(f) = value {
+        assert!((f - 3.14).abs() < 0.001);
+    } else {
+        panic!("Expected Float");
+    }
+
+    // Test boolean parsing
+    let value = interpreter.parse_value_string("true").unwrap();
+    assert_eq!(value, crate::interpreter::Value::Bool(true));
+
+    let value = interpreter.parse_value_string("صحيح").unwrap();
+    assert_eq!(value, crate::interpreter::Value::Bool(true));
+
+    let value = interpreter.parse_value_string("false").unwrap();
+    assert_eq!(value, crate::interpreter::Value::Bool(false));
+
+    // Test null parsing
+    let value = interpreter.parse_value_string("null").unwrap();
+    assert_eq!(value, crate::interpreter::Value::Null);
+
+    let value = interpreter.parse_value_string("لا_شيء").unwrap();
+    assert_eq!(value, crate::interpreter::Value::Null);
+
+    // Test string parsing with quotes
+    let value = interpreter.parse_value_string("\"hello\"").unwrap();
+    assert_eq!(
+        value,
+        crate::interpreter::Value::String("hello".to_string().into())
+    );
+
+    // Test plain string (no quotes)
+    let value = interpreter.parse_value_string("hello").unwrap();
+    assert_eq!(
+        value,
+        crate::interpreter::Value::String("hello".to_string().into())
+    );
+}
+
+#[test]
+fn test_source_map_find_variable_by_name() {
+    use super::source_map::{SourceMap, VariableInfo};
+    use crate::ir::{FuncId, VarId};
+
+    let mut source_map = SourceMap::new();
+
+    let func_id = FuncId("main".to_string());
+    let var_id = VarId(1);
+
+    let mut var_info = VariableInfo::new("متغير".to_string(), "عدد".to_string(), true);
+    var_info.name_ar = Some("متغير".to_string());
+    source_map.add_variable(&func_id, var_id, var_info);
+
+    // Find by name
+    let found = source_map.find_variable_by_name(&func_id, "متغير");
+    assert_eq!(found, Some(VarId(1)));
+
+    // Not found
+    let not_found = source_map.find_variable_by_name(&func_id, "غير_موجود");
+    assert_eq!(not_found, None);
+
+    // Wrong function
+    let wrong_func = FuncId("other".to_string());
+    let not_found = source_map.find_variable_by_name(&wrong_func, "متغير");
+    assert_eq!(not_found, None);
+}
+
+#[test]
+fn test_user_request_pause_reason() {
+    let reason = PauseReason::UserRequest;
+    assert!(reason.description().contains("user") || reason.description().contains("User"));
+    assert!(reason.description_ar().contains("المستخدم"));
+}
