@@ -169,6 +169,9 @@ impl DeadCodeEliminator {
             Instruction::Bitcast { src, .. } => {
                 used.insert(*src);
             }
+            Instruction::Copy { src, .. } => {
+                used.insert(*src);
+            }
             Instruction::Load { ptr, .. } => {
                 used.insert(*ptr);
             }
@@ -293,7 +296,8 @@ impl DeadCodeEliminator {
             | Instruction::StringConcat { dest, .. }
             | Instruction::GetException { dest }
             | Instruction::Phi { dest, .. }
-            | Instruction::GlobalLoad { dest, .. } => Some(*dest),
+            | Instruction::GlobalLoad { dest, .. }
+            | Instruction::Copy { dest, .. } => Some(*dest),
 
             Instruction::Call { dest, .. }
             | Instruction::CallIndirect { dest, .. }

@@ -1254,6 +1254,13 @@ impl LlvmCodegen {
                 .unwrap();
             }
 
+            Instruction::Copy { dest, src, ty: _ } => {
+                // Copy is a simple value transfer - just map the source variable name to the destination
+                if let Some(src_name) = self.var_map.get(&src.0).cloned() {
+                    self.var_map.insert(dest.0, src_name);
+                }
+            }
+
             Instruction::Nop => {
             }
         }

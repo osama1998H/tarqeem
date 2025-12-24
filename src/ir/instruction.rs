@@ -383,6 +383,15 @@ pub enum Instruction {
     Print {
         value: VarId,
     }, // اطبع
+
+    /// Copy a value from one variable to another.
+    /// Used by the inliner to transfer return values with proper type tracking.
+    Copy {
+        dest: VarId,
+        src: VarId,
+        ty: IrType,
+    },
+
     Nop,
 }
 
@@ -616,6 +625,9 @@ impl fmt::Display for Instruction {
             }
             Instruction::Print { value } => {
                 write!(f, "print {}", value)
+            }
+            Instruction::Copy { dest, src, ty } => {
+                write!(f, "{}: {} = copy {}", dest, ty, src)
             }
             Instruction::Nop => {
                 write!(f, "nop")

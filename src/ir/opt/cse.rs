@@ -356,6 +356,12 @@ impl CommonSubexprElim {
                     .collect(),
             },
 
+            Instruction::Copy { dest, src, ty } => Instruction::Copy {
+                dest: *dest,
+                src: replace(src),
+                ty: ty.clone(),
+            },
+
             _ => inst.clone(),
         }
     }

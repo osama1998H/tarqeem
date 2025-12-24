@@ -162,13 +162,151 @@ impl LockFile {
             None
         };
 
-        let packages = Vec::new(); // TODO: Full package parsing
+        // Parse packages array
+        let packages = Self::parse_packages_from_arabic(obj)?;
 
         Ok(Self {
             version,
             root,
             packages,
         })
+    }
+
+    fn parse_packages_from_arabic(
+        obj: &indexmap::IndexMap<String, format::value::Value>,
+    ) -> PackageResult<Vec<LockedPackage>> {
+        let mut packages = Vec::new();
+
+        if let Some(pkgs_val) = obj.get("حزم").or_else(|| obj.get("packages")) {
+            if let Some(pkgs_arr) = pkgs_val.as_array() {
+                for pkg_val in pkgs_arr {
+                    if let Some(pkg_obj) = pkg_val.as_object() {
+                        let pkg = Self::parse_single_package(pkg_obj)?;
+                        packages.push(pkg);
+                    }
+                }
+            }
+        }
+
+        Ok(packages)
+    }
+
+    fn parse_single_package(
+        pkg_obj: &indexmap::IndexMap<String, format::value::Value>,
+    ) -> PackageResult<LockedPackage> {
+        let name = pkg_obj
+            .get("اسم")
+            .or_else(|| pkg_obj.get("name"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                super::error::PackageError::InvalidManifest(
+                    "اسم الحزمة مطلوب / Package name required".to_string(),
+                )
+            })?
+            .to_string();
+
+        let version = pkg_obj
+            .get("نسخة")
+            .or_else(|| pkg_obj.get("version"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("0.0.0")
+            .to_string();
+
+        let checksum = pkg_obj
+            .get("تحقق")
+            .or_else(|| pkg_obj.get("checksum"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let source = Self::parse_package_source(pkg_obj)?;
+
+        let dependencies = Self::parse_package_dependencies(pkg_obj)?;
+
+        Ok(LockedPackage {
+            name,
+            version,
+            source,
+            checksum,
+            dependencies,
+        })
+    }
+
+    fn parse_package_source(
+        pkg_obj: &indexmap::IndexMap<String, format::value::Value>,
+    ) -> PackageResult<PackageSource> {
+        let source_str = pkg_obj
+            .get("مصدر")
+            .or_else(|| pkg_obj.get("source"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("سجل (https://registry.tarqeem.dev)");
+
+        // Parse source string format: "سجل (url)" or "git (url ref)" or "مسار (path)"
+        if source_str.starts_with("سجل") || source_str.starts_with("registry") {
+            let url = Self::extract_parenthesized(source_str);
+            Ok(PackageSource::Registry {
+                url: if url.is_empty() {
+                    "https://registry.tarqeem.dev".to_string()
+                } else {
+                    url
+                },
+            })
+        } else if source_str.starts_with("git") {
+            let content = Self::extract_parenthesized(source_str);
+            let parts: Vec<&str> = content.splitn(2, ' ').collect();
+            let url = parts.first().unwrap_or(&"").to_string();
+            let reference = Self::parse_git_reference(parts.get(1).unwrap_or(&""));
+            Ok(PackageSource::Git { url, reference })
+        } else if source_str.starts_with("مسار") || source_str.starts_with("path") {
+            let path = Self::extract_parenthesized(source_str);
+            Ok(PackageSource::Path { path })
+        } else {
+            // Default to registry
+            Ok(PackageSource::Registry {
+                url: "https://registry.tarqeem.dev".to_string(),
+            })
+        }
+    }
+
+    fn extract_parenthesized(s: &str) -> String {
+        s.find('(')
+            .and_then(|start| s.rfind(')').map(|end| s[start + 1..end].to_string()))
+            .unwrap_or_default()
+    }
+
+    fn parse_git_reference(ref_str: &str) -> GitReference {
+        if ref_str.starts_with("فرع=") || ref_str.starts_with("branch=") {
+            let branch = ref_str.split('=').nth(1).unwrap_or("main").to_string();
+            GitReference::Branch { branch }
+        } else if ref_str.starts_with("وسم=") || ref_str.starts_with("tag=") {
+            let tag = ref_str.split('=').nth(1).unwrap_or("").to_string();
+            GitReference::Tag { tag }
+        } else if ref_str.starts_with("مراجعة=") || ref_str.starts_with("rev=") {
+            let rev = ref_str.split('=').nth(1).unwrap_or("").to_string();
+            GitReference::Rev { rev }
+        } else {
+            GitReference::Branch {
+                branch: "main".to_string(),
+            }
+        }
+    }
+
+    fn parse_package_dependencies(
+        pkg_obj: &indexmap::IndexMap<String, format::value::Value>,
+    ) -> PackageResult<HashMap<String, String>> {
+        let mut deps = HashMap::new();
+
+        if let Some(deps_val) = pkg_obj.get("اعتماديات").or_else(|| pkg_obj.get("dependencies")) {
+            if let Some(deps_obj) = deps_val.as_object() {
+                for (name, version_val) in deps_obj {
+                    if let Some(version) = version_val.as_str() {
+                        deps.insert(name.clone(), version.to_string());
+                    }
+                }
+            }
+        }
+
+        Ok(deps)
     }
 
     pub fn try_parse(path: &Path) -> Option<Self> {

@@ -273,12 +273,12 @@ impl FunctionInliner {
         let mut continuation_block = BasicBlock::new(continuation_block_id);
 
         if let (Some(dest_var), Some(ret_var)) = (dest, return_var) {
-            continuation_block.instructions.push(Instruction::Binary {
+            // Use the callee's return type for proper type handling
+            let ret_ty = callee.return_type.clone();
+            continuation_block.instructions.push(Instruction::Copy {
                 dest: dest_var,
-                op: crate::ir::BinaryOp::Add, // This is a hack - we need a Copy instruction
-                left: ret_var,
-                right: ret_var, // x + 0 would be better but we don't have the type info
-                ty: IrType::Int, // TODO: proper type handling
+                src: ret_var,
+                ty: ret_ty,
             });
         }
 
@@ -606,6 +606,12 @@ impl FunctionInliner {
                 value: map_var(value),
             },
 
+            Instruction::Copy { dest, src, ty } => Instruction::Copy {
+                dest: map_var(dest),
+                src: map_var(src),
+                ty: ty.clone(),
+            },
+
             Instruction::Nop => Instruction::Nop,
         }
     }
@@ -630,7 +636,8 @@ impl FunctionInliner {
             | Instruction::Bitcast { dest, .. }
             | Instruction::GetException { dest }
             | Instruction::Phi { dest, .. }
-            | Instruction::GlobalLoad { dest, .. } => Some(*dest),
+            | Instruction::GlobalLoad { dest, .. }
+            | Instruction::Copy { dest, .. } => Some(*dest),
 
             Instruction::Call { dest, .. }
             | Instruction::CallIndirect { dest, .. }
@@ -681,7 +688,8 @@ impl FunctionInliner {
             Instruction::IntToFloat { src, .. }
             | Instruction::FloatToInt { src, .. }
             | Instruction::ToString { src, .. }
-            | Instruction::Bitcast { src, .. } => vec![*src],
+            | Instruction::Bitcast { src, .. }
+            | Instruction::Copy { src, .. } => vec![*src],
             Instruction::Print { value } => vec![*value],
             Instruction::Throw { exception } => vec![*exception],
             Instruction::Phi { incoming, .. } => incoming.iter().map(|(v, _)| *v).collect(),

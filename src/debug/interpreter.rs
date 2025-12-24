@@ -1156,6 +1156,13 @@ impl DebugInterpreter {
                 Ok(InstructionResult::Continue)
             }
 
+            Instruction::Copy { dest, src, ty: _ } => {
+                // Copy the value from src to dest
+                let value = self.get_local(*src)?.clone();
+                self.set_local(*dest, value);
+                Ok(InstructionResult::Continue)
+            }
+
             Instruction::Nop => Ok(InstructionResult::Continue),
         }
     }

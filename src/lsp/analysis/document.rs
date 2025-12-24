@@ -9,6 +9,56 @@ use crate::semantic::{Analyzer, Type};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::Url;
 
+/// Translates lexer error messages from English to Arabic
+fn translate_lexer_error(msg: &str) -> String {
+    // Handle common lexer error patterns
+    if msg.contains("Unexpected character") {
+        // Extract the character if present
+        if let Some(start) = msg.find('\'') {
+            if let Some(end) = msg.rfind('\'') {
+                let char_str = &msg[start..=end];
+                return format!("حرف غير متوقع {}", char_str);
+            }
+        }
+        return "حرف غير متوقع".to_string();
+    }
+
+    if msg.contains("Unterminated string") || msg.contains("unterminated string") {
+        return "نص غير مُنهى - تأكد من إغلاق علامات الاقتباس".to_string();
+    }
+
+    if msg.contains("Invalid number") || msg.contains("invalid number") {
+        return "رقم غير صالح".to_string();
+    }
+
+    if msg.contains("Invalid escape") || msg.contains("invalid escape") {
+        return "تسلسل هروب غير صالح".to_string();
+    }
+
+    if msg.contains("Unterminated comment") || msg.contains("unterminated comment") {
+        return "تعليق غير مُنهى - تأكد من إغلاق التعليق".to_string();
+    }
+
+    if msg.contains("Invalid character in identifier") {
+        return "حرف غير صالح في المعرّف".to_string();
+    }
+
+    if msg.contains("Number too large") || msg.contains("number too large") {
+        return "الرقم كبير جداً".to_string();
+    }
+
+    if msg.contains("Empty character literal") {
+        return "حرف فارغ غير مسموح".to_string();
+    }
+
+    if msg.contains("Unexpected end of input") || msg.contains("unexpected end") {
+        return "نهاية غير متوقعة للمدخلات".to_string();
+    }
+
+    // Default: prepend Arabic indicator
+    format!("خطأ معجمي: {}", msg)
+}
+
 #[derive(Debug, Clone)]
 pub struct AnalysisResult {
     pub tokens: Vec<Token>,
@@ -80,9 +130,10 @@ impl DocumentState {
 
         for token in &tokens {
             if let TokenKind::Error(msg) = &token.kind {
+                let arabic_msg = translate_lexer_error(msg);
                 diagnostics.push(Diagnostic::error(
                     msg.clone(),
-                    msg.clone(), // TODO: Arabic error messages
+                    arabic_msg,
                     token.span,
                 ));
                 has_errors = true;
