@@ -104,6 +104,11 @@ pub enum Commands {
         #[arg(long, short = 'p', aliases = ["منفذ"])]
         dap_port: Option<u16>,
 
+        /// Start DAP server on stdio (for VS Code integration)
+        /// بدء خادم DAP على الإدخال/الإخراج القياسي
+        #[arg(long, aliases = ["إدخال_قياسي"])]
+        dap_stdio: bool,
+
         /// Use Arabic interface / استخدام الواجهة العربية
         #[arg(long, aliases = ["عربي"])]
         arabic: bool,

@@ -299,6 +299,60 @@ Following the four rules from `arabic-philosophy.md`:
 
 ---
 
+### 2025-12-24: DAP Server Implementation (Phase 1)
+
+**Task**: Implement Debug Adapter Protocol server transport layer
+
+**Context**:
+- Debugger was 95% complete (~5,100 lines in src/debug/)
+- DapAdapter existed with 20+ request handlers
+- Missing: TCP/stdio transport layer for IDE integration
+
+**Implementation**:
+
+**New Files**:
+| File | Lines | Purpose |
+|------|-------|---------|
+| `src/debug/server.rs` | ~500 | DAP server with TCP and stdio transports |
+
+**Key Components**:
+- `DapMessage`: Request/Response/Event envelope
+- `DapProtocol`: Synchronous wire protocol (Content-Length headers)
+- `DapProtocolAsync`: Async wire protocol for tokio
+- `DapServer`: Main server with run_tcp(), run_stdio(), run_tcp_async(), run_stdio_async()
+- `TransportError`: Bilingual error type (Arabic/English)
+
+**CLI Changes**:
+- Added `--dap-stdio` flag for VS Code integration
+- Replaced TODO with actual DAP server implementation
+- TCP mode: `tarqeem debug file.trq --dap-port 4711`
+- Stdio mode: `tarqeem debug file.trq --dap-stdio`
+
+**Files Modified**:
+- `src/debug/server.rs` - NEW: Transport layer
+- `src/debug/mod.rs` - Export server module
+- `src/cli/mod.rs` - Add --dap-stdio flag
+- `src/cli/commands.rs` - Implement DAP server startup
+
+**Testing**:
+- 10 new unit tests in server.rs
+- All 61 debug module tests pass
+- Full test suite passes (921+ tests)
+
+**Design Decisions**:
+- Followed LSP module patterns for consistency
+- Both sync and async transports for flexibility
+- Bilingual error messages throughout
+- Atomic shutdown flag for graceful termination
+
+**Next Steps (Phase 2)**:
+- Async execution in adapter (non-blocking continue)
+- Pause support
+- SetVariable support
+- VS Code extension scaffold
+
+---
+
 ## Session Template
 
 ```markdown

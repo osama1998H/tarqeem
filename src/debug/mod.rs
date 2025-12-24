@@ -63,16 +63,18 @@ mod adapter;
 mod commands;
 mod context;
 mod interpreter;
+mod server;
 mod source_map;
 mod state;
 
 #[cfg(test)]
 mod tests;
 
-pub use adapter::{DapAdapter, DapRequest, DapResponse};
+pub use adapter::{DapAdapter, DapEvent, DapRequest, DapResponse};
 pub use commands::{DebugCommand, DebugCommandParser};
 pub use context::{Breakpoint, BreakpointId, DebugContext, WatchExpression};
 pub use interpreter::{DebugInterpreter, StepResult};
+pub use server::{DapMessage, DapProtocol, DapServer, TransportError, TransportResult};
 pub use source_map::{SourceLocation, SourceMap};
 pub use state::{DebugEvent, DebugState, DebugVariable, PauseReason, StackFrame, StepMode};
 

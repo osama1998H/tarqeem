@@ -467,6 +467,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             file,
             stop_on_entry,
             dap_port,
+            dap_stdio,
             arabic,
         } => {
             // Warn if file extension is not recognized
@@ -507,15 +508,31 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 )
             })?;
 
-            // Check if DAP server mode
-            if let Some(_port) = dap_port {
-                // TODO: Start DAP server on the specified port
-                // For now, we'll just run the interactive debugger
-                println!(
-                    "{}",
-                    "DAP server mode not yet implemented, starting interactive debugger..."
-                        .yellow()
-                );
+            // Check if DAP server mode (TCP or stdio)
+            if dap_stdio || dap_port.is_some() {
+                use crate::debug::DapServer;
+
+                let server = DapServer::new();
+
+                if dap_stdio {
+                    // Stdio mode for VS Code integration
+                    server.run_stdio().map_err(|e| {
+                        format!(
+                            "DAP server error: {} / خطأ خادم التصحيح: {}",
+                            e.message, e.message_ar
+                        )
+                    })?;
+                } else if let Some(port) = dap_port {
+                    // TCP mode for network debugging
+                    server.run_tcp(port).map_err(|e| {
+                        format!(
+                            "DAP server error: {} / خطأ خادم التصحيح: {}",
+                            e.message, e.message_ar
+                        )
+                    })?;
+                }
+
+                return Ok(());
             }
 
             // Create debug context

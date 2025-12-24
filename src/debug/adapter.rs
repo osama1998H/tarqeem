@@ -347,6 +347,7 @@ impl DapAdapter {
             "pause" => self.handle_pause(&request),
             "evaluate" => self.handle_evaluate(&request),
             "source" => self.handle_source(&request),
+            "setVariable" => self.handle_set_variable(&request),
             _ => DapResponse::error(&request, format!("Unknown command: {}", request.command)),
         };
 
@@ -374,7 +375,7 @@ impl DapAdapter {
                 "supportsRestartFrame": false,
                 "supportsGotoTargetsRequest": false,
                 "supportTerminateDebuggee": true,
-                "supportsSetVariable": false,
+                "supportsSetVariable": true,
                 "supportsSetExpression": false,
                 "supportsDelayedStackTraceLoading": false,
                 "supportsLoadedSourcesRequest": false,
@@ -592,7 +593,32 @@ impl DapAdapter {
     }
 
     fn handle_set_exception_breakpoints(&mut self, request: &DapRequest) -> DapResponse {
-        // For now, we don't support exception breakpoints
+        let filters = request
+            .arguments
+            .get("filters")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let mut break_all = false;
+        let mut break_uncaught = false;
+
+        for filter in &filters {
+            if let Some(filter_str) = filter.as_str() {
+                match filter_str {
+                    "all" | "raised" => break_all = true,
+                    "uncaught" => break_uncaught = true,
+                    _ => {}
+                }
+            }
+        }
+
+        if let Some(ref mut interpreter) = self.interpreter {
+            interpreter
+                .context_mut()
+                .set_exception_breakpoints(break_all, break_uncaught);
+        }
+
         DapResponse::success(request, Some(serde_json::json!({ "breakpoints": [] })))
     }
 
@@ -775,8 +801,55 @@ impl DapAdapter {
     }
 
     fn handle_pause(&mut self, request: &DapRequest) -> DapResponse {
-        // For now, we don't support async pause
-        DapResponse::error(request, "Pause not supported in this context".to_string())
+        if let Some(ref mut interpreter) = self.interpreter {
+            interpreter.request_pause();
+            DapResponse::success(request, None)
+        } else {
+            DapResponse::error(
+                request,
+                "No active debug session / لا توجد جلسة تصحيح نشطة".to_string(),
+            )
+        }
+    }
+
+    fn handle_set_variable(&mut self, request: &DapRequest) -> DapResponse {
+        let name = request
+            .arguments
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        let value = request
+            .arguments
+            .get("value")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        if name.is_empty() {
+            return DapResponse::error(
+                request,
+                "Variable name is required / اسم المتغير مطلوب".to_string(),
+            );
+        }
+
+        if let Some(ref mut interpreter) = self.interpreter {
+            match interpreter.set_variable(name, value) {
+                Ok(new_value) => DapResponse::success(
+                    request,
+                    Some(serde_json::json!({
+                        "value": new_value.to_display_string(),
+                        "type": new_value.type_name(),
+                        "variablesReference": 0
+                    })),
+                ),
+                Err(e) => DapResponse::error(request, format!("{} / {}", e.message, e.message_ar)),
+            }
+        } else {
+            DapResponse::error(
+                request,
+                "No active debug session / لا توجد جلسة تصحيح نشطة".to_string(),
+            )
+        }
     }
 
     fn handle_evaluate(&mut self, request: &DapRequest) -> DapResponse {

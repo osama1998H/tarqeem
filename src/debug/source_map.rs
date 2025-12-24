@@ -234,6 +234,24 @@ impl SourceMap {
         self.variable_map.get(&key)
     }
 
+    /// Find variable by name within a function
+    pub fn find_variable_by_name(&self, func_id: &FuncId, name: &str) -> Option<VarId> {
+        for (key, info) in &self.variable_map {
+            if key.func_id == func_id.0 && info.name == name {
+                return Some(VarId(key.var_id));
+            }
+            // Also check Arabic name
+            if key.func_id == func_id.0 {
+                if let Some(ref name_ar) = info.name_ar {
+                    if name_ar == name {
+                        return Some(VarId(key.var_id));
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Get function info
     pub fn get_function_info(&self, func_id: &FuncId) -> Option<&FunctionInfo> {
         self.function_map.get(&func_id.0)
