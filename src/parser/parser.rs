@@ -259,8 +259,6 @@ impl Parser {
         ))
     }
 
-    // ============ Declaration Parsing ============
-
     fn parse_declaration(&mut self) -> Result<Stmt, Diagnostic> {
         // Capture any doc comment before the declaration
         let doc_comment = self.consume_doc_comment();
@@ -870,8 +868,6 @@ impl Parser {
         Ok(Stmt::new(StmtKind::Export(Box::new(stmt)), span))
     }
 
-    // ============ Statement Parsing ============
-
     fn parse_statement(&mut self) -> Result<Stmt, Diagnostic> {
         if self.check(&TokenKind::If) {
             self.parse_if_statement()
@@ -1234,8 +1230,6 @@ impl Parser {
         let span = start.merge(&self.previous_span());
         Ok(Block::new(statements, span))
     }
-
-    // ============ Expression Parsing (Pratt Parser) ============
 
     fn parse_expression(&mut self) -> Result<Expr, Diagnostic> {
         self.parse_precedence(Precedence::Assignment)
@@ -1660,8 +1654,6 @@ impl Parser {
         Ok(args)
     }
 
-    // ============ Type Parsing ============
-
     fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, Diagnostic> {
         let start = self.current_span();
 
@@ -1736,8 +1728,6 @@ impl Parser {
 
         Ok(params)
     }
-
-    // ============ Arrow Function Parsing ============
 
     /// Try to parse an arrow function starting after '('.
     /// Returns Some(Lambda) if successful, None if this is not an arrow function.
@@ -1846,8 +1836,6 @@ impl Parser {
             }
         }
     }
-
-    // ============ Helper Methods ============
 
     fn is_at_end(&self) -> bool {
         self.peek().kind == TokenKind::Eof
@@ -2275,8 +2263,6 @@ mod tests {
         assert!(ast.has_file_markers());
         assert_eq!(ast.statements.len(), 0);
     }
-
-    // ============ Enum Tests ============
 
     #[test]
     fn test_simple_enum() {

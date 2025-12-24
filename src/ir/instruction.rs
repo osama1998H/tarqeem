@@ -76,26 +76,17 @@ impl fmt::Display for MethodId {
 /// IR type representation
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IrType {
-    /// Void type (no value)
     Void,
-    /// Boolean (1-bit integer)
     Bool,
-    /// 64-bit signed integer
     Int,
-    /// 64-bit floating point
     Float,
-    /// Pointer to string data
     String,
-    /// Pointer to a type
     Ptr(Box<IrType>),
-    /// Fixed-size array
     Array(Box<IrType>, usize),
-    /// Function type
     Function {
         params: Vec<IrType>,
         ret: Box<IrType>,
     },
-    /// Struct/class type
     Struct(ClassId),
 }
 
@@ -127,16 +118,11 @@ impl fmt::Display for IrType {
 /// Constant values in IR
 #[derive(Debug, Clone, PartialEq)]
 pub enum Constant {
-    /// Null pointer
     Null,
-    /// Boolean constant
     Bool(bool),
-    /// Integer constant
     Int(i64),
-    /// Float constant
     Float(f64),
-    /// String constant (index into string table)
-    String(u32),
+    String(u32), // index into string table
 }
 
 impl fmt::Display for Constant {
@@ -154,27 +140,20 @@ impl fmt::Display for Constant {
 /// Binary operation types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOp {
-    // Arithmetic
     Add,
     Sub,
     Mul,
     Div,
     Mod,
     Pow,
-
-    // Comparison
     Eq,
     Ne,
     Lt,
     Le,
     Gt,
     Ge,
-
-    // Logical
     And,
     Or,
-
-    // Bitwise
     BitAnd,
     BitOr,
     BitXor,
@@ -211,11 +190,8 @@ impl fmt::Display for BinaryOp {
 /// Unary operation types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
-    /// Arithmetic negation
     Neg,
-    /// Logical not
     Not,
-    /// Bitwise not
     BitNot,
 }
 
@@ -229,14 +205,9 @@ impl fmt::Display for UnaryOp {
     }
 }
 
-/// IR Instructions
-///
-/// Each instruction operates on virtual registers (VarId) and produces
-/// a result in SSA form.
+/// IR Instructions in SSA form
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
-    // ==================== Constants ====================
-    /// Load a constant value into a register
     /// dest = const value
     Const {
         dest: VarId,
@@ -244,8 +215,7 @@ pub enum Instruction {
         ty: IrType,
     },
 
-    // ==================== Arithmetic ====================
-    /// Binary operation: dest = left op right
+    /// dest = left op right
     Binary {
         dest: VarId,
         op: BinaryOp,
@@ -254,7 +224,7 @@ pub enum Instruction {
         ty: IrType,
     },
 
-    /// Unary operation: dest = op operand
+    /// dest = op operand
     Unary {
         dest: VarId,
         op: UnaryOp,
@@ -262,49 +232,53 @@ pub enum Instruction {
         ty: IrType,
     },
 
-    // ==================== Type Conversion ====================
-    /// Convert integer to float
-    IntToFloat { dest: VarId, src: VarId },
-
-    /// Convert float to integer
-    FloatToInt { dest: VarId, src: VarId },
-
-    /// Convert any value to string
-    ToString { dest: VarId, src: VarId },
-
-    /// Bitcast (reinterpret bits)
+    IntToFloat {
+        dest: VarId,
+        src: VarId,
+    },
+    FloatToInt {
+        dest: VarId,
+        src: VarId,
+    },
+    ToString {
+        dest: VarId,
+        src: VarId,
+    },
     Bitcast {
         dest: VarId,
         src: VarId,
         to_ty: IrType,
     },
 
-    // ==================== Memory ====================
-    /// Allocate stack space for a local variable
     /// dest = alloca ty
-    Alloca { dest: VarId, ty: IrType },
+    Alloca {
+        dest: VarId,
+        ty: IrType,
+    },
 
-    /// Load a value from memory
     /// dest = load ptr
-    Load { dest: VarId, ptr: VarId, ty: IrType },
+    Load {
+        dest: VarId,
+        ptr: VarId,
+        ty: IrType,
+    },
 
-    /// Store a value to memory
     /// store value -> ptr
-    Store { ptr: VarId, value: VarId },
+    Store {
+        ptr: VarId,
+        value: VarId,
+    },
 
-    /// Load a value from a global variable
-    /// dest = global_load @name
     GlobalLoad {
         dest: VarId,
         name: String,
         ty: IrType,
     },
+    GlobalStore {
+        name: String,
+        value: VarId,
+    },
 
-    /// Store a value to a global variable
-    /// global_store @name, value
-    GlobalStore { name: String, value: VarId },
-
-    /// Get pointer to array element
     /// dest = gep ptr, index
     GetElementPtr {
         dest: VarId,
@@ -313,11 +287,10 @@ pub enum Instruction {
         elem_ty: IrType,
     },
 
-    // ==================== Control Flow ====================
-    /// Unconditional jump
-    Jump { target: BlockId },
+    Jump {
+        target: BlockId,
+    },
 
-    /// Conditional branch
     /// if cond goto then_block else goto else_block
     Branch {
         cond: VarId,
@@ -325,11 +298,10 @@ pub enum Instruction {
         else_block: BlockId,
     },
 
-    /// Return from function
-    Return { value: Option<VarId> },
+    Return {
+        value: Option<VarId>,
+    },
 
-    // ==================== Function Calls ====================
-    /// Call a function
     /// dest = call func(args...)
     Call {
         dest: Option<VarId>,
@@ -338,7 +310,6 @@ pub enum Instruction {
         ret_ty: IrType,
     },
 
-    /// Call an indirect function (function pointer)
     CallIndirect {
         dest: Option<VarId>,
         func_ptr: VarId,
@@ -346,12 +317,12 @@ pub enum Instruction {
         ret_ty: IrType,
     },
 
-    // ==================== Objects ====================
-    /// Allocate a new object
     /// dest = new class
-    NewObject { dest: VarId, class: ClassId },
+    NewObject {
+        dest: VarId,
+        class: ClassId,
+    },
 
-    /// Get field from object
     /// dest = obj.field
     GetField {
         dest: VarId,
@@ -360,7 +331,6 @@ pub enum Instruction {
         ty: IrType,
     },
 
-    /// Set field on object
     /// obj.field = value
     SetField {
         object: VarId,
@@ -368,7 +338,6 @@ pub enum Instruction {
         value: VarId,
     },
 
-    /// Call a method on an object
     /// dest = obj.method(args...)
     CallMethod {
         dest: Option<VarId>,
@@ -378,7 +347,7 @@ pub enum Instruction {
         ret_ty: IrType,
     },
 
-    /// Call virtual method (through vtable)
+    /// Call through vtable
     CallVirtual {
         dest: Option<VarId>,
         object: VarId,
@@ -387,68 +356,49 @@ pub enum Instruction {
         ret_ty: IrType,
     },
 
-    // ==================== Arrays ====================
-    /// Create a new array
-    /// dest = array [elements...]
     NewArray {
         dest: VarId,
         elem_ty: IrType,
         elements: Vec<VarId>,
     },
-
-    /// Get array length
-    /// dest = len(array)
-    ArrayLen { dest: VarId, array: VarId },
-
-    /// Get array element
-    /// dest = array[index]
+    ArrayLen {
+        dest: VarId,
+        array: VarId,
+    },
     ArrayGet {
         dest: VarId,
         array: VarId,
         index: VarId,
         elem_ty: IrType,
     },
-
-    /// Set array element
-    /// array[index] = value
     ArraySet {
         array: VarId,
         index: VarId,
         value: VarId,
     },
-
-    /// Push element to array (append)
-    /// array.push(value)
     ArrayPush {
         array: VarId,
         value: VarId,
         elem_ty: IrType,
     },
 
-    // ==================== Strings ====================
-    /// Concatenate strings
-    /// dest = left + right
     StringConcat {
         dest: VarId,
         left: VarId,
         right: VarId,
     },
 
-    // ==================== Exception Handling ====================
-    /// Begin try block (marks exception handling region)
-    TryBegin { catch_block: BlockId },
-
-    /// End try block
+    TryBegin {
+        catch_block: BlockId,
+    },
     TryEnd,
+    Throw {
+        exception: VarId,
+    },
+    GetException {
+        dest: VarId,
+    },
 
-    /// Throw an exception
-    Throw { exception: VarId },
-
-    /// Get current exception in catch block
-    GetException { dest: VarId },
-
-    // ==================== Phi Functions (SSA) ====================
-    /// Phi function for SSA form
     /// dest = phi [val1, block1], [val2, block2], ...
     Phi {
         dest: VarId,
@@ -456,11 +406,9 @@ pub enum Instruction {
         incoming: Vec<(VarId, BlockId)>,
     },
 
-    // ==================== Debug/Intrinsics ====================
-    /// Print a value (for debugging/اطبع)
-    Print { value: VarId },
-
-    /// No operation (placeholder)
+    Print {
+        value: VarId,
+    }, // اطبع
     Nop,
 }
 

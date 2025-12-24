@@ -41,62 +41,25 @@ impl std::error::Error for IrError {}
 
 type Result<T> = std::result::Result<T, IrError>;
 
-/// IR Builder for converting AST to IR
+/// Converts AST to IR
 pub struct IrBuilder {
-    /// The module being built
     module: Module,
-
-    /// Current function being built
     current_function: Option<Function>,
-
-    /// Current block ID
     current_block: BlockId,
-
-    /// Variable counter for SSA naming
     var_counter: u32,
-
-    /// Block counter
     block_counter: u32,
-
-    /// Variable name to VarId mapping (for current scope)
     variables: HashMap<String, VarId>,
-
-    /// Variable type tracking - maps VarId to its IrType
     var_types: HashMap<u32, IrType>,
-
-    /// Stack of variable scopes
     scope_stack: Vec<HashMap<String, VarId>>,
-
-    /// Loop context stack (continue_block, break_block)
-    loop_stack: Vec<(BlockId, BlockId)>,
-
-    /// Class field information
+    loop_stack: Vec<(BlockId, BlockId)>, // (continue_block, break_block)
     class_fields: HashMap<String, Vec<(String, IrType)>>,
-
-    /// Method return types: (ClassName::MethodName) -> IrType
     method_return_types: HashMap<String, IrType>,
-
-    /// Known function names for identifier resolution
     function_names: HashSet<String>,
-
-    /// Function return types: name -> IrType
-    /// Used to properly type recursive calls and cross-function calls
     function_return_types: HashMap<String, IrType>,
-
-    /// Track which VarIds are function parameters (not allocas)
-    /// Parameters are passed by value and don't need Load instructions
+    // Parameters are passed by value and don't need Load instructions
     parameters: HashSet<u32>,
-
-    /// Global constants: name -> (value, type)
-    /// These are constants declared at module level that are visible in all functions
     global_constants: HashMap<String, (Constant, IrType)>,
-
-    /// Global variable names (both mutable and immutable)
-    /// Used to distinguish global vs local variables during code generation
     global_variables: HashSet<String>,
-
-    /// Global variable types: name -> IrType
-    /// Used for type information when loading/storing globals
     global_var_types: HashMap<String, IrType>,
 }
 
@@ -557,9 +520,6 @@ impl IrBuilder {
         }
     }
 
-    // ==================== Statement Building ====================
-
-    /// Build IR for a statement
     fn build_stmt(&mut self, stmt: &Stmt) -> Result<()> {
         match &stmt.kind {
             StmtKind::VarDecl { name, ty, init, .. } => {
@@ -1846,9 +1806,6 @@ impl IrBuilder {
         Ok(())
     }
 
-    // ==================== Expression Building ====================
-
-    /// Build IR for an expression, returning the result VarId
     fn build_expr(&mut self, expr: &Expr) -> Result<VarId> {
         match &expr.kind {
             ExprKind::Literal(lit) => self.build_literal(lit),
