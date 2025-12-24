@@ -54,12 +54,10 @@ impl TarqeemLanguageServer {
 #[async_trait]
 impl LanguageServer for TarqeemLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        // Set workspace root if provided
         if let Some(root_uri) = params.root_uri {
             self.state.write().await.set_workspace_root(Some(root_uri));
         }
 
-        // Check client locale for language preference
         if let Some(locale) = params.locale {
             let language = if locale.starts_with("ar") {
                 Language::Arabic
@@ -108,7 +106,6 @@ impl LanguageServer for TarqeemLanguageServer {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
 
-        // We use full sync, so there's only one change with the full content
         if let Some(change) = params.content_changes.into_iter().next() {
             if let Some(mut doc) = self.documents.get_mut(&uri) {
                 doc.update(version, change.text);
@@ -122,12 +119,10 @@ impl LanguageServer for TarqeemLanguageServer {
         let uri = params.text_document.uri;
         self.documents.remove(&uri);
 
-        // Clear diagnostics for closed document
         self.client.publish_diagnostics(uri, vec![], None).await;
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        // Re-publish diagnostics on save
         self.publish_diagnostics_for(&params.text_document.uri)
             .await;
     }
@@ -257,7 +252,6 @@ impl LanguageServer for TarqeemLanguageServer {
         }
     }
 
-    // ============ P2 Features ============
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri;
@@ -314,18 +308,14 @@ mod tests {
     use super::*;
     use tower_lsp::lsp_types::Url;
 
-    // Note: Testing the full server requires mocking the Client,
-    // which is complex. These tests verify basic functionality.
 
     #[test]
     fn test_server_capabilities_p0_p1() {
         let caps = server_capabilities();
-        // P0 features
         assert!(caps.hover_provider.is_some());
         assert!(caps.completion_provider.is_some());
         assert!(caps.definition_provider.is_some());
         assert!(caps.signature_help_provider.is_some());
-        // P1 features
         assert!(caps.references_provider.is_some());
         assert!(caps.rename_provider.is_some());
         assert!(caps.document_symbol_provider.is_some());
@@ -335,7 +325,6 @@ mod tests {
     #[test]
     fn test_server_capabilities_p2() {
         let caps = server_capabilities();
-        // P2 features
         assert!(caps.code_action_provider.is_some());
         assert!(caps.inlay_hint_provider.is_some());
         assert!(caps.semantic_tokens_provider.is_some());

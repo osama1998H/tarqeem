@@ -28,7 +28,6 @@ impl fmt::Display for Token {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
-    // ============ Literals ============
     IntLiteral(i64),
     FloatLiteral(f64),
     StringLiteral(String),
@@ -36,27 +35,22 @@ pub enum TokenKind {
     False,
     Null,
 
-    // ============ Identifiers ============
     Identifier(String),
 
-    // ============ Keywords - Variables ============
     Let,
     Const,
 
-    // ============ Keywords - Functions ============
     Function,
     Return,
     Async,
     Await,
 
-    // ============ Keywords - Control Flow ============
     If,
     Else,
     Match,
     Case,
     Default,
 
-    // ============ Keywords - Loops ============
     While,
     For,
     In,
@@ -64,7 +58,6 @@ pub enum TokenKind {
     Break,
     Continue,
 
-    // ============ Keywords - OOP ============
     Class,
     Interface,
     Extends,
@@ -79,24 +72,20 @@ pub enum TokenKind {
     New,
     Enum,
 
-    // ============ Keywords - Property Accessors ============
     Property,
     Get,
     Set,
 
-    // ============ Keywords - Error Handling ============
     Try,
     Catch,
     Finally,
     Throw,
 
-    // ============ Keywords - Modules ============
     Import,
     Export,
     From,
     As,
 
-    // ============ Type Keywords ============
     TypeInt,
     TypeFloat,
     TypeString,
@@ -106,7 +95,6 @@ pub enum TokenKind {
     TypeVoid,
     TypeAny,
 
-    // ============ Operators - Arithmetic ============
     Plus,
     Minus,
     Star,
@@ -114,7 +102,6 @@ pub enum TokenKind {
     Percent,
     StarStar,
 
-    // ============ Operators - Comparison ============
     EqualEqual,
     BangEqual,
     Less,
@@ -122,12 +109,10 @@ pub enum TokenKind {
     Greater,
     GreaterEqual,
 
-    // ============ Operators - Logical ============
     And,
     Or,
     Bang,
 
-    // ============ Operators - Assignment ============
     Equal,
     PlusEqual,
     MinusEqual,
@@ -135,11 +120,9 @@ pub enum TokenKind {
     SlashEqual,
     PercentEqual,
 
-    // ============ Operators - Increment/Decrement ============
     PlusPlus,
     MinusMinus,
 
-    // ============ Delimiters ============
     LeftParen,
     RightParen,
     LeftBrace,
@@ -154,19 +137,15 @@ pub enum TokenKind {
     FatArrow,
     Question,
 
-    // ============ Arabic Punctuation ============
     ArabicComma,
     ArabicSemicolon,
 
-    // ============ Documentation Comments ============
     DocComment(String),
     BlockDocComment(String),
 
-    // ============ File Markers ============
     Bismillah,
     Alhamdulillah,
 
-    // ============ Special ============
     Eof,
     Newline,
     Error(String),

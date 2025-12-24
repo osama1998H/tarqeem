@@ -49,7 +49,6 @@ pub mod lexer;
 pub mod parser;
 pub mod value;
 
-// Re-exports
 pub use error::{FormatError, FormatErrorKind, FormatResult, Location};
 pub use lexer::{Lexer, Token};
 pub use parser::{parse, Parser};

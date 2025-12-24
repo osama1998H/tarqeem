@@ -83,7 +83,6 @@ mod tests {
         generator.generate(&doc, &mut output).unwrap();
         let json = String::from_utf8(output).unwrap();
 
-        // Minified JSON should be on a single line (plus newline at end)
         assert_eq!(json.lines().count(), 1);
     }
 }

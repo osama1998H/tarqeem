@@ -77,7 +77,6 @@ impl LoopAnalysis {
             return analysis;
         }
 
-        // Build predecessor map
         let mut predecessors: HashMap<BlockId, Vec<BlockId>> = HashMap::new();
         for block in &func.blocks {
             for succ in &block.successors {
@@ -85,8 +84,6 @@ impl LoopAnalysis {
             }
         }
 
-        // Find back edges (edges where target dominates source)
-        // Simple heuristic: edge to a block that appears earlier in the list
         let block_order: HashMap<BlockId, usize> = func
             .blocks
             .iter()
@@ -101,24 +98,20 @@ impl LoopAnalysis {
                     (block_order.get(&block.id), block_order.get(succ))
                 {
                     if to_idx <= from_idx {
-                        // This is likely a back edge
                         back_edges.push((block.id, *succ));
                     }
                 }
             }
         }
 
-        // For each back edge, create a loop
         for (back_from, header) in back_edges {
             let mut loop_info = Loop::new(header);
             loop_info.back_edges.push(back_from);
 
-            // Find all blocks in the loop using reverse reachability
             loop_info.blocks.insert(header);
             let mut worklist = vec![back_from];
             while let Some(block_id) = worklist.pop() {
                 if loop_info.blocks.insert(block_id) {
-                    // Add predecessors to worklist
                     if let Some(preds) = predecessors.get(&block_id) {
                         for pred in preds {
                             if !loop_info.blocks.contains(pred) {
@@ -129,7 +122,6 @@ impl LoopAnalysis {
                 }
             }
 
-            // Find exit blocks
             for &block_id in &loop_info.blocks {
                 if let Some(block) = func.get_block(block_id) {
                     for succ in &block.successors {
@@ -140,7 +132,6 @@ impl LoopAnalysis {
                 }
             }
 
-            // Find preheader (single predecessor of header that's not in loop)
             if let Some(header_preds) = predecessors.get(&header) {
                 let external_preds: Vec<_> = header_preds
                     .iter()
@@ -151,10 +142,8 @@ impl LoopAnalysis {
                 }
             }
 
-            // Analyze induction variables
             loop_info.induction_vars = analyze_induction_vars(func, &loop_info);
 
-            // Record block-to-loop mapping
             let loop_idx = analysis.loops.len();
             for &block_id in &loop_info.blocks {
                 analysis.block_to_loop.insert(block_id, loop_idx);
@@ -163,7 +152,6 @@ impl LoopAnalysis {
             analysis.loops.push(loop_info);
         }
 
-        // Compute nesting depths
         for i in 0..analysis.loops.len() {
             let header = analysis.loops[i].header;
             let mut depth = 0;
@@ -182,7 +170,6 @@ impl LoopAnalysis {
 fn analyze_induction_vars(func: &Function, loop_info: &Loop) -> Vec<InductionVar> {
     let mut induction_vars = Vec::new();
 
-    // Look for phi nodes in the header that are updated in the loop
     if let Some(header_block) = func.get_block(loop_info.header) {
         for inst in &header_block.instructions {
             if let Instruction::Phi { dest, ty, incoming } = inst {
@@ -190,7 +177,6 @@ fn analyze_induction_vars(func: &Function, loop_info: &Loop) -> Vec<InductionVar
                     continue; // Only handle integer induction variables
                 }
 
-                // Check if this phi has exactly one value from outside loop and one from inside
                 let mut outside_val = None;
                 let mut inside_val = None;
 
@@ -203,7 +189,6 @@ fn analyze_induction_vars(func: &Function, loop_info: &Loop) -> Vec<InductionVar
                 }
 
                 if let (Some(init), Some((update, update_block))) = (outside_val, inside_val) {
-                    // Check if the update is a simple increment/decrement
                     if let Some(step) = find_induction_step(func, update_block, update, *dest) {
                         induction_vars.push(InductionVar {
                             var: *dest,
@@ -237,9 +222,7 @@ fn find_induction_step(
                 right,
                 ..
             } if *dest == result => {
-                // Check if one operand is the phi variable
                 if *left == phi_var {
-                    // Check if right is a constant
                     if let Some(step_val) = find_constant_value(func, *right) {
                         return Some(InductionStep::Constant(step_val));
                     }
@@ -331,19 +314,16 @@ impl LoopInvariantCodeMotion {
         let analysis = LoopAnalysis::analyze(func);
 
         for loop_info in &analysis.loops {
-            // Need a preheader to hoist into
             let Some(preheader) = loop_info.preheader else {
                 continue;
             };
 
-            // Find loop-invariant instructions
             let invariants = self.find_loop_invariants(func, loop_info);
 
             if invariants.is_empty() {
                 continue;
             }
 
-            // Move invariant instructions to preheader
             self.hoist_instructions(func, loop_info, preheader, &invariants);
         }
     }
@@ -351,7 +331,6 @@ impl LoopInvariantCodeMotion {
     fn find_loop_invariants(&self, func: &Function, loop_info: &Loop) -> Vec<(BlockId, usize)> {
         let mut invariants = Vec::new();
 
-        // Variables defined outside the loop
         let mut outside_defs: HashSet<VarId> = HashSet::new();
         for block in &func.blocks {
             if !loop_info.contains(block.id) {
@@ -363,18 +342,15 @@ impl LoopInvariantCodeMotion {
             }
         }
 
-        // Also consider function parameters as outside definitions
         for param in &func.params {
             outside_defs.insert(param.id);
         }
 
-        // Find instructions whose operands are all loop-invariant
         for &block_id in &loop_info.blocks {
             if let Some(block) = func.get_block(block_id) {
                 for (idx, inst) in block.instructions.iter().enumerate() {
                     if self.is_loop_invariant(inst, loop_info, &outside_defs) {
                         invariants.push((block_id, idx));
-                        // Add this instruction's destination to outside_defs
                         if let Some(dest) = instruction_dest(inst) {
                             outside_defs.insert(dest);
                         }
@@ -392,15 +368,12 @@ impl LoopInvariantCodeMotion {
         _loop_info: &Loop,
         invariant_defs: &HashSet<VarId>,
     ) -> bool {
-        // Instructions that cannot be hoisted
         match inst {
-            // Control flow cannot be hoisted
             Instruction::Jump { .. }
             | Instruction::Branch { .. }
             | Instruction::Return { .. }
             | Instruction::Throw { .. } => return false,
 
-            // Side-effecting instructions cannot be hoisted
             Instruction::Store { .. }
             | Instruction::SetField { .. }
             | Instruction::ArraySet { .. }
@@ -410,15 +383,12 @@ impl LoopInvariantCodeMotion {
             | Instruction::CallVirtual { .. }
             | Instruction::CallIndirect { .. } => return false,
 
-            // Memory allocation shouldn't be hoisted
             Instruction::Alloca { .. }
             | Instruction::NewObject { .. }
             | Instruction::NewArray { .. } => return false,
 
-            // Phi nodes are special
             Instruction::Phi { .. } => return false,
 
-            // Exception handling
             Instruction::TryBegin { .. }
             | Instruction::TryEnd
             | Instruction::GetException { .. } => return false,
@@ -426,7 +396,6 @@ impl LoopInvariantCodeMotion {
             _ => {}
         }
 
-        // Check if all operands are loop-invariant
         let operands = instruction_operands(inst);
         operands.iter().all(|op| invariant_defs.contains(op))
     }
@@ -438,7 +407,6 @@ impl LoopInvariantCodeMotion {
         preheader: BlockId,
         invariants: &[(BlockId, usize)],
     ) {
-        // Collect instructions to move (in reverse order of indices to avoid shifting)
         let mut to_move: Vec<(BlockId, usize, Instruction)> = Vec::new();
 
         for &(block_id, idx) in invariants.iter().rev() {
@@ -449,7 +417,6 @@ impl LoopInvariantCodeMotion {
             }
         }
 
-        // Insert at the end of preheader (before terminator)
         if let Some(preheader_block) = func.get_block_mut(preheader) {
             let insert_pos = if preheader_block.has_terminator() {
                 preheader_block.instructions.len() - 1
@@ -489,7 +456,6 @@ impl StrengthReduction {
         let analysis = LoopAnalysis::analyze(func);
 
         for loop_info in &analysis.loops {
-            // Find expressions derived from induction variables
             for iv in &loop_info.induction_vars {
                 self.reduce_derived_expressions(func, loop_info, iv);
             }
@@ -502,13 +468,11 @@ impl StrengthReduction {
         loop_info: &Loop,
         iv: &InductionVar,
     ) {
-        // Look for i * constant patterns and convert to incremental addition
         let step = match &iv.step {
             InductionStep::Constant(s) => *s,
             _ => return, // Only handle constant steps for now
         };
 
-        // Find all blocks in the loop
         for &block_id in &loop_info.blocks {
             self.reduce_in_block(func, block_id, iv.var, step);
         }
@@ -521,7 +485,6 @@ impl StrengthReduction {
 
         let mut replacements: Vec<(usize, i64)> = Vec::new();
 
-        // Find i * constant patterns
         for (idx, inst) in block.instructions.iter().enumerate() {
             if let Instruction::Binary {
                 dest: _,
@@ -531,7 +494,6 @@ impl StrengthReduction {
                 ty: IrType::Int,
             } = inst
             {
-                // Check if one operand is the induction variable
                 let const_operand = if *left == iv {
                     Some(*right)
                 } else if *right == iv {
@@ -541,7 +503,6 @@ impl StrengthReduction {
                 };
 
                 if let Some(const_var) = const_operand {
-                    // Check if the other operand is a constant
                     if let Some(const_val) = find_constant_value_in_block(block, const_var) {
                         replacements.push((idx, const_val));
                     }
@@ -549,15 +510,7 @@ impl StrengthReduction {
             }
         }
 
-        // Apply replacements
-        // For i * C where i increments by S, we can instead:
-        // - Initialize derived = init * C
-        // - Each iteration: derived += S * C
-        // This is more complex and requires inserting new instructions,
-        // so we'll track the optimization opportunity for now
         for (idx, const_val) in replacements {
-            // Mark that we could reduce this multiplication
-            // The actual transformation requires more infrastructure
             let _ = (idx, const_val, iv_step); // Placeholder for actual implementation
             self.stats.constants_folded += 1; // Reusing counter for now
         }
@@ -619,12 +572,10 @@ impl LoopUnroller {
         let analysis = LoopAnalysis::analyze(func);
 
         for loop_info in &analysis.loops {
-            // Check if loop is a candidate for unrolling
             if !self.is_unroll_candidate(func, loop_info) {
                 continue;
             }
 
-            // Calculate loop body size
             let body_size: usize = loop_info
                 .blocks
                 .iter()
@@ -636,36 +587,29 @@ impl LoopUnroller {
                 continue;
             }
 
-            // Check for known trip count
             if self.require_known_trip_count {
                 if !self.has_known_trip_count(func, loop_info) {
                     continue;
                 }
             }
 
-            // For now, just record that we could unroll
-            // Actual unrolling requires significant block manipulation
             self.stats.constants_folded += 1; // Placeholder counter
         }
     }
 
     fn is_unroll_candidate(&self, func: &Function, loop_info: &Loop) -> bool {
-        // Must have exactly one back edge
         if loop_info.back_edges.len() != 1 {
             return false;
         }
 
-        // Must have an induction variable
         if loop_info.induction_vars.is_empty() {
             return false;
         }
 
-        // Must have a single exit
         if loop_info.exits.len() != 1 {
             return false;
         }
 
-        // Check that all blocks have proper terminators
         for &block_id in &loop_info.blocks {
             if let Some(block) = func.get_block(block_id) {
                 if !block.has_terminator() {
@@ -678,21 +622,17 @@ impl LoopUnroller {
     }
 
     fn has_known_trip_count(&self, func: &Function, loop_info: &Loop) -> bool {
-        // Look for pattern: for i = 0; i < N; i++
-        // where N is a constant
         if loop_info.induction_vars.is_empty() {
             return false;
         }
 
         let iv = &loop_info.induction_vars[0];
 
-        // Check if init is constant
         let init_const = find_constant_value(func, iv.init);
         if init_const.is_none() {
             return false;
         }
 
-        // Check if step is constant
         let step = match &iv.step {
             InductionStep::Constant(s) => *s,
             _ => return false,
@@ -702,11 +642,9 @@ impl LoopUnroller {
             return false; // Infinite loop
         }
 
-        // Look for comparison with constant in exit block
         for &exit_id in &loop_info.exits {
             if let Some(exit_block) = func.get_block(exit_id) {
                 if let Some(Instruction::Branch { cond, .. }) = exit_block.terminator() {
-                    // Check if condition compares IV with constant
                     if self.is_constant_bound_comparison(func, exit_block, *cond, iv.var) {
                         return true;
                     }
@@ -737,7 +675,6 @@ impl LoopUnroller {
                     continue;
                 }
 
-                // Check if it's a comparison operation
                 let is_comparison = matches!(
                     op,
                     BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge | BinaryOp::Ne
@@ -747,7 +684,6 @@ impl LoopUnroller {
                     continue;
                 }
 
-                // Check if one operand is the IV
                 if *left == iv {
                     if find_constant_value(func, *right).is_some() {
                         return true;
@@ -792,15 +728,12 @@ impl LoopOptimizer {
     }
 
     pub fn run(&mut self, module: &mut Module) {
-        // Run LICM first
         self.licm.run(module);
         self.stats.merge(self.licm.stats());
 
-        // Run strength reduction
         self.strength_reduction.run(module);
         self.stats.merge(self.strength_reduction.stats());
 
-        // Optionally run loop unrolling
         if self.enable_unrolling {
             self.unroller.run(module);
             self.stats.merge(self.unroller.stats());
@@ -912,11 +845,6 @@ mod tests {
 
     #[test]
     fn test_loop_detection() {
-        // Create a simple function with a loop:
-        // bb0: ... -> bb1
-        // bb1: ... -> bb2, bb3  (loop header)
-        // bb2: ... -> bb1       (back edge)
-        // bb3: exit
 
         let mut func = Function::new(
             FuncId("test".to_string()),

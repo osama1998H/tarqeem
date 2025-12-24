@@ -71,13 +71,10 @@ impl FunctionInliner {
     }
 
     pub fn run(&mut self, module: &mut Module) {
-        // Find functions eligible for inlining
         let inline_candidates = self.find_inline_candidates(module);
 
-        // Count call sites for each function
         let call_counts = self.count_call_sites(module);
 
-        // Inline functions
         for func_idx in 0..module.functions.len() {
             self.inline_calls_in_function(module, func_idx, &inline_candidates, &call_counts);
         }
@@ -96,10 +93,8 @@ impl FunctionInliner {
     }
 
     fn is_inline_candidate(&self, func: &Function) -> bool {
-        // Count total instructions
         let instruction_count: usize = func.blocks.iter().map(|b| b.instructions.len()).sum();
 
-        // Check basic criteria
         if func.blocks.len() > self.config.max_blocks {
             return false;
         }
@@ -108,12 +103,10 @@ impl FunctionInliner {
             return false;
         }
 
-        // Check for recursion (simple check - function calls itself)
         if self.is_recursive(func) {
             return false;
         }
 
-        // Small functions are always candidates
         if instruction_count <= self.config.always_inline_threshold {
             return true;
         }
@@ -157,8 +150,6 @@ impl FunctionInliner {
         candidates: &HashSet<FuncId>,
         call_counts: &HashMap<FuncId, usize>,
     ) {
-        // We need to be careful with borrowing here
-        // First, collect the calls we want to inline
         let calls_to_inline =
             self.find_calls_to_inline(&module.functions[func_idx], candidates, call_counts);
 
@@ -166,9 +157,7 @@ impl FunctionInliner {
             return;
         }
 
-        // For each call site, perform inlining
         for (block_idx, inst_idx, callee_id) in calls_to_inline.into_iter().rev() {
-            // Find the callee function
             if let Some(callee) = module.functions.iter().find(|f| f.id == callee_id).cloned() {
                 self.inline_call(
                     &mut module.functions[func_idx],
@@ -192,17 +181,14 @@ impl FunctionInliner {
         for (block_idx, block) in func.blocks.iter().enumerate() {
             for (inst_idx, inst) in block.instructions.iter().enumerate() {
                 if let Instruction::Call { func: callee, .. } = inst {
-                    // Don't inline self-calls
                     if callee == &func.id {
                         continue;
                     }
 
-                    // Check if this is an inline candidate
                     if !candidates.contains(callee) {
                         continue;
                     }
 
-                    // Check call count threshold
                     let count = call_counts.get(callee).copied().unwrap_or(0);
                     if count > self.config.max_call_sites {
                         continue;
@@ -223,7 +209,6 @@ impl FunctionInliner {
         inst_idx: usize,
         callee: &Function,
     ) {
-        // Get the call instruction
         let call_inst = caller.blocks[block_idx].instructions[inst_idx].clone();
 
         let (dest, args) = match &call_inst {
@@ -231,11 +216,9 @@ impl FunctionInliner {
             _ => return,
         };
 
-        // Generate unique variable and block IDs for the inlined code
         let var_offset = self.find_max_var_id(caller) + 1;
         let block_offset = self.find_max_block_id(caller) + 1;
 
-        // Create parameter mappings (callee param -> argument value)
         let mut var_map: HashMap<VarId, VarId> = HashMap::new();
         for (i, param) in callee.params.iter().enumerate() {
             if i < args.len() {
@@ -243,7 +226,6 @@ impl FunctionInliner {
             }
         }
 
-        // Clone and remap the callee's blocks
         let mut inlined_blocks: Vec<BasicBlock> = Vec::new();
         let mut return_var: Option<VarId> = None;
 
@@ -254,16 +236,12 @@ impl FunctionInliner {
             for inst in &block.instructions {
                 match inst {
                     Instruction::Return { value } => {
-                        // Handle return: store the return value
                         if let Some(ref val) = value {
                             let mapped_val = self.map_var(*val, &var_map, var_offset);
                             return_var = Some(mapped_val);
                         }
-                        // The return becomes a jump to the continuation
-                        // (handled after we process all blocks)
                     }
                     _ => {
-                        // Remap variables and blocks in this instruction
                         let remapped =
                             self.remap_instruction(inst, &var_map, var_offset, block_offset);
                         new_block.instructions.push(remapped);
@@ -274,21 +252,14 @@ impl FunctionInliner {
             inlined_blocks.push(new_block);
         }
 
-        // Now modify the caller:
-        // 1. Split the current block at the call site
-        // 2. Insert the inlined blocks
-        // 3. Add a copy of the return value to the destination (if any)
 
-        // Get instructions after the call
         let after_call: Vec<Instruction> = caller.blocks[block_idx]
             .instructions
             .drain(inst_idx + 1..)
             .collect();
 
-        // Remove the call instruction
         caller.blocks[block_idx].instructions.pop();
 
-        // If the callee has blocks, jump to the first inlined block
         if !inlined_blocks.is_empty() {
             let first_inlined_block = BlockId(block_offset);
             caller.blocks[block_idx]
@@ -298,14 +269,10 @@ impl FunctionInliner {
                 });
         }
 
-        // Create continuation block for code after the call
         let continuation_block_id = BlockId(block_offset + inlined_blocks.len() as u32);
         let mut continuation_block = BasicBlock::new(continuation_block_id);
 
-        // If there's a destination and a return value, add a copy
         if let (Some(dest_var), Some(ret_var)) = (dest, return_var) {
-            // We'll need to handle this - for now, the return value is already
-            // in the mapped variable, we just need to ensure it gets used correctly
             continuation_block.instructions.push(Instruction::Binary {
                 dest: dest_var,
                 op: crate::ir::BinaryOp::Add, // This is a hack - we need a Copy instruction
@@ -315,17 +282,14 @@ impl FunctionInliner {
             });
         }
 
-        // Add the remaining instructions
         continuation_block.instructions.extend(after_call);
 
-        // Add jump to continuation from the last inlined block
         if let Some(last_block) = inlined_blocks.last_mut() {
             last_block.instructions.push(Instruction::Jump {
                 target: continuation_block_id,
             });
         }
 
-        // Insert all the new blocks
         let insert_pos = block_idx + 1;
         for (i, block) in inlined_blocks.into_iter().enumerate() {
             caller.blocks.insert(insert_pos + i, block);
@@ -740,7 +704,6 @@ mod tests {
 
     #[test]
     fn test_inline_candidate_detection() {
-        // Create a simple small function
         let mut small_func = Function::new(
             FuncId("small".to_string()),
             "small".to_string(),
@@ -782,7 +745,6 @@ mod tests {
         );
 
         let mut block = BasicBlock::new(BlockId(0));
-        // Call itself
         block.instructions.push(Instruction::Call {
             dest: Some(VarId(1)),
             func: FuncId("recursive".to_string()),
@@ -808,7 +770,6 @@ mod tests {
         );
 
         let mut block = BasicBlock::new(BlockId(0));
-        // Call "helper" twice
         block.instructions.push(Instruction::Call {
             dest: Some(VarId(0)),
             func: FuncId("helper".to_string()),

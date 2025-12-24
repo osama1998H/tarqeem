@@ -65,7 +65,6 @@ pub fn handle_semantic_tokens_full(
 
     let mut tokens: Vec<SemanticTokenData> = Vec::new();
 
-    // Process all lexer tokens
     for token in &analysis.tokens {
         if let Some((token_type, modifiers)) = classify_token(&token.kind, &analysis.symbols) {
             let position = offset_to_position(&content, token.span.start);
@@ -81,10 +80,8 @@ pub fn handle_semantic_tokens_full(
         }
     }
 
-    // Sort tokens by position (line, then character)
     tokens.sort_by(|a, b| a.line.cmp(&b.line).then(a.start_char.cmp(&b.start_char)));
 
-    // Convert to LSP delta-encoded format
     let semantic_tokens = encode_tokens(&tokens);
 
     Some(SemanticTokensResult::Tokens(SemanticTokens {
@@ -109,7 +106,6 @@ fn classify_token(
     use crate::lsp::analysis::SymbolKind;
 
     match kind {
-        // Keywords
         TokenKind::Let
         | TokenKind::Const
         | TokenKind::Function
@@ -144,12 +140,10 @@ fn classify_token(
         | TokenKind::Async
         | TokenKind::Await => Some((15, 0)), // KEYWORD
 
-        // Access modifiers
         TokenKind::Public | TokenKind::Private | TokenKind::Protected | TokenKind::Static => {
             Some((16, 0)) // MODIFIER
         }
 
-        // Type keywords
         TokenKind::TypeInt
         | TokenKind::TypeFloat
         | TokenKind::TypeString
@@ -159,12 +153,10 @@ fn classify_token(
         | TokenKind::TypeVoid
         | TokenKind::TypeAny => Some((1, 0)), // TYPE
 
-        // Literals
         TokenKind::IntLiteral(_) | TokenKind::FloatLiteral(_) => Some((19, 0)), // NUMBER
         TokenKind::StringLiteral(_) => Some((18, 0)),                           // STRING
         TokenKind::True | TokenKind::False | TokenKind::Null => Some((15, 0)), // KEYWORD (boolean/null literals)
 
-        // Identifiers - classify based on symbol table
         TokenKind::Identifier(name) => {
             if let Some(info) = symbols.get(name) {
                 let modifiers = compute_modifiers(info);
@@ -185,7 +177,6 @@ fn classify_token(
             }
         }
 
-        // Operators
         TokenKind::Plus
         | TokenKind::Minus
         | TokenKind::Star
@@ -210,7 +201,6 @@ fn classify_token(
         | TokenKind::PlusPlus
         | TokenKind::MinusMinus => Some((21, 0)), // OPERATOR
 
-        // Skip delimiters, newlines, errors, EOF
         _ => None,
     }
 }
@@ -218,10 +208,8 @@ fn classify_token(
 fn compute_modifiers(info: &crate::lsp::analysis::SymbolInfo) -> u32 {
     let mut modifiers = 0u32;
 
-    // DECLARATION (bit 0)
     modifiers |= 1 << 0;
 
-    // READONLY (bit 2) for immutable variables
     if !info.mutable {
         modifiers |= 1 << 2;
     }
@@ -380,15 +368,12 @@ mod tests {
         let encoded = encode_tokens(&tokens);
         assert_eq!(encoded.len(), 3);
 
-        // First token: delta_line=0, delta_start=0
         assert_eq!(encoded[0].delta_line, 0);
         assert_eq!(encoded[0].delta_start, 0);
 
-        // Second token: same line, delta_start=6
         assert_eq!(encoded[1].delta_line, 0);
         assert_eq!(encoded[1].delta_start, 6);
 
-        // Third token: new line, delta_line=1, delta_start=0
         assert_eq!(encoded[2].delta_line, 1);
         assert_eq!(encoded[2].delta_start, 0);
     }

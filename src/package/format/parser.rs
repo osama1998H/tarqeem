@@ -85,12 +85,10 @@ impl<'a> Parser<'a> {
         loop {
             self.skip_newlines_and_comments()?;
 
-            // التحقق من نهاية الملف
             if matches!(self.current, Token::Eof) {
                 break;
             }
 
-            // التحقق من المسافة البادئة
             let current_indent = match &self.current {
                 Token::Indent(n) => {
                     let indent = *n;
@@ -104,14 +102,12 @@ impl<'a> Parser<'a> {
                 _ => break,
             };
 
-            // إذا كانت المسافة البادئة أقل، نعود
             if current_indent < min_indent {
                 break;
             }
 
             self.skip_newlines_and_comments()?;
 
-            // قراءة المفتاح
             let key = match &self.current {
                 Token::Identifier(s) => {
                     let k = s.clone();
@@ -128,7 +124,6 @@ impl<'a> Parser<'a> {
                 }
             };
 
-            // توقع نقطتان
             if !self.check(&Token::Colon) {
                 return Err(FormatError::new(
                     FormatErrorKind::ExpectedColon,
@@ -137,13 +132,10 @@ impl<'a> Parser<'a> {
             }
             self.advance()?;
 
-            // تخطي المسافات بعد النقطتين
             self.skip_newlines_and_comments()?;
 
-            // قراءة القيمة
             let value = self.parse_value(current_indent)?;
 
-            // التحقق من المفتاح المكرر
             if map.contains_key(&key) {
                 return Err(FormatError::new(
                     FormatErrorKind::DuplicateKey(key),
@@ -159,7 +151,6 @@ impl<'a> Parser<'a> {
 
     fn parse_value(&mut self, current_indent: usize) -> FormatResult<Value> {
         match &self.current {
-            // قيمة مباشرة
             Token::String(s) => {
                 let value = Value::String(s.clone());
                 self.advance()?;
@@ -184,27 +175,21 @@ impl<'a> Parser<'a> {
                 Ok(Value::Null)
             }
             Token::Identifier(s) => {
-                // معرف بدون علامات اقتباس يعتبر نصاً
                 let value = Value::String(s.clone());
                 self.advance()?;
                 self.skip_to_end_of_line()?;
                 Ok(value)
             }
-            // قائمة
             Token::Dash => self.parse_array(current_indent),
-            // كائن متداخل
             Token::Newline => {
                 self.advance()?;
-                // توقع مسافة بادئة أكبر
                 match &self.current {
                     Token::Indent(n) if *n > current_indent => {
                         let child_indent = *n;
-                        // التحقق مما إذا كانت قائمة أم كائن
                         self.advance()?;
                         match &self.current {
                             Token::Dash => self.parse_array_at_indent(child_indent),
                             _ => {
-                                // أعد المسافة البادئة للقراءة
                                 self.peeked = Some((self.current.clone(), self.current_loc));
                                 self.current = Token::Indent(child_indent);
                                 self.parse_object(child_indent)
@@ -212,7 +197,6 @@ impl<'a> Parser<'a> {
                         }
                     }
                     Token::Dash => {
-                        // قائمة في نفس المستوى
                         self.parse_array(current_indent)
                     }
                     _ => Ok(Value::Null),
@@ -252,7 +236,6 @@ impl<'a> Parser<'a> {
                 Token::Eof => break,
                 Token::Dash => {
                     self.advance()?;
-                    // قراءة قيمة العنصر
                     let value = self.parse_array_item(min_indent)?;
                     items.push(value);
                 }
@@ -263,7 +246,6 @@ impl<'a> Parser<'a> {
                     let indent = *n;
                     self.advance()?;
                     if !self.check(&Token::Dash) {
-                        // ليست قائمة، أعد المسافة البادئة
                         self.peeked = Some((self.current.clone(), self.current_loc));
                         self.current = Token::Indent(indent);
                         break;
@@ -282,12 +264,10 @@ impl<'a> Parser<'a> {
     fn parse_array_at_indent(&mut self, indent: usize) -> FormatResult<Value> {
         let mut items = Vec::new();
 
-        // العنصر الأول (نحن على Token::Dash)
         self.advance()?;
         let value = self.parse_array_item(indent)?;
         items.push(value);
 
-        // باقي العناصر
         loop {
             self.skip_newlines_and_comments()?;
 
@@ -333,8 +313,6 @@ impl<'a> Parser<'a> {
                 Ok(Value::Null)
             }
             Token::Identifier(first) => {
-                // دعم النصوص متعددة الكلمات بدون علامات اقتباس
-                // اقرأ جميع المعرفات حتى نهاية السطر
                 let mut result = first.clone();
                 self.advance()?;
 
@@ -493,18 +471,14 @@ mod tests {
 
         let obj = value.as_object().unwrap();
 
-        // تحقق من الحزمة
         let pkg = obj.get("حزمة").unwrap().as_object().unwrap();
         assert_eq!(pkg.get("اسم").unwrap().as_str(), Some("مكتبتي"));
-        // النسخة ١.٠.٠ يتم تحليلها كنص (نمط نسخة) وليس رقم
         assert_eq!(pkg.get("نسخة").unwrap().as_str(), Some("1.0.0"));
         assert_eq!(pkg.get("رخصة").unwrap().as_str(), Some("MIT"));
 
-        // تحقق من المؤلفين
         let authors = pkg.get("مؤلفون").unwrap().as_array().unwrap();
         assert_eq!(authors.len(), 2);
 
-        // تحقق من الاعتماديات
         let deps = obj.get("اعتماديات").unwrap().as_object().unwrap();
         assert!(deps.contains_key("json"));
         assert!(deps.contains_key("أدوات"));

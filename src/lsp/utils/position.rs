@@ -22,7 +22,6 @@ pub fn offset_to_position(content: &str, offset: usize) -> Position {
             line += 1;
             character = 0;
         } else {
-            // Count UTF-16 code units for LSP compatibility
             character += c.len_utf16() as u32;
         }
 
@@ -60,20 +59,16 @@ pub fn position_to_offset(content: &str, position: Position) -> usize {
 }
 
 pub fn span_to_range(content: &str, span: &Span) -> Range {
-    // If we have line/column information, use it directly (faster)
-    // Note: Tarqeem uses 1-indexed lines/columns, LSP uses 0-indexed
     if span.line > 0 {
         let start = Position {
             line: (span.line - 1) as u32,
             character: (span.column.saturating_sub(1)) as u32,
         };
 
-        // Calculate end position from byte offsets if possible
         let end = offset_to_position(content, span.end);
 
         Range { start, end }
     } else {
-        // Fall back to calculating from byte offsets
         Range {
             start: offset_to_position(content, span.start),
             end: offset_to_position(content, span.end),
@@ -84,10 +79,8 @@ pub fn span_to_range(content: &str, span: &Span) -> Range {
 pub fn find_word_at_position(content: &str, position: Position) -> Option<(usize, usize, String)> {
     let offset = position_to_offset(content, position);
 
-    // Find word boundaries
     let _bytes = content.as_bytes();
 
-    // Find start of word
     let mut start = offset;
     while start > 0 {
         let c = content[..start].chars().last()?;
@@ -97,7 +90,6 @@ pub fn find_word_at_position(content: &str, position: Position) -> Option<(usize
         start -= c.len_utf8();
     }
 
-    // Find end of word
     let mut end = offset;
     for c in content[offset..].chars() {
         if !is_identifier_char(c) {
@@ -165,8 +157,6 @@ mod tests {
     #[test]
     fn test_offset_to_position_arabic() {
         let content = "متغير س = 5";
-        // "متغير" is 5 Arabic characters, each 2 bytes in UTF-8
-        // Space is 1 byte, "س" is 2 bytes, etc.
         assert_eq!(
             offset_to_position(content, 0),
             Position {
@@ -223,7 +213,6 @@ mod tests {
     #[test]
     fn test_find_word_at_position() {
         let content = "متغير س = 5";
-        // Find "متغير"
         let result = find_word_at_position(
             content,
             Position {

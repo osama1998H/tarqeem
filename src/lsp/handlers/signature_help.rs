@@ -21,20 +21,16 @@ pub fn handle_signature_help(
     let content = doc.content.clone();
     let offset = position_to_offset(&content, position);
 
-    // Find the function call context
     let context = find_call_context(&content, offset)?;
 
     let analysis = doc.get_analysis(language);
 
-    // Look up the function in symbols
     let symbol_info = analysis.symbols.get(&context.function_name)?;
 
-    // Must be a function or method
     if !matches!(symbol_info.kind, SymbolKind::Function | SymbolKind::Method) {
         return None;
     }
 
-    // Extract parameter types from the function type
     let (param_types, return_type) = match &symbol_info.ty {
         Type::Function {
             params,
@@ -43,15 +39,12 @@ pub fn handle_signature_help(
         _ => return None,
     };
 
-    // Parse doc comment for parameter descriptions
     let parsed_doc = symbol_info.doc.as_ref().map(|d| DocCommentParser::parse(d));
 
-    // Build parameter information
     let parameters: Vec<ParameterInformation> = param_types
         .iter()
         .enumerate()
         .map(|(i, param_type)| {
-            // Try to find parameter name and description from doc
             let param_doc = parsed_doc.as_ref().and_then(|pd| pd.params.get(i));
 
             let param_name = param_doc
@@ -65,7 +58,6 @@ pub fn handle_signature_help(
 
             let label = format!("{}: {}", param_name, type_str);
 
-            // Build parameter documentation
             let documentation = param_doc.and_then(|p| {
                 p.description.as_ref().map(|desc| {
                     Documentation::MarkupContent(MarkupContent {
@@ -82,7 +74,6 @@ pub fn handle_signature_help(
         })
         .collect();
 
-    // Build signature label
     let params_str: Vec<String> = parameters
         .iter()
         .map(|p| match &p.label {
@@ -109,12 +100,10 @@ pub fn handle_signature_help(
         return_type_str
     );
 
-    // Build main documentation from parsed doc comment
     let signature_documentation = parsed_doc.as_ref().and_then(|pd| {
         pd.description.as_ref().map(|desc| {
             let mut doc_text = desc.clone();
 
-            // Add return description if available
             if let Some(returns) = &pd.returns {
                 if let Some(ret_desc) = &returns.description {
                     let returns_label = match language {
@@ -125,7 +114,6 @@ pub fn handle_signature_help(
                 }
             }
 
-            // Add notes if available
             for note in &pd.notes {
                 let note_label = match language {
                     Language::Arabic => "ملاحظة",
@@ -134,7 +122,6 @@ pub fn handle_signature_help(
                 doc_text.push_str(&format!("\n\n**{}**: {}", note_label, note));
             }
 
-            // Add warnings if available
             for warning in &pd.warnings {
                 let warning_label = match language {
                     Language::Arabic => "تحذير",
@@ -171,7 +158,6 @@ struct CallContext {
 fn find_call_context(content: &str, offset: usize) -> Option<CallContext> {
     let chars: Vec<char> = content.chars().collect();
 
-    // Convert byte offset to char index
     let mut char_offset = 0;
     let mut byte_count = 0;
     for (i, c) in content.chars().enumerate() {
@@ -183,7 +169,6 @@ fn find_call_context(content: &str, offset: usize) -> Option<CallContext> {
         char_offset = i + 1;
     }
 
-    // Search backwards to find the opening parenthesis
     let mut paren_depth = 0;
     let mut comma_count = 0;
     let mut open_paren_pos = None;
@@ -211,14 +196,11 @@ fn find_call_context(content: &str, offset: usize) -> Option<CallContext> {
 
     let open_paren_pos = open_paren_pos?;
 
-    // Find the function name before the parenthesis
-    // Skip whitespace before '('
     let mut name_end = open_paren_pos;
     while name_end > 0 && chars[name_end - 1].is_whitespace() {
         name_end -= 1;
     }
 
-    // Find the start of the identifier
     let mut name_start = name_end;
     while name_start > 0 && is_identifier_char(chars[name_start - 1]) {
         name_start -= 1;
@@ -257,7 +239,6 @@ pub fn get_builtin_signature_help(
     language: Language,
 ) -> Option<SignatureHelp> {
     let (label, params, doc_ar, doc_en) = match name {
-        // I/O Functions
         "اطبع" | "print" => (
             match language {
                 Language::Arabic => "دالة اطبع(قيمة: أي)", // No return type = no return value

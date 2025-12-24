@@ -809,7 +809,6 @@ impl StringTable {
     }
 
     pub fn add(&mut self, s: String) -> u32 {
-        // Check if string already exists
         if let Some(idx) = self.strings.iter().position(|x| x == &s) {
             return idx as u32;
         }
@@ -864,7 +863,6 @@ impl fmt::Display for Module {
         writeln!(f, "; Module: {}", self.name)?;
         writeln!(f)?;
 
-        // Print string table
         if !self.strings.strings.is_empty() {
             writeln!(f, "; String table")?;
             for (idx, s) in self.strings.iter() {
@@ -873,7 +871,6 @@ impl fmt::Display for Module {
             writeln!(f)?;
         }
 
-        // Print classes
         for class in &self.classes {
             writeln!(f, "; Class: {}", class.name)?;
             writeln!(f, "struct {} {{", class.id)?;
@@ -884,7 +881,6 @@ impl fmt::Display for Module {
             writeln!(f)?;
         }
 
-        // Print globals
         for (name, ty, init) in &self.globals {
             if let Some(val) = init {
                 writeln!(f, "global @{}: {} = {}", name, ty, val)?;
@@ -896,7 +892,6 @@ impl fmt::Display for Module {
             writeln!(f)?;
         }
 
-        // Print functions
         for func in &self.functions {
             write!(f, "{}", func)?;
             writeln!(f)?;

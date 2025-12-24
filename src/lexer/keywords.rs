@@ -6,18 +6,15 @@ use super::TokenKind;
 use phf::phf_map;
 
 pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
-    // ============ Variables ============
     "متغير" => TokenKind::Let,
     "ثابت" => TokenKind::Const,
 
-    // ============ Functions ============
     "دالة" => TokenKind::Function,
     "أرجع" => TokenKind::Return,
     "ارجع" => TokenKind::Return,  // Without hamza variant
     "متوازي" => TokenKind::Async,  // دالة متوازية (غير متزامنة)
     "انتظر" => TokenKind::Await,
 
-    // ============ Control Flow ============
     "إذا" => TokenKind::If,
     "اذا" => TokenKind::If,  // Without hamza variant
     "وإلا" => TokenKind::Else,
@@ -26,7 +23,6 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "حالة" => TokenKind::Case,
     "غير_ذلك" => TokenKind::Default,
 
-    // ============ Loops ============
     "طالما" => TokenKind::While,
     "لكل" => TokenKind::For,
     "في" => TokenKind::In,
@@ -35,7 +31,6 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "اوقف" => TokenKind::Break,  // Without hamza variant
     "استمر" => TokenKind::Continue,
 
-    // ============ OOP ============
     "صنف" => TokenKind::Class,
     "ميثاق" => TokenKind::Interface,  // عقد يُلزم الصنف بتنفيذ دوال معينة
     "تعداد" => TokenKind::Enum,       // مجموعة من القيم المسماة المحددة مسبقاً
@@ -51,13 +46,11 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "الاصل" => TokenKind::Super,  // Without hamza variant
     "جديد" => TokenKind::New,
 
-    // ============ Property Accessors ============
     "خاصية" => TokenKind::Property,  // تعريف خاصية مع وصول محكوم
     "احصل" => TokenKind::Get,        // قارئ الخاصية
     "عيّن" => TokenKind::Set,        // كاتب الخاصية
     "عين" => TokenKind::Set,         // Without shadda variant
 
-    // ============ Error Handling ============
     "حاول" => TokenKind::Try,
     "التقط" => TokenKind::Catch,
     "أخيراً" => TokenKind::Finally,
@@ -65,7 +58,6 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "ارمِ" => TokenKind::Throw,
     "ارم" => TokenKind::Throw,  // Without kasra variant
 
-    // ============ Modules ============
     "استورد" => TokenKind::Import,
     "صدّر" => TokenKind::Export,
     "صدر" => TokenKind::Export,  // Without shadda variant
@@ -73,21 +65,16 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "كـ" => TokenKind::As,
     "ك" => TokenKind::As,  // Without tatweel variant
 
-    // ============ Boolean/Null ============
     "صحيح" => TokenKind::True,
     "خطأ" => TokenKind::False,
     "خطا" => TokenKind::False,  // Without hamza variant
     "لا_شيء" => TokenKind::Null,  // قيمة فارغة
 
-    // ============ Logical Operators (Arabic words) ============
     "و" => TokenKind::And,
     "أو" => TokenKind::Or,
     "او" => TokenKind::Or,  // Without hamza variant
     "ليس" => TokenKind::Bang,
 
-    // ============ Type Keywords ============
-    // Note: فراغ (void) is not a keyword - functions default to no return value
-    // Users only need to specify return type when function DOES return something
     "عدد" => TokenKind::TypeInt,
     "عدد_عشري" => TokenKind::TypeFloat,
     "نص" => TokenKind::TypeString,
@@ -97,7 +84,6 @@ pub static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "أي" => TokenKind::TypeAny,
     "اي" => TokenKind::TypeAny,  // Without hamza variant
 
-    // ============ File Markers ============
     "بسم_الله" => TokenKind::Bismillah,
     "الحمد_لله" => TokenKind::Alhamdulillah,
 };
@@ -121,7 +107,6 @@ mod tests {
 
     #[test]
     fn test_arabic_keywords_without_hamza() {
-        // Test variants without hamza/diacritics (common typing alternatives)
         assert_eq!(lookup_keyword("اذا"), Some(TokenKind::If));
         assert_eq!(lookup_keyword("والا"), Some(TokenKind::Else));
         assert_eq!(lookup_keyword("ارجع"), Some(TokenKind::Return));
@@ -131,7 +116,6 @@ mod tests {
 
     #[test]
     fn test_english_keywords_not_supported() {
-        // English keywords should NOT be recognized
         assert_eq!(lookup_keyword("let"), None);
         assert_eq!(lookup_keyword("const"), None);
         assert_eq!(lookup_keyword("function"), None);
@@ -165,7 +149,6 @@ mod tests {
         assert_eq!(lookup_keyword("مصفوفة"), Some(TokenKind::TypeArray));
         assert_eq!(lookup_keyword("قاموس"), Some(TokenKind::TypeMap));
         assert_eq!(lookup_keyword("أي"), Some(TokenKind::TypeAny));
-        // Note: فراغ is not a keyword - functions default to no return value
     }
 
     #[test]
@@ -186,13 +169,10 @@ mod tests {
 
     #[test]
     fn test_old_keywords_not_supported() {
-        // Old keywords should NOT be recognized (no backward compatibility)
         assert_eq!(lookup_keyword("واجهة"), None);
         assert_eq!(lookup_keyword("يطبق"), None);
         assert_eq!(lookup_keyword("ثابت_صنف"), None);
-        // فراغ eliminated - functions default to no return value
         assert_eq!(lookup_keyword("فراغ"), None);
-        // Phase 2: Old keywords replaced
         assert_eq!(lookup_keyword("أساس"), None); // Now الأصل
         assert_eq!(lookup_keyword("عدم"), None); // Now لا_شيء
         assert_eq!(lookup_keyword("غير_متزامن"), None); // Now متوازي
@@ -200,7 +180,6 @@ mod tests {
 
     #[test]
     fn test_property_accessor_keywords() {
-        // Property accessor keywords
         assert_eq!(lookup_keyword("خاصية"), Some(TokenKind::Property));
         assert_eq!(lookup_keyword("احصل"), Some(TokenKind::Get));
         assert_eq!(lookup_keyword("عيّن"), Some(TokenKind::Set));

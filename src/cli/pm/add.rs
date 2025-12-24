@@ -5,13 +5,10 @@ use colored::*;
 use std::path::PathBuf;
 
 pub fn run(package: String, dev: bool, path: Option<PathBuf>) -> PackageResult<()> {
-    // Find and parse manifest
     let (mut manifest, manifest_path) = Manifest::find_and_parse()?;
 
-    // Parse package@version format
     let (name, version) = parse_package_spec(&package);
 
-    // Check if already exists
     let dep_map = if dev {
         &manifest.dev_dependencies
     } else {
@@ -29,7 +26,6 @@ pub fn run(package: String, dev: bool, path: Option<PathBuf>) -> PackageResult<(
         );
     }
 
-    // Create dependency spec
     let dep_spec = if let Some(p) = path {
         DependencySpec::Detailed(DetailedDependency {
             version: version.clone(),
@@ -45,7 +41,6 @@ pub fn run(package: String, dev: bool, path: Option<PathBuf>) -> PackageResult<(
         DependencySpec::Version(version.clone())
     };
 
-    // Add to appropriate section
     let dep_map = if dev {
         &mut manifest.dev_dependencies
     } else {
@@ -54,7 +49,6 @@ pub fn run(package: String, dev: bool, path: Option<PathBuf>) -> PackageResult<(
 
     dep_map.insert(name.clone(), dep_spec);
 
-    // Save manifest
     manifest.save(&manifest_path)?;
 
     let section = if dev {

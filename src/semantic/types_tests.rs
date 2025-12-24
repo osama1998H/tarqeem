@@ -2,9 +2,6 @@
 
 use super::types::*;
 
-// =============================================================================
-// Type Basic Tests
-// =============================================================================
 
 #[test]
 fn test_type_int() {
@@ -96,9 +93,6 @@ fn test_type_error() {
     assert_eq!(ty.arabic_name(), "خطأ");
 }
 
-// =============================================================================
-// Compound Type Tests
-// =============================================================================
 
 #[test]
 fn test_type_array() {
@@ -181,9 +175,6 @@ fn test_type_generic() {
     assert_eq!(ty.to_string(), "T");
 }
 
-// =============================================================================
-// Type Compatibility Tests
-// =============================================================================
 
 #[test]
 fn test_compatible_same_types() {
@@ -210,7 +201,6 @@ fn test_compatible_unknown() {
 #[test]
 fn test_compatible_int_to_float() {
     assert!(Type::Int.is_compatible_with(&Type::Float));
-    // Float cannot be narrowed to int
     assert!(!Type::Float.is_compatible_with(&Type::Int));
 }
 
@@ -244,7 +234,6 @@ fn test_compatible_maps() {
     let map3 = Type::Map(Box::new(Type::String), Box::new(Type::Float));
 
     assert!(map1.is_compatible_with(&map2));
-    // Int compatible with Float for map values
     assert!(map1.is_compatible_with(&map3));
 }
 
@@ -274,9 +263,6 @@ fn test_incompatible_types() {
     assert!(!Type::String.is_compatible_with(&Type::Float));
 }
 
-// =============================================================================
-// Binary Operation Result Type Tests
-// =============================================================================
 
 #[test]
 fn test_binary_add_int() {
@@ -489,9 +475,6 @@ fn test_binary_invalid_operations() {
     assert_eq!(Type::Int.binary_result_type("&&", &Type::Int), None);
 }
 
-// =============================================================================
-// Unary Operation Result Type Tests
-// =============================================================================
 
 #[test]
 fn test_unary_neg_int() {
@@ -521,9 +504,6 @@ fn test_unary_invalid() {
     assert_eq!(Type::Bool.unary_result_type("-"), None);
 }
 
-// =============================================================================
-// Type Name Parsing Tests
-// =============================================================================
 
 #[test]
 fn test_parse_type_name_arabic() {
@@ -531,7 +511,6 @@ fn test_parse_type_name_arabic() {
     assert_eq!(parse_type_name("عدد_عشري"), Type::Float);
     assert_eq!(parse_type_name("نص"), Type::String);
     assert_eq!(parse_type_name("منطقي"), Type::Bool);
-    // فراغ eliminated - not recognized as type keyword
     assert_eq!(parse_type_name("فراغ"), Type::Class("فراغ".to_string()));
     assert_eq!(parse_type_name("لا_شيء"), Type::Null);
     assert_eq!(parse_type_name("أي"), Type::Any);
@@ -562,9 +541,6 @@ fn test_parse_type_name_class() {
     );
 }
 
-// =============================================================================
-// Type Clone and Equality Tests
-// =============================================================================
 
 #[test]
 fn test_type_clone() {

@@ -147,7 +147,6 @@ impl Diagnostic {
             DiagnosticLevel::Hint => level_str.cyan().bold(),
         };
 
-        // Print header
         if let Some(code) = &self.code {
             eprintln!(
                 "{}{}{}: {}",
@@ -160,7 +159,6 @@ impl Diagnostic {
             eprintln!("{}: {}", level_colored, message.bold());
         }
 
-        // Print location
         eprintln!(
             "  {} {}:{}:{}",
             "-->".blue().bold(),
@@ -169,7 +167,6 @@ impl Diagnostic {
             self.span.column
         );
 
-        // Print source context
         if !source.is_empty() && self.span.line > 0 {
             let lines: Vec<&str> = source.lines().collect();
             if self.span.line <= lines.len() {
@@ -180,7 +177,6 @@ impl Diagnostic {
                 eprintln!("   {}|", padding.blue().bold());
                 eprintln!(" {} | {}", line_num.blue().bold(), line);
 
-                // Print underline
                 let col = self.span.column.saturating_sub(1);
                 let underline_len = self.span.len().max(1);
                 let underline = format!("{}{}", " ".repeat(col), "^".repeat(underline_len));
@@ -188,7 +184,6 @@ impl Diagnostic {
             }
         }
 
-        // Print notes
         for note in &self.notes {
             let note_msg = match lang {
                 Language::Arabic => &note.message_ar,
@@ -197,7 +192,6 @@ impl Diagnostic {
             eprintln!("   {} {}: {}", "=".blue().bold(), "note".cyan(), note_msg);
         }
 
-        // Print suggestions
         for suggestion in &self.suggestions {
             let sugg_msg = match lang {
                 Language::Arabic => &suggestion.message_ar,

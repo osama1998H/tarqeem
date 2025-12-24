@@ -11,7 +11,6 @@ pub fn handle_formatting(content: &str) -> Option<Vec<TextEdit>> {
         return None;
     }
 
-    // Replace the entire document
     let lines: Vec<&str> = content.lines().collect();
     let end_line = lines.len().saturating_sub(1);
     let end_char = lines.last().map(|l| l.len()).unwrap_or(0);
@@ -39,18 +38,15 @@ fn format_content(content: &str) -> String {
     for line in content.lines() {
         let trimmed = line.trim();
 
-        // Skip empty lines
         if trimmed.is_empty() {
             result.push('\n');
             continue;
         }
 
-        // Adjust indent level based on closing braces at start of line
         if trimmed.starts_with('}') || trimmed.starts_with(')') || trimmed.starts_with(']') {
             indent_level = indent_level.saturating_sub(1);
         }
 
-        // Handle else/catch/finally that start with closing brace
         if trimmed.starts_with('}')
             && (trimmed.contains("وإلا")
                 || trimmed.contains("else")
@@ -59,12 +55,10 @@ fn format_content(content: &str) -> String {
                 || trimmed.contains("أخيراً")
                 || trimmed.contains("finally"))
         {
-            // Special case: } وإلا { should be on same line
             result.push_str(&indent_str.repeat(indent_level as usize));
             result.push_str(trimmed);
             result.push('\n');
 
-            // Count opening braces to adjust indent
             let opens = trimmed.matches('{').count();
             let closes = trimmed.matches('}').count();
             if opens > closes {
@@ -73,15 +67,12 @@ fn format_content(content: &str) -> String {
             continue;
         }
 
-        // Add proper indentation
         result.push_str(&indent_str.repeat(indent_level as usize));
 
-        // Format the line content
         let formatted_line = format_line(trimmed);
         result.push_str(&formatted_line);
         result.push('\n');
 
-        // Adjust indent level for next line
         let opens = trimmed.matches('{').count() + trimmed.matches('(').count();
         let closes = trimmed.matches('}').count() + trimmed.matches(')').count();
 
@@ -92,7 +83,6 @@ fn format_content(content: &str) -> String {
         }
     }
 
-    // Remove trailing newline if the original didn't have one
     if !content.ends_with('\n') && result.ends_with('\n') {
         result.pop();
     }
@@ -107,7 +97,6 @@ fn format_line(line: &str) -> String {
     let mut string_char = '"';
 
     while let Some(c) = chars.next() {
-        // Handle string literals
         if (c == '"' || c == '\'' || c == '«') && !in_string {
             in_string = true;
             string_char = c;
@@ -127,7 +116,6 @@ fn format_line(line: &str) -> String {
             continue;
         }
 
-        // Handle operators with spacing
         match c {
             '=' if chars.peek() == Some(&'=') => {
                 ensure_space_before(&mut result);

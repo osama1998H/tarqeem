@@ -33,18 +33,14 @@ impl Default for HtmlGenerator {
 
 impl DocGenerator for HtmlGenerator {
     fn generate(&self, doc: &Documentation, writer: &mut dyn Write) -> std::io::Result<()> {
-        // Write HTML header
         self.write_header(doc, writer)?;
 
-        // Write navigation if enabled
         if self.include_nav {
             self.write_nav(doc, writer)?;
         }
 
-        // Write main content
         writeln!(writer, "<main class=\"content\">")?;
 
-        // Module header
         writeln!(writer, "<div class=\"module-header\">")?;
         writeln!(writer, "<h1>{}</h1>", html_escape(&doc.name))?;
         if let Some(desc) = &doc.description {
@@ -52,7 +48,6 @@ impl DocGenerator for HtmlGenerator {
         }
         writeln!(writer, "</div>")?;
 
-        // Functions section
         let functions: Vec<_> = doc.functions().collect();
         if !functions.is_empty() {
             writeln!(writer, "<section id=\"functions\">")?;
@@ -63,7 +58,6 @@ impl DocGenerator for HtmlGenerator {
             writeln!(writer, "</section>")?;
         }
 
-        // Classes section
         let classes: Vec<_> = doc.classes().collect();
         if !classes.is_empty() {
             writeln!(writer, "<section id=\"classes\">")?;
@@ -74,7 +68,6 @@ impl DocGenerator for HtmlGenerator {
             writeln!(writer, "</section>")?;
         }
 
-        // Interfaces section
         let interfaces: Vec<_> = doc.interfaces().collect();
         if !interfaces.is_empty() {
             writeln!(writer, "<section id=\"interfaces\">")?;
@@ -85,7 +78,6 @@ impl DocGenerator for HtmlGenerator {
             writeln!(writer, "</section>")?;
         }
 
-        // Variables section
         let variables: Vec<_> = doc.variables().collect();
         if !variables.is_empty() {
             writeln!(writer, "<section id=\"variables\">")?;
@@ -98,7 +90,6 @@ impl DocGenerator for HtmlGenerator {
 
         writeln!(writer, "</main>")?;
 
-        // Write footer
         self.write_footer(writer)?;
 
         Ok(())
@@ -145,7 +136,6 @@ impl HtmlGenerator {
         writeln!(writer, "</div>")?;
         writeln!(writer, "<ul>")?;
 
-        // Functions
         let functions: Vec<_> = doc.functions().collect();
         if !functions.is_empty() {
             writeln!(writer, "<li class=\"nav-section\">")?;
@@ -163,7 +153,6 @@ impl HtmlGenerator {
             writeln!(writer, "</li>")?;
         }
 
-        // Classes
         let classes: Vec<_> = doc.classes().collect();
         if !classes.is_empty() {
             writeln!(writer, "<li class=\"nav-section\">")?;
@@ -181,7 +170,6 @@ impl HtmlGenerator {
             writeln!(writer, "</li>")?;
         }
 
-        // Interfaces
         let interfaces: Vec<_> = doc.interfaces().collect();
         if !interfaces.is_empty() {
             writeln!(writer, "<li class=\"nav-section\">")?;
@@ -212,7 +200,6 @@ impl HtmlGenerator {
         )?;
         writeln!(writer, "<header>")?;
 
-        // Function signature
         write!(writer, "<h3 class=\"name\">")?;
         if func.is_async {
             write!(writer, "<span class=\"modifier\">متوازي</span> ")?;
@@ -224,7 +211,6 @@ impl HtmlGenerator {
             html_escape(&func.name)
         )?;
 
-        // Parameters
         for (i, param) in func.params.iter().enumerate() {
             if i > 0 {
                 write!(writer, "، ")?;
@@ -236,7 +222,6 @@ impl HtmlGenerator {
         }
         write!(writer, ")")?;
 
-        // Return type
         if let Some(ret) = &func.returns {
             if let Some(ty) = &ret.ty {
                 write!(
@@ -253,7 +238,6 @@ impl HtmlGenerator {
         }
         writeln!(writer, "</header>")?;
 
-        // Description
         if let Some(desc) = &func.description {
             writeln!(
                 writer,
@@ -262,7 +246,6 @@ impl HtmlGenerator {
             )?;
         }
 
-        // Parameters section
         if !func.params.is_empty() {
             writeln!(writer, "<div class=\"params\">")?;
             writeln!(writer, "<h4>المعاملات:</h4>")?;
@@ -282,7 +265,6 @@ impl HtmlGenerator {
             writeln!(writer, "</div>")?;
         }
 
-        // Return value
         if let Some(ret) = &func.returns {
             if ret.description.is_some() || ret.ty.is_some() {
                 writeln!(writer, "<div class=\"returns\">")?;
@@ -297,7 +279,6 @@ impl HtmlGenerator {
             }
         }
 
-        // Examples
         for example in &func.examples {
             writeln!(writer, "<div class=\"example\">")?;
             writeln!(writer, "<h4>مثال:</h4>")?;
@@ -317,7 +298,6 @@ impl HtmlGenerator {
         )?;
         writeln!(writer, "<header>")?;
 
-        // Class signature
         write!(writer, "<h3 class=\"name\">")?;
         write!(writer, "<span class=\"keyword\">صنف</span> ")?;
         write!(
@@ -326,7 +306,6 @@ impl HtmlGenerator {
             html_escape(&class.name)
         )?;
 
-        // Type parameters
         if !class.type_params.is_empty() {
             write!(writer, "&lt;")?;
             for (i, param) in class.type_params.iter().enumerate() {
@@ -338,7 +317,6 @@ impl HtmlGenerator {
             write!(writer, "&gt;")?;
         }
 
-        // Extends
         if let Some(extends) = &class.extends {
             write!(
                 writer,
@@ -347,7 +325,6 @@ impl HtmlGenerator {
             )?;
         }
 
-        // Implements
         if !class.implements.is_empty() {
             write!(writer, " <span class=\"keyword\">يلتزم</span> ")?;
             for (i, iface) in class.implements.iter().enumerate() {
@@ -364,7 +341,6 @@ impl HtmlGenerator {
         }
         writeln!(writer, "</header>")?;
 
-        // Description
         if let Some(desc) = &class.description {
             writeln!(
                 writer,
@@ -373,7 +349,6 @@ impl HtmlGenerator {
             )?;
         }
 
-        // Constructor
         if let Some(ctor) = &class.constructor {
             writeln!(writer, "<div class=\"constructor\">")?;
             writeln!(writer, "<h4>المُنشئ:</h4>")?;
@@ -393,7 +368,6 @@ impl HtmlGenerator {
             writeln!(writer, "</div>")?;
         }
 
-        // Fields
         if !class.fields.is_empty() {
             writeln!(writer, "<div class=\"fields\">")?;
             writeln!(writer, "<h4>الحقول:</h4>")?;
@@ -410,7 +384,6 @@ impl HtmlGenerator {
             writeln!(writer, "</div>")?;
         }
 
-        // Methods
         if !class.methods.is_empty() {
             writeln!(writer, "<div class=\"methods\">")?;
             writeln!(writer, "<h4>الدوال:</h4>")?;
@@ -550,7 +523,6 @@ impl HtmlGenerator {
             )?;
         }
 
-        // Methods
         if !interface.methods.is_empty() {
             writeln!(writer, "<div class=\"methods\">")?;
             writeln!(writer, "<h4>الدوال:</h4>")?;

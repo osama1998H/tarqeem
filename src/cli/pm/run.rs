@@ -5,11 +5,9 @@ use colored::*;
 use std::process::Command;
 
 pub fn run(args: Vec<String>) -> PackageResult<()> {
-    // Find and parse manifest
     let (manifest, manifest_path) = Manifest::find_and_parse()?;
     let project_root = manifest_path.parent().unwrap();
 
-    // Check if this is a library
     if manifest.is_library() {
         return Err(PackageError::BuildFailed(
             "Cannot run a library package. Use 'tarqeem pkg test' instead. / لا يمكن تشغيل حزمة مكتبة. استخدم 'tarqeem pkg test' بدلاً من ذلك."
@@ -17,7 +15,6 @@ pub fn run(args: Vec<String>) -> PackageResult<()> {
         ));
     }
 
-    // Check if built
     let output_path = project_root
         .join("بناء")
         .join("تطوير")
@@ -41,7 +38,6 @@ pub fn run(args: Vec<String>) -> PackageResult<()> {
     );
     println!();
 
-    // Run the executable
     let mut cmd = Command::new(&output_path);
     cmd.args(&args);
     cmd.current_dir(project_root);

@@ -42,9 +42,7 @@ fn warn_invalid_extension(file: &Path) {
 }
 
 fn find_runtime() -> Option<PathBuf> {
-    // Try several locations
     let search_paths = [
-        // Relative to executable
         std::env::current_exe()
             .ok()?
             .parent()?
@@ -53,9 +51,7 @@ fn find_runtime() -> Option<PathBuf> {
             .ok()?
             .parent()?
             .join("../runtime/libtrq.a"),
-        // Relative to current directory
         PathBuf::from("runtime/libtrq.a"),
-        // Standard install locations
         PathBuf::from("/usr/local/lib/tarqeem/libtrq.a"),
         PathBuf::from("/usr/lib/tarqeem/libtrq.a"),
     ];
@@ -70,20 +66,15 @@ fn find_runtime() -> Option<PathBuf> {
 }
 
 fn find_stdlib_path() -> Option<PathBuf> {
-    // Try several locations in priority order
     let search_paths: Vec<Option<PathBuf>> = vec![
-        // Relative to executable (installed)
         std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|p| p.join("stdlib_trq"))),
-        // Relative to executable parent (development build)
         std::env::current_exe().ok().and_then(|p| {
             p.parent()
                 .and_then(|p| p.parent().map(|p| p.join("stdlib_trq")))
         }),
-        // Relative to current directory (development)
         Some(PathBuf::from("stdlib_trq")),
-        // Standard install locations
         Some(PathBuf::from("/usr/local/lib/tarqeem/stdlib_trq")),
         Some(PathBuf::from("/usr/lib/tarqeem/stdlib_trq")),
     ];
@@ -135,7 +126,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
             dump_ir,
             dump_opt_stats,
         } => {
-            // Warn if file extension is not recognized
             warn_invalid_extension(&file);
 
             let source = fs::read_to_string(&file)
@@ -143,7 +133,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             let filename = file.display().to_string();
 
-            // Lexing
             if dump_tokens {
                 let mut lexer = Lexer::new(&source);
                 println!("{}", "=== Tokens / الرموز ===".cyan().bold());
@@ -153,7 +142,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 return Ok(());
             }
 
-            // Parsing
             let mut parser = Parser::new(&source);
             let ast = parser.parse().map_err(|e| {
                 e.emit(&source, &filename, lang);
@@ -166,7 +154,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 return Ok(());
             }
 
-            // Semantic analysis
             let mut analyzer = Analyzer::new();
             configure_analyzer(&mut analyzer, cli.verbose);
             if let Err(diagnostics) = analyzer.analyze(&ast) {
@@ -180,7 +167,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 ));
             }
 
-            // IR generation
             let module_name = file
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -195,7 +181,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 )
             })?;
 
-            // Run optimization passes
             let opt = match opt_level {
                 0 => OptLevel::O0,
                 1 => OptLevel::O1,
@@ -222,7 +207,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 return Ok(());
             }
 
-            // LLVM Code Generation
             let target_config = if let Some(ref triple_str) = target {
                 TargetTriple::parse(triple_str)
                     .map(Target::from_triple)
@@ -244,7 +228,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 )
             })?;
 
-            // Determine output path
             let output_path = output.unwrap_or_else(|| {
                 let stem = file
                     .file_stem()
@@ -261,9 +244,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 }
             });
 
-            // Handle different emit modes
             if emit_llvm {
-                // Write LLVM IR directly
                 fs::write(&output_path, &llvm_ir).map_err(|e| {
                     format!("Could not write output: {} / لا يمكن كتابة الملف: {}", e, e)
                 })?;
@@ -277,7 +258,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     .green()
                 );
             } else if emit_asm || emit_obj {
-                // Use linker to compile
                 let linker = Linker::new(target_config)
                     .optimization_level(opt_level as u32)
                     .verbose(cli.verbose);
@@ -324,13 +304,11 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     );
                 }
             } else {
-                // Compile to executable
                 let linker = Linker::new(target_config)
                     .optimization_level(opt_level as u32)
                     .verbose(cli.verbose);
 
                 if linker.is_available() {
-                    // Find runtime library
                     let runtime_path = find_runtime();
                     if runtime_path.is_none() && cli.verbose {
                         eprintln!("{}", "Warning: Runtime library not found. Executable may not link correctly. / تحذير: لم يتم العثور على مكتبة التشغيل.".yellow());
@@ -354,7 +332,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                         .green()
                     );
                 } else {
-                    // Fallback: just write LLVM IR
                     let ll_path = output_path.with_extension("ll");
                     fs::write(&ll_path, &llvm_ir).map_err(|e| {
                         format!("Could not write output: {} / لا يمكن كتابة الملف: {}", e, e)
@@ -399,7 +376,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
         }
 
         Commands::Run { file } => {
-            // Warn if file extension is not recognized
             warn_invalid_extension(&file);
 
             let source = fs::read_to_string(&file)
@@ -407,14 +383,12 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             let filename = file.display().to_string();
 
-            // Parse
             let mut parser = Parser::new(&source);
             let ast = parser.parse().map_err(|e| {
                 e.emit(&source, &filename, lang);
                 format!("Parse error / خطأ في التحليل")
             })?;
 
-            // Semantic analysis
             let mut analyzer = Analyzer::new();
             configure_analyzer(&mut analyzer, cli.verbose);
             if let Err(diagnostics) = analyzer.analyze(&ast) {
@@ -428,7 +402,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 ));
             }
 
-            // Build IR
             let ir_builder = IrBuilder::new(filename.clone());
             let ir_module = ir_builder.build(&ast).map_err(|e| {
                 format!(
@@ -437,11 +410,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 )
             })?;
 
-            // Run interpreter
             let mut interpreter = Interpreter::new(ir_module);
             match interpreter.run() {
                 Ok(_result) => {
-                    // Program executed successfully
                     if cli.verbose {
                         println!(
                             "{}",
@@ -465,7 +436,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
             dap_stdio,
             arabic,
         } => {
-            // Warn if file extension is not recognized
             warn_invalid_extension(&file);
 
             let source = fs::read_to_string(&file)
@@ -473,14 +443,12 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             let filename = file.display().to_string();
 
-            // Parse
             let mut parser = Parser::new(&source);
             let ast = parser.parse().map_err(|e| {
                 e.emit(&source, &filename, lang);
                 format!("Parse error / خطأ في التحليل")
             })?;
 
-            // Semantic analysis
             let mut analyzer = Analyzer::new();
             configure_analyzer(&mut analyzer, cli.verbose);
             if let Err(diagnostics) = analyzer.analyze(&ast) {
@@ -494,7 +462,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 ));
             }
 
-            // Build IR
             let ir_builder = IrBuilder::new(filename.clone());
             let ir_module = ir_builder.build(&ast).map_err(|e| {
                 format!(
@@ -503,14 +470,12 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 )
             })?;
 
-            // Check if DAP server mode (TCP or stdio)
             if dap_stdio || dap_port.is_some() {
                 use crate::debug::DapServer;
 
                 let server = DapServer::new();
 
                 if dap_stdio {
-                    // Stdio mode for VS Code integration
                     server.run_stdio().map_err(|e| {
                         format!(
                             "DAP server error: {} / خطأ خادم التصحيح: {}",
@@ -518,7 +483,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                         )
                     })?;
                 } else if let Some(port) = dap_port {
-                    // TCP mode for network debugging
                     server.run_tcp(port).map_err(|e| {
                         format!(
                             "DAP server error: {} / خطأ خادم التصحيح: {}",
@@ -530,16 +494,13 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 return Ok(());
             }
 
-            // Create debug context
             let mut context = DebugContext::new();
             context.config_mut().stop_on_entry = stop_on_entry;
             context.config_mut().use_arabic = arabic;
             context.set_source(file.clone(), source.clone());
 
-            // Create debug interpreter
             let mut debug_interpreter = DebugInterpreter::new(ir_module, context);
 
-            // Start the debugger
             debug_interpreter.start().map_err(|e| {
                 format!(
                     "Failed to start debugger: {} / فشل بدء المصحح: {}",
@@ -547,7 +508,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 )
             })?;
 
-            // Print welcome message
             if arabic {
                 println!("{}", "=== مصحح ترقيم ===".cyan().bold());
                 println!("اكتب 'مساعدة' للحصول على قائمة الأوامر");
@@ -557,12 +517,10 @@ pub fn run(cli: Cli) -> Result<(), String> {
             }
             println!();
 
-            // Interactive debug loop
             let stdin = io::stdin();
             let mut stdout = io::stdout();
 
             loop {
-                // Show current state
                 let state = debug_interpreter.context().state();
                 match state {
                     DebugState::Paused { reason } => {
@@ -573,7 +531,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                         };
                         println!("{}", format!("[{}]", reason_str).yellow());
 
-                        // Show current location if available
                         if let Some(frame) = debug_interpreter.get_stack_trace().first() {
                             if let Some(loc) = &frame.location {
                                 println!(
@@ -584,7 +541,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                                     loc.column
                                 );
 
-                                // Show source line if available
                                 if let Some(line) = source.lines().nth(loc.line.saturating_sub(1)) {
                                     println!("    {}", line.dimmed());
                                 }
@@ -640,7 +596,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     _ => {}
                 }
 
-                // Read command
                 print!("{}", "trqdbg> ".green().bold());
                 stdout.flush().unwrap();
 
@@ -912,7 +867,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                                 }
                             }
                             DebugCommand::Run => {
-                                // Restart and run
                                 debug_interpreter.start().map_err(|e| {
                                     format!("Error: {} / {}", e.message, e.message_ar)
                                 })?;
@@ -1036,7 +990,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
         }
 
         Commands::Check { file } => {
-            // Warn if file extension is not recognized
             warn_invalid_extension(&file);
 
             let source = fs::read_to_string(&file)
@@ -1044,14 +997,12 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             let filename = file.display().to_string();
 
-            // Parse
             let mut parser = Parser::new(&source);
             let ast = parser.parse().map_err(|e| {
                 e.emit(&source, &filename, lang);
                 format!("Parse error / خطأ في التحليل")
             })?;
 
-            // Analyze
             let mut analyzer = Analyzer::new();
             configure_analyzer(&mut analyzer, cli.verbose);
             if let Err(diagnostics) = analyzer.analyze(&ast) {
@@ -1105,7 +1056,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
                         line_count += 1;
 
-                        // Parse and analyze the line
                         let mut parser = Parser::new(trimmed);
                         match parser.parse() {
                             Ok(ast) => {
@@ -1116,7 +1066,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                                         diag.emit(trimmed, "<repl>", lang);
                                     }
                                 } else {
-                                    // Build IR and execute
                                     let module_name = format!("<repl:{}>", line_count);
                                     let ir_builder = IrBuilder::new(module_name);
                                     match ir_builder.build(&ast) {
@@ -1124,7 +1073,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                                             let mut interpreter = Interpreter::new(ir_module);
                                             match interpreter.run() {
                                                 Ok(result) => {
-                                                    // Print result if not null and verbose
                                                     if cli.verbose {
                                                         println!(
                                                             "{} {}",
@@ -1173,18 +1121,15 @@ pub fn run(cli: Cli) -> Result<(), String> {
         } => {
             use crate::fmt::{self, FormatConfig};
 
-            // Handle sample config generation
             if sample_config {
                 println!("{}", FormatConfig::sample_config());
                 return Ok(());
             }
 
-            // Path is required unless sample_config is set
             let path = path.ok_or_else(|| {
                 "Path is required. Use 'tarqeem fmt <file>' or 'tarqeem fmt --sample-config' / المسار مطلوب".to_string()
             })?;
 
-            // Load configuration
             let format_config = if let Some(config_path) = config {
                 FormatConfig::from_file(&config_path).map_err(|e| {
                     format!(
@@ -1196,7 +1141,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 FormatConfig::find_and_load().unwrap_or_default()
             };
 
-            // Collect files to format
             let files: Vec<PathBuf> = if path.is_dir() {
                 collect_source_files(&path)?
             } else {
@@ -1222,7 +1166,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     )
                 })?;
 
-                // Format the source
                 let formatted = fmt::format_source(&source, &format_config).map_err(|e| {
                     format!(
                         "Format error in {}: {} / خطأ التنسيق في {}: {}",
@@ -1236,7 +1179,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 let is_changed = source != formatted;
 
                 if check {
-                    // Check mode: report if file would change
                     if is_changed {
                         all_formatted = false;
                         eprintln!(
@@ -1250,7 +1192,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                         );
                     }
                 } else if diff {
-                    // Diff mode: show differences
                     if is_changed {
                         println!("{}", format!("--- {} (original)", file.display()).red());
                         println!("{}", format!("+++ {} (formatted)", file.display()).green());
@@ -1260,7 +1201,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                         println!("{}", diff_output);
                     }
                 } else if write {
-                    // Write mode: update file in place
                     if is_changed {
                         fs::write(file, &formatted).map_err(|e| {
                             format!(
@@ -1285,12 +1225,10 @@ pub fn run(cli: Cli) -> Result<(), String> {
                         }
                     }
                 } else {
-                    // Default: output to stdout
                     print!("{}", formatted);
                 }
             }
 
-            // Final summary
             if check {
                 if all_formatted {
                     println!(
@@ -1320,7 +1258,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
         }
 
         Commands::Lex { file } => {
-            // Warn if file extension is not recognized
             warn_invalid_extension(&file);
 
             let source = fs::read_to_string(&file)
@@ -1341,7 +1278,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
         }
 
         Commands::Parse { file } => {
-            // Warn if file extension is not recognized
             warn_invalid_extension(&file);
 
             let source = fs::read_to_string(&file)
@@ -1384,7 +1320,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
         }
 
         Commands::Lsp => {
-            // Start the LSP server
             if cli.verbose {
                 eprintln!(
                     "{}",
@@ -1394,7 +1329,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 );
             }
 
-            // Create and run the async runtime
             let runtime = tokio::runtime::Runtime::new().map_err(|e| {
                 format!(
                     "Failed to create runtime: {} / فشل إنشاء وقت التشغيل: {}",
@@ -1415,7 +1349,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
             format,
             single_file,
         } => {
-            // Determine output format
             let output_format = match format.to_lowercase().as_str() {
                 "html" => OutputFormat::Html,
                 "markdown" | "md" => OutputFormat::Markdown,
@@ -1428,9 +1361,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 }
             };
 
-            // Collect source files
             let source_files: Vec<PathBuf> = if path.is_dir() {
-                // Find all .trq and .ترقيم files in the directory
                 collect_source_files(&path)?
             } else {
                 warn_invalid_extension(&path);
@@ -1441,7 +1372,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 return Err("No source files found / لم يتم العثور على ملفات مصدر".to_string());
             }
 
-            // Determine output directory
             let output_dir = output.unwrap_or_else(|| {
                 if path.is_dir() {
                     path.join("docs")
@@ -1452,7 +1382,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 }
             });
 
-            // Create output directory if it doesn't exist
             if !single_file {
                 fs::create_dir_all(&output_dir).map_err(|e| {
                     format!(
@@ -1474,7 +1403,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 );
             }
 
-            // Process each source file
             let mut all_docs = Vec::new();
             for source_file in &source_files {
                 let source = fs::read_to_string(source_file).map_err(|e| {
@@ -1494,7 +1422,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     .unwrap_or("module")
                     .to_string();
 
-                // Parse the file
                 let mut parser = Parser::new(&source);
                 let ast = parser.parse().map_err(|e| {
                     e.emit(&source, &filename, lang);
@@ -1505,7 +1432,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     )
                 })?;
 
-                // Extract documentation
                 let extractor = DocExtractor::new(module_name.clone(), filename);
                 let doc = extractor.extract(&ast);
 
@@ -1520,9 +1446,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 all_docs.push((module_name, doc));
             }
 
-            // Generate output
             if single_file {
-                // Generate a single combined documentation file
                 let output_file = if output_dir.is_dir() || !output_dir.exists() {
                     let ext = match output_format {
                         OutputFormat::Html => "html",
@@ -1534,7 +1458,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     output_dir.clone()
                 };
 
-                // For now, generate first doc (TODO: combine all docs)
                 if let Some((_name, doc)) = all_docs.first() {
                     let mut output_buffer = Vec::new();
 
@@ -1559,7 +1482,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                         )
                     })?;
 
-                    // Create parent directory if needed
                     if let Some(parent) = output_file.parent() {
                         fs::create_dir_all(parent).map_err(|e| {
                             format!(
@@ -1584,7 +1506,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     );
                 }
             } else {
-                // Generate separate documentation files
                 for (module_name, doc) in &all_docs {
                     let ext = match output_format {
                         OutputFormat::Html => "html",
@@ -1621,7 +1542,6 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     })?;
                 }
 
-                // Generate index file for HTML
                 if output_format == OutputFormat::Html && all_docs.len() > 1 {
                     let index_content = generate_html_index(&all_docs);
                     let index_file = output_dir.join("index.html");
@@ -1673,12 +1593,10 @@ fn collect_source_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
         if path.is_file() && is_valid_source_extension(&path) {
             files.push(path);
         } else if path.is_dir() {
-            // Recursively collect from subdirectories
             files.extend(collect_source_files(&path)?);
         }
     }
 
-    // Sort files for consistent output
     files.sort();
 
     Ok(files)

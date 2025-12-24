@@ -119,10 +119,8 @@ impl LockFile {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         if ext == "قفل" {
-            // Arabic format
             Self::parse_arabic_format(&content)
         } else {
-            // TOML format
             let lockfile: LockFile = toml::from_str(&content)?;
             Ok(lockfile)
         }
@@ -132,7 +130,6 @@ impl LockFile {
         let value = format::parse(content)
             .map_err(|e| super::error::PackageError::InvalidManifest(format!("{}", e)))?;
 
-        // For now, use a simplified parsing - the lock file structure is simpler
         let obj = value.as_object().ok_or_else(|| {
             super::error::PackageError::InvalidManifest("القفل يجب أن يكون كائناً".to_string())
         })?;
@@ -165,7 +162,6 @@ impl LockFile {
             None
         };
 
-        // Parse packages array (simplified for now)
         let packages = Vec::new(); // TODO: Full package parsing
 
         Ok(Self {
@@ -391,7 +387,6 @@ mod tests {
         lockfile.upsert_package(pkg.clone());
         assert_eq!(lockfile.packages.len(), 1);
 
-        // Update version
         let mut pkg2 = pkg;
         pkg2.version = "1.0.1".to_string();
         lockfile.upsert_package(pkg2);

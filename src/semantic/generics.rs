@@ -45,7 +45,6 @@ impl GenericParam {
 
     pub fn satisfies(&self, ty: &Type) -> bool {
         if let Some(ref constraint) = self.constraint {
-            // For now, just check if the type is compatible with the constraint
             ty.is_compatible_with(constraint)
         } else {
             true
@@ -181,7 +180,6 @@ impl GenericResolver {
         span: Span,
     ) -> Option<GenericContext> {
         if params.len() != args.len() {
-            // Check for defaults
             let min_args = params.iter().filter(|p| p.default.is_none()).count();
             if args.len() < min_args || args.len() > params.len() {
                 self.diagnostics.push(Diagnostic::error(
@@ -213,7 +211,6 @@ impl GenericResolver {
                 return None;
             };
 
-            // Check constraint
             if !param.satisfies(arg) {
                 self.diagnostics.push(Diagnostic::error(
                     &format!(
@@ -244,7 +241,6 @@ impl GenericResolver {
     ) -> Option<GenericContext> {
         let mut context = GenericContext::with_parameters(params.to_vec());
 
-        // Try to infer each generic parameter from the arguments
         for (param_type, arg_type) in param_types.iter().zip(arg_types.iter()) {
             self.infer_from_type(&mut context, param_type, arg_type);
         }
@@ -353,12 +349,10 @@ mod tests {
         let mut context = GenericContext::with_parameters(vec![GenericParam::new("ن".to_string())]);
         context.substitute("ن", Type::String);
 
-        // Apply to a generic type
         let generic = Type::Generic("ن".to_string());
         let resolved = context.apply(&generic);
         assert_eq!(resolved, Type::String);
 
-        // Apply to an array of generic
         let array_generic = Type::Array(Box::new(Type::Generic("ن".to_string())));
         let resolved_array = context.apply(&array_generic);
         assert_eq!(resolved_array, Type::Array(Box::new(Type::String)));
@@ -391,17 +385,14 @@ mod tests {
     fn test_nested_contexts() {
         let mut resolver = GenericResolver::new();
 
-        // Push outer context
         let mut outer = GenericContext::with_parameters(vec![GenericParam::new("أ".to_string())]);
         outer.substitute("أ", Type::Int);
         resolver.push_context(outer);
 
-        // Push inner context
         let mut inner = GenericContext::with_parameters(vec![GenericParam::new("ب".to_string())]);
         inner.substitute("ب", Type::String);
         resolver.push_context(inner);
 
-        // Both should be resolvable
         let outer_type = Type::Generic("أ".to_string());
         let inner_type = Type::Generic("ب".to_string());
 

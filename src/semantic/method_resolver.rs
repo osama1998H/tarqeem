@@ -47,7 +47,6 @@ impl<'a> MethodResolver<'a> {
             Type::String => self.resolve_string_member(member_name),
             Type::Map(_, _) => self.resolve_map_member(member_name),
             Type::Any => {
-                // Any type allows any member access
                 MemberResolution::BuiltinProperty {
                     name: member_name.to_string(),
                     ty: Type::Any,
@@ -59,12 +58,10 @@ impl<'a> MethodResolver<'a> {
 
     fn resolve_class_member(&self, class_name: &str, member_name: &str) -> MemberResolution {
         if let Some(class) = self.class_resolver.get_class(class_name) {
-            // First check for methods
             if let Some(method) = class.get_method(member_name, self.class_resolver) {
                 return MemberResolution::Method(method.clone());
             }
 
-            // Then check for fields
             if let Some(field) = class.get_field(member_name, self.class_resolver) {
                 return MemberResolution::Field(field.clone());
             }
@@ -214,7 +211,6 @@ impl<'a> MethodResolver<'a> {
                 self.resolve_class_method_call(class_name, method_name, span)
             }
             Type::Any => {
-                // Allow any method call on Any type
                 Some(MethodCallResolution {
                     method: MethodInfo {
                         name: method_name.to_string(),
@@ -243,7 +239,6 @@ impl<'a> MethodResolver<'a> {
     ) -> Option<MethodCallResolution> {
         if let Some(class) = self.class_resolver.get_class(class_name) {
             if let Some(method) = class.get_method(method_name, self.class_resolver) {
-                // Find which class defines this method
                 let defining_class = self.find_defining_class(class_name, method_name);
 
                 return Some(MethodCallResolution {
@@ -404,7 +399,6 @@ mod tests {
         let mut class_resolver = ClassResolver::new();
         class_resolver.register_class("شخص", &[], None, &[], Span::empty());
 
-        // Add a method
         if let Some(class) = class_resolver.get_class_mut("شخص") {
             class.methods.insert(
                 "تحية".to_string(),

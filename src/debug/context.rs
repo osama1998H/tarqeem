@@ -224,7 +224,6 @@ impl DebugContext {
         self.source_map.add_source(file, content);
     }
 
-    // ==================== Breakpoint Management ====================
 
     pub fn add_breakpoint(&mut self, file: PathBuf, line: usize) -> DebugResult<BreakpointId> {
         let id = BreakpointId(self.next_breakpoint_id);
@@ -232,11 +231,9 @@ impl DebugContext {
 
         let mut breakpoint = Breakpoint::new(id, file.clone(), line);
 
-        // Try to verify the breakpoint using source map
         if !self.source_map.is_empty() {
             if let Some(valid_line) = self.source_map.find_nearest_breakpoint_line(&file, line) {
                 if valid_line != line {
-                    // Adjust to valid line
                     breakpoint.line = valid_line;
                 }
                 breakpoint.verified = true;
@@ -338,7 +335,6 @@ impl DebugContext {
         Ok(bp.enabled)
     }
 
-    // ==================== Watch Expression Management ====================
 
     pub fn add_watch(&mut self, expression: String) -> u32 {
         let id = self.next_watch_id;
@@ -372,7 +368,6 @@ impl DebugContext {
         self.watches.get_mut(&id)
     }
 
-    // ==================== Stepping Control ====================
 
     pub fn start_stepping(
         &mut self,
@@ -412,22 +407,18 @@ impl DebugContext {
         match mode {
             StepMode::Instruction => true,
             StepMode::Into => {
-                // Complete when we're at a different line or different function
                 current_line != self.step_start_line
                     || current_func.map(|s| s.to_string()) != self.step_start_func
             }
             StepMode::Over => {
-                // Complete when we're at a different line at same or lower depth
                 current_depth <= self.step_start_depth && current_line != self.step_start_line
             }
             StepMode::Out => {
-                // Complete when we've returned to a lower depth
                 current_depth < self.step_start_depth
             }
         }
     }
 
-    // ==================== Pause Control ====================
 
     pub fn request_pause(&mut self) {
         self.pause_requested = true;
@@ -443,7 +434,6 @@ impl DebugContext {
         self.pause_requested
     }
 
-    // ==================== Exception Breakpoints ====================
 
     pub fn should_break_on_exception(&self, is_caught: bool) -> bool {
         if self.config.break_on_all_exceptions {
@@ -460,7 +450,6 @@ impl DebugContext {
         self.config.break_on_uncaught_exceptions = break_uncaught;
     }
 
-    // ==================== Output Management ====================
 
     pub fn add_output(&mut self, output: String) {
         self.output_buffer.push(output);
@@ -474,7 +463,6 @@ impl DebugContext {
         &self.output_buffer
     }
 
-    // ==================== Source Lookup ====================
 
     pub fn get_source_line(&self, file: &PathBuf, line: usize) -> Option<&str> {
         self.source_map.get_source_line(file, line)
@@ -565,11 +553,8 @@ mod tests {
         ctx.start_stepping(StepMode::Over, 1, Some(10), Some("main"));
         assert_eq!(ctx.step_mode(), Some(StepMode::Over));
 
-        // Same line - not complete
         assert!(!ctx.is_step_complete(1, Some(10), Some("main")));
-        // Different line at same depth - complete
         assert!(ctx.is_step_complete(1, Some(11), Some("main")));
-        // Same line at deeper depth - not complete (inside function)
         assert!(!ctx.is_step_complete(2, Some(20), Some("inner")));
 
         ctx.stop_stepping();
@@ -582,9 +567,7 @@ mod tests {
 
         ctx.start_stepping(StepMode::Out, 2, Some(10), Some("inner"));
 
-        // Same depth - not complete
         assert!(!ctx.is_step_complete(2, Some(15), Some("inner")));
-        // Lower depth - complete (returned)
         assert!(ctx.is_step_complete(1, Some(5), Some("outer")));
     }
 }

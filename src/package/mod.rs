@@ -40,7 +40,6 @@ pub mod lockfile;
 pub mod manifest;
 pub mod resolver;
 
-// Re-export commonly used types
 pub use cache::Cache;
 pub use error::{PackageError, PackageResult};
 pub use format::{parse as parse_format, FormatError, Value as FormatValue};

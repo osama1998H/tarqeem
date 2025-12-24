@@ -28,8 +28,6 @@ impl Precedence {
             | TokenKind::StarEqual
             | TokenKind::SlashEqual
             | TokenKind::PercentEqual => Precedence::Assignment,
-            // Note: FatArrow (=>) is NOT an infix operator - it's handled by
-            // parse_match_statement and try_parse_arrow_function directly
             TokenKind::Question => Precedence::Ternary,
 
             TokenKind::Or => Precedence::Or,
@@ -51,7 +49,6 @@ impl Precedence {
 
             TokenKind::Bang => Precedence::Unary,
 
-            // Postfix operators (++, --) have high precedence
             TokenKind::PlusPlus | TokenKind::MinusMinus => Precedence::Call,
 
             TokenKind::LeftParen | TokenKind::LeftBracket | TokenKind::Dot => Precedence::Call,

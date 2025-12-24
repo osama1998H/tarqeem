@@ -7,9 +7,6 @@ use super::*;
 use clap::Parser;
 use std::path::PathBuf;
 
-// =============================================================================
-// CLI Argument Parsing Tests
-// =============================================================================
 
 #[test]
 fn test_cli_parse_compile_basic() {
@@ -84,7 +81,6 @@ fn test_cli_parse_compile_emit_obj() {
 
 #[test]
 fn test_cli_parse_compile_optimization_levels() {
-    // Test O0
     let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq", "-O", "0"]);
     assert!(args.is_ok());
     match args.unwrap().command {
@@ -92,7 +88,6 @@ fn test_cli_parse_compile_optimization_levels() {
         _ => panic!("Expected Compile command"),
     }
 
-    // Test O1
     let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq", "-O", "1"]);
     assert!(args.is_ok());
     match args.unwrap().command {
@@ -100,7 +95,6 @@ fn test_cli_parse_compile_optimization_levels() {
         _ => panic!("Expected Compile command"),
     }
 
-    // Test O2
     let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq", "-O", "2"]);
     assert!(args.is_ok());
     match args.unwrap().command {
@@ -108,7 +102,6 @@ fn test_cli_parse_compile_optimization_levels() {
         _ => panic!("Expected Compile command"),
     }
 
-    // Test O3
     let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq", "-O", "3"]);
     assert!(args.is_ok());
     match args.unwrap().command {
@@ -165,9 +158,6 @@ fn test_cli_parse_compile_target() {
     }
 }
 
-// =============================================================================
-// Run Command Tests
-// =============================================================================
 
 #[test]
 fn test_cli_parse_run_basic() {
@@ -196,9 +186,6 @@ fn test_cli_parse_run_arabic_alias() {
     }
 }
 
-// =============================================================================
-// Check Command Tests
-// =============================================================================
 
 #[test]
 fn test_cli_parse_check_basic() {
@@ -227,9 +214,6 @@ fn test_cli_parse_check_arabic_alias() {
     }
 }
 
-// =============================================================================
-// REPL Command Tests
-// =============================================================================
 
 #[test]
 fn test_cli_parse_repl() {
@@ -248,9 +232,6 @@ fn test_cli_parse_repl_arabic_alias() {
     assert!(matches!(args.unwrap().command, Commands::Repl));
 }
 
-// =============================================================================
-// Fmt Command Tests
-// =============================================================================
 
 #[test]
 fn test_cli_parse_fmt_basic() {
@@ -336,9 +317,6 @@ fn test_cli_parse_fmt_sample_config() {
     }
 }
 
-// =============================================================================
-// Lex Command Tests
-// =============================================================================
 
 #[test]
 fn test_cli_parse_lex() {
@@ -354,9 +332,6 @@ fn test_cli_parse_lex() {
     }
 }
 
-// =============================================================================
-// Parse Command Tests
-// =============================================================================
 
 #[test]
 fn test_cli_parse_parse() {
@@ -372,9 +347,6 @@ fn test_cli_parse_parse() {
     }
 }
 
-// =============================================================================
-// Package Manager Command Tests
-// =============================================================================
 
 #[test]
 fn test_cli_parse_pkg_init() {
@@ -679,9 +651,6 @@ fn test_cli_parse_pkg_clean() {
     }
 }
 
-// =============================================================================
-// LSP Command Tests
-// =============================================================================
 
 #[test]
 fn test_cli_parse_lsp() {
@@ -692,9 +661,6 @@ fn test_cli_parse_lsp() {
     assert!(matches!(cli.command, Commands::Lsp));
 }
 
-// =============================================================================
-// Doc Command Tests
-// =============================================================================
 
 #[test]
 fn test_cli_parse_doc_basic() {
@@ -774,9 +740,6 @@ fn test_cli_parse_doc_single_file() {
     }
 }
 
-// =============================================================================
-// Global Flag Tests
-// =============================================================================
 
 #[test]
 fn test_cli_english_flag() {
@@ -824,9 +787,6 @@ fn test_cli_multiple_global_flags() {
     assert!(cli.verbose);
 }
 
-// =============================================================================
-// Alias Tests
-// =============================================================================
 
 #[test]
 fn test_cli_compile_alias_c() {
@@ -906,9 +866,6 @@ fn test_cli_pkg_alias_pm() {
     }
 }
 
-// =============================================================================
-// Error Cases
-// =============================================================================
 
 #[test]
 fn test_cli_missing_command() {
@@ -958,9 +915,6 @@ fn test_cli_pkg_remove_missing_package() {
     assert!(args.is_err());
 }
 
-// =============================================================================
-// Arabic File Extension Tests
-// =============================================================================
 
 #[test]
 fn test_cli_parse_arabic_extension() {
@@ -990,9 +944,6 @@ fn test_cli_run_arabic_file() {
     }
 }
 
-// =============================================================================
-// Complex Argument Combination Tests
-// =============================================================================
 
 #[test]
 fn test_cli_compile_full_options() {
@@ -1066,11 +1017,6 @@ fn test_cli_doc_full_options() {
     }
 }
 
-// =============================================================================
-// Command Execution Tests
-// =============================================================================
-// These tests verify that the commands actually work on source code,
-// not just that the arguments parse correctly.
 
 use crate::ir::IrBuilder;
 use crate::lexer::Lexer;
@@ -1103,7 +1049,6 @@ fn compile_to_ir(source: &str) -> Result<crate::ir::Module, String> {
     let ast = parser.parse().map_err(|e| e.message)?;
 
     let mut analyzer = Analyzer::new();
-    // Analyzer returns () on success, but modifies the AST in place or validates it
     analyzer.analyze(&ast).map_err(|errors| {
         errors
             .iter()
@@ -1216,7 +1161,6 @@ fn test_compile_generates_ir() {
     assert!(result.is_ok(), "Should generate IR: {:?}", result);
 
     let module = result.unwrap();
-    // Verify module has a main function
     assert!(!module.functions.is_empty(), "Module should have functions");
 }
 
@@ -1236,7 +1180,6 @@ fn test_compile_function_ir() {
     );
 
     let module = result.unwrap();
-    // Check function was compiled
     let has_func = module
         .functions
         .iter()
@@ -1258,7 +1201,6 @@ fn test_parser_error_recovery_collects_multiple_errors() {
     let _ = parser.parse();
 
     let errors = parser.get_errors();
-    // Should collect at least 2 errors (missing names for first variable and first constant)
     assert!(
         errors.len() >= 2,
         "Parser should collect multiple errors, got {}",
@@ -1279,7 +1221,6 @@ fn test_error_messages_are_bilingual() {
     assert!(result.is_err());
     let err = result.unwrap_err();
 
-    // Error should have both English and Arabic messages
     assert!(
         !err.message.is_empty(),
         "English message should not be empty"
@@ -1296,7 +1237,6 @@ fn test_lexer_tokenizes_arabic_keywords() {
     let lexer = Lexer::new(source);
     let tokens: Vec<_> = lexer.collect();
 
-    // First token should be 'let' keyword (متغير)
     assert!(!tokens.is_empty());
     assert!(
         matches!(tokens[0].kind, crate::lexer::TokenKind::Let),

@@ -21,13 +21,10 @@ pub fn handle_code_actions(
 
     let analysis = doc.get_analysis(language);
 
-    // Check diagnostics for quick fixes
     for diagnostic in &analysis.diagnostics {
         let diag_range = span_to_range(&content, &diagnostic.span);
 
-        // Check if diagnostic overlaps with request range
         if ranges_overlap(&diag_range, &range) {
-            // Generate quick fixes based on diagnostic type
             if let Some(fix_actions) = generate_quick_fixes(&uri, diagnostic, &diag_range, language)
             {
                 actions.extend(fix_actions);
@@ -35,7 +32,6 @@ pub fn handle_code_actions(
         }
     }
 
-    // Add refactoring actions based on context
     if let Some(refactor_actions) =
         generate_refactorings(&uri, &content, &range, analysis, language)
     {
@@ -65,7 +61,6 @@ fn generate_quick_fixes(
     let mut actions = Vec::new();
     let message = &diagnostic.message;
 
-    // Check for "undefined variable" errors - suggest declaration
     if message.contains("undefined") || message.contains("غير معرف") {
         let var_name = extract_identifier_from_message(message);
         if let Some(name) = var_name {
@@ -113,7 +108,6 @@ fn generate_quick_fixes(
         }
     }
 
-    // Check for "immutable" errors - suggest making mutable
     if message.contains("immutable") || message.contains("ثابت") || message.contains("غير قابل")
     {
         let (title, old_keyword, new_keyword) = match language {
@@ -144,7 +138,6 @@ fn generate_quick_fixes(
             data: None,
         }));
 
-        // Suppress unused variable warning
         let _ = old_keyword;
     }
 
@@ -165,12 +158,10 @@ fn generate_refactorings(
     use crate::semantic::Type;
     let mut actions = Vec::new();
 
-    // Check if selection is a variable declaration without type annotation
     for (name, info) in &analysis.symbols {
         let symbol_range = span_to_range(content, &info.definition_span);
 
         if ranges_overlap(&symbol_range, range) {
-            // Offer to add type annotation if none exists
             if !matches!(info.ty, Type::Unknown) {
                 let type_str = match language {
                     Language::Arabic => info.ty.arabic_name(),
@@ -182,8 +173,6 @@ fn generate_refactorings(
                     Language::English => format!("Add type annotation: {}", type_str),
                 };
 
-                // This is a simplified version - real implementation would need
-                // to find the exact position after the variable name
                 actions.push(CodeActionOrCommand::CodeAction(CodeAction {
                     title,
                     kind: Some(CodeActionKind::REFACTOR),
@@ -201,12 +190,10 @@ fn generate_refactorings(
                 }));
             }
 
-            // Suppress unused variable warnings
             let _ = name;
         }
     }
 
-    // Offer to extract expression to variable if selection spans an expression
     if range.start != range.end {
         let title = match language {
             Language::Arabic => "استخراج إلى متغير",
@@ -238,10 +225,7 @@ fn generate_refactorings(
 }
 
 fn extract_identifier_from_message(message: &str) -> Option<String> {
-    // Look for patterns like "'name'" or "«name»" in the message
-    // Use char_indices for proper UTF-8 handling
 
-    // Check for single quotes
     if let Some(start_byte) = message.find('\'') {
         let after_quote = start_byte + '\''.len_utf8();
         if let Some(end_offset) = message[after_quote..].find('\'') {
@@ -249,7 +233,6 @@ fn extract_identifier_from_message(message: &str) -> Option<String> {
         }
     }
 
-    // Check for Arabic guillemets «»
     if let Some(start_byte) = message.find('«') {
         let after_open = start_byte + '«'.len_utf8();
         if let Some(end_offset) = message[after_open..].find('»') {

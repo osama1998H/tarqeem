@@ -85,25 +85,18 @@ impl DebugCommandParser {
         let args = parts.get(1).map(|s| s.trim()).unwrap_or("");
 
         match cmd.as_str() {
-            // Continue
             "c" | "continue" | "تابع" | "cont" => DebugCommand::Continue,
 
-            // Step over
             "n" | "next" | "التالي" | "step" | "خطوة" => DebugCommand::StepOver,
 
-            // Step into
             "s" | "stepi" | "into" | "داخل" => DebugCommand::StepInto,
 
-            // Step out
             "o" | "out" | "finish" | "خارج" => DebugCommand::StepOut,
 
-            // Step instruction
             "si" | "ni" | "inst" | "تعليمة" => DebugCommand::StepInstruction,
 
-            // Breakpoint
             "b" | "break" | "توقف" | "bp" => Self::parse_breakpoint(args),
 
-            // Delete breakpoint
             "d" | "delete" | "del" | "احذف" => {
                 if let Ok(id) = args.parse::<u32>() {
                     DebugCommand::DeleteBreakpoint {
@@ -116,10 +109,8 @@ impl DebugCommandParser {
                 }
             }
 
-            // Clear breakpoints
             "clear" | "امسح" => DebugCommand::ClearBreakpoints,
 
-            // Enable breakpoint
             "enable" | "فعل" => {
                 if let Ok(id) = args.parse::<u32>() {
                     DebugCommand::EnableBreakpoint {
@@ -132,7 +123,6 @@ impl DebugCommandParser {
                 }
             }
 
-            // Disable breakpoint
             "disable" | "عطل" => {
                 if let Ok(id) = args.parse::<u32>() {
                     DebugCommand::DisableBreakpoint {
@@ -145,10 +135,8 @@ impl DebugCommandParser {
                 }
             }
 
-            // List breakpoints
             "bl" | "breakpoints" | "نقاط" => DebugCommand::ListBreakpoints,
 
-            // Print
             "p" | "print" | "اطبع" | "pr" => {
                 if args.is_empty() {
                     DebugCommand::Unknown {
@@ -161,19 +149,14 @@ impl DebugCommandParser {
                 }
             }
 
-            // Locals
             "l" | "locals" | "محليات" => DebugCommand::Locals,
 
-            // Globals
             "g" | "globals" | "عالميات" => DebugCommand::Globals,
 
-            // Backtrace
             "bt" | "backtrace" | "stack" | "مكدس" | "where" => DebugCommand::Backtrace,
 
-            // Where (current location)
             "w" | "loc" | "موقع" => DebugCommand::Where,
 
-            // Watch
             "watch" | "راقب" => {
                 if args.is_empty() {
                     DebugCommand::ListWatches
@@ -184,7 +167,6 @@ impl DebugCommandParser {
                 }
             }
 
-            // Unwatch
             "unwatch" | "الغ_مراقبة" => {
                 if let Ok(id) = args.parse::<u32>() {
                     DebugCommand::Unwatch { id }
@@ -195,25 +177,19 @@ impl DebugCommandParser {
                 }
             }
 
-            // List source
             "list" | "سرد" | "src" => {
                 let lines = args.parse::<usize>().ok();
                 DebugCommand::List { lines }
             }
 
-            // Help
             "h" | "help" | "?" | "مساعدة" => DebugCommand::Help,
 
-            // Quit
             "q" | "quit" | "exit" | "اخرج" => DebugCommand::Quit,
 
-            // Run
             "r" | "run" | "شغل" => DebugCommand::Run,
 
-            // Restart
             "restart" | "اعد" => DebugCommand::Restart,
 
-            // Set
             "set" | "عين" => {
                 let set_parts: Vec<&str> = args.splitn(2, '=').collect();
                 if set_parts.len() == 2 {
@@ -228,12 +204,10 @@ impl DebugCommandParser {
                 }
             }
 
-            // Info
             "i" | "info" | "معلومات" => DebugCommand::Info {
                 topic: args.to_string(),
             },
 
-            // Unknown
             _ => DebugCommand::Unknown {
                 command: input.to_string(),
             },
@@ -247,7 +221,6 @@ impl DebugCommandParser {
             };
         }
 
-        // Check for conditional breakpoint: "10 if x > 5"
         if let Some(if_pos) = args.find(" if ") {
             let line_part = &args[..if_pos];
             let condition = &args[if_pos + 4..];
@@ -261,7 +234,6 @@ impl DebugCommandParser {
             }
         }
 
-        // Regular breakpoint
         if let Some((file, line)) = Self::parse_location(args) {
             DebugCommand::Break { file, line }
         } else {
@@ -274,7 +246,6 @@ impl DebugCommandParser {
     fn parse_location(s: &str) -> Option<(Option<PathBuf>, usize)> {
         let s = s.trim();
 
-        // Check for file:line format
         if let Some(colon_pos) = s.rfind(':') {
             let file_part = &s[..colon_pos];
             let line_part = &s[colon_pos + 1..];
@@ -284,7 +255,6 @@ impl DebugCommandParser {
             }
         }
 
-        // Just a line number
         if let Ok(line) = s.parse::<usize>() {
             return Some((None, line));
         }
@@ -450,7 +420,6 @@ mod tests {
 
     #[test]
     fn test_empty_input() {
-        // Empty input defaults to step
         assert_eq!(DebugCommandParser::parse(""), DebugCommand::StepOver);
     }
 

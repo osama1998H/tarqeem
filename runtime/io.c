@@ -30,10 +30,8 @@ void trq_print_float(double value) {
 
 void trq_print_bool(bool value) {
     if (value) {
-        // "صحيح" in UTF-8
         printf("صحيح");
     } else {
-        // "خاطئ" in UTF-8
         printf("خاطئ");
     }
 }
@@ -53,8 +51,6 @@ void trq_print_array(TrqArray* arr) {
         if (i > 0) {
             printf("، ");
         }
-        // Print element as integer by default
-        // A more complete implementation would handle different element types
         if (arr->data) {
             int64_t* int_data = (int64_t*)arr->data;
             printf("%ld", (long)int_data[i]);
@@ -73,17 +69,14 @@ TrqString* trq_input(void) {
     char buffer[INPUT_BUFFER_SIZE];
 
     if (!fgets(buffer, INPUT_BUFFER_SIZE, stdin)) {
-        // EOF or error
         return trq_string_new("", 0);
     }
 
-    // Remove trailing newline if present
     size_t len = strlen(buffer);
     if (len > 0 && buffer[len - 1] == '\n') {
         buffer[len - 1] = '\0';
         len--;
     }
-    // Also remove carriage return for Windows
     if (len > 0 && buffer[len - 1] == '\r') {
         buffer[len - 1] = '\0';
         len--;
@@ -200,7 +193,6 @@ TrqString* trq_file_read_all(TrqFile* file) {
         return trq_string_new("", 0);
     }
 
-    // Get file size
     fseek(file->handle, 0, SEEK_END);
     long size = ftell(file->handle);
     fseek(file->handle, 0, SEEK_SET);
@@ -209,13 +201,11 @@ TrqString* trq_file_read_all(TrqFile* file) {
         return trq_string_new("", 0);
     }
 
-    // Allocate buffer
     char* buffer = (char*)malloc(size + 1);
     if (!buffer) {
         return trq_string_new("", 0);
     }
 
-    // Read file
     size_t read_size = fread(buffer, 1, size, file->handle);
     buffer[read_size] = '\0';
 
@@ -493,7 +483,6 @@ TrqArray* trq_dir_list(TrqString* path) {
 
     struct dirent* entry;
     while ((entry = readdir(dir)) != NULL) {
-        // Skip . and ..
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
         }
@@ -541,18 +530,15 @@ TrqString* trq_path_join(TrqString* base, TrqString* component) {
         return trq_string_new(base->data, base->len);
     }
 
-    // Check if base ends with /
     bool has_slash = base->data[base->len - 1] == '/';
     bool comp_starts_slash = component->data[0] == '/';
 
     TrqString* result;
     if (has_slash && comp_starts_slash) {
-        // base/ + /component -> base/component
         TrqString* comp_no_slash = trq_string_substr(component, 1, component->len - 1);
         result = trq_string_concat(base, comp_no_slash);
         trq_release(comp_no_slash);
     } else if (!has_slash && !comp_starts_slash) {
-        // base + component -> base/component
         TrqString* slash = trq_string_from_cstr("/");
         TrqString* temp = trq_string_concat(base, slash);
         result = trq_string_concat(temp, component);
@@ -570,7 +556,6 @@ TrqString* trq_path_parent(TrqString* path) {
         return trq_string_new("", 0);
     }
 
-    // Find last /
     int64_t last_slash = -1;
     for (int64_t i = path->len - 1; i >= 0; i--) {
         if (path->data[i] == '/') {
@@ -591,7 +576,6 @@ TrqString* trq_path_filename(TrqString* path) {
         return trq_string_new("", 0);
     }
 
-    // Find last /
     int64_t last_slash = -1;
     for (int64_t i = path->len - 1; i >= 0; i--) {
         if (path->data[i] == '/') {
@@ -613,7 +597,6 @@ TrqString* trq_path_extension(TrqString* path) {
         return trq_string_new("", 0);
     }
 
-    // Find last .
     int64_t last_dot = -1;
     for (int64_t i = filename->len - 1; i >= 0; i--) {
         if (filename->data[i] == '.') {
@@ -638,7 +621,6 @@ TrqString* trq_path_stem(TrqString* path) {
         return trq_string_new("", 0);
     }
 
-    // Find last .
     int64_t last_dot = -1;
     for (int64_t i = filename->len - 1; i >= 0; i--) {
         if (filename->data[i] == '.') {

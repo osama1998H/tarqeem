@@ -4,10 +4,8 @@ use crate::package::{Manifest, PackageError, PackageResult};
 use colored::*;
 
 pub fn run(package: String) -> PackageResult<()> {
-    // Find and parse manifest
     let (mut manifest, manifest_path) = Manifest::find_and_parse()?;
 
-    // Try to remove from dependencies
     let removed_from_deps = manifest.dependencies.remove(&package).is_some();
     let removed_from_dev = manifest.dev_dependencies.remove(&package).is_some();
 
@@ -15,7 +13,6 @@ pub fn run(package: String) -> PackageResult<()> {
         return Err(PackageError::PackageNotFound(package));
     }
 
-    // Save manifest
     manifest.save(&manifest_path)?;
 
     let section = if removed_from_deps {
@@ -33,7 +30,6 @@ pub fn run(package: String) -> PackageResult<()> {
         .green()
     );
 
-    // Run install to update packages directory and lockfile
     println!("{}", "→ Updating packages... / جاري تحديث الحزم...".cyan());
     super::install::run(false)?;
 

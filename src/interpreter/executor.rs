@@ -69,13 +69,10 @@ impl Interpreter {
     }
 
     pub fn run(&mut self) -> RuntimeResult<Value> {
-        // Initialize globals
         self.init_globals()?;
 
-        // Find main function
         let main_func = self.find_main_function()?;
 
-        // Execute main
         self.call_function(&main_func, vec![])
     }
 
@@ -91,8 +88,6 @@ impl Interpreter {
     }
 
     fn find_main_function(&self) -> RuntimeResult<FuncId> {
-        // Try common main function names
-        // __main__ is the auto-generated wrapper for top-level statements
         let main_names = ["__main__", "main", "رئيسي", "رئيسية", "البداية"];
 
         for name in main_names {
@@ -102,7 +97,6 @@ impl Interpreter {
             }
         }
 
-        // If no main, try to find a top-level function or execute all statements
         if let Some(func) = self.module.functions.first() {
             return Ok(func.id.clone());
         }
@@ -111,34 +105,27 @@ impl Interpreter {
     }
 
     pub fn call_function(&mut self, func_id: &FuncId, args: Vec<Value>) -> RuntimeResult<Value> {
-        // Check stack depth
         if self.call_stack.len() >= MAX_STACK_DEPTH {
             return Err(RuntimeError::stack_overflow());
         }
 
-        // Get the function
         let func = self
             .module
             .get_function(func_id)
             .ok_or_else(|| RuntimeError::undefined_function(&func_id.0))?
             .clone();
 
-        // Create a new call frame
         let mut frame = CallFrame::new(func_id.clone());
 
-        // Bind parameters
         for (i, param) in func.params.iter().enumerate() {
             let value = args.get(i).cloned().unwrap_or(Value::Null);
             frame.locals.insert(param.id.0, value);
         }
 
-        // Push frame
         self.call_stack.push(frame);
 
-        // Execute function
         let result = self.execute_function(&func);
 
-        // Pop frame
         self.call_stack.pop();
 
         result
@@ -149,7 +136,6 @@ impl Interpreter {
             return Ok(Value::Null);
         }
 
-        // Start at entry block
         let mut block_idx = 0;
 
         loop {
@@ -158,30 +144,25 @@ impl Interpreter {
 
             match result {
                 BlockResult::Continue => {
-                    // Move to next block (shouldn't happen normally)
                     block_idx += 1;
                     if block_idx >= func.blocks.len() {
                         return Ok(Value::Null);
                     }
                 }
                 BlockResult::Jump(target) => {
-                    // Update previous block for Phi resolution
                     if let Some(frame) = self.call_stack.last_mut() {
                         frame.prev_block = Some(block.id);
                     }
-                    // Find target block
                     block_idx = self.find_block_index(func, target)?;
                 }
                 BlockResult::Return(value) => {
                     return Ok(value);
                 }
                 BlockResult::Throw(exception) => {
-                    // Check for exception handler
                     if let Some(catch_block) = self.pop_try_block() {
                         self.current_exception = Some(exception);
                         block_idx = self.find_block_index(func, catch_block)?;
                     } else {
-                        // Unhandled exception
                         let msg = exception.to_display_string();
                         return Err(RuntimeError::unhandled_exception(&msg));
                     }
@@ -221,14 +202,12 @@ impl Interpreter {
         _func: &Function,
     ) -> RuntimeResult<InstructionResult> {
         match inst {
-            // Constants
             Instruction::Const { dest, value, .. } => {
                 let val = self.constant_to_value(value);
                 self.set_local(*dest, val);
                 Ok(InstructionResult::Continue)
             }
 
-            // Binary operations
             Instruction::Binary {
                 dest,
                 op,
@@ -243,7 +222,6 @@ impl Interpreter {
                 Ok(InstructionResult::Continue)
             }
 
-            // Unary operations
             Instruction::Unary {
                 dest,
                 op,
@@ -256,7 +234,6 @@ impl Interpreter {
                 Ok(InstructionResult::Continue)
             }
 
-            // Type conversions
             Instruction::IntToFloat { dest, src } => {
                 let val = self.get_local(*src)?;
                 let result = match val {
@@ -287,15 +264,12 @@ impl Interpreter {
             }
 
             Instruction::Bitcast { dest, src, .. } => {
-                // For interpreter, bitcast is a no-op (same value, different type view)
                 let val = self.get_local(*src)?;
                 self.set_local(*dest, val);
                 Ok(InstructionResult::Continue)
             }
 
-            // Memory operations
             Instruction::Alloca { dest, .. } => {
-                // Create a pointer to a null value
                 let ptr = Value::ptr(Value::Null);
                 self.set_local(*dest, ptr);
                 Ok(InstructionResult::Continue)
@@ -345,26 +319,22 @@ impl Interpreter {
                     .as_int()
                     .ok_or_else(|| RuntimeError::type_error("int", idx_val.type_name()))?;
 
-                // For arrays, get element pointer
                 match ptr_val {
                     Value::Array(arr) => {
                         let arr_ref = arr.borrow();
                         if idx < 0 || (idx as usize) >= arr_ref.len() {
                             return Err(RuntimeError::index_out_of_bounds(idx, arr_ref.len()));
                         }
-                        // Return pointer to element (simplified as the value itself for now)
                         let elem = arr_ref[idx as usize].clone();
                         self.set_local(*dest, Value::ptr(elem));
                     }
                     _ => {
-                        // For other pointers, just return the pointer offset (simplified)
                         self.set_local(*dest, ptr_val);
                     }
                 }
                 Ok(InstructionResult::Continue)
             }
 
-            // Control flow
             Instruction::Jump { target } => Ok(InstructionResult::Jump(*target)),
 
             Instruction::Branch {
@@ -388,17 +358,14 @@ impl Interpreter {
                 Ok(InstructionResult::Return(result))
             }
 
-            // Function calls
             Instruction::Call {
                 dest, func, args, ..
             } => {
-                // Collect argument values
                 let arg_values: Vec<Value> = args
                     .iter()
                     .map(|v| self.get_local(*v))
                     .collect::<RuntimeResult<Vec<_>>>()?;
 
-                // Check for built-in functions first
                 let result = if self.is_builtin(&func.0) {
                     self.call_builtin(&func.0, arg_values)?
                 } else {
@@ -436,10 +403,8 @@ impl Interpreter {
                 Ok(InstructionResult::Continue)
             }
 
-            // Objects
             Instruction::NewObject { dest, class } => {
                 let obj = Value::object(class.clone());
-                // Initialize fields from class definition
                 if let Some(class_def) = self.module.get_class(class) {
                     if let Value::Object(ref obj_rc) = obj {
                         let mut obj_mut = obj_rc.borrow_mut();
@@ -499,13 +464,11 @@ impl Interpreter {
             } => {
                 let obj_val = self.get_local(*object)?;
 
-                // Collect arguments (including self)
                 let mut arg_values = vec![obj_val.clone()];
                 for arg in args {
                     arg_values.push(self.get_local(*arg)?);
                 }
 
-                // Build method function ID
                 let method_func_id = FuncId(format!("{}::{}", method.class.0, method.name));
 
                 let result = self.call_function(&method_func_id, arg_values)?;
@@ -525,13 +488,11 @@ impl Interpreter {
             } => {
                 let obj_val = self.get_local(*object)?;
 
-                // Get actual class from object
                 let class_id = match &obj_val {
                     Value::Object(obj) => obj.borrow().class_id.clone(),
                     _ => return Err(RuntimeError::type_error("object", obj_val.type_name())),
                 };
 
-                // Look up method in vtable
                 let method_id = if let Some(class) = self.module.get_class(&class_id) {
                     class
                         .vtable
@@ -550,13 +511,11 @@ impl Interpreter {
                     )));
                 };
 
-                // Collect arguments
                 let mut arg_values = vec![obj_val];
                 for arg in args {
                     arg_values.push(self.get_local(*arg)?);
                 }
 
-                // Call method
                 let method_func_id = FuncId(format!("{}::{}", method_id.class.0, method_id.name));
                 let result = self.call_function(&method_func_id, arg_values)?;
 
@@ -566,7 +525,6 @@ impl Interpreter {
                 Ok(InstructionResult::Continue)
             }
 
-            // Arrays
             Instruction::NewArray { dest, elements, .. } => {
                 let values: Vec<Value> = elements
                     .iter()
@@ -663,7 +621,6 @@ impl Interpreter {
                 Ok(InstructionResult::Continue)
             }
 
-            // Strings
             Instruction::StringConcat { dest, left, right } => {
                 let left_val = self.get_local(*left)?;
                 let right_val = self.get_local(*right)?;
@@ -675,7 +632,6 @@ impl Interpreter {
                 Ok(InstructionResult::Continue)
             }
 
-            // Exception handling
             Instruction::TryBegin { catch_block } => {
                 if let Some(frame) = self.call_stack.last_mut() {
                     frame.try_stack.push(*catch_block);
@@ -699,7 +655,6 @@ impl Interpreter {
                 Ok(InstructionResult::Continue)
             }
 
-            // Phi functions
             Instruction::Phi { dest, incoming, .. } => {
                 let prev_block = self
                     .call_stack
@@ -707,7 +662,6 @@ impl Interpreter {
                     .and_then(|f| f.prev_block)
                     .unwrap_or(BlockId(0));
 
-                // Find the value from the previous block
                 let value = incoming
                     .iter()
                     .find(|(_, block)| *block == prev_block)
@@ -719,7 +673,6 @@ impl Interpreter {
                 Ok(InstructionResult::Continue)
             }
 
-            // Print
             Instruction::Print { value } => {
                 let val = self.get_local(*value)?;
                 let output = val.to_display_string();
@@ -733,7 +686,6 @@ impl Interpreter {
                 Ok(InstructionResult::Continue)
             }
 
-            // Nop
             Instruction::Nop => Ok(InstructionResult::Continue),
         }
     }
@@ -746,7 +698,6 @@ impl Interpreter {
         _ty: &IrType,
     ) -> RuntimeResult<Value> {
         match op {
-            // Arithmetic
             BinaryOp::Add => match (&left, &right) {
                 (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.wrapping_add(*b))),
                 (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
@@ -773,7 +724,6 @@ impl Interpreter {
                 _ => Err(RuntimeError::type_error("numeric", left.type_name())),
             },
             BinaryOp::Div => {
-                // Check for division by zero
                 match (&left, &right) {
                     (Value::Int(_), Value::Int(0)) => Err(RuntimeError::division_by_zero()),
                     (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a / b)),
@@ -805,7 +755,6 @@ impl Interpreter {
                 _ => Err(RuntimeError::type_error("numeric", left.type_name())),
             },
 
-            // Comparison
             BinaryOp::Eq => Ok(Value::Bool(left == right)),
             BinaryOp::Ne => Ok(Value::Bool(left != right)),
             BinaryOp::Lt => match (&left, &right) {
@@ -841,11 +790,9 @@ impl Interpreter {
                 _ => Err(RuntimeError::type_error("comparable", left.type_name())),
             },
 
-            // Logical
             BinaryOp::And => Ok(Value::Bool(left.is_truthy() && right.is_truthy())),
             BinaryOp::Or => Ok(Value::Bool(left.is_truthy() || right.is_truthy())),
 
-            // Bitwise
             BinaryOp::BitAnd => match (&left, &right) {
                 (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a & b)),
                 (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(*a && *b)),
@@ -940,31 +887,22 @@ impl Interpreter {
     fn is_builtin(&self, name: &str) -> bool {
         matches!(
             name,
-            // I/O Functions
             "print" | "اطبع" | "println" | "طباعة" | "اطبع_سطر"
             | "input" | "ادخل" | "ادخل_رسالة" | "input_prompt"
             | "ادخل_عدد" | "input_int" | "ادخل_عشري" | "input_float"
-            // Introspection
             | "len" | "طول" | "length"
             | "type" | "نوع" | "typeof"
-            // Type conversion
             | "int" | "عدد" | "float" | "عدد_عشري" | "str" | "نص" | "string" | "bool" | "منطقي"
-            // Math - Basic
             | "abs" | "مطلق"
             | "pow" | "قوة"
             | "sqrt" | "جذر" | "cbrt" | "جذر_تكعيبي"
-            // Math - Logarithms
             | "log" | "لوغاريتم" | "log10" | "لوغ10" | "لوغاريتم10" | "log2" | "لوغ2"
             | "exp" | "أس" | "أسي"
-            // Math - Rounding
             | "floor" | "أرضية" | "ceil" | "سقف" | "round" | "قرب" | "تقريب" | "trunc" | "اقتطع"
-            // Math - Comparison
             | "min" | "أقل" | "أدنى" | "max" | "أكبر" | "أقصى" | "clamp" | "حصر"
             | "sign" | "علامة"
-            // Math - Number theory
             | "gcd" | "قاسم_مشترك" | "lcm" | "مضاعف_مشترك"
             | "factorial" | "عاملي"
-            // Trigonometry (with full Arabic names per arabic-philosophy.md)
             | "sin" | "جا" | "جيب" | "cos" | "جتا" | "جيب_التمام" | "tan" | "ظا" | "ظل"
             | "cot" | "ظتا" | "ظل_التمام" | "sec" | "قا" | "قاطع" | "csc" | "قتا" | "قاطع_التمام"
             | "asin" | "جا_عكسي" | "جيب_عكسي" | "acos" | "جتا_عكسي" | "جيب_تمام_عكسي"
@@ -972,17 +910,13 @@ impl Interpreter {
             | "sinh" | "جا_زائدي" | "جيب_زائدي" | "cosh" | "جتا_زائدي" | "جيب_تمام_زائدي"
             | "tanh" | "ظا_زائدي" | "ظل_زائدي"
             | "to_radians" | "الى_راديان" | "راديان" | "to_degrees" | "الى_درجات" | "درجات"
-            // Random
             | "random" | "عشوائي" | "random_int"
             | "random_range" | "عشوائي_بين"
             | "random_float" | "عشوائي_عشري"
             | "random_bool" | "عشوائي_منطقي"
-            // Assertion and control
             | "assert" | "تأكد" | "assert_msg" | "تأكد_رسالة"
             | "panic" | "توقف"
-            // Time
             | "sleep" | "نم" | "time_now" | "وقت_الآن"
-            // Internal type conversion (used for string concatenation)
             | "trq_int_to_string" | "trq_float_to_string" | "trq_bool_to_string"
         )
     }
@@ -1006,7 +940,6 @@ impl Interpreter {
             }
 
             "input" | "ادخل" => {
-                // Print prompt if provided
                 if let Some(prompt) = args.first() {
                     print!("{}", prompt.to_display_string());
                     io::stdout().flush().ok();
@@ -1110,7 +1043,6 @@ impl Interpreter {
                 Ok(Value::Bool(val.is_truthy()))
             }
 
-            // ============ Math - Basic ============
             "abs" | "مطلق" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
@@ -1183,7 +1115,6 @@ impl Interpreter {
                 Ok(Value::Float(f.cbrt()))
             }
 
-            // ============ Math - Logarithms ============
             "log" | "لوغاريتم" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
@@ -1236,7 +1167,6 @@ impl Interpreter {
                 Ok(Value::Float(f.exp()))
             }
 
-            // ============ Math - Rounding ============
             "floor" | "أرضية" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
@@ -1289,7 +1219,6 @@ impl Interpreter {
                 Ok(Value::Float(f.trunc()))
             }
 
-            // ============ Math - Comparison ============
             "min" | "أقل" | "أدنى" => {
                 let a = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
@@ -1400,7 +1329,6 @@ impl Interpreter {
                 }
             }
 
-            // ============ Math - Number Theory ============
             "gcd" | "قاسم_مشترك" => {
                 let a = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
@@ -1501,7 +1429,6 @@ impl Interpreter {
                 Ok(Value::Int(result))
             }
 
-            // ============ Trigonometry (with full Arabic names per arabic-philosophy.md) ============
             "sin" | "جا" | "جيب" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
@@ -1708,15 +1635,12 @@ impl Interpreter {
                 Ok(Value::Float(f.to_degrees()))
             }
 
-            // ============ Random ============
             "random" | "عشوائي" | "random_int" => {
-                // Simple pseudo-random using system time
                 use std::time::{SystemTime, UNIX_EPOCH};
                 let seed = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map(|d| d.as_nanos() as u64)
                     .unwrap_or(12345);
-                // Simple LCG
                 let random = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
                 Ok(Value::Int((random % (i64::MAX as u64 + 1)) as i64))
             }
@@ -1774,7 +1698,6 @@ impl Interpreter {
                 Ok(Value::Bool(random % 2 == 0))
             }
 
-            // ============ Assertion and Control ============
             "assert" | "تأكد" => {
                 let cond = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
@@ -1828,7 +1751,6 @@ impl Interpreter {
                 ))
             }
 
-            // ============ Time ============
             "sleep" | "نم" => {
                 let ms = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
@@ -1856,7 +1778,6 @@ impl Interpreter {
                 Ok(Value::Int(now))
             }
 
-            // ============ Input Functions ============
             "ادخل_رسالة" | "input_prompt" => {
                 let prompt = args
                     .first()
@@ -1900,7 +1821,6 @@ impl Interpreter {
                     .map_err(|_| RuntimeError::type_error("float input", "invalid input"))
             }
 
-            // ============ Type Conversion (for string concatenation) ============
             "trq_int_to_string" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
@@ -1973,7 +1893,6 @@ mod tests {
     fn create_simple_module() -> Module {
         let mut module = Module::new("test".to_string());
 
-        // Create main function: return 42
         let mut main_func = Function::new(
             FuncId("main".to_string()),
             "main".to_string(),
@@ -2009,7 +1928,6 @@ mod tests {
     fn test_arithmetic() {
         let mut module = Module::new("test".to_string());
 
-        // Create main: return 10 + 5
         let mut main_func = Function::new(
             FuncId("main".to_string()),
             "main".to_string(),
@@ -2089,7 +2007,6 @@ mod tests {
     fn test_branch() {
         let mut module = Module::new("test".to_string());
 
-        // Create main: if true { return 1 } else { return 0 }
         let mut main_func = Function::new(
             FuncId("main".to_string()),
             "main".to_string(),
@@ -2097,7 +2014,6 @@ mod tests {
             IrType::Int,
         );
 
-        // Entry block
         let mut entry_block = BasicBlock::new(BlockId(0));
         entry_block.instructions.push(Instruction::Const {
             dest: VarId(0),
@@ -2110,7 +2026,6 @@ mod tests {
             else_block: BlockId(2),
         });
 
-        // Then block
         let mut then_block = BasicBlock::new(BlockId(1));
         then_block.instructions.push(Instruction::Const {
             dest: VarId(1),
@@ -2121,7 +2036,6 @@ mod tests {
             value: Some(VarId(1)),
         });
 
-        // Else block
         let mut else_block = BasicBlock::new(BlockId(2));
         else_block.instructions.push(Instruction::Const {
             dest: VarId(2),
@@ -2146,7 +2060,6 @@ mod tests {
     fn test_function_call() {
         let mut module = Module::new("test".to_string());
 
-        // Create add function: fn add(a, b) { return a + b }
         let mut add_func = Function::new(
             FuncId("add".to_string()),
             "add".to_string(),
@@ -2178,7 +2091,6 @@ mod tests {
         });
         add_func.blocks.push(add_entry);
 
-        // Create main function: return add(10, 20)
         let mut main_func = Function::new(
             FuncId("main".to_string()),
             "main".to_string(),
@@ -2220,7 +2132,6 @@ mod tests {
     fn test_array_operations() {
         let mut module = Module::new("test".to_string());
 
-        // Create main: arr = [1, 2, 3]; return arr[1]
         let mut main_func = Function::new(
             FuncId("main".to_string()),
             "main".to_string(),
@@ -2230,7 +2141,6 @@ mod tests {
 
         let mut entry_block = BasicBlock::new(BlockId(0));
 
-        // Create array elements
         entry_block.instructions.push(Instruction::Const {
             dest: VarId(0),
             value: Constant::Int(1),
@@ -2247,14 +2157,12 @@ mod tests {
             ty: IrType::Int,
         });
 
-        // Create array
         entry_block.instructions.push(Instruction::NewArray {
             dest: VarId(3),
             elem_ty: IrType::Int,
             elements: vec![VarId(0), VarId(1), VarId(2)],
         });
 
-        // Get arr[1]
         entry_block.instructions.push(Instruction::Const {
             dest: VarId(4),
             value: Constant::Int(1),

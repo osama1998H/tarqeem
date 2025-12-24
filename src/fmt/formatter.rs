@@ -25,7 +25,6 @@ impl Formatter {
     }
 
     fn format_ast(&self, ast: &Ast, p: &mut Printer) {
-        // Output file start marker if present
         if ast.has_file_markers() {
             p.write("بسم_الله");
             p.newline();
@@ -36,12 +35,10 @@ impl Formatter {
         let mut first = true;
 
         for stmt in &ast.statements {
-            // Add blank lines between declarations
             if !first {
                 let is_import = matches!(&stmt.kind, StmtKind::Import { .. });
 
                 if prev_was_import && !is_import {
-                    // Blank line after imports
                     p.blank_lines(self.config.blank_lines_after_imports);
                 } else if matches!(
                     &stmt.kind,
@@ -50,7 +47,6 @@ impl Formatter {
                         | StmtKind::InterfaceDecl { .. }
                         | StmtKind::EnumDecl { .. }
                 ) {
-                    // Blank line between top-level declarations
                     p.blank_lines(self.config.blank_lines_between_functions);
                 }
 
@@ -61,7 +57,6 @@ impl Formatter {
             first = false;
         }
 
-        // Output file end marker if present
         if ast.has_file_markers() {
             p.newline();
             p.write("الحمد_لله");
@@ -70,7 +65,6 @@ impl Formatter {
     }
 
     fn format_stmt(&self, stmt: &Stmt, p: &mut Printer) {
-        // Format doc comment if present
         self.format_doc_comment_for_stmt(&stmt.kind, p);
 
         match &stmt.kind {
@@ -81,7 +75,6 @@ impl Formatter {
                 init,
                 ..
             } => {
-                // متغير/ثابت keyword
                 if *mutable {
                     p.write("متغير");
                 } else {
@@ -90,13 +83,11 @@ impl Formatter {
                 p.write_space();
                 p.write(name);
 
-                // Type annotation
                 if let Some(ty) = ty {
                     p.write_colon();
                     self.format_type(ty, p);
                 }
 
-                // Initializer
                 if let Some(init) = init {
                     p.write_operator("=");
                     self.format_expr(init, p);
@@ -121,18 +112,15 @@ impl Formatter {
                 p.write_space();
                 p.write(name);
 
-                // Parameters
                 p.write_parens(|p| {
                     self.format_params(params, p);
                 });
 
-                // Return type
                 if let Some(ret) = return_type {
                     p.write_arrow();
                     self.format_type(ret, p);
                 }
 
-                // Body
                 p.write_block(|p| {
                     self.format_block(body, p);
                 });
@@ -151,7 +139,6 @@ impl Formatter {
                 p.write_space();
                 p.write(name);
 
-                // Generic type parameters
                 if !type_params.is_empty() {
                     p.write_char('<');
                     for (i, param) in type_params.iter().enumerate() {
@@ -163,7 +150,6 @@ impl Formatter {
                     p.write_char('>');
                 }
 
-                // Extends
                 if let Some(parent) = extends {
                     p.write_space();
                     p.write("يرث");
@@ -171,7 +157,6 @@ impl Formatter {
                     p.write(parent);
                 }
 
-                // Implements
                 if !implements.is_empty() {
                     p.write_space();
                     p.write("يلتزم");
@@ -184,7 +169,6 @@ impl Formatter {
                     }
                 }
 
-                // Body
                 p.write_block(|p| {
                     for member in members {
                         self.format_class_member(member, p);
@@ -203,7 +187,6 @@ impl Formatter {
                 p.write_space();
                 p.write(name);
 
-                // Generic type parameters
                 if !type_params.is_empty() {
                     p.write_char('<');
                     for (i, param) in type_params.iter().enumerate() {
@@ -215,7 +198,6 @@ impl Formatter {
                     p.write_char('>');
                 }
 
-                // Body
                 p.write_block(|p| {
                     for method in methods {
                         self.format_method_signature(method, p);
@@ -234,7 +216,6 @@ impl Formatter {
                 p.write_space();
                 p.write(name);
 
-                // Generic type parameters
                 if !type_params.is_empty() {
                     p.write_char('<');
                     for (i, param) in type_params.iter().enumerate() {
@@ -246,7 +227,6 @@ impl Formatter {
                     p.write_char('>');
                 }
 
-                // Body
                 p.write_block(|p| {
                     for variant in variants {
                         self.format_enum_variant(variant, p);
@@ -497,7 +477,6 @@ impl Formatter {
                 self.format_expr(expr, p);
             }
             _ => {
-                // For other statements, format normally but skip newline
                 self.format_stmt(stmt, p);
             }
         }
@@ -638,7 +617,6 @@ impl Formatter {
                 p.write("جديد");
                 p.write_space();
                 self.format_expr(class, p);
-                // Format type arguments if present
                 if !type_args.is_empty() {
                     p.write_char('<');
                     for (i, ta) in type_args.iter().enumerate() {
@@ -699,7 +677,6 @@ impl Formatter {
             Literal::Float(f) => p.write(&f.to_string()),
             Literal::String(s) => {
                 p.write_char('"');
-                // Escape special characters
                 for c in s.chars() {
                     match c {
                         '"' => p.write("\\\""),
@@ -804,28 +781,23 @@ impl Formatter {
                 is_static,
                 doc_comment,
             } => {
-                // Doc comment
                 if let Some(doc) = doc_comment.as_ref() {
                     self.format_doc_comment(doc, p);
                 }
 
-                // Visibility
                 self.format_visibility(*visibility, p);
 
-                // Static
                 if *is_static {
                     p.write("مشترك");
                     p.write_space();
                 }
 
-                // Name and type
                 p.write(name);
                 if let Some(ty) = ty {
                     p.write_colon();
                     self.format_type(ty, p);
                 }
 
-                // Initializer
                 if let Some(init) = init {
                     p.write_operator("=");
                     self.format_expr(init, p);
@@ -844,24 +816,19 @@ impl Formatter {
                 is_async,
                 doc_comment,
             } => {
-                // Blank line before methods
                 p.blank_line();
 
-                // Doc comment
                 if let Some(doc) = doc_comment.as_ref() {
                     self.format_doc_comment(doc, p);
                 }
 
-                // Visibility
                 self.format_visibility(*visibility, p);
 
-                // Static
                 if *is_static {
                     p.write("مشترك");
                     p.write_space();
                 }
 
-                // Async
                 if *is_async {
                     p.write("متوازي");
                     p.write_space();
@@ -871,18 +838,15 @@ impl Formatter {
                 p.write_space();
                 p.write(name);
 
-                // Parameters
                 p.write_parens(|p| {
                     self.format_params(params, p);
                 });
 
-                // Return type
                 if let Some(ret) = return_type {
                     p.write_arrow();
                     self.format_type(ret, p);
                 }
 
-                // Body
                 p.write_block(|p| {
                     self.format_block(body, p);
                 });
@@ -894,10 +858,8 @@ impl Formatter {
                 body,
                 doc_comment,
             } => {
-                // Blank line before constructor
                 p.blank_line();
 
-                // Doc comment
                 if let Some(doc) = doc_comment.as_ref() {
                     self.format_doc_comment(doc, p);
                 }
@@ -922,18 +884,14 @@ impl Formatter {
                 is_static,
                 doc_comment,
             } => {
-                // Blank line before property
                 p.blank_line();
 
-                // Doc comment
                 if let Some(doc) = doc_comment.as_ref() {
                     self.format_doc_comment(doc, p);
                 }
 
-                // Visibility
                 self.format_visibility(*visibility, p);
 
-                // Static
                 if *is_static {
                     p.write("مشترك");
                     p.write_space();
@@ -946,14 +904,12 @@ impl Formatter {
                 self.format_type(ty, p);
 
                 if accessors.is_empty() {
-                    // Auto-property with optional default
                     if let Some(init) = default_value {
                         p.write_operator("=");
                         self.format_expr(init, p);
                     }
                     p.newline();
                 } else {
-                    // Property with accessors
                     p.write_block(|p| {
                         for accessor in accessors {
                             match accessor {
@@ -1002,7 +958,6 @@ impl Formatter {
     }
 
     fn format_method_signature(&self, sig: &MethodSignature, p: &mut Printer) {
-        // Doc comment
         if let Some(doc) = &sig.doc_comment {
             self.format_doc_comment(doc, p);
         }
@@ -1024,20 +979,17 @@ impl Formatter {
     }
 
     fn format_enum_variant(&self, variant: &EnumVariant, p: &mut Printer) {
-        // Doc comment
         if let Some(doc) = &variant.doc_comment {
             self.format_doc_comment(doc, p);
         }
 
         p.write(&variant.name);
 
-        // Explicit discriminant: = 1
         if let Some(disc) = variant.discriminant {
             p.write_operator("=");
             p.write(&disc.to_string());
         }
 
-        // Associated data: (name: type, ...)
         if !variant.fields.is_empty() {
             p.write_parens(|p| {
                 for (i, field) in variant.fields.iter().enumerate() {
@@ -1189,7 +1141,6 @@ mod tests {
     #[test]
     fn test_format_variable() {
         let result = format("متغير س=5");
-        // Output includes file markers
         assert!(result.starts_with("بسم_الله\n"));
         assert!(result.contains("متغير س = 5"));
         assert!(result.ends_with("الحمد_لله\n"));
@@ -1198,7 +1149,6 @@ mod tests {
     #[test]
     fn test_format_constant() {
         let result = format("ثابت ط = 3.14");
-        // Output includes file markers
         assert!(result.starts_with("بسم_الله\n"));
         assert!(result.contains("ثابت ط = 3.14"));
         assert!(result.ends_with("الحمد_لله\n"));

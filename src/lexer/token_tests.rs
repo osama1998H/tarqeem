@@ -3,9 +3,6 @@
 use super::token::*;
 use crate::error::Span;
 
-// =============================================================================
-// Token Creation Tests
-// =============================================================================
 
 #[test]
 fn test_token_new() {
@@ -35,9 +32,6 @@ fn test_token_display() {
     assert!(display.contains("42"));
 }
 
-// =============================================================================
-// TokenKind Literal Tests
-// =============================================================================
 
 #[test]
 fn test_token_kind_int_literal() {
@@ -88,9 +82,6 @@ fn test_token_kind_null() {
     assert!(kind.is_keyword());
 }
 
-// =============================================================================
-// TokenKind Keyword Tests
-// =============================================================================
 
 #[test]
 fn test_token_kind_variable_keywords() {
@@ -157,9 +148,6 @@ fn test_token_kind_module_keywords() {
     assert!(TokenKind::As.is_keyword());
 }
 
-// =============================================================================
-// TokenKind Type Keyword Tests
-// =============================================================================
 
 #[test]
 fn test_token_kind_type_keywords() {
@@ -175,14 +163,10 @@ fn test_token_kind_type_keywords() {
 
 #[test]
 fn test_token_kind_type_not_regular_keyword() {
-    // Type keywords are not in is_keyword()
     assert!(!TokenKind::TypeInt.is_keyword());
     assert!(!TokenKind::TypeFloat.is_keyword());
 }
 
-// =============================================================================
-// TokenKind Operator Tests
-// =============================================================================
 
 #[test]
 fn test_token_kind_arithmetic_operators() {
@@ -227,9 +211,6 @@ fn test_token_kind_increment_decrement() {
     assert!(TokenKind::MinusMinus.is_operator());
 }
 
-// =============================================================================
-// TokenKind Doc Comment Tests
-// =============================================================================
 
 #[test]
 fn test_token_kind_doc_comment() {
@@ -251,9 +232,6 @@ fn test_token_kind_doc_comment_arabic() {
     assert!(kind.is_doc_comment());
 }
 
-// =============================================================================
-// TokenKind Non-Category Tests
-// =============================================================================
 
 #[test]
 fn test_token_kind_identifier_not_keyword() {
@@ -301,9 +279,6 @@ fn test_token_kind_special_not_keyword() {
     assert!(!TokenKind::Error("test error".to_string()).is_keyword());
 }
 
-// =============================================================================
-// TokenKind Display Tests
-// =============================================================================
 
 #[test]
 fn test_token_kind_display_int() {
@@ -342,9 +317,6 @@ fn test_token_kind_display_keyword() {
     assert!(display.contains("Let"));
 }
 
-// =============================================================================
-// TokenKind Clone and Equality Tests
-// =============================================================================
 
 #[test]
 fn test_token_kind_clone() {
@@ -381,9 +353,6 @@ fn test_token_kind_equality_identifiers() {
     assert_ne!(id1, id3);
 }
 
-// =============================================================================
-// Token Clone and Equality Tests
-// =============================================================================
 
 #[test]
 fn test_token_clone() {
@@ -427,9 +396,6 @@ fn test_token_inequality_span() {
     assert_ne!(token1, token2);
 }
 
-// =============================================================================
-// Edge Case Tests
-// =============================================================================
 
 #[test]
 fn test_token_kind_large_int() {

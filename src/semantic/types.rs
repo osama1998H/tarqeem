@@ -53,33 +53,24 @@ impl Type {
 
     pub fn is_compatible_with(&self, other: &Type) -> bool {
         match (self, other) {
-            // Same types are compatible
             (a, b) if a == b => true,
 
-            // Any is compatible with everything
             (Type::Any, _) | (_, Type::Any) => true,
 
-            // Unknown can be anything
             (Type::Unknown, _) | (_, Type::Unknown) => true,
 
-            // Int can be widened to Float
             (Type::Int, Type::Float) => true,
 
-            // Null is compatible with optionals
             (Type::Null, Type::Optional(_)) => true,
 
-            // Type is compatible with its optional version
             (t, Type::Optional(inner)) | (Type::Optional(inner), t) => t.is_compatible_with(inner),
 
-            // Arrays are compatible if elements are compatible
             (Type::Array(a), Type::Array(b)) => a.is_compatible_with(b),
 
-            // Maps are compatible if keys and values are compatible
             (Type::Map(ak, av), Type::Map(bk, bv)) => {
                 ak.is_compatible_with(bk) && av.is_compatible_with(bv)
             }
 
-            // Functions are compatible if signatures match
             (
                 Type::Function {
                     params: p1,
@@ -104,7 +95,6 @@ impl Type {
 
     pub fn binary_result_type(&self, op: &str, other: &Type) -> Option<Type> {
         match (self, op, other) {
-            // Arithmetic with numbers
             (Type::Int, "+", Type::Int)
             | (Type::Int, "-", Type::Int)
             | (Type::Int, "*", Type::Int)
@@ -125,11 +115,9 @@ impl Type {
             | (Type::Int, "/", Type::Float)
             | (Type::Float, "/", Type::Int) => Some(Type::Float),
 
-            // Power operator
             (Type::Int, "**", Type::Int) => Some(Type::Int),
             (Type::Float, "**", _) | (_, "**", Type::Float) => Some(Type::Float),
 
-            // String concatenation (with implicit type coercion)
             (Type::String, "+", Type::String) => Some(Type::String),
             (Type::String, "+", Type::Int) => Some(Type::String),
             (Type::String, "+", Type::Float) => Some(Type::String),
@@ -138,7 +126,6 @@ impl Type {
             (Type::Float, "+", Type::String) => Some(Type::String),
             (Type::Bool, "+", Type::String) => Some(Type::String),
 
-            // Comparisons
             (Type::Int, "<", Type::Int)
             | (Type::Int, "<=", Type::Int)
             | (Type::Int, ">", Type::Int)
@@ -152,10 +139,8 @@ impl Type {
             | (Type::String, ">", Type::String)
             | (Type::String, ">=", Type::String) => Some(Type::Bool),
 
-            // Equality
             (a, "==", b) | (a, "!=", b) if a.is_compatible_with(b) => Some(Type::Bool),
 
-            // Logical operators
             (Type::Bool, "&&", Type::Bool) | (Type::Bool, "||", Type::Bool) => Some(Type::Bool),
 
             _ => None,

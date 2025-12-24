@@ -64,25 +64,20 @@ impl Analyzer {
     }
 
     pub fn analyze(&mut self, ast: &Ast) -> Result<(), Vec<Diagnostic>> {
-        // First pass: Register all classes and interfaces
         for stmt in &ast.statements {
             self.register_types(stmt);
         }
 
-        // Second pass: Add members to classes and interfaces
         for stmt in &ast.statements {
             self.add_type_members(stmt);
         }
 
-        // Build vtables for class hierarchy
         self.class_resolver.build_vtables();
 
-        // Validate class hierarchy (inheritance, interfaces, etc.)
         if let Err(diags) = self.class_resolver.validate() {
             self.diagnostics.extend(diags);
         }
 
-        // Third pass: Full semantic analysis
         for stmt in &ast.statements {
             self.analyze_stmt(stmt);
         }
@@ -121,7 +116,6 @@ impl Analyzer {
     fn add_type_members(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::ClassDecl { name, members, .. } => {
-                // We need to use a standalone function to avoid borrow conflicts
                 self.class_resolver
                     .add_class_members(name, members, resolve_type_annotation);
             }
@@ -137,7 +131,6 @@ impl Analyzer {
         &self.diagnostics
     }
 
-    // ============ Statement Analysis ============
 
     fn analyze_stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
@@ -295,10 +288,8 @@ impl Analyzer {
         init: Option<&Expr>,
         span: Span,
     ) {
-        // Resolve type annotation first (if present) for context-aware inference
         let declared_type = ty.map(|t| self.resolve_type(t));
 
-        // Infer or check type
         let var_type = if let Some(ref declared) = declared_type {
             declared.clone()
         } else if let Some(init_expr) = init {
@@ -312,8 +303,6 @@ impl Analyzer {
             Type::Error
         };
 
-        // Check initializer type matches
-        // Set expected_type for context-aware inference (e.g., empty arrays)
         if let (Some(init_expr), Some(ref expected)) = (init, &declared_type) {
             self.expected_type = Some(expected.clone());
             let init_type = self.infer_type(init_expr);
@@ -332,7 +321,6 @@ impl Analyzer {
             }
         }
 
-        // Define the variable
         let symbol = Symbol::variable(name, var_type, mutable);
         if !self.scope.define(symbol) {
             self.error(
@@ -352,7 +340,6 @@ impl Analyzer {
         _is_async: bool,
         span: Span,
     ) {
-        // Resolve parameter types
         let param_types: Vec<Type> = params
             .iter()
             .map(|p| {
@@ -362,12 +349,10 @@ impl Analyzer {
             })
             .collect();
 
-        // Resolve return type
         let ret_type = return_type
             .map(|t| self.resolve_type(t))
             .unwrap_or(Type::Void);
 
-        // Define the function in current scope
         let symbol = Symbol::function(name, param_types.clone(), ret_type.clone());
         if !self.scope.define(symbol) {
             self.error(
@@ -377,10 +362,8 @@ impl Analyzer {
             );
         }
 
-        // Create a new function scope with the return type for validation
         self.push_function_scope(ret_type.clone());
 
-        // Define parameters in the function scope
         for (param, param_type) in params.iter().zip(param_types.iter()) {
             let symbol = Symbol {
                 name: param.name.clone(),
@@ -392,7 +375,6 @@ impl Analyzer {
             self.scope.define(symbol);
         }
 
-        // Analyze function body
         for stmt in &body.statements {
             self.analyze_stmt(stmt);
         }
@@ -409,13 +391,11 @@ impl Analyzer {
         members: &[ClassMember],
         span: Span,
     ) {
-        // Push generic context if this is a generic class
         let has_generics = !type_params.is_empty();
         if has_generics {
             self.enter_generic_context(type_params);
         }
 
-        // Check parent class exists (using class resolver)
         if let Some(parent_name) = extends {
             if self.class_resolver.get_class(parent_name).is_none()
                 && self.scope.lookup(parent_name).is_none()
@@ -428,7 +408,6 @@ impl Analyzer {
             }
         }
 
-        // Check interfaces exist
         for iface in implements {
             if self.class_resolver.get_interface(iface).is_none()
                 && self.scope.lookup(iface).is_none()
@@ -441,7 +420,6 @@ impl Analyzer {
             }
         }
 
-        // Define the class in scope
         let symbol = Symbol::class(name);
         if !self.scope.define(symbol) {
             self.error(
@@ -451,14 +429,11 @@ impl Analyzer {
             );
         }
 
-        // Set current class context
         let prev_class = self.current_class.take();
         self.current_class = Some(name.to_string());
 
-        // Analyze class members in a class scope
         self.push_scope(ScopeKind::Class);
 
-        // Define 'this' in class scope
         self.scope.define(Symbol::variable(
             "هذا",
             Type::Class(name.to_string()),
@@ -524,7 +499,6 @@ impl Analyzer {
                 }
 
                 ClassMember::Constructor { params, body, .. } => {
-                    // Constructors implicitly return void
                     self.push_function_scope(Type::Void);
 
                     for param in params {
@@ -553,7 +527,6 @@ impl Analyzer {
                 } => {
                     let prop_type = self.resolve_type(ty);
 
-                    // Check default value type matches property type
                     if let Some(init_expr) = default_value {
                         let init_type = self.infer_type(init_expr);
                         if !init_type.is_compatible_with(&prop_type) {
@@ -573,7 +546,6 @@ impl Analyzer {
                         }
                     }
 
-                    // Analyze accessor bodies
                     for accessor in accessors {
                         match accessor {
                             crate::parser::PropertyAccessor::Get { body, .. } => {
@@ -621,7 +593,6 @@ impl Analyzer {
                         }
                     }
 
-                    // Define property as accessible field
                     self.scope
                         .define(Symbol::variable(prop_name, prop_type, true));
                 }
@@ -630,12 +601,10 @@ impl Analyzer {
 
         self.pop_scope();
 
-        // Pop generic context if this was a generic class
         if has_generics {
             self.exit_generic_context();
         }
 
-        // Restore previous class context
         self.current_class = prev_class;
     }
 
@@ -664,8 +633,6 @@ impl Analyzer {
         _variants: &[EnumVariant],
         span: Span,
     ) {
-        // TODO: Full enum semantic analysis in Phase 3
-        // For now, just register the enum type in scope
         let symbol = Symbol {
             name: name.to_string(),
             kind: SymbolKind::Enum,
@@ -714,7 +681,6 @@ impl Analyzer {
     }
 
     fn analyze_do_while(&mut self, body: &Block, condition: &Expr) {
-        // For do-while, body is analyzed first (it executes at least once)
         self.analyze_block(body, ScopeKind::Loop);
 
         let cond_type = self.infer_type(condition);
@@ -765,7 +731,6 @@ impl Analyzer {
     fn analyze_for_in(&mut self, variable: &str, iterable: &Expr, body: &Block, _span: Span) {
         let iter_type = self.infer_type(iterable);
 
-        // Determine element type
         let elem_type = match iter_type {
             Type::Array(inner) => *inner,
             Type::String => Type::String,
@@ -833,8 +798,6 @@ impl Analyzer {
 
         if let Some(catch_clause) = catch {
             self.push_scope(ScopeKind::Block);
-            // The catch parameter is typed as the base error class (استثناء)
-            // This ensures .رسالة (message) property access works correctly
             self.scope.define(Symbol::variable(
                 &catch_clause.param,
                 Type::Class("استثناء".to_string()),
@@ -856,7 +819,6 @@ impl Analyzer {
     fn analyze_throw(&mut self, expr: &Expr, span: Span) {
         let expr_type = self.analyze_expr(expr);
 
-        // Check that the thrown expression is an error type
         if !self.is_error_type(&expr_type) {
             self.error(
                 &format!(
@@ -873,7 +835,6 @@ impl Analyzer {
     }
 
     fn analyze_import(&mut self, items: &ImportItems, from: &str, span: Span) {
-        // Try to resolve and load the module
         let current_file = self
             .current_file
             .clone()
@@ -882,8 +843,6 @@ impl Analyzer {
         let module_path = match self.module_loader.resolve_path(&current_file, from) {
             Some(path) => path,
             None => {
-                // Module not found - fall back to registering names as Any
-                // This allows compilation to proceed with unknown modules
                 self.warn(
                     &format!(
                         "Module '{}' not found, imports will be typed as 'any'",
@@ -900,31 +859,24 @@ impl Analyzer {
             }
         };
 
-        // Load the module and clone exports to avoid borrow issues
         let module_exports = match self.module_loader.load_module(&module_path, span) {
             Ok(loaded_module) => {
-                // Clone the exports we need
                 loaded_module.exports.clone()
             }
             Err(()) => {
-                // Module loading failed - diagnostics already added by loader
-                // Merge loader diagnostics
                 let loader_diagnostics = self.module_loader.take_diagnostics();
                 self.diagnostics.extend(loader_diagnostics);
 
-                // Fall back to registering names as Any
                 self.register_imports_as_any(items);
                 return;
             }
         };
 
-        // Import symbols from the loaded module
         match items {
             ImportItems::Named(imports) => {
                 for import in imports {
                     let name = import.alias.as_ref().unwrap_or(&import.name);
                     if let Some(exported) = module_exports.get(&import.name) {
-                        // Convert ExportKind to Type
                         let ty = self.export_kind_to_type(&exported.kind, &import.name);
                         self.scope.define(Symbol::variable(name, ty, false));
                     } else {
@@ -933,18 +885,14 @@ impl Analyzer {
                             &format!("الوحدة '{}' لا تحتوي على تصدير باسم '{}'", from, import.name),
                             span,
                         );
-                        // Still register as Any to allow compilation to continue
                         self.scope.define(Symbol::variable(name, Type::Any, false));
                     }
                 }
             }
             ImportItems::Wildcard(alias) => {
-                // Create a namespace object with all exports
-                // For now, just register as Any
                 self.scope.define(Symbol::variable(alias, Type::Any, false));
             }
             ImportItems::Default(name) => {
-                // Look for default export
                 if let Some(exported) = module_exports.get("default") {
                     let ty = self.export_kind_to_type(&exported.kind, "default");
                     self.scope.define(Symbol::variable(name, ty, false));
@@ -994,18 +942,15 @@ impl Analyzer {
             .push(Diagnostic::warning(message, message_ar, span));
     }
 
-    // ============ Error Type Checking ============
 
     const ERROR_BASE_CLASSES: &'static [&'static str] = &["استثناء", "Exception", "Error"];
 
     fn is_error_type(&self, ty: &Type) -> bool {
         match ty {
             Type::Class(class_name) => {
-                // Check if it's a base error class
                 if Self::ERROR_BASE_CLASSES.contains(&class_name.as_str()) {
                     return true;
                 }
-                // Check if it inherits from a base error class
                 for base_error in Self::ERROR_BASE_CLASSES {
                     if self.class_resolver.is_subclass(class_name, base_error) {
                         return true;
@@ -1019,7 +964,6 @@ impl Analyzer {
     }
 
     fn analyze_super_constructor_call(&mut self, args: &[Expr], span: Span) -> Type {
-        // Must be inside a class
         if !self.scope.is_in_class() {
             self.error(
                 "'super()' can only be used inside a class constructor",
@@ -1029,7 +973,6 @@ impl Analyzer {
             return Type::Error;
         }
 
-        // Get current class
         let current_class_name = match &self.current_class {
             Some(name) => name.clone(),
             None => {
@@ -1042,7 +985,6 @@ impl Analyzer {
             }
         };
 
-        // Get current class info
         let parent_name = match self.class_resolver.get_class(&current_class_name) {
             Some(class_info) => match &class_info.parent {
                 Some(parent) => parent.clone(),
@@ -1062,12 +1004,10 @@ impl Analyzer {
                 }
             },
             None => {
-                // This shouldn't happen if we're inside a class
                 return Type::Error;
             }
         };
 
-        // Get parent class constructor
         let parent_constructor = match self.class_resolver.get_class(&parent_name) {
             Some(parent_info) => parent_info.constructor.clone(),
             None => {
@@ -1080,12 +1020,10 @@ impl Analyzer {
             }
         };
 
-        // Check if parent has a constructor
         match parent_constructor {
             Some(constructor) => {
                 let params = &constructor.params;
 
-                // Check argument count
                 if args.len() != params.len() {
                     self.error(
                         &format!(
@@ -1102,7 +1040,6 @@ impl Analyzer {
                     );
                 }
 
-                // Check argument types
                 for (i, (arg, (_param_name, param_type))) in
                     args.iter().zip(params.iter()).enumerate()
                 {
@@ -1127,7 +1064,6 @@ impl Analyzer {
                 }
             }
             None => {
-                // Parent has no explicit constructor, check that no args are passed
                 if !args.is_empty() {
                     self.error(
                         &format!(
@@ -1146,7 +1082,6 @@ impl Analyzer {
             }
         }
 
-        // Super constructor calls don't return a value
         Type::Void
     }
 
@@ -1160,7 +1095,6 @@ impl Analyzer {
         self.pop_scope();
     }
 
-    // ============ Expression Analysis ============
 
     fn analyze_expr(&mut self, expr: &Expr) -> Type {
         self.infer_type(expr)
@@ -1257,7 +1191,6 @@ impl Analyzer {
             }
 
             ExprKind::Call { callee, args } => {
-                // Special case: super constructor call (الأصل(...))
                 if matches!(callee.kind, ExprKind::Super) {
                     return self.analyze_super_constructor_call(args, expr.span);
                 }
@@ -1269,7 +1202,6 @@ impl Analyzer {
                         params,
                         return_type,
                     } => {
-                        // Check argument count
                         if args.len() != params.len() {
                             self.error(
                                 &format!("Expected {} arguments, got {}", params.len(), args.len()),
@@ -1278,7 +1210,6 @@ impl Analyzer {
                             );
                         }
 
-                        // Check argument types
                         for (i, (arg, param_type)) in args.iter().zip(params.iter()).enumerate() {
                             let arg_type = self.infer_type(arg);
                             if !arg_type.is_compatible_with(param_type) {
@@ -1303,7 +1234,6 @@ impl Analyzer {
                         *return_type
                     }
                     Type::Any => {
-                        // Allow calling any
                         for arg in args {
                             self.infer_type(arg);
                         }
@@ -1381,10 +1311,8 @@ impl Analyzer {
             ExprKind::Assignment { target, value } => {
                 let value_type = self.infer_type(value);
 
-                // Check if target is assignable
                 match &target.kind {
                     ExprKind::Identifier(name) => {
-                        // Clone symbol info first to avoid borrow conflicts
                         let symbol_info =
                             self.scope.lookup(name).map(|s| (s.mutable, s.ty.clone()));
 
@@ -1435,7 +1363,6 @@ impl Analyzer {
                 op: _,
                 value,
             } => {
-                // Similar to assignment but with operation
                 self.infer_type(target);
                 self.infer_type(value);
                 self.infer_type(target)
@@ -1443,7 +1370,6 @@ impl Analyzer {
 
             ExprKind::Array(elements) => {
                 if elements.is_empty() {
-                    // Use expected type for context-aware inference
                     if let Some(Type::Array(elem_ty)) = &self.expected_type {
                         Type::Array(elem_ty.clone())
                     } else {
@@ -1474,17 +1400,14 @@ impl Analyzer {
 
             ExprKind::Object(pairs) => {
                 if pairs.is_empty() {
-                    // Empty object - use expected type for context-aware inference
                     if let Some(Type::Map(key_ty, val_ty)) = &self.expected_type {
                         Type::Map(key_ty.clone(), val_ty.clone())
                     } else {
                         Type::Map(Box::new(Type::String), Box::new(Type::Any))
                     }
                 } else {
-                    // Infer value type from first element
                     let first_value_type = self.infer_type(&pairs[0].1);
 
-                    // Check if all values have the same type
                     let mut all_same = true;
                     for (_, value) in pairs.iter().skip(1) {
                         let value_type = self.infer_type(value);
@@ -1495,20 +1418,16 @@ impl Analyzer {
                     }
 
                     if all_same {
-                        // All values have the same type - use that type
                         Type::Map(Box::new(Type::String), Box::new(first_value_type))
                     } else {
-                        // Mixed types - fall back to Any
                         Type::Map(Box::new(Type::String), Box::new(Type::Any))
                     }
                 }
             }
 
             ExprKind::Lambda { params, body } => {
-                // For lambdas, use Any as placeholder since return type is inferred
                 self.push_function_scope(Type::Any);
 
-                // Extract expected parameter types from context if available
                 let expected_param_types: Option<Vec<Type>> = match &self.expected_type {
                     Some(Type::Function {
                         params: expected_params,
@@ -1521,11 +1440,9 @@ impl Analyzer {
                     .iter()
                     .enumerate()
                     .map(|(i, p)| {
-                        // Use explicit type annotation if provided
                         let ty = if let Some(type_ann) = &p.ty {
                             self.resolve_type(type_ann)
                         } else {
-                            // Try to infer from expected type context
                             expected_param_types
                                 .as_ref()
                                 .and_then(|expected| expected.get(i).cloned())
@@ -1560,7 +1477,6 @@ impl Analyzer {
                 type_args,
                 args,
             } => {
-                // Extract class name from identifier
                 let class_name = match &class.kind {
                     ExprKind::Identifier(name) => name.clone(),
                     _ => {
@@ -1573,11 +1489,9 @@ impl Analyzer {
                     }
                 };
 
-                // Extract class info from class resolver (clone to avoid borrow issues)
                 let class_info = self.class_resolver.get_class(&class_name).cloned();
 
                 if let Some(class_info) = class_info {
-                    // Validate type arguments for generic classes
                     if class_info.is_generic() {
                         if type_args.is_empty() {
                             self.error(
@@ -1600,11 +1514,9 @@ impl Analyzer {
                                 expr.span,
                             );
                         } else {
-                            // Resolve type arguments and create substitution context
                             let resolved_args: Vec<Type> =
                                 type_args.iter().map(|ta| self.resolve_type(ta)).collect();
 
-                            // Create generic context for this instantiation using GenericResolver
                             use crate::semantic::generics::GenericParam;
                             let params: Vec<GenericParam> = class_info
                                 .type_params
@@ -1617,12 +1529,9 @@ impl Analyzer {
                                 &resolved_args,
                                 expr.span,
                             ) {
-                                // Successfully created context - it can be used for substitution
-                                // For now, we just validate that instantiation succeeded
                                 drop(context);
                             }
 
-                            // Collect and report any diagnostics from the generic resolver
                             let diagnostics = self.generic_resolver.take_diagnostics();
                             for diag in diagnostics {
                                 self.diagnostics.push(diag);
@@ -1639,10 +1548,8 @@ impl Analyzer {
                         );
                     }
 
-                    // Validate constructor arguments
                     if let Some(ref ctor) = class_info.constructor {
                         let expected_params = &ctor.params;
-                        // Check argument count
                         if args.len() != expected_params.len() {
                             self.error(
                                 &format!(
@@ -1659,7 +1566,6 @@ impl Analyzer {
                             );
                         }
 
-                        // Type-check each argument
                         for (arg, (_, param_type)) in args.iter().zip(expected_params.iter()) {
                             let arg_type = self.infer_type(arg);
                             if !arg_type.is_compatible_with(param_type) {
@@ -1697,7 +1603,6 @@ impl Analyzer {
             }
 
             ExprKind::Await(inner) => {
-                // Await unwraps a promise/future
                 self.infer_type(inner)
             }
 
@@ -1755,7 +1660,6 @@ impl Analyzer {
                     self.error("'super' outside of class", "'الأصل' خارج الصنف", expr.span);
                     Type::Error
                 } else if let Some(ref class_name) = self.current_class {
-                    // Get the parent class type
                     if let Some(class) = self.class_resolver.get_class(class_name) {
                         if let Some(ref parent_name) = class.parent {
                             Type::Class(parent_name.clone())
@@ -1777,7 +1681,6 @@ impl Analyzer {
         }
     }
 
-    // ============ Member Resolution ============
 
     fn resolve_member_type(&mut self, object_type: &Type, property: &str, span: Span) -> Type {
         let mut method_resolver = MethodResolver::new(&self.class_resolver);
@@ -1790,7 +1693,6 @@ impl Analyzer {
             },
             MemberResolution::BuiltinProperty { ty, .. } => ty,
             MemberResolution::NotFound => {
-                // Check if it's a valid class type with unknown member
                 if let Type::Class(class_name) = object_type {
                     if self.class_resolver.get_class(class_name).is_some() {
                         self.error(
@@ -1811,7 +1713,6 @@ impl Analyzer {
         }
     }
 
-    // ============ Type Resolution ============
 
     fn resolve_type(&self, type_ann: &TypeAnnotation) -> Type {
         match &type_ann.kind {
@@ -1829,7 +1730,6 @@ impl Analyzer {
                 return_type: Box::new(self.resolve_type(return_type)),
             },
             TypeKind::Generic { base, args } => {
-                // Handle built-in generic types like مصفوفة<عدد> (Array<Int>)
                 match base.as_str() {
                     "مصفوفة" | "array" | "Array" => {
                         if let Some(elem_type) = args.first() {
@@ -1845,12 +1745,10 @@ impl Analyzer {
                                 Box::new(self.resolve_type(&args[1])),
                             )
                         } else {
-                            // Fallback to class type
                             parse_type_name(base)
                         }
                     }
                     _ => {
-                        // For other generics, treat as the base type for now
                         parse_type_name(base)
                     }
                 }
@@ -1859,7 +1757,6 @@ impl Analyzer {
         }
     }
 
-    // ============ Scope Management ============
 
     fn push_scope(&mut self, kind: ScopeKind) {
         let old_scope = std::mem::replace(&mut self.scope, Scope::new_global());
@@ -1877,7 +1774,6 @@ impl Analyzer {
         }
     }
 
-    // ============ Generic Context Management ============
 
     fn enter_generic_context(&mut self, type_params: &[String]) {
         use super::generics::{GenericContext, GenericParam};
@@ -1899,7 +1795,6 @@ impl Analyzer {
         self.generic_resolver.is_generic_param(name)
     }
 
-    // ============ Error Reporting ============
 
     fn error(&mut self, message: &str, message_ar: &str, span: Span) {
         self.diagnostics
@@ -1935,7 +1830,6 @@ fn resolve_type_annotation(type_ann: &TypeAnnotation) -> Type {
             return_type: Box::new(resolve_type_annotation(return_type)),
         },
         TypeKind::Generic { base, args } => {
-            // Handle built-in generic types like مصفوفة<عدد> (Array<Int>)
             match base.as_str() {
                 "مصفوفة" | "array" | "Array" => {
                     if let Some(elem_type) = args.first() {
@@ -2020,7 +1914,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ============ OOP Tests ============
 
     #[test]
     fn test_class_declaration() {
@@ -2090,7 +1983,6 @@ mod tests {
 
     #[test]
     fn test_super_outside_class() {
-        // Test super usage outside class
         let result = analyze(
             r#"
             الأصل;
@@ -2101,7 +1993,6 @@ mod tests {
 
     #[test]
     fn test_super_constructor_call() {
-        // Test super constructor call in child class
         let result = analyze(
             r#"
             صنف أب {
@@ -2124,7 +2015,6 @@ mod tests {
 
     #[test]
     fn test_super_constructor_call_wrong_args() {
-        // Test super constructor call with wrong number of arguments
         let result = analyze(
             r#"
             صنف أب {
@@ -2145,7 +2035,6 @@ mod tests {
 
     #[test]
     fn test_super_constructor_call_no_parent() {
-        // Test super constructor call in class without parent
         let result = analyze(
             r#"
             صنف أ {
@@ -2180,12 +2069,9 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    // ============ Error Handling Tests ============
 
     #[test]
     fn test_throw_error_object() {
-        // Throwing an error object should succeed
-        // Note: "خطأ" is reserved for `false`, so we use "استثناء" (exception)
         let result = analyze(
             r#"
             صنف استثناء {
@@ -2204,7 +2090,6 @@ mod tests {
 
     #[test]
     fn test_throw_error_subclass() {
-        // Throwing a subclass of استثناء should succeed
         let result = analyze(
             r#"
             صنف استثناء {
@@ -2223,7 +2108,6 @@ mod tests {
 
     #[test]
     fn test_throw_string_fails() {
-        // Throwing a string should fail
         let result = analyze(
             r#"
             دالة ف() {
@@ -2238,7 +2122,6 @@ mod tests {
 
     #[test]
     fn test_throw_number_fails() {
-        // Throwing a number should fail
         let result = analyze(
             r#"
             دالة ف() {
@@ -2253,7 +2136,6 @@ mod tests {
 
     #[test]
     fn test_throw_non_error_class_fails() {
-        // Throwing a non-error class should fail
         let result = analyze(
             r#"
             صنف شخص {
@@ -2271,8 +2153,6 @@ mod tests {
 
     #[test]
     fn test_catch_parameter_typed_as_error() {
-        // Catch parameter should be typed as استثناء
-        // This test validates that we can access .رسالة on the catch parameter
         let result = analyze(
             r#"
             صنف استثناء {
@@ -2292,7 +2172,6 @@ mod tests {
 
     #[test]
     fn test_try_catch_finally() {
-        // Complete try-catch-finally block should work
         let result = analyze(
             r#"
             صنف استثناء {

@@ -7,9 +7,6 @@ use super::diagnostic::*;
 use super::span::Span;
 use super::Language;
 
-// =============================================================================
-// DiagnosticLevel Tests
-// =============================================================================
 
 #[test]
 fn test_diagnostic_level_error_english() {
@@ -59,9 +56,6 @@ fn test_diagnostic_level_hint_arabic() {
     assert_eq!(level.arabic(), "تلميح");
 }
 
-// =============================================================================
-// Note Tests
-// =============================================================================
 
 #[test]
 fn test_note_creation() {
@@ -89,9 +83,6 @@ fn test_note_bilingual_messages() {
     assert!(note.message_ar.contains("غير مستخدم"));
 }
 
-// =============================================================================
-// Suggestion Tests
-// =============================================================================
 
 #[test]
 fn test_suggestion_creation() {
@@ -123,9 +114,6 @@ fn test_suggestion_with_code_replacement() {
     assert_eq!(suggestion.replacement, ";");
 }
 
-// =============================================================================
-// Diagnostic Creation Tests
-// =============================================================================
 
 #[test]
 fn test_diagnostic_error_creation() {
@@ -221,9 +209,6 @@ fn test_diagnostic_chained_builders() {
     assert_eq!(diag.suggestions.len(), 1);
 }
 
-// =============================================================================
-// Diagnostic Display Tests
-// =============================================================================
 
 #[test]
 fn test_diagnostic_display() {
@@ -237,9 +222,6 @@ fn test_diagnostic_display() {
     assert!(display.contains("خطأ اختباري"));
 }
 
-// =============================================================================
-// Bilingual Message Tests
-// =============================================================================
 
 #[test]
 fn test_bilingual_type_error() {
@@ -272,36 +254,26 @@ fn test_bilingual_undefined_variable() {
     let span = Span::new(0, 5, 1, 1);
     let diag = Diagnostic::error("Undefined variable 'اسم'", "متغير غير معرف 'اسم'", span);
 
-    // Both messages should reference the Arabic variable name
     assert!(diag.message.contains("اسم"));
     assert!(diag.message_ar.contains("اسم"));
 }
 
-// =============================================================================
-// Error Code Tests
-// =============================================================================
 
 #[test]
 fn test_common_error_codes() {
     let span = Span::new(0, 5, 1, 1);
 
-    // Type mismatch error
     let type_error =
         Diagnostic::error("Type mismatch", "عدم تطابق الأنماط", span).with_code("E0308");
     assert_eq!(type_error.code, Some("E0308".to_string()));
 
-    // Undefined variable
     let undef_error = Diagnostic::error("Undefined", "غير معرف", span).with_code("E0425");
     assert_eq!(undef_error.code, Some("E0425".to_string()));
 
-    // Parse error
     let parse_error = Diagnostic::error("Parse error", "خطأ تحليل", span).with_code("E0001");
     assert_eq!(parse_error.code, Some("E0001".to_string()));
 }
 
-// =============================================================================
-// Diagnostic Equality Tests
-// =============================================================================
 
 #[test]
 fn test_diagnostic_level_equality() {
@@ -310,9 +282,6 @@ fn test_diagnostic_level_equality() {
     assert_ne!(DiagnosticLevel::Error, DiagnosticLevel::Warning);
 }
 
-// =============================================================================
-// Complex Diagnostic Scenarios
-// =============================================================================
 
 #[test]
 fn test_function_signature_mismatch() {
@@ -379,9 +348,6 @@ fn test_warning_with_suggestions() {
     assert_eq!(diag.suggestions[0].replacement, "_count");
 }
 
-// =============================================================================
-// Edge Case Tests
-// =============================================================================
 
 #[test]
 fn test_empty_message_strings() {
@@ -419,20 +385,15 @@ fn test_message_with_special_characters() {
 #[test]
 fn test_message_with_unicode_normalization() {
     let span = Span::new(0, 10, 1, 1);
-    // Arabic text with potential normalization issues
     let diag = Diagnostic::error(
         "Variable 'مُتَغَيِّر' not found",
         "المتغير 'مُتَغَيِّر' غير موجود",
         span,
     );
 
-    // The message should preserve the diacritics
     assert!(diag.message.contains("مُتَغَيِّر"));
 }
 
-// =============================================================================
-// Clone and Debug Tests
-// =============================================================================
 
 #[test]
 fn test_diagnostic_clone() {

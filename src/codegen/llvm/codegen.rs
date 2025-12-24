@@ -67,29 +67,22 @@ impl LlvmCodegen {
 
         self.emit_header(&module.name)?;
 
-        // Runtime type definitions
         self.emit_runtime_types()?;
 
-        // String literals
         self.emit_string_table(module)?;
 
-        // Global variables
         self.emit_global_variables(module)?;
 
-        // Class definitions
         for class in &module.classes {
             self.emit_class_definition(class)?;
         }
 
-        // External declarations (runtime functions)
         self.emit_runtime_declarations()?;
 
-        // Function definitions
         for func in &module.functions {
             self.emit_function(func)?;
         }
 
-        // Emit C main entry point if we have __main__
         let has_main = module.functions.iter().any(|f| f.name == "__main__");
         if has_main {
             self.emit_c_main_entry()?;
@@ -111,7 +104,6 @@ impl LlvmCodegen {
 
     fn emit_header(&mut self, name: &str) -> Result<(), CodegenError> {
         emit!(self, "; ModuleID = '{}'", name);
-        // Note: source_filename is metadata only. Tarqeem supports both .trq and .ترقيم extensions
         emit!(self, "source_filename = \"{}\"", name);
         emit!(
             self,
@@ -164,11 +156,9 @@ impl LlvmCodegen {
             let llvm_type = self.type_mapper.map_type(ty);
             let global_name = mangle_name(name);
 
-            // Determine initial value
             let init_val = match init {
                 Some(Constant::Int(n)) => n.to_string(),
                 Some(Constant::Float(f)) => {
-                    // Use hex format for floats to preserve precision
                     format!("{:e}", f)
                 }
                 Some(Constant::Bool(b)) => {
@@ -180,7 +170,6 @@ impl LlvmCodegen {
                 }
                 Some(Constant::Null) => "null".to_string(),
                 Some(Constant::String(idx)) => {
-                    // String global - get pointer to the string data
                     if let Some((str_global, len)) = self.string_globals.get(idx) {
                         format!(
                             "getelementptr ([{} x i8], ptr {}, i64 0, i64 0)",
@@ -196,7 +185,6 @@ impl LlvmCodegen {
 
             emit!(self, "@{} = global {} {}", global_name, llvm_type, init_val);
 
-            // Track the global variable for later use
             self.global_vars.insert(name.clone(), global_name);
         }
         emit!(self);
@@ -220,17 +208,14 @@ impl LlvmCodegen {
     fn emit_class_definition(&mut self, class: &Class) -> Result<(), CodegenError> {
         emit!(self, "; Class: {}", class.name);
 
-        // Store field information for later use
         self.class_defs
             .insert(class.id.0.clone(), class.fields.clone());
 
-        // Generate struct type
         let type_def = self
             .type_mapper
             .generate_struct_type(&class.id, &class.fields);
         emit!(self, "{}", type_def);
 
-        // Generate vtable if class has virtual methods
         if !class.vtable.is_empty() {
             self.emit_vtable(class)?;
         }
@@ -243,7 +228,6 @@ impl LlvmCodegen {
         let mangled_class = mangle_class_name(&class.id.0);
         let vtable_name = format!("@vtable.{}", mangled_class);
 
-        // VTable is an array of function pointers
         let vtable_entries: Vec<String> = class
             .vtable
             .iter()
@@ -269,15 +253,11 @@ impl LlvmCodegen {
     fn emit_runtime_declarations(&mut self) -> Result<(), CodegenError> {
         emit!(self, "; Runtime function declarations");
 
-        // Memory allocation
         emit!(self, "declare ptr @trq_alloc(i64)");
         emit!(self, "declare void @trq_free(ptr)");
         emit!(self, "declare void @trq_retain(ptr)");
         emit!(self, "declare void @trq_release(ptr)");
 
-        // =======================================================================
-        // String operations (دوال النص)
-        // =======================================================================
         emit!(self, "declare ptr @trq_string_new(ptr, i64)");
         emit!(self, "declare ptr @trq_string_concat(ptr, ptr)");
         emit!(self, "declare i64 @trq_string_len(ptr)");
@@ -311,16 +291,12 @@ impl LlvmCodegen {
         emit!(self, "declare i64 @trq_string_compare(ptr, ptr)");
         emit!(self, "declare i1 @trq_string_equals(ptr, ptr)");
 
-        // Type conversion
         emit!(self, "declare ptr @trq_int_to_string(i64)");
         emit!(self, "declare ptr @trq_float_to_string(double)");
         emit!(self, "declare ptr @trq_bool_to_string(i1)");
         emit!(self, "declare i64 @trq_string_to_int(ptr)");
         emit!(self, "declare double @trq_string_to_float(ptr)");
 
-        // =======================================================================
-        // Array operations (دوال المصفوفة)
-        // =======================================================================
         emit!(self, "declare ptr @trq_array_new(i64, i64)");
         emit!(self, "declare i64 @trq_array_len(ptr)");
         emit!(self, "declare ptr @trq_array_get(ptr, i64)");
@@ -328,9 +304,6 @@ impl LlvmCodegen {
         emit!(self, "declare void @trq_array_push(ptr, ptr, i64)");
         emit!(self, "declare ptr @trq_array_pop(ptr)");
 
-        // =======================================================================
-        // I/O operations (دوال الإدخال والإخراج)
-        // =======================================================================
         emit!(self, "declare void @trq_print(ptr)");
         emit!(self, "declare void @trq_print_int(i64)");
         emit!(self, "declare void @trq_print_float(double)");
@@ -343,9 +316,6 @@ impl LlvmCodegen {
         emit!(self, "declare i64 @trq_input_int()");
         emit!(self, "declare double @trq_input_float()");
 
-        // =======================================================================
-        // Math operations (دوال رياضية)
-        // =======================================================================
         emit!(self, "declare double @llvm.pow.f64(double, double)");
         emit!(self, "declare i64 @trq_pow_int(i64, i64)");
         emit!(self, "declare double @trq_pow_float(double, double)");
@@ -377,7 +347,6 @@ impl LlvmCodegen {
         emit!(self, "declare i64 @trq_lcm(i64, i64)");
         emit!(self, "declare i64 @trq_factorial(i64)");
 
-        // Trigonometric functions
         emit!(self, "declare double @trq_sin(double)");
         emit!(self, "declare double @trq_cos(double)");
         emit!(self, "declare double @trq_tan(double)");
@@ -394,7 +363,6 @@ impl LlvmCodegen {
         emit!(self, "declare double @trq_to_radians(double)");
         emit!(self, "declare double @trq_to_degrees(double)");
 
-        // Random functions
         emit!(self, "declare void @trq_random_seed(i64)");
         emit!(self, "declare i64 @trq_random_int()");
         emit!(self, "declare i64 @trq_random_int_range(i64, i64)");
@@ -405,9 +373,6 @@ impl LlvmCodegen {
         );
         emit!(self, "declare i1 @trq_random_bool()");
 
-        // =======================================================================
-        // File system operations (دوال الملفات)
-        // =======================================================================
         emit!(self, "declare i1 @trq_file_exists(ptr)");
         emit!(self, "declare i1 @trq_file_is_file(ptr)");
         emit!(self, "declare i1 @trq_file_is_dir(ptr)");
@@ -434,9 +399,6 @@ impl LlvmCodegen {
         emit!(self, "declare i1 @trq_path_is_absolute(ptr)");
         emit!(self, "declare ptr @trq_path_separator()");
 
-        // =======================================================================
-        // Date/Time operations (دوال التاريخ والوقت)
-        // =======================================================================
         emit!(self, "declare ptr @trq_date_today()");
         emit!(self, "declare ptr @trq_date_parse(ptr)");
         emit!(self, "declare ptr @trq_date_from_timestamp(i64)");
@@ -467,9 +429,6 @@ impl LlvmCodegen {
         emit!(self, "declare void @trq_sleep(i64)");
         emit!(self, "declare i64 @trq_performance_now()");
 
-        // =======================================================================
-        // Network operations (دوال الشبكة)
-        // =======================================================================
         emit!(self, "declare i64 @trq_tcp_connect(ptr, i64, i64)");
         emit!(self, "declare void @trq_tcp_close(i64)");
         emit!(self, "declare i1 @trq_tcp_send(i64, ptr)");
@@ -505,14 +464,10 @@ impl LlvmCodegen {
         emit!(self, "declare ptr @trq_base64_encode(ptr)");
         emit!(self, "declare ptr @trq_base64_decode(ptr)");
 
-        // =======================================================================
-        // Exception handling
-        // =======================================================================
         emit!(self, "declare void @trq_throw(ptr)");
         emit!(self, "declare ptr @trq_get_exception()");
         emit!(self, "declare void @trq_panic(ptr)");
 
-        // C standard library
         emit!(self, "declare i64 @strlen(ptr)");
 
         emit!(self);
@@ -520,7 +475,6 @@ impl LlvmCodegen {
     }
 
     fn emit_function(&mut self, func: &Function) -> Result<(), CodegenError> {
-        // Reset per-function state
         self.var_map.clear();
         self.block_map.clear();
         self.name_counter = 0;
@@ -529,20 +483,16 @@ impl LlvmCodegen {
         self.current_func = Some(func_name.clone());
         self.current_return_type = func.return_type.clone();
 
-        // Map parameters - register both names and types
         for (i, param) in func.params.iter().enumerate() {
             let param_name = format!("%arg.{}", i);
             self.var_map.insert(param.id.0, param_name);
-            // Also register parameter types for correct call-site type lookup
             self.var_types.insert(param.id.0, param.ty.clone());
         }
 
-        // Map blocks - include block ID for unique labels
         for (i, block) in func.blocks.iter().enumerate() {
             let block_label = if i == 0 {
                 "entry".to_string()
             } else if let Some(ref label) = block.label {
-                // Include block ID to make labels unique
                 format!("{}.{}", sanitize_label(label), block.id.0)
             } else {
                 format!("bb{}", block.id.0)
@@ -550,7 +500,6 @@ impl LlvmCodegen {
             self.block_map.insert(block.id.0, block_label);
         }
 
-        // Function signature
         let return_type = self.type_mapper.map_type(&func.return_type);
         let params: Vec<String> = func
             .params
@@ -567,7 +516,6 @@ impl LlvmCodegen {
             params.join(", ")
         );
 
-        // Emit blocks
         for block in &func.blocks {
             self.emit_block(block)?;
         }
@@ -587,7 +535,6 @@ impl LlvmCodegen {
             self.emit_instruction(inst)?;
         }
 
-        // Add unreachable if block has no terminator (dead code path)
         if !block.has_terminator() {
             emit!(self, "  unreachable");
         }
@@ -609,18 +556,14 @@ impl LlvmCodegen {
                 ty,
             } => {
                 self.emit_binary(*dest, *op, *left, *right, ty)?;
-                // Track the result type
                 let result_type = match op {
-                    // Comparisons return Bool
                     BinaryOp::Eq
                     | BinaryOp::Ne
                     | BinaryOp::Lt
                     | BinaryOp::Le
                     | BinaryOp::Gt
                     | BinaryOp::Ge => IrType::Bool,
-                    // Logical operations return Bool
                     BinaryOp::And | BinaryOp::Or => IrType::Bool,
-                    // Arithmetic returns the operand type
                     _ => ty.clone(),
                 };
                 self.var_types.insert(dest.0, result_type);
@@ -633,7 +576,6 @@ impl LlvmCodegen {
                 ty,
             } => {
                 self.emit_unary(*dest, *op, *operand, ty)?;
-                // Track the result type
                 let result_type = match op {
                     UnaryOp::Not => IrType::Bool,
                     UnaryOp::Neg | UnaryOp::BitNot => ty.clone(),
@@ -658,7 +600,6 @@ impl LlvmCodegen {
             Instruction::ToString { dest, src } => {
                 let dest_name = self.get_or_create_var(*dest);
                 let src_name = self.get_var(*src)?;
-                // Dispatch based on source type
                 let src_type = self.var_types.get(&src.0).cloned();
                 match &src_type {
                     Some(IrType::Float) => {
@@ -678,11 +619,9 @@ impl LlvmCodegen {
                         .unwrap();
                     }
                     Some(IrType::String) | Some(IrType::Ptr(_)) => {
-                        // String is already a string, just copy the pointer
                         emit!(self, "  {} = bitcast ptr {} to ptr", dest_name, src_name);
                     }
                     _ => {
-                        // Default to int for Int and unknown types
                         emit!(
                             self,
                             "  {} = call ptr @trq_int_to_string(i64 {})",
@@ -691,7 +630,6 @@ impl LlvmCodegen {
                         );
                     }
                 }
-                // Mark result as string type
                 self.var_types.insert(dest.0, IrType::String);
             }
 
@@ -711,7 +649,6 @@ impl LlvmCodegen {
             Instruction::Alloca { dest, ty } => {
                 let dest_name = self.get_or_create_var(*dest);
                 let llvm_ty = self.type_mapper.map_type(ty);
-                // Track the allocated pointer type
                 self.var_types
                     .insert(dest.0, IrType::Ptr(Box::new(ty.clone())));
                 emit!(self, "  {} = alloca {}", dest_name, llvm_ty);
@@ -721,7 +658,6 @@ impl LlvmCodegen {
                 let dest_name = self.get_or_create_var(*dest);
                 let ptr_name = self.get_var(*ptr)?;
                 let llvm_ty = self.type_mapper.map_type(ty);
-                // Track the loaded value type
                 self.var_types.insert(dest.0, ty.clone());
                 emit!(self, "  {} = load {}, ptr {}", dest_name, llvm_ty, ptr_name);
             }
@@ -729,13 +665,11 @@ impl LlvmCodegen {
             Instruction::Store { ptr, value } => {
                 let ptr_name = self.get_var(*ptr)?;
                 let value_name = self.get_var(*value)?;
-                // Look up the type of the value - use ptr type info if value type unknown
                 let val_type = self
                     .var_types
                     .get(&value.0)
                     .cloned()
                     .or_else(|| {
-                        // Try to infer from ptr type (strip pointer wrapper)
                         self.var_types.get(&ptr.0).and_then(|t| {
                             if let IrType::Ptr(inner) = t {
                                 Some((**inner).clone())
@@ -744,7 +678,6 @@ impl LlvmCodegen {
                             }
                         })
                     })
-                    // Use opaque pointer (ptr) for unknown types
                     .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                 let llvm_ty = self.type_mapper.map_type(&val_type);
                 emit!(self, "  store {} {}, ptr {}", llvm_ty, value_name, ptr_name);
@@ -810,13 +743,10 @@ impl LlvmCodegen {
             } => {
                 let func_name = mangle_function_name(&func.0);
 
-                // Get proper argument types from var_types - use map_param_type for args
-                // Fall back to Any for unknown types (more compatible than Int for polymorphic code)
                 let args_str: Vec<String> = args
                     .iter()
                     .map(|a| {
                         let name = self.get_var(*a).unwrap_or("undef".to_string());
-                        // Use opaque pointer (ptr) for unknown argument types
                         let arg_ty = self
                             .var_types
                             .get(&a.0)
@@ -828,12 +758,10 @@ impl LlvmCodegen {
                     .collect();
                 let ret_type = self.type_mapper.map_type(ret_ty);
 
-                // Don't assign to destination if return type is void
                 let is_void = matches!(ret_ty, IrType::Void);
 
                 if let Some(d) = dest {
                     if is_void {
-                        // Void functions cannot have a destination - just call
                         writeln!(
                             self.output,
                             "  call {} @{}({})",
@@ -853,7 +781,6 @@ impl LlvmCodegen {
                             args_str.join(", ")
                         )
                         .unwrap();
-                        // Track return type
                         self.var_types.insert(d.0, ret_ty.clone());
                     }
                 } else {
@@ -875,12 +802,10 @@ impl LlvmCodegen {
                 ret_ty,
             } => {
                 let func_ptr_name = self.get_var(*func_ptr)?;
-                // Get proper argument types from var_types - use map_param_type for args
                 let args_str: Vec<String> = args
                     .iter()
                     .map(|a| {
                         let name = self.get_var(*a).unwrap_or("undef".to_string());
-                        // Use opaque pointer (ptr) for unknown argument types
                         let arg_ty = self
                             .var_types
                             .get(&a.0)
@@ -917,7 +842,6 @@ impl LlvmCodegen {
 
             Instruction::NewObject { dest, class } => {
                 let dest_name = self.get_or_create_var(*dest);
-                // Get size of class struct
                 let fields = self.class_defs.get(&class.0).cloned().unwrap_or_default();
                 let size: u64 = fields
                     .iter()
@@ -931,7 +855,6 @@ impl LlvmCodegen {
                     dest_name, size
                 )
                 .unwrap();
-                // Track that result is a pointer to the struct
                 self.var_types
                     .insert(dest.0, IrType::Ptr(Box::new(IrType::Struct(class.clone()))));
             }
@@ -947,7 +870,6 @@ impl LlvmCodegen {
                 let llvm_ty = self.type_mapper.map_type(ty);
                 let struct_ty = format!("%class.{}", mangle_class_name(&field.class.0));
 
-                // Get element pointer then load
                 let ptr_name = self.fresh_name("field.ptr");
                 writeln!(
                     self.output,
@@ -979,7 +901,6 @@ impl LlvmCodegen {
                     ptr_name, struct_ty, obj_name, field.index
                 )
                 .unwrap();
-                // Look up the type of the value
                 let val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
                 let llvm_ty = self.type_mapper.map_type(&val_type);
                 writeln!(
@@ -997,13 +918,10 @@ impl LlvmCodegen {
                 args,
                 ret_ty,
             } => {
-                // Direct method call (non-virtual)
                 let obj_name = self.get_var(*object)?;
-                // Method name format: ClassName::MethodName (same as how methods are defined)
                 let full_method_name = format!("{}::{}", method.class.0, method.name);
                 let method_name = mangle_function_name(&full_method_name);
 
-                // Get proper argument types from var_types (same pattern as Instruction::Call)
                 let mut all_args = vec![format!("ptr {}", obj_name)];
                 for arg in args {
                     let arg_name = self.get_var(*arg)?;
@@ -1043,14 +961,11 @@ impl LlvmCodegen {
                 args,
                 ret_ty,
             } => {
-                // Virtual method call through vtable
                 let obj_name = self.get_var(*object)?;
 
-                // Load vtable pointer from object (assume it's at offset 0)
                 let vtable_ptr = self.fresh_name("vtable.ptr");
                 emit!(self, "  {} = load ptr, ptr {}", vtable_ptr, obj_name);
 
-                // Get method pointer from vtable
                 let method_ptr_ptr = self.fresh_name("method.ptr.ptr");
                 emit!(
                     self,
@@ -1063,7 +978,6 @@ impl LlvmCodegen {
                 let method_ptr = self.fresh_name("method.ptr");
                 emit!(self, "  {} = load ptr, ptr {}", method_ptr, method_ptr_ptr);
 
-                // Call through function pointer - get proper argument types from var_types
                 let mut all_args = vec![format!("ptr {}", obj_name)];
                 for arg in args {
                     let arg_name = self.get_var(*arg)?;
@@ -1103,13 +1017,11 @@ impl LlvmCodegen {
                 let elem_size = self.type_mapper.type_size(elem_ty);
                 let len = elements.len() as i64;
 
-                // Track the array type - it returns a pointer
                 self.var_types.insert(
                     dest.0,
                     IrType::Array(Box::new(elem_ty.clone()), len as usize),
                 );
 
-                // Allocate array
                 writeln!(
                     self.output,
                     "  {} = call ptr @trq_array_new(i64 {}, i64 {})",
@@ -1117,17 +1029,14 @@ impl LlvmCodegen {
                 )
                 .unwrap();
 
-                // Initialize elements
                 for (i, elem) in elements.iter().enumerate() {
                     let elem_name = self.get_var(*elem)?;
-                    // Use the actual element type from var_types if available
                     let actual_elem_ty = self
                         .var_types
                         .get(&elem.0)
                         .cloned()
                         .unwrap_or(elem_ty.clone());
                     let llvm_elem_ty = self.type_mapper.map_type(&actual_elem_ty);
-                    // Get element pointer
                     let elem_ptr = self.fresh_name("elem.ptr");
                     writeln!(
                         self.output,
@@ -1179,7 +1088,6 @@ impl LlvmCodegen {
                     dest_name, llvm_ty, elem_ptr
                 )
                 .unwrap();
-                // Track the element type for later Store/Load operations
                 self.var_types.insert(dest.0, elem_ty.clone());
             }
 
@@ -1199,7 +1107,6 @@ impl LlvmCodegen {
                     elem_ptr, array_name, index_name
                 )
                 .unwrap();
-                // Look up the type of the value
                 let val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
                 let llvm_ty = self.type_mapper.map_type(&val_type);
                 writeln!(
@@ -1219,7 +1126,6 @@ impl LlvmCodegen {
                 let value_name = self.get_var(*value)?;
                 let llvm_ty = self.type_mapper.map_type(elem_ty);
 
-                // Get element size in bytes
                 let elem_size = match elem_ty {
                     IrType::Bool => 1,
                     IrType::Int => 8,
@@ -1228,14 +1134,11 @@ impl LlvmCodegen {
                     _ => 8,
                 };
 
-                // Create temporary storage for the value
                 let temp_ptr = self.fresh_name("push.tmp");
                 emit!(self, "  {} = alloca {}", temp_ptr, llvm_ty);
 
-                // Store the value into temp storage
                 emit!(self, "  store {} {}, ptr {}", llvm_ty, value_name, temp_ptr);
 
-                // Call trq_array_push(array_ptr, value_ptr, elem_size)
                 emit!(
                     self,
                     "  call void @trq_array_push(ptr {}, ptr {}, i64 {})",
@@ -1256,12 +1159,10 @@ impl LlvmCodegen {
                     left_name,
                     right_name
                 );
-                // Track that result is a String
                 self.var_types.insert(dest.0, IrType::String);
             }
 
             Instruction::TryBegin { catch_block } => {
-                // Exception handling - for now just emit a comment
                 let catch_label = self.get_block(*catch_block)?;
                 emit!(self, "  ; try_begin catch={}", catch_label);
             }
@@ -1305,11 +1206,9 @@ impl LlvmCodegen {
 
             Instruction::Print { value } => {
                 let val_name = self.get_var(*value)?;
-                // Dispatch based on type
                 let var_type = self.var_types.get(&value.0).cloned();
                 match &var_type {
                     Some(IrType::String) | Some(IrType::Ptr(_)) => {
-                        // Strings are already TrqString*, pass directly to trq_print
                         emit!(self, "  call void @trq_print(ptr {})", val_name);
                     }
                     Some(IrType::Float) => {
@@ -1319,11 +1218,9 @@ impl LlvmCodegen {
                         emit!(self, "  call void @trq_print_bool(i1 {})", val_name);
                     }
                     Some(IrType::Array(_, _)) => {
-                        // For arrays, call trq_print_array
                         emit!(self, "  call void @trq_print_array(ptr {})", val_name);
                     }
                     _ => {
-                        // Default to int
                         emit!(self, "  call void @trq_print_int(i64 {})", val_name);
                     }
                 }
@@ -1358,7 +1255,6 @@ impl LlvmCodegen {
             }
 
             Instruction::Nop => {
-                // No operation - emit nothing or a comment
             }
         }
 
@@ -1372,7 +1268,6 @@ impl LlvmCodegen {
         ty: &IrType,
     ) -> Result<(), CodegenError> {
         let dest_name = self.get_or_create_var(dest);
-        // Track the type for later use (e.g., in Print)
         self.var_types.insert(dest.0, ty.clone());
 
         match value {
@@ -1381,7 +1276,6 @@ impl LlvmCodegen {
             }
             Constant::Bool(b) => {
                 let val = if *b { "true" } else { "false" };
-                // For booleans, we can't use add, so we use a select trick
                 emit!(
                     self,
                     "  {} = select i1 {}, i1 true, i1 false",
@@ -1390,17 +1284,13 @@ impl LlvmCodegen {
                 );
             }
             Constant::Int(i) => {
-                // Can't just assign in LLVM - need an instruction
-                // Use add with 0 as a workaround
                 emit!(self, "  {} = add i64 {}, 0", dest_name, i);
             }
             Constant::Float(f) => {
                 emit!(self, "  {} = fadd double {:e}, 0.0", dest_name, f);
             }
             Constant::String(idx) => {
-                // Create a TrqString from the string literal
                 if let Some((global, len)) = self.string_globals.get(idx) {
-                    // Get char* pointer to the string literal
                     let tmp_ptr = format!("%tmp_strptr_{}", self.name_counter);
                     self.name_counter += 1;
                     emit!(
@@ -1409,7 +1299,6 @@ impl LlvmCodegen {
                         tmp_ptr,
                         global
                     );
-                    // Create TrqString from the char* and known length
                     emit!(
                         self,
                         "  {} = call ptr @trq_string_new(ptr {}, i64 {})",
@@ -1418,7 +1307,6 @@ impl LlvmCodegen {
                         len
                     );
                 } else {
-                    // Empty string
                     emit!(
                         self,
                         "  {} = call ptr @trq_string_new(ptr null, i64 0)",
@@ -1444,21 +1332,18 @@ impl LlvmCodegen {
         let right_name = self.get_var(right)?;
 
         let instruction = match (op, ty) {
-            // Integer arithmetic
             (BinaryOp::Add, IrType::Int) => "add i64",
             (BinaryOp::Sub, IrType::Int) => "sub i64",
             (BinaryOp::Mul, IrType::Int) => "mul i64",
             (BinaryOp::Div, IrType::Int) => "sdiv i64",
             (BinaryOp::Mod, IrType::Int) => "srem i64",
 
-            // Float arithmetic
             (BinaryOp::Add, IrType::Float) => "fadd double",
             (BinaryOp::Sub, IrType::Float) => "fsub double",
             (BinaryOp::Mul, IrType::Float) => "fmul double",
             (BinaryOp::Div, IrType::Float) => "fdiv double",
             (BinaryOp::Mod, IrType::Float) => "frem double",
 
-            // Power is a special case - needs runtime function
             (BinaryOp::Pow, IrType::Int) => {
                 writeln!(
                     self.output,
@@ -1478,14 +1363,12 @@ impl LlvmCodegen {
                 return Ok(());
             }
 
-            // Integer comparisons (result type is Bool)
             (BinaryOp::Eq, IrType::Bool) => "icmp eq i64",
             (BinaryOp::Ne, IrType::Bool) => "icmp ne i64",
             (BinaryOp::Lt, IrType::Bool) => "icmp slt i64",
             (BinaryOp::Le, IrType::Bool) => "icmp sle i64",
             (BinaryOp::Gt, IrType::Bool) => "icmp sgt i64",
             (BinaryOp::Ge, IrType::Bool) => "icmp sge i64",
-            // Also handle Int type for legacy IR
             (BinaryOp::Eq, IrType::Int) => "icmp eq i64",
             (BinaryOp::Ne, IrType::Int) => "icmp ne i64",
             (BinaryOp::Lt, IrType::Int) => "icmp slt i64",
@@ -1493,7 +1376,6 @@ impl LlvmCodegen {
             (BinaryOp::Gt, IrType::Int) => "icmp sgt i64",
             (BinaryOp::Ge, IrType::Int) => "icmp sge i64",
 
-            // Float comparisons
             (BinaryOp::Eq, IrType::Float) => "fcmp oeq double",
             (BinaryOp::Ne, IrType::Float) => "fcmp one double",
             (BinaryOp::Lt, IrType::Float) => "fcmp olt double",
@@ -1501,11 +1383,9 @@ impl LlvmCodegen {
             (BinaryOp::Gt, IrType::Float) => "fcmp ogt double",
             (BinaryOp::Ge, IrType::Float) => "fcmp oge double",
 
-            // Logical (on booleans represented as i1)
             (BinaryOp::And, IrType::Bool) => "and i1",
             (BinaryOp::Or, IrType::Bool) => "or i1",
 
-            // Bitwise
             (BinaryOp::BitAnd, IrType::Int) => "and i64",
             (BinaryOp::BitOr, IrType::Int) => "or i64",
             (BinaryOp::BitXor, IrType::Int) => "xor i64",
@@ -1615,7 +1495,6 @@ impl std::fmt::Display for CodegenError {
 impl std::error::Error for CodegenError {}
 
 fn mangle_function_name(name: &str) -> String {
-    // First check if this is a builtin function with a runtime mapping
     if let Some(runtime_name) = get_runtime_function_name(name) {
         return runtime_name.to_string();
     }
@@ -1624,9 +1503,6 @@ fn mangle_function_name(name: &str) -> String {
 
 fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
     match arabic_name {
-        // ==========================================================================
-        // String Functions (دوال النص)
-        // ==========================================================================
         "قص_نص" => Some("trq_string_substr"),
         "قص_حروف" => Some("trq_string_substr_chars"),
         "حرف_في" => Some("trq_string_char_at"),
@@ -1658,16 +1534,12 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "قارن_نص" => Some("trq_string_compare"),
         "نصوص_متساوية" => Some("trq_string_equals"),
 
-        // Type conversion
         "عدد_لنص" => Some("trq_int_to_string"),
         "عشري_لنص" => Some("trq_float_to_string"),
         "منطقي_لنص" => Some("trq_bool_to_string"),
         "نص_لعدد" => Some("trq_string_to_int"),
         "نص_لعشري" => Some("trq_string_to_float"),
 
-        // ==========================================================================
-        // File System Functions (دوال الملفات)
-        // ==========================================================================
         "ملف_موجود" => Some("trq_file_exists"),
         "هل_ملف" => Some("trq_file_is_file"),
         "هل_مجلد" => Some("trq_file_is_dir"),
@@ -1690,9 +1562,6 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "امتداد_ملف" => Some("trq_path_extension"),
         "فاصل_مسار" => Some("trq_path_separator"),
 
-        // ==========================================================================
-        // Random Functions (دوال العشوائية)
-        // ==========================================================================
         "بذرة_عشوائي" => Some("trq_random_seed"),
         "عشوائي_عدد" => Some("trq_random_int"),
         "عشوائي_عدد_بين" => Some("trq_random_int_range"),
@@ -1700,9 +1569,6 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "عشوائي_عشري_بين" => Some("trq_random_float_range"),
         "عشوائي_منطقي" => Some("trq_random_bool"),
 
-        // ==========================================================================
-        // Date/Time Functions (دوال التاريخ والوقت)
-        // ==========================================================================
         "تاريخ_اليوم" => Some("trq_date_today"),
         "حلل_تاريخ" => Some("trq_date_parse"),
         "تاريخ_من_طابع" => Some("trq_date_from_timestamp"),
@@ -1723,9 +1589,6 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "نم" => Some("trq_sleep"),
         "وقت_أداء" => Some("trq_performance_now"),
 
-        // ==========================================================================
-        // Network Functions (دوال الشبكة)
-        // ==========================================================================
         "نقل_اتصل" => Some("trq_tcp_connect"),
         "نقل_اغلق" => Some("trq_tcp_close"),
         "نقل_ارسل" => Some("trq_tcp_send"),
@@ -1755,9 +1618,6 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "ترميز_أساس64" => Some("trq_base64_encode"),
         "فك_أساس64" => Some("trq_base64_decode"),
 
-        // ==========================================================================
-        // I/O Functions (دوال الإدخال والإخراج)
-        // ==========================================================================
         "اطبع" | "طباعة" => Some("trq_print"),
         "اطبع_سطر" => Some("trq_print"), // Will add newline in wrapper
         "اطبع_خطأ" => Some("trq_print_error"),
@@ -1767,9 +1627,6 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "ادخل_عدد" => Some("trq_input_int"),
         "ادخل_عشري" => Some("trq_input_float"),
 
-        // ==========================================================================
-        // Math Functions (دوال رياضية)
-        // ==========================================================================
         "جذر" => Some("trq_sqrt"),
         "جذر_تكعيبي" => Some("trq_cbrt"),
         "لوغاريتم" => Some("trq_log"),
@@ -1796,7 +1653,6 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "قوة" => Some("trq_pow_float"),
         "قوة_عدد" => Some("trq_pow_int"),
 
-        // Trigonometric functions
         "جا" | "جيب" => Some("trq_sin"),
         "جتا" | "جيب_التمام" => Some("trq_cos"),
         "ظا" | "ظل" => Some("trq_tan"),
@@ -1813,14 +1669,10 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "الى_راديان" | "راديان" => Some("trq_to_radians"),
         "الى_درجات" | "درجات" => Some("trq_to_degrees"),
 
-        // ==========================================================================
-        // Utility Functions
-        // ==========================================================================
         "توقف" => Some("trq_panic"),
         "طول_مصفوفة" => Some("trq_array_len"),
         "الحق" => Some("trq_array_push"),
 
-        // No mapping - not a builtin
         _ => None,
     }
 }
@@ -1851,7 +1703,6 @@ fn escape_llvm_string(s: &str) -> String {
             result.push(byte as char);
         }
     }
-    // Null terminator
     result.push_str("\\00");
     result
 }
@@ -1864,10 +1715,8 @@ mod tests {
     fn test_mangle_function_name() {
         assert_eq!(mangle_function_name("main"), "main");
         assert_eq!(mangle_function_name("add_numbers"), "add_numbers");
-        // Builtin Arabic name maps to runtime function
         assert_eq!(mangle_function_name("اطبع"), "trq_print");
         assert_eq!(mangle_function_name("طباعة"), "trq_print");
-        // Non-builtin Arabic name gets mangled
         let mangled = mangle_function_name("دالتي");
         assert!(!mangled.contains("دالتي"));
         assert!(mangled.contains("_U"));

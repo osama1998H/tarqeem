@@ -54,7 +54,6 @@ pub struct IrBuilder {
     method_return_types: HashMap<String, IrType>,
     function_names: HashSet<String>,
     function_return_types: HashMap<String, IrType>,
-    // Parameters are passed by value and don't need Load instructions
     parameters: HashSet<u32>,
     global_constants: HashMap<String, (Constant, IrType)>,
     global_variables: HashSet<String>,
@@ -85,7 +84,6 @@ impl IrBuilder {
     }
 
     pub fn build(mut self, ast: &Ast) -> Result<Module> {
-        // First pass: collect global variables (VarDecls at module level)
         for stmt in &ast.statements {
             if let StmtKind::VarDecl {
                 name,
@@ -95,36 +93,27 @@ impl IrBuilder {
                 ..
             } = &stmt.kind
             {
-                // Determine the IR type
                 let ir_type = if let Some(t) = ty {
                     self.convert_type(t)
                 } else if let Some(init_expr) = init {
                     if let Some(const_val) = self.try_evaluate_const(init_expr) {
                         self.const_to_type(&const_val)
                     } else {
-                        // Infer type from expression for non-constant expressions
-                        // (e.g., جديد شخص(...) should return Ptr(Struct(شخص)))
                         self.infer_expr_type(init_expr)
                     }
                 } else {
-                    // No type annotation and no initializer - default to Int
                     IrType::Int
                 };
 
-                // Try to get constant initializer value
                 let init_val = init.as_ref().and_then(|e| self.try_evaluate_const(e));
 
-                // Add to module globals
                 self.module
                     .globals
                     .push((name.clone(), ir_type.clone(), init_val.clone()));
 
-                // Track as global variable
                 self.global_variables.insert(name.clone());
                 self.global_var_types.insert(name.clone(), ir_type.clone());
 
-                // For immutable globals with constant initializers, also keep in global_constants
-                // This allows them to be inlined as constants for optimization
                 if !mutable {
                     if let Some(const_val) = init_val {
                         self.global_constants
@@ -134,14 +123,12 @@ impl IrBuilder {
             }
         }
 
-        // Second pass: collect class definitions
         for stmt in &ast.statements {
             if let StmtKind::ClassDecl { name, members, .. } = &stmt.kind {
                 self.collect_class(name, members)?;
             }
         }
 
-        // Third pass: collect function signatures
         for stmt in &ast.statements {
             if let StmtKind::FuncDecl {
                 name,
@@ -154,15 +141,12 @@ impl IrBuilder {
             }
         }
 
-        // Fourth pass: generate IR for all statements
-        // Create a main function to hold top-level code
         let mut has_top_level_code = false;
         for stmt in &ast.statements {
             match &stmt.kind {
                 StmtKind::FuncDecl { .. }
                 | StmtKind::ClassDecl { .. }
                 | StmtKind::InterfaceDecl { .. } => {
-                    // These are declarations, not executable code
                 }
                 _ => {
                     has_top_level_code = true;
@@ -180,7 +164,6 @@ impl IrBuilder {
         }
 
         if has_top_level_code {
-            // Add return if not already present
             if let Some(ref func) = self.current_function {
                 if let Some(block) = func.blocks.last() {
                     if !block.has_terminator() {
@@ -215,7 +198,6 @@ impl IrBuilder {
                     return_type,
                     ..
                 } => {
-                    // Store method return type
                     let ret_ty = return_type
                         .as_ref()
                         .map(|t| self.convert_type(t))
@@ -229,7 +211,6 @@ impl IrBuilder {
 
         self.class_fields.insert(name.to_string(), fields.clone());
 
-        // Create the class in the module
         let class_id = ClassId(name.to_string());
         let mut class = Class::new(class_id, name.to_string());
         class.fields = fields;
@@ -244,10 +225,8 @@ impl IrBuilder {
         _params: &[Param],
         return_type: &Option<TypeAnnotation>,
     ) -> Result<()> {
-        // Register the function name for identifier resolution
         self.function_names.insert(name.to_string());
 
-        // Store the return type for proper typing of recursive and cross-function calls
         let ret_ty = return_type
             .as_ref()
             .map(|t| self.convert_type(t))
@@ -266,26 +245,20 @@ impl IrBuilder {
         let func_id = FuncId(name.clone());
         let mut func = Function::new(func_id, name, params.clone(), return_type);
 
-        // Initialize counters
         self.var_counter = params.len() as u32;
         self.block_counter = 0;
 
-        // Create entry block
         let entry_block = BasicBlock::with_label(BlockId(0), "entry".to_string());
         func.blocks.push(entry_block);
         self.current_block = BlockId(0);
         self.block_counter = 1;
 
-        // Add parameters to variable scope
-        // Clear variables to prevent leakage from previous scopes into function
         self.push_scope();
         self.variables.clear();
         self.parameters.clear();
         for param in &params {
             self.variables.insert(param.name.clone(), param.id);
-            // Mark this VarId as a parameter (passed by value, not an alloca)
             self.parameters.insert(param.id.0);
-            // Track the parameter's type
             self.var_types.insert(param.id.0, param.ty.clone());
         }
 
@@ -359,7 +332,6 @@ impl IrBuilder {
             TypeKind::Simple(name) => self.convert_simple_type(name),
             TypeKind::Array(inner) => IrType::Array(Box::new(self.convert_type(inner)), 0),
             TypeKind::Map(_key, _value) => {
-                // Maps are represented as struct pointers for now
                 IrType::Ptr(Box::new(IrType::Void))
             }
             TypeKind::Function {
@@ -370,7 +342,6 @@ impl IrBuilder {
                 ret: Box::new(self.convert_type(return_type)),
             },
             TypeKind::Generic { base, args } => {
-                // Handle built-in generic types like مصفوفة<عدد> (Array<Int>)
                 match base.as_str() {
                     "مصفوفة" | "array" | "Array" => {
                         if let Some(elem_type) = args.first() {
@@ -380,17 +351,14 @@ impl IrBuilder {
                         }
                     }
                     "قاموس" | "map" | "Map" | "dict" | "Dict" => {
-                        // Maps are represented as struct pointers for now
                         IrType::Ptr(Box::new(IrType::Void))
                     }
                     _ => {
-                        // For other generics, treat as the base type
                         self.convert_simple_type(base)
                     }
                 }
             }
             TypeKind::Optional(inner) => {
-                // Optionals are represented as nullable pointers
                 IrType::Ptr(Box::new(self.convert_type(inner)))
             }
         }
@@ -519,12 +487,9 @@ impl IrBuilder {
                 ..
             } => self.build_class_decl(name, extends.as_ref(), implements, members),
             StmtKind::InterfaceDecl { .. } => {
-                // Interfaces don't generate runtime code
                 Ok(())
             }
             StmtKind::EnumDecl { .. } => {
-                // TODO: Implement enum IR generation
-                // For now, enums are handled at semantic level
                 Ok(())
             }
             StmtKind::If {
@@ -556,7 +521,6 @@ impl IrBuilder {
             } => self.build_try(body, catch.as_ref(), finally.as_ref()),
             StmtKind::Throw(expr) => self.build_throw(expr),
             StmtKind::Import { .. } => {
-                // Imports are handled at a different stage
                 Ok(())
             }
             StmtKind::Export(inner) => self.build_stmt(inner),
@@ -574,14 +538,9 @@ impl IrBuilder {
         ty: Option<&TypeAnnotation>,
         init: Option<&Expr>,
     ) -> Result<()> {
-        // Check if this is a global variable (already collected in first pass)
         if self.global_variables.contains(name) {
-            // Global variables are handled separately - they're stored in module.globals
-            // However, if there's a non-constant initializer, we need to emit runtime init code
             if let Some(init_expr) = init {
-                // Check if this is NOT a constant expression (can't be evaluated at compile time)
                 if self.try_evaluate_const(init_expr).is_none() {
-                    // Non-constant initializer - emit GlobalStore at runtime
                     let value = self.build_expr(init_expr)?;
                     self.emit(Instruction::GlobalStore {
                         name: name.to_string(),
@@ -589,12 +548,9 @@ impl IrBuilder {
                     });
                 }
             }
-            // Don't create local variable for globals
             return Ok(());
         }
 
-        // Local variable handling (existing logic)
-        // Determine the type from annotation or infer from initializer
         let ir_type = if let Some(t) = ty {
             self.convert_type(t)
         } else if let Some(init_expr) = init {
@@ -603,23 +559,19 @@ impl IrBuilder {
             IrType::Ptr(Box::new(IrType::Void))
         };
 
-        // Allocate space for the variable
         let ptr = self.new_var();
         self.emit(Instruction::Alloca {
             dest: ptr,
             ty: ir_type.clone(),
         });
 
-        // Track the variable's type
         self.var_types.insert(ptr.0, ir_type.clone());
 
-        // If there's an initializer, evaluate and store it
         if let Some(init_expr) = init {
             let value = self.build_expr(init_expr)?;
             self.emit(Instruction::Store { ptr, value });
         }
 
-        // Record the variable location
         self.variables.insert(name.to_string(), ptr);
 
         Ok(())
@@ -635,7 +587,6 @@ impl IrBuilder {
                 Literal::Null => IrType::Ptr(Box::new(IrType::Void)),
             },
             ExprKind::Array(elements) => {
-                // Infer element type from first element
                 let elem_ty = if let Some(first) = elements.first() {
                     self.infer_expr_type(first)
                 } else {
@@ -653,7 +604,6 @@ impl IrBuilder {
                 | AstBinaryOp::And
                 | AstBinaryOp::Or => IrType::Bool,
                 AstBinaryOp::Add => {
-                    // Handle string concatenation
                     let left_ty = self.infer_expr_type(left);
                     let right_ty = self.infer_expr_type(right);
                     if matches!(left_ty, IrType::String) || matches!(right_ty, IrType::String) {
@@ -666,7 +616,6 @@ impl IrBuilder {
                     }
                 }
                 AstBinaryOp::Sub | AstBinaryOp::Mul | AstBinaryOp::Div | AstBinaryOp::Mod => {
-                    // Float if either operand is float
                     let left_ty = self.infer_expr_type(left);
                     let right_ty = self.infer_expr_type(right);
                     if matches!(left_ty, IrType::Float) || matches!(right_ty, IrType::Float) {
@@ -684,7 +633,6 @@ impl IrBuilder {
                 | AstUnaryOp::PreDec
                 | AstUnaryOp::PostInc
                 | AstUnaryOp::PostDec => {
-                    // Preserve operand type (Int or Float)
                     let operand_ty = self.infer_expr_type(operand);
                     match operand_ty {
                         IrType::Float => IrType::Float,
@@ -693,7 +641,6 @@ impl IrBuilder {
                 }
             },
             ExprKind::New { class, .. } => {
-                // New returns a pointer to a heap-allocated object
                 if let ExprKind::Identifier(name) = &class.kind {
                     IrType::Ptr(Box::new(IrType::Struct(ClassId(name.clone()))))
                 } else {
@@ -701,21 +648,18 @@ impl IrBuilder {
                 }
             }
             ExprKind::Identifier(name) => {
-                // Look up the variable's type - check local first, then global
                 if let Some(ptr) = self.lookup_var(name) {
                     self.var_types
                         .get(&ptr.0)
                         .cloned()
                         .unwrap_or(IrType::Ptr(Box::new(IrType::Void)))
                 } else if let Some(global_ty) = self.global_var_types.get(name).cloned() {
-                    // Global variable - return its tracked type
                     global_ty
                 } else {
                     IrType::Ptr(Box::new(IrType::Void))
                 }
             }
             ExprKind::Index { object, .. } => {
-                // Get element type from array
                 let obj_ty = self.infer_expr_type(object);
                 if let IrType::Array(elem, _) = obj_ty {
                     (*elem).clone()
@@ -724,7 +668,6 @@ impl IrBuilder {
                 }
             }
             ExprKind::Member { object, property } => {
-                // Get field type from class if known
                 let obj_ty = self.infer_expr_type(object);
                 if let IrType::Struct(class_id) = obj_ty {
                     self.get_field_type(&class_id.0, property)
@@ -733,7 +676,6 @@ impl IrBuilder {
                 }
             }
             ExprKind::Call { callee, .. } => {
-                // Get function return type if known
                 if let ExprKind::Identifier(name) = &callee.kind {
                     self.get_function_return_type(name)
                 } else {
@@ -741,11 +683,9 @@ impl IrBuilder {
                 }
             }
             ExprKind::Ternary { then_expr, .. } => {
-                // Return type of the 'then' branch
                 self.infer_expr_type(then_expr)
             }
             ExprKind::This => {
-                // Look up the type of 'this' from the first parameter (which is always 'this')
                 if let Some(var_id) = self.lookup_var("هذا").or_else(|| self.lookup_var("this"))
                 {
                     self.var_types
@@ -757,12 +697,9 @@ impl IrBuilder {
                 }
             }
             ExprKind::Super => {
-                // 'super' refers to the parent class
-                // Get the current class name from the function being built
                 if let Some(ref func) = self.current_function {
                     if let Some(idx) = func.name.find("::") {
                         let current_class_name = &func.name[..idx];
-                        // Find the parent class
                         if let Some(parent_class_id) = self
                             .module
                             .classes
@@ -774,7 +711,6 @@ impl IrBuilder {
                         }
                     }
                 }
-                // Fallback: return same type as 'this'
                 if let Some(var_id) = self.lookup_var("هذا").or_else(|| self.lookup_var("this"))
                 {
                     self.var_types
@@ -797,7 +733,6 @@ impl IrBuilder {
         body: &Block,
         is_async: bool,
     ) -> Result<()> {
-        // Convert parameters
         let ir_params: Vec<Parameter> = params
             .iter()
             .enumerate()
@@ -819,28 +754,22 @@ impl IrBuilder {
             .unwrap_or(IrType::Void);
         let is_void_function = ret_type == IrType::Void;
 
-        // Save current function state
         let saved_function = self.current_function.take();
         let saved_block = self.current_block;
         let saved_var_counter = self.var_counter;
         let saved_block_counter = self.block_counter;
         let saved_variables = self.variables.clone();
 
-        // Begin the new function
         self.begin_function(name.to_string(), ir_params, ret_type)?;
 
         if let Some(ref mut func) = self.current_function {
             func.is_async = is_async;
         }
 
-        // Build the body
         for stmt in &body.statements {
             self.build_stmt(stmt)?;
         }
 
-        // Add implicit return if needed - check CURRENT block, not last block
-        // After if-else, current block is the merge block which may need a return
-        // Only add implicit return for void functions - non-void functions must have explicit returns
         let needs_return = if is_void_function {
             if let Some(ref func) = self.current_function {
                 let current_block_id = self.current_block;
@@ -859,10 +788,8 @@ impl IrBuilder {
             self.emit(Instruction::Return { value: None });
         }
 
-        // End this function
         self.end_function()?;
 
-        // Restore previous state
         self.current_function = saved_function;
         self.current_block = saved_block;
         self.var_counter = saved_var_counter;
@@ -879,7 +806,6 @@ impl IrBuilder {
         _implements: &[String],
         members: &[ClassMember],
     ) -> Result<()> {
-        // Update the class with parent info
         if let Some(parent) = extends {
             for class in &mut self.module.classes {
                 if class.name == name {
@@ -889,7 +815,6 @@ impl IrBuilder {
             }
         }
 
-        // Generate methods
         for member in members {
             match member {
                 ClassMember::Method {
@@ -900,10 +825,8 @@ impl IrBuilder {
                     is_async,
                     ..
                 } => {
-                    // Generate method as a function with mangled name
                     let mangled_name = format!("{}::{}", name, method_name);
 
-                    // Add 'this' as first parameter
                     let mut method_params: Vec<Parameter> = vec![Parameter {
                         id: VarId(0),
                         name: "هذا".to_string(), // "this" in Arabic
@@ -927,18 +850,15 @@ impl IrBuilder {
                         .map(|t| self.convert_type(t))
                         .unwrap_or(IrType::Void);
 
-                    // Save state
                     let saved_function = self.current_function.take();
                     let saved_variables = self.variables.clone();
 
-                    // Build the method
                     self.begin_function(mangled_name, method_params, ret_type)?;
 
                     if let Some(ref mut func) = self.current_function {
                         func.is_async = *is_async;
                     }
 
-                    // Add 'this' to scope
                     self.variables.insert("هذا".to_string(), VarId(0));
                     self.variables.insert("this".to_string(), VarId(0));
 
@@ -946,7 +866,6 @@ impl IrBuilder {
                         self.build_stmt(stmt)?;
                     }
 
-                    // Add implicit return
                     if let Some(ref func) = self.current_function {
                         if let Some(block) = func.blocks.last() {
                             if !block.has_terminator() {
@@ -957,12 +876,10 @@ impl IrBuilder {
 
                     self.end_function()?;
 
-                    // Restore state
                     self.current_function = saved_function;
                     self.variables = saved_variables;
                 }
                 ClassMember::Constructor { params, body, .. } => {
-                    // Constructor is a special method
                     let mangled_name = format!("{}::منشئ", name);
 
                     let mut ctor_params: Vec<Parameter> = vec![Parameter {
@@ -983,11 +900,9 @@ impl IrBuilder {
                         });
                     }
 
-                    // Save state
                     let saved_function = self.current_function.take();
                     let saved_variables = self.variables.clone();
 
-                    // Build constructor
                     self.begin_function(mangled_name, ctor_params, IrType::Void)?;
 
                     self.variables.insert("هذا".to_string(), VarId(0));
@@ -1007,12 +922,10 @@ impl IrBuilder {
 
                     self.end_function()?;
 
-                    // Restore state
                     self.current_function = saved_function;
                     self.variables = saved_variables;
                 }
                 ClassMember::Field { .. } => {
-                    // Fields are already collected
                 }
 
                 ClassMember::Property {
@@ -1022,15 +935,12 @@ impl IrBuilder {
                     is_static,
                     ..
                 } => {
-                    // Properties generate synthetic getter/setter methods
                     let prop_type = self.convert_type(ty);
 
-                    // Check for getter accessor
                     let has_getter = accessors
                         .iter()
                         .any(|a| matches!(a, crate::parser::PropertyAccessor::Get { .. }));
 
-                    // Generate getter method if accessor exists or auto-property
                     if has_getter || accessors.is_empty() {
                         let getter_name = format!("{}::__احصل_{}", name, prop_name);
                         let getter_params = if *is_static {
@@ -1043,7 +953,6 @@ impl IrBuilder {
                             }]
                         };
 
-                        // Save current state
                         let saved_function = self.current_function.take();
                         let saved_variables = std::mem::take(&mut self.variables);
 
@@ -1053,7 +962,6 @@ impl IrBuilder {
                             self.variables.insert("هذا".to_string(), VarId(0));
                         }
 
-                        // Find the getter accessor body
                         for accessor in accessors {
                             if let crate::parser::PropertyAccessor::Get { body, .. } = accessor {
                                 match body {
@@ -1073,7 +981,6 @@ impl IrBuilder {
                             }
                         }
 
-                        // For auto-property, return backing field
                         if accessors.is_empty() {
                             let this_var = VarId(0);
                             let backing_field = format!("_{}", prop_name);
@@ -1095,17 +1002,14 @@ impl IrBuilder {
 
                         self.end_function()?;
 
-                        // Restore state
                         self.current_function = saved_function;
                         self.variables = saved_variables;
                     }
 
-                    // Check for setter accessor
                     let has_setter = accessors
                         .iter()
                         .any(|a| matches!(a, crate::parser::PropertyAccessor::Set { .. }));
 
-                    // Generate setter method if accessor exists or auto-property
                     if has_setter || accessors.is_empty() {
                         let setter_name = format!("{}::__عيّن_{}", name, prop_name);
                         let mut setter_params = if *is_static {
@@ -1123,7 +1027,6 @@ impl IrBuilder {
                             ty: prop_type.clone(),
                         });
 
-                        // Save current state
                         let saved_function = self.current_function.take();
                         let saved_variables = std::mem::take(&mut self.variables);
 
@@ -1136,7 +1039,6 @@ impl IrBuilder {
                             self.variables.insert("قيمة".to_string(), VarId(0));
                         }
 
-                        // Find the setter accessor body
                         for accessor in accessors {
                             if let crate::parser::PropertyAccessor::Set {
                                 param_name, body, ..
@@ -1153,7 +1055,6 @@ impl IrBuilder {
                             }
                         }
 
-                        // For auto-property, set backing field
                         if accessors.is_empty() {
                             let this_var = VarId(0);
                             let value_var = VarId(1);
@@ -1172,7 +1073,6 @@ impl IrBuilder {
                         self.emit(Instruction::Return { value: None });
                         self.end_function()?;
 
-                        // Restore state
                         self.current_function = saved_function;
                         self.variables = saved_variables;
                     }
@@ -1194,7 +1094,6 @@ impl IrBuilder {
         let then_block = self.new_block(Some("then".to_string()));
         let merge_block = self.new_block(Some("merge".to_string()));
 
-        // Only create else block if there's an else branch
         let else_target = if else_branch.is_some() {
             self.new_block(Some("else".to_string()))
         } else {
@@ -1207,7 +1106,6 @@ impl IrBuilder {
             else_block: else_target,
         });
 
-        // Build then branch
         self.switch_to_block(then_block);
         self.push_scope();
         for stmt in &then_branch.statements {
@@ -1215,7 +1113,6 @@ impl IrBuilder {
         }
         self.pop_scope();
 
-        // Jump to merge if no terminator
         if let Some(ref func) = self.current_function {
             if let Some(block) = func.get_block(self.current_block) {
                 if !block.has_terminator() {
@@ -1226,7 +1123,6 @@ impl IrBuilder {
             }
         }
 
-        // Build else branch if present
         if let Some(else_body) = else_branch {
             self.switch_to_block(else_target);
             self.push_scope();
@@ -1255,10 +1151,8 @@ impl IrBuilder {
         let body_block = self.new_block(Some("while.body".to_string()));
         let exit_block = self.new_block(Some("while.exit".to_string()));
 
-        // Jump to condition
         self.emit(Instruction::Jump { target: cond_block });
 
-        // Build condition
         self.switch_to_block(cond_block);
         let cond_var = self.build_expr(condition)?;
         self.emit(Instruction::Branch {
@@ -1267,10 +1161,8 @@ impl IrBuilder {
             else_block: exit_block,
         });
 
-        // Push loop context
         self.loop_stack.push((cond_block, exit_block));
 
-        // Build body
         self.switch_to_block(body_block);
         self.push_scope();
         for stmt in &body.statements {
@@ -1278,7 +1170,6 @@ impl IrBuilder {
         }
         self.pop_scope();
 
-        // Jump back to condition
         if let Some(ref func) = self.current_function {
             if let Some(block) = func.get_block(self.current_block) {
                 if !block.has_terminator() {
@@ -1287,7 +1178,6 @@ impl IrBuilder {
             }
         }
 
-        // Pop loop context
         self.loop_stack.pop();
 
         self.switch_to_block(exit_block);
@@ -1299,13 +1189,10 @@ impl IrBuilder {
         let cond_block = self.new_block(Some("dowhile.cond".to_string()));
         let exit_block = self.new_block(Some("dowhile.exit".to_string()));
 
-        // Jump to body first (do-while executes body at least once)
         self.emit(Instruction::Jump { target: body_block });
 
-        // Push loop context (continue goes to condition, break goes to exit)
         self.loop_stack.push((cond_block, exit_block));
 
-        // Build body
         self.switch_to_block(body_block);
         self.push_scope();
         for stmt in &body.statements {
@@ -1313,7 +1200,6 @@ impl IrBuilder {
         }
         self.pop_scope();
 
-        // Jump to condition after body
         if let Some(ref func) = self.current_function {
             if let Some(block) = func.get_block(self.current_block) {
                 if !block.has_terminator() {
@@ -1322,7 +1208,6 @@ impl IrBuilder {
             }
         }
 
-        // Build condition
         self.switch_to_block(cond_block);
         let cond_var = self.build_expr(condition)?;
         self.emit(Instruction::Branch {
@@ -1331,7 +1216,6 @@ impl IrBuilder {
             else_block: exit_block,
         });
 
-        // Pop loop context
         self.loop_stack.pop();
 
         self.switch_to_block(exit_block);
@@ -1347,7 +1231,6 @@ impl IrBuilder {
     ) -> Result<()> {
         self.push_scope();
 
-        // Build init
         if let Some(init_stmt) = init {
             self.build_stmt(init_stmt)?;
         }
@@ -1357,10 +1240,8 @@ impl IrBuilder {
         let update_block = self.new_block(Some("for.update".to_string()));
         let exit_block = self.new_block(Some("for.exit".to_string()));
 
-        // Jump to condition
         self.emit(Instruction::Jump { target: cond_block });
 
-        // Build condition
         self.switch_to_block(cond_block);
         if let Some(cond_expr) = condition {
             let cond_var = self.build_expr(cond_expr)?;
@@ -1370,20 +1251,16 @@ impl IrBuilder {
                 else_block: exit_block,
             });
         } else {
-            // No condition means infinite loop (until break)
             self.emit(Instruction::Jump { target: body_block });
         }
 
-        // Push loop context (continue goes to update, break goes to exit)
         self.loop_stack.push((update_block, exit_block));
 
-        // Build body
         self.switch_to_block(body_block);
         for stmt in &body.statements {
             self.build_stmt(stmt)?;
         }
 
-        // Jump to update
         if let Some(ref func) = self.current_function {
             if let Some(block) = func.get_block(self.current_block) {
                 if !block.has_terminator() {
@@ -1394,14 +1271,12 @@ impl IrBuilder {
             }
         }
 
-        // Build update
         self.switch_to_block(update_block);
         if let Some(update_expr) = update {
             self.build_expr(update_expr)?;
         }
         self.emit(Instruction::Jump { target: cond_block });
 
-        // Pop loop context
         self.loop_stack.pop();
 
         self.pop_scope();
@@ -1410,19 +1285,15 @@ impl IrBuilder {
     }
 
     fn build_for_in(&mut self, variable: &str, iterable: &Expr, body: &Block) -> Result<()> {
-        // For now, implement as a simple indexed loop
-        // Later this should use iterator protocol
 
         let array_var = self.build_expr(iterable)?;
 
-        // Get array length
         let len_var = self.new_var();
         self.emit(Instruction::ArrayLen {
             dest: len_var,
             array: array_var,
         });
 
-        // Create index variable
         let index_ptr = self.new_var();
         self.emit(Instruction::Alloca {
             dest: index_ptr,
@@ -1446,7 +1317,6 @@ impl IrBuilder {
 
         self.emit(Instruction::Jump { target: cond_block });
 
-        // Condition: index < len
         self.switch_to_block(cond_block);
         let index_val = self.new_var();
         self.emit(Instruction::Load {
@@ -1468,14 +1338,11 @@ impl IrBuilder {
             else_block: exit_block,
         });
 
-        // Push loop context
         self.loop_stack.push((update_block, exit_block));
 
-        // Body
         self.switch_to_block(body_block);
         self.push_scope();
 
-        // Get current element
         let index_val2 = self.new_var();
         self.emit(Instruction::Load {
             dest: index_val2,
@@ -1483,7 +1350,6 @@ impl IrBuilder {
             ty: IrType::Int,
         });
 
-        // Determine element type from array type
         let elem_ty = if let Some(array_ty) = self.var_types.get(&array_var.0) {
             match array_ty {
                 IrType::Array(inner, _) => (**inner).clone(),
@@ -1505,7 +1371,6 @@ impl IrBuilder {
             elem_ty: elem_ty.clone(),
         });
 
-        // Create alloca for the loop variable and store the element
         let elem_ptr = self.new_var();
         self.emit(Instruction::Alloca {
             dest: elem_ptr,
@@ -1516,11 +1381,9 @@ impl IrBuilder {
             value: elem,
         });
 
-        // Track the element type
         self.var_types.insert(elem.0, elem_ty.clone());
         self.var_types.insert(elem_ptr.0, elem_ty);
 
-        // Bind to variable (the alloca pointer, not the value)
         self.variables.insert(variable.to_string(), elem_ptr);
 
         for stmt in &body.statements {
@@ -1539,7 +1402,6 @@ impl IrBuilder {
             }
         }
 
-        // Update: index++
         self.switch_to_block(update_block);
         let index_val3 = self.new_var();
         self.emit(Instruction::Load {
@@ -1567,7 +1429,6 @@ impl IrBuilder {
         });
         self.emit(Instruction::Jump { target: cond_block });
 
-        // Pop loop context
         self.loop_stack.pop();
 
         self.switch_to_block(exit_block);
@@ -1578,15 +1439,12 @@ impl IrBuilder {
         let match_val = self.build_expr(expr)?;
         let exit_block = self.new_block(Some("match.exit".to_string()));
 
-        // Create blocks for each arm
         let arm_blocks: Vec<BlockId> = arms
             .iter()
             .enumerate()
             .map(|(i, _)| self.new_block(Some(format!("match.arm{}", i))))
             .collect();
 
-        // Build condition chain with proper handling for multi-pattern arms
-        // Each pattern gets its own check block to ensure proper control flow
         for (i, arm) in arms.iter().enumerate() {
             let patterns = &arm.patterns;
 
@@ -1601,15 +1459,11 @@ impl IrBuilder {
                     ty: IrType::Bool,
                 });
 
-                // Determine the else block (what to do if pattern doesn't match)
                 let else_block = if p_idx + 1 < patterns.len() {
-                    // More patterns in this arm - create block for next pattern check
                     self.new_block(Some(format!("match.arm{}.pat{}", i, p_idx + 1)))
                 } else if i + 1 < arms.len() {
-                    // No more patterns in this arm - go to next arm's first pattern
                     self.new_block(Some(format!("match.check{}", i + 1)))
                 } else {
-                    // Last pattern of last arm - go to exit
                     exit_block
                 };
 
@@ -1619,12 +1473,10 @@ impl IrBuilder {
                     else_block,
                 });
 
-                // Switch to the else block for the next iteration
                 self.switch_to_block(else_block);
             }
         }
 
-        // Build arm bodies
         for (i, arm) in arms.iter().enumerate() {
             self.switch_to_block(arm_blocks[i]);
             self.push_scope();
@@ -1689,20 +1541,16 @@ impl IrBuilder {
         let finally_block = self.new_block(Some("finally".to_string()));
         let exit_block = self.new_block(Some("try.exit".to_string()));
 
-        // Begin try region
         self.emit(Instruction::TryBegin { catch_block });
 
-        // Build try body
         self.push_scope();
         for stmt in &body.statements {
             self.build_stmt(stmt)?;
         }
         self.pop_scope();
 
-        // End try region
         self.emit(Instruction::TryEnd);
 
-        // Jump to finally (or exit if no finally)
         if finally.is_some() {
             self.emit(Instruction::Jump {
                 target: finally_block,
@@ -1711,12 +1559,10 @@ impl IrBuilder {
             self.emit(Instruction::Jump { target: exit_block });
         }
 
-        // Build catch block
         self.switch_to_block(catch_block);
         if let Some(catch_clause) = catch {
             self.push_scope();
 
-            // Get the exception
             let exception_var = self.new_var();
             self.emit(Instruction::GetException {
                 dest: exception_var,
@@ -1738,7 +1584,6 @@ impl IrBuilder {
             self.emit(Instruction::Jump { target: exit_block });
         }
 
-        // Build finally block
         if let Some(finally_body) = finally {
             self.switch_to_block(finally_block);
             self.push_scope();
@@ -1810,7 +1655,6 @@ impl IrBuilder {
             Literal::Null => (Constant::Null, IrType::Ptr(Box::new(IrType::Void))),
         };
 
-        // Track the literal's type
         self.var_types.insert(dest.0, ty.clone());
 
         self.emit(Instruction::Const { dest, value, ty });
@@ -1819,20 +1663,16 @@ impl IrBuilder {
 
     fn build_identifier(&mut self, name: &str) -> Result<VarId> {
         if let Some(var_id) = self.lookup_var(name) {
-            // Check if this is a function parameter (passed by value)
             if self.parameters.contains(&var_id.0) {
-                // Parameters are values, not pointers - return directly
                 return Ok(var_id);
             }
 
-            // Get the actual type from tracking (for local variables)
             let var_type = self
                 .var_types
                 .get(&var_id.0)
                 .cloned()
                 .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
 
-            // Load the value from the variable's location (alloca)
             let dest = self.new_var();
             self.emit(Instruction::Load {
                 dest,
@@ -1840,12 +1680,10 @@ impl IrBuilder {
                 ty: var_type.clone(),
             });
 
-            // Track the loaded value's type
             self.var_types.insert(dest.0, var_type);
 
             Ok(dest)
         } else if self.function_names.contains(name) {
-            // Function reference - emit a function pointer constant
             let dest = self.new_var();
             self.emit(Instruction::Const {
                 dest,
@@ -1854,7 +1692,6 @@ impl IrBuilder {
             });
             Ok(dest)
         } else if let Some((const_val, const_ty)) = self.global_constants.get(name).cloned() {
-            // Global constant - emit the constant value directly (inlined for optimization)
             let dest = self.new_var();
             self.emit(Instruction::Const {
                 dest,
@@ -1864,7 +1701,6 @@ impl IrBuilder {
             self.var_types.insert(dest.0, const_ty);
             Ok(dest)
         } else if let Some(var_ty) = self.global_var_types.get(name).cloned() {
-            // Mutable global variable - emit GlobalLoad
             let dest = self.new_var();
             self.emit(Instruction::GlobalLoad {
                 dest,
@@ -1874,7 +1710,6 @@ impl IrBuilder {
             self.var_types.insert(dest.0, var_ty);
             Ok(dest)
         } else {
-            // Undefined identifier - report error
             Err(IrError::new(
                 format!("Undefined identifier: '{}'", name),
                 format!("معرّف غير معرّف: '{}'", name),
@@ -1886,7 +1721,6 @@ impl IrBuilder {
         let left_var = self.build_expr(left)?;
         let right_var = self.build_expr(right)?;
 
-        // Get operand types for better type inference
         let left_ty = self
             .var_types
             .get(&left_var.0)
@@ -1898,13 +1732,11 @@ impl IrBuilder {
             .cloned()
             .unwrap_or(IrType::Int);
 
-        // Handle string concatenation with type coercion
         if matches!(op, AstBinaryOp::Add) {
             let is_left_string = matches!(left_ty, IrType::String);
             let is_right_string = matches!(right_ty, IrType::String);
 
             if is_left_string || is_right_string {
-                // Convert non-string operands to strings
                 let left_str = if is_left_string {
                     left_var
                 } else {
@@ -1917,7 +1749,6 @@ impl IrBuilder {
                     self.convert_to_string(right_var, &right_ty)?
                 };
 
-                // Emit string concatenation
                 let dest = self.new_var();
                 self.emit(Instruction::StringConcat {
                     dest,
@@ -1946,7 +1777,6 @@ impl IrBuilder {
             AstBinaryOp::Or => BinaryOp::Or,
         };
 
-        // Determine result type based on operation and operand types
         let result_ty = match ir_op {
             BinaryOp::Eq
             | BinaryOp::Ne
@@ -1962,7 +1792,6 @@ impl IrBuilder {
             | BinaryOp::Div
             | BinaryOp::Mod
             | BinaryOp::Pow => {
-                // Promote to Float if either operand is Float
                 if matches!(left_ty, IrType::Float) || matches!(right_ty, IrType::Float) {
                     IrType::Float
                 } else {
@@ -1981,7 +1810,6 @@ impl IrBuilder {
             ty: result_ty.clone(),
         });
 
-        // Track the result type
         self.var_types.insert(dest.0, result_ty);
 
         Ok(dest)
@@ -2009,7 +1837,6 @@ impl IrBuilder {
     fn build_unary(&mut self, op: AstUnaryOp, operand: &Expr) -> Result<VarId> {
         match op {
             AstUnaryOp::Neg => {
-                // Negation: get operand type and value
                 let operand_type = self.infer_expr_type(operand);
                 let operand_var = self.build_expr(operand)?;
 
@@ -2052,7 +1879,6 @@ impl IrBuilder {
         is_increment: bool,
         is_prefix: bool,
     ) -> Result<VarId> {
-        // Must be an identifier (lvalue)
         let name = match &operand.kind {
             ExprKind::Identifier(name) => name.clone(),
             _ => {
@@ -2063,7 +1889,6 @@ impl IrBuilder {
             }
         };
 
-        // Check if it's a local or global variable
         let is_local = self.lookup_var(&name).is_some();
         let is_global = self.global_variables.contains(&name);
 
@@ -2074,7 +1899,6 @@ impl IrBuilder {
             ));
         }
 
-        // Determine the type
         let result_ty = if is_local {
             let ptr = self.lookup_var(&name).unwrap();
             let var_type = self.var_types.get(&ptr.0).cloned().unwrap_or(IrType::Int);
@@ -2083,7 +1907,6 @@ impl IrBuilder {
                 _ => IrType::Int,
             }
         } else {
-            // Global variable
             let var_type = self
                 .global_var_types
                 .get(&name)
@@ -2095,7 +1918,6 @@ impl IrBuilder {
             }
         };
 
-        // Load current value
         let old_val = self.new_var();
         if is_local {
             let ptr = self.lookup_var(&name).unwrap();
@@ -2105,7 +1927,6 @@ impl IrBuilder {
                 ty: result_ty.clone(),
             });
         } else {
-            // Global variable - use GlobalLoad
             self.emit(Instruction::GlobalLoad {
                 dest: old_val,
                 name: name.clone(),
@@ -2114,7 +1935,6 @@ impl IrBuilder {
         }
         self.var_types.insert(old_val.0, result_ty.clone());
 
-        // Create constant 1
         let one = self.new_var();
         let const_val = if matches!(result_ty, IrType::Float) {
             Constant::Float(1.0)
@@ -2128,7 +1948,6 @@ impl IrBuilder {
         });
         self.var_types.insert(one.0, result_ty.clone());
 
-        // Compute new value: old_val +/- 1
         let new_val = self.new_var();
         let op = if is_increment {
             BinaryOp::Add
@@ -2144,7 +1963,6 @@ impl IrBuilder {
         });
         self.var_types.insert(new_val.0, result_ty);
 
-        // Store new value back to the variable
         if is_local {
             let ptr = self.lookup_var(&name).unwrap();
             self.emit(Instruction::Store {
@@ -2152,37 +1970,30 @@ impl IrBuilder {
                 value: new_val,
             });
         } else {
-            // Global variable - use GlobalStore
             self.emit(Instruction::GlobalStore {
                 name: name.clone(),
                 value: new_val,
             });
         }
 
-        // Return appropriate value: new_val for prefix, old_val for postfix
         Ok(if is_prefix { new_val } else { old_val })
     }
 
     fn build_call(&mut self, callee: &Expr, args: &[Expr]) -> Result<VarId> {
-        // Special case: super constructor call (الأصل(...))
         if matches!(callee.kind, ExprKind::Super) {
             return self.build_super_constructor_call(args);
         }
 
-        // Build arguments
         let arg_vars: Vec<VarId> = args
             .iter()
             .map(|a| self.build_expr(a))
             .collect::<Result<Vec<_>>>()?;
 
-        // Check if it's a built-in function
         if let ExprKind::Identifier(name) = &callee.kind {
             if name == "اطبع" || name == "print" {
-                // Special handling for print
                 if let Some(arg) = arg_vars.first() {
                     self.emit(Instruction::Print { value: *arg });
                 }
-                // Return void
                 let dest = self.new_var();
                 self.emit(Instruction::Const {
                     dest,
@@ -2193,10 +2004,8 @@ impl IrBuilder {
                 return Ok(dest);
             }
 
-            // Look up function return type if available
             let ret_ty = self.get_function_return_type(name);
 
-            // Regular function call
             let dest = self.new_var();
             self.emit(Instruction::Call {
                 dest: Some(dest),
@@ -2208,13 +2017,10 @@ impl IrBuilder {
             return Ok(dest);
         }
 
-        // Method call or indirect call
         if let ExprKind::Member { object, property } = &callee.kind {
-            // Get object type to find class name
             let obj_type = self.infer_expr_type(object);
             let obj_var = self.build_expr(object)?;
 
-            // Check for built-in array methods
             let is_array = match &obj_type {
                 IrType::Array(_, _) => true,
                 IrType::Ptr(inner) => matches!(inner.as_ref(), IrType::Array(_, _) | IrType::Void),
@@ -2222,12 +2028,9 @@ impl IrBuilder {
             };
 
             if is_array {
-                // Handle built-in array methods
                 match property.as_str() {
                     "ألحق" | "push" | "أضف" | "add" => {
-                        // Array push/append
                         if let Some(value_var) = arg_vars.first() {
-                            // Get element type from array type or argument type
                             let elem_ty = match &obj_type {
                                 IrType::Array(inner, _) => (**inner).clone(),
                                 IrType::Ptr(inner) => match inner.as_ref() {
@@ -2249,13 +2052,11 @@ impl IrBuilder {
                                 value: *value_var,
                                 elem_ty,
                             });
-                            // Push returns the array for chaining
                             self.var_types.insert(obj_var.0, obj_type);
                             return Ok(obj_var);
                         }
                     }
                     "طول" | "length" | "len" => {
-                        // Array length
                         let dest = self.new_var();
                         self.emit(Instruction::ArrayLen {
                             dest,
@@ -2268,7 +2069,6 @@ impl IrBuilder {
                 }
             }
 
-            // Extract class ID from type (handle both Struct and Ptr(Struct))
             let class_id = match &obj_type {
                 IrType::Struct(class_id) => class_id.clone(),
                 IrType::Ptr(inner) => {
@@ -2281,7 +2081,6 @@ impl IrBuilder {
                 _ => ClassId("".to_string()),
             };
 
-            // Look up method return type
             let full_method_name = format!("{}::{}", class_id.0, property);
             let ret_ty = self
                 .method_return_types
@@ -2289,7 +2088,6 @@ impl IrBuilder {
                 .cloned()
                 .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
 
-            // Method call
             let dest = self.new_var();
             self.emit(Instruction::CallMethod {
                 dest: Some(dest),
@@ -2305,7 +2103,6 @@ impl IrBuilder {
             return Ok(dest);
         }
 
-        // Generic indirect call
         let callee_var = self.build_expr(callee)?;
         let ret_ty = IrType::Ptr(Box::new(IrType::Void));
         let dest = self.new_var();
@@ -2320,19 +2117,16 @@ impl IrBuilder {
     }
 
     fn get_function_return_type(&self, name: &str) -> IrType {
-        // First check the pre-collected function signatures (for recursive/forward calls)
         if let Some(ret_ty) = self.function_return_types.get(name) {
             return ret_ty.clone();
         }
 
-        // Then check module functions (for already-built functions)
         for func in &self.module.functions {
             if func.name == name || func.id.0 == name {
                 return func.return_type.clone();
             }
         }
 
-        // Default to void pointer for unknown functions
         IrType::Ptr(Box::new(IrType::Void))
     }
 
@@ -2341,7 +2135,6 @@ impl IrBuilder {
         let obj_var = self.build_expr(object)?;
         let dest = self.new_var();
 
-        // Extract class ID from type (handle both Struct and Ptr(Struct))
         let class_id_opt = match &obj_type {
             IrType::Struct(class_id) => Some(class_id.clone()),
             IrType::Ptr(inner) => {
@@ -2354,7 +2147,6 @@ impl IrBuilder {
             _ => None,
         };
 
-        // Get field info from class fields if available
         let (field_ty, field_index, class_id) = if let Some(class_id) = class_id_opt {
             if let Some((idx, ty)) = self.get_field_info(&class_id.0, property) {
                 (ty, idx, class_id)
@@ -2412,7 +2204,6 @@ impl IrBuilder {
         let idx_var = self.build_expr(index)?;
         let dest = self.new_var();
 
-        // Get element type from array type if available
         let elem_ty = if let IrType::Array(elem, _) = &obj_type {
             (**elem).clone()
         } else {
@@ -2436,13 +2227,11 @@ impl IrBuilder {
         match &target.kind {
             ExprKind::Identifier(name) => {
                 if let Some(ptr) = self.lookup_var(name) {
-                    // Local variable assignment
                     self.emit(Instruction::Store {
                         ptr,
                         value: value_var,
                     });
                 } else if self.global_variables.contains(name) {
-                    // Global variable assignment
                     self.emit(Instruction::GlobalStore {
                         name: name.clone(),
                         value: value_var,
@@ -2455,11 +2244,9 @@ impl IrBuilder {
                 }
             }
             ExprKind::Member { object, property } => {
-                // Get object type to find class info
                 let obj_type = self.infer_expr_type(object);
                 let obj_var = self.build_expr(object)?;
 
-                // Extract class ID from type (handle both Struct and Ptr(Struct))
                 let class_id_opt = match &obj_type {
                     IrType::Struct(class_id) => Some(class_id.clone()),
                     IrType::Ptr(inner) => {
@@ -2472,7 +2259,6 @@ impl IrBuilder {
                     _ => None,
                 };
 
-                // Look up class and field index
                 let (class_id, field_index) = if let Some(class_id) = class_id_opt {
                     let index = self
                         .get_field_info(&class_id.0, property)
@@ -2519,11 +2305,9 @@ impl IrBuilder {
         op: AstBinaryOp,
         value: &Expr,
     ) -> Result<VarId> {
-        // First load the current value
         let current = self.build_expr(target)?;
         let increment = self.build_expr(value)?;
 
-        // Perform the operation
         let ir_op = match op {
             AstBinaryOp::Add => BinaryOp::Add,
             AstBinaryOp::Sub => BinaryOp::Sub,
@@ -2542,14 +2326,11 @@ impl IrBuilder {
             ty: IrType::Int,
         });
 
-        // Store back based on target type
         match &target.kind {
             ExprKind::Identifier(name) => {
                 if let Some(ptr) = self.lookup_var(name) {
-                    // Local variable
                     self.emit(Instruction::Store { ptr, value: result });
                 } else if self.global_variables.contains(name) {
-                    // Global variable
                     self.emit(Instruction::GlobalStore {
                         name: name.clone(),
                         value: result,
@@ -2594,7 +2375,6 @@ impl IrBuilder {
     }
 
     fn build_array(&mut self, elements: &[Expr]) -> Result<VarId> {
-        // Infer element type from first element
         let elem_ty = if let Some(first) = elements.first() {
             self.infer_expr_type(first)
         } else {
@@ -2619,7 +2399,6 @@ impl IrBuilder {
     }
 
     fn build_object(&mut self, fields: &[(String, Expr)]) -> Result<VarId> {
-        // Objects are represented as anonymous structs for now
         let dest = self.new_var();
         let class_id = ClassId("__anonymous__".to_string());
         self.emit(Instruction::NewObject {
@@ -2645,7 +2424,6 @@ impl IrBuilder {
     }
 
     fn build_lambda(&mut self, params: &[Param], body: &LambdaBody) -> Result<VarId> {
-        // Generate a unique name for the lambda
         let lambda_name = format!("__lambda_{}", self.var_counter);
 
         let ir_params: Vec<Parameter> = params
@@ -2664,11 +2442,9 @@ impl IrBuilder {
             })
             .collect();
 
-        // Save state
         let saved_function = self.current_function.take();
         let saved_variables = self.variables.clone();
 
-        // Build lambda as a function
         self.begin_function(
             lambda_name.clone(),
             ir_params,
@@ -2686,7 +2462,6 @@ impl IrBuilder {
                 for stmt in &block.statements {
                     self.build_stmt(stmt)?;
                 }
-                // Add implicit return if needed
                 if let Some(ref func) = self.current_function {
                     if let Some(blk) = func.blocks.last() {
                         if !blk.has_terminator() {
@@ -2699,11 +2474,9 @@ impl IrBuilder {
 
         self.end_function()?;
 
-        // Restore state
         self.current_function = saved_function;
         self.variables = saved_variables;
 
-        // Return a reference to the lambda function
         let dest = self.new_var();
         self.emit(Instruction::Const {
             dest,
@@ -2718,7 +2491,6 @@ impl IrBuilder {
     }
 
     fn build_new(&mut self, class: &Expr, args: &[Expr]) -> Result<VarId> {
-        // Get class name
         let class_name = if let ExprKind::Identifier(name) = &class.kind {
             name.clone()
         } else {
@@ -2727,23 +2499,19 @@ impl IrBuilder {
 
         let class_id = ClassId(class_name.clone());
 
-        // Allocate object
         let dest = self.new_var();
         self.emit(Instruction::NewObject {
             dest,
             class: class_id.clone(),
         });
 
-        // Track the object type
         self.var_types.insert(dest.0, IrType::Struct(class_id));
 
-        // Build constructor arguments
         let arg_vars: Vec<VarId> = args
             .iter()
             .map(|a| self.build_expr(a))
             .collect::<Result<Vec<_>>>()?;
 
-        // Call constructor
         let ctor_name = format!("{}::منشئ", class_name);
         let mut ctor_args = vec![dest];
         ctor_args.extend(arg_vars);
@@ -2759,8 +2527,6 @@ impl IrBuilder {
     }
 
     fn build_await(&mut self, inner: &Expr) -> Result<VarId> {
-        // For now, just evaluate the inner expression
-        // Real async support would require more complex transformation
         self.build_expr(inner)
     }
 
@@ -2782,7 +2548,6 @@ impl IrBuilder {
             else_block,
         });
 
-        // Build then branch
         self.switch_to_block(then_block);
         let then_var = self.build_expr(then_expr)?;
         let then_exit_block = self.current_block;
@@ -2790,7 +2555,6 @@ impl IrBuilder {
             target: merge_block,
         });
 
-        // Build else branch
         self.switch_to_block(else_block);
         let else_var = self.build_expr(else_expr)?;
         let else_exit_block = self.current_block;
@@ -2798,21 +2562,16 @@ impl IrBuilder {
             target: merge_block,
         });
 
-        // Merge with phi
         self.switch_to_block(merge_block);
         let result = self.new_var();
 
-        // Infer the Phi node type from the incoming values
-        // Use the type of the first branch, or fall back to the else branch type
         let phi_type = self
             .var_types
             .get(&then_var.0)
             .cloned()
             .or_else(|| self.var_types.get(&else_var.0).cloned())
-            // Use opaque pointer (ptr) for unknown types
             .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
 
-        // Track the result type
         self.var_types.insert(result.0, phi_type.clone());
 
         self.emit(Instruction::Phi {
@@ -2847,7 +2606,6 @@ impl IrBuilder {
     }
 
     fn build_super_constructor_call(&mut self, args: &[Expr]) -> Result<VarId> {
-        // Get 'this' reference
         let this_var = self
             .lookup_var("هذا")
             .or_else(|| self.lookup_var("this"))
@@ -2858,8 +2616,6 @@ impl IrBuilder {
                 )
             })?;
 
-        // Get current class name from the current function name
-        // Function names for constructors are in format: "ClassName::منشئ"
         let current_class_name = match &self.current_function {
             Some(func) => {
                 if let Some(idx) = func.name.find("::") {
@@ -2879,7 +2635,6 @@ impl IrBuilder {
             }
         };
 
-        // Find the parent class
         let parent_class_name = self
             .module
             .classes
@@ -2894,20 +2649,16 @@ impl IrBuilder {
                 )
             })?;
 
-        // Build argument expressions
         let arg_vars: Vec<VarId> = args
             .iter()
             .map(|a| self.build_expr(a))
             .collect::<Result<Vec<_>>>()?;
 
-        // Build the call to parent constructor: ParentClass::منشئ(this, args...)
         let parent_ctor_name = format!("{}::منشئ", parent_class_name);
 
-        // Prepend 'this' to the arguments
         let mut call_args = vec![this_var];
         call_args.extend(arg_vars);
 
-        // Generate the call
         let dest = self.new_var();
         self.emit(Instruction::Call {
             dest: Some(dest),
@@ -2942,7 +2693,6 @@ mod tests {
     fn test_simple_var_decl() {
         let source = "متغير س = 5";
         let module = build_ir(source).expect("Failed to build IR");
-        // Top-level variable declarations are now global variables
         assert_eq!(module.globals.len(), 1);
         let (name, ty, init) = &module.globals[0];
         assert_eq!(name, "س");
@@ -2971,7 +2721,6 @@ mod tests {
         "#;
         let module = build_ir(source).expect("Failed to build IR");
         let main = &module.functions[0];
-        // Should have entry, then, and merge blocks
         assert!(main.blocks.len() >= 3);
     }
 
@@ -2985,7 +2734,6 @@ mod tests {
         "#;
         let module = build_ir(source).expect("Failed to build IR");
         let main = &module.functions[0];
-        // Should have entry, cond, body, and exit blocks
         assert!(main.blocks.len() >= 4);
     }
 
@@ -3016,7 +2764,6 @@ mod tests {
     fn test_global_constant() {
         let source = "ثابت باي = 3";
         let module = build_ir(source).expect("Failed to build IR");
-        // Should have one global variable
         assert_eq!(module.globals.len(), 1);
         let (name, ty, init) = &module.globals[0];
         assert_eq!(name, "باي");
@@ -3045,7 +2792,6 @@ mod tests {
         let module = build_ir(source).expect("Failed to build IR");
         assert_eq!(module.globals.len(), 3);
 
-        // Check all globals are present
         let names: Vec<&String> = module.globals.iter().map(|(n, _, _)| n).collect();
         assert!(names.contains(&&"س".to_string()));
         assert!(names.contains(&&"ص".to_string()));
@@ -3063,15 +2809,12 @@ mod tests {
         "#;
         let module = build_ir(source).expect("Failed to build IR");
 
-        // Should have one global
         assert_eq!(module.globals.len(), 1);
 
-        // Should have the زد function
         let increment_fn = module.functions.iter().find(|f| f.name == "زد");
         assert!(increment_fn.is_some());
 
         let func = increment_fn.unwrap();
-        // Function should have GlobalLoad and GlobalStore instructions
         let has_global_load = func.blocks.iter().any(|block| {
             block
                 .instructions
@@ -3117,10 +2860,8 @@ mod tests {
         "#;
         let module = build_ir(source).expect("Failed to build IR");
 
-        // No globals - local variable stays local
         assert_eq!(module.globals.len(), 0);
 
-        // Function should exist with Alloca for local variable
         let test_fn = module.functions.iter().find(|f| f.name == "اختبار");
         assert!(test_fn.is_some());
 

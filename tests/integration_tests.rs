@@ -21,16 +21,12 @@ fn interpret_source(source: &str) -> Result<String, String> {
     use tarqeem::parser::Parser;
     use tarqeem::semantic::Analyzer;
 
-    // Wrap source with file markers
     let wrapped_source = wrap_with_markers(source);
 
-    // Parse
     let mut parser = Parser::new(&wrapped_source);
     let ast = parser.parse().map_err(|e| e.message)?;
 
-    // Analyze
     let mut analyzer = Analyzer::new();
-    // Add stdlib path
     let stdlib_path = project_root().join("stdlib_trq");
     if stdlib_path.exists() {
         analyzer.add_search_path(stdlib_path);
@@ -44,13 +40,11 @@ fn interpret_source(source: &str) -> Result<String, String> {
             .join("\n"));
     }
 
-    // Build IR
     let ir_builder = IrBuilder::new("test".to_string());
     let ir_module = ir_builder
         .build(&ast)
         .map_err(|e| format!("{}: {}", e.message, e.message_ar))?;
 
-    // Execute
     let mut interpreter = Interpreter::new(ir_module);
     let result = interpreter.run().map_err(|e| format!("{:?}", e))?;
 
@@ -82,7 +76,6 @@ fn analyzes_ok(source: &str) -> bool {
     };
 
     let mut analyzer = Analyzer::new();
-    // Add stdlib path
     let stdlib_path = project_root().join("stdlib_trq");
     if stdlib_path.exists() {
         analyzer.add_search_path(stdlib_path);
@@ -91,9 +84,6 @@ fn analyzes_ok(source: &str) -> bool {
     analyzer.analyze(&ast).is_ok()
 }
 
-// =============================================================================
-// Pipeline Tests - Basic Language Features
-// =============================================================================
 
 mod pipeline {
     use super::*;
@@ -218,9 +208,6 @@ mod pipeline {
     }
 }
 
-// =============================================================================
-// Builtin Function Tests
-// =============================================================================
 
 mod builtins {
     use super::*;
@@ -271,7 +258,6 @@ mod builtins {
 
     #[test]
     fn test_type_conversion_str() {
-        // Test string conversion function exists
         let source = r#"
 متغير أ = نص(42)
 "#;
@@ -280,7 +266,6 @@ mod builtins {
 
     #[test]
     fn test_type_conversion_bool() {
-        // Test boolean conversion function exists
         let source = r#"
 متغير أ = منطقي(1)
 "#;
@@ -289,7 +274,6 @@ mod builtins {
 
     #[test]
     fn test_type_conversion_int() {
-        // Test int conversion function exists (عدد)
         let source = r#"
 متغير أ = عدد(3.14)
 "#;
@@ -298,7 +282,6 @@ mod builtins {
 
     #[test]
     fn test_type_conversion_float() {
-        // Test float conversion function exists (عدد_عشري)
         let source = r#"
 متغير أ = عدد_عشري(42)
 "#;
@@ -344,9 +327,6 @@ mod builtins {
     }
 }
 
-// =============================================================================
-// Example Files Tests
-// =============================================================================
 
 mod examples {
     use super::*;
@@ -356,7 +336,6 @@ mod examples {
         let path = project_root().join("examples/مرحبا.ترقيم");
         if path.exists() {
             let source = fs::read_to_string(&path).expect("Failed to read example file");
-            // Example files already have file markers (بسم_الله / الحمد_لله)
             assert!(
                 parses_ok_with_markers(&source),
                 "Example file مرحبا.ترقيم failed to parse"
@@ -369,7 +348,6 @@ mod examples {
         let path = project_root().join("examples/اختبار_بسيط.ترقيم");
         if path.exists() {
             let source = fs::read_to_string(&path).expect("Failed to read example file");
-            // Example files already have file markers (بسم_الله / الحمد_لله)
             assert!(
                 parses_ok_with_markers(&source),
                 "Example file اختبار_بسيط.ترقيم failed to parse"
@@ -382,7 +360,6 @@ mod examples {
         let path = project_root().join("examples/متغيرات.ترقيم");
         if path.exists() {
             let source = fs::read_to_string(&path).expect("Failed to read example file");
-            // Example files already have file markers (بسم_الله / الحمد_لله)
             assert!(
                 parses_ok_with_markers(&source),
                 "Example file متغيرات.ترقيم failed to parse"
@@ -395,7 +372,6 @@ mod examples {
         let path = project_root().join("examples/اختبار_مجموعات.ترقيم");
         if path.exists() {
             let source = fs::read_to_string(&path).expect("Failed to read example file");
-            // Example files already have file markers (بسم_الله / الحمد_لله)
             assert!(
                 parses_ok_with_markers(&source),
                 "Example file اختبار_مجموعات.ترقيم failed to parse"
@@ -404,16 +380,12 @@ mod examples {
     }
 }
 
-// =============================================================================
-// Interpreter Execution Tests
-// =============================================================================
 
 mod interpreter {
     use super::*;
 
     #[test]
     fn test_arithmetic_execution() {
-        // This test verifies that basic arithmetic works in the interpreter
         let source = r#"
 دالة رئيسية() -> عدد {
     متغير أ = 5
@@ -421,7 +393,6 @@ mod interpreter {
     أرجع أ + ب
 }
 "#;
-        // Just verify it parses and analyzes for now
         assert!(analyzes_ok(source));
     }
 
@@ -460,9 +431,6 @@ mod interpreter {
     }
 }
 
-// =============================================================================
-// Error Handling Tests
-// =============================================================================
 
 mod errors {
     use super::*;
@@ -483,21 +451,15 @@ mod errors {
 
     #[test]
     fn test_missing_return_type() {
-        // This should fail if the function declares a return type but doesn't return
         let source = r#"
 دالة خطأ() -> عدد {
     متغير س = 5
 }
 "#;
-        // Note: This might pass depending on the semantic analyzer's strictness
-        // The test documents expected behavior
         let _ = analyzes_ok(source);
     }
 }
 
-// =============================================================================
-// Bilingual Keyword Tests
-// =============================================================================
 
 mod bilingual {
     use super::*;

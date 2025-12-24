@@ -13,7 +13,6 @@ use std::path::{Component, Path, PathBuf};
 pub const DEFAULT_REGISTRY: &str = "https://registry.tarqeem.dev";
 
 fn validate_path_component(component: &str, field_name: &str) -> PackageResult<()> {
-    // Check for empty string
     if component.is_empty() {
         return Err(PackageError::InvalidPackageName(format!(
             "{} cannot be empty / {} لا يمكن أن يكون فارغاً",
@@ -21,7 +20,6 @@ fn validate_path_component(component: &str, field_name: &str) -> PackageResult<(
         )));
     }
 
-    // Check for path traversal sequences
     if component.contains("..") || component.contains('/') || component.contains('\\') {
         return Err(PackageError::InvalidPackageName(format!(
             "{} contains invalid characters (path traversal attempt) / {} يحتوي على أحرف غير صالحة (محاولة اجتياز المسار)",
@@ -29,7 +27,6 @@ fn validate_path_component(component: &str, field_name: &str) -> PackageResult<(
         )));
     }
 
-    // Check for null bytes
     if component.contains('\0') {
         return Err(PackageError::InvalidPackageName(format!(
             "{} contains null bytes / {} يحتوي على بايتات فارغة",
@@ -43,12 +40,10 @@ fn validate_path_component(component: &str, field_name: &str) -> PackageResult<(
 fn validate_extraction_path(entry_path: &Path, target: &Path) -> PackageResult<PathBuf> {
     let full_path = target.join(entry_path);
 
-    // Canonicalize would require the path to exist, so we normalize manually
     let mut normalized = PathBuf::new();
     for component in full_path.components() {
         match component {
             Component::ParentDir => {
-                // Don't allow going above target
                 if !normalized.pop() {
                     return Err(PackageError::CacheError(
                         "Archive contains path traversal (zip-slip attack) / الأرشيف يحتوي على اجتياز مسار (هجوم zip-slip)".to_string()
@@ -62,7 +57,6 @@ fn validate_extraction_path(entry_path: &Path, target: &Path) -> PackageResult<P
         }
     }
 
-    // Verify the normalized path starts with target
     if !normalized.starts_with(target) {
         return Err(PackageError::CacheError(
             "Archive entry escapes target directory (zip-slip attack) / عنصر الأرشيف يهرب من المجلد المستهدف (هجوم zip-slip)".to_string()
@@ -116,12 +110,10 @@ impl Cache {
     }
 
     pub fn get_package_info(&self, name: &str) -> PackageResult<PackageInfo> {
-        // Check in-memory cache first
         if let Some(info) = self.package_cache.get(name) {
             return Ok(info.clone());
         }
 
-        // Check local index cache
         let index_path = self.root.join("index").join(name).join("versions.json");
         if index_path.exists() {
             let content = fs::read_to_string(&index_path)?;
@@ -130,8 +122,6 @@ impl Cache {
             }
         }
 
-        // For now, return a "not found" error since we don't have a live registry
-        // In a full implementation, we would fetch from the registry here
         Err(PackageError::PackageNotFound(name.to_string()))
     }
 
@@ -169,7 +159,6 @@ impl Cache {
     pub fn download_and_verify(&self, pkg: &ResolvedPackage) -> PackageResult<PathBuf> {
         let pkg_path = self.get_package_path(&pkg.name, &pkg.version)?;
 
-        // Skip if already cached
         if pkg_path.exists() {
             return Ok(pkg_path);
         }
@@ -195,10 +184,7 @@ impl Cache {
         _expected_checksum: &str,
         target: &Path,
     ) -> PackageResult<()> {
-        // For now, this is a stub. In production, we'd use reqwest
-        // to download the tarball and verify the checksum.
 
-        // Simulate download for local development
         if url.starts_with("file://") {
             let source = PathBuf::from(url.trim_start_matches("file://"));
             return self.copy_from_path(&source, target);
@@ -211,12 +197,10 @@ impl Cache {
     }
 
     fn clone_from_git(&self, url: &str, branch: Option<&str>, target: &Path) -> PackageResult<()> {
-        // Create parent directory
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        // Use git command to clone
         let mut cmd = std::process::Command::new("git");
         cmd.arg("clone");
 
@@ -250,12 +234,10 @@ impl Cache {
             ));
         }
 
-        // Create parent directory
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        // Copy directory recursively
         self.copy_dir_recursive(source, target)?;
 
         Ok(())
@@ -270,7 +252,6 @@ impl Cache {
             let dst_path = dst.join(entry.file_name());
 
             if src_path.is_dir() {
-                // Skip hidden directories and build artifacts
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
                 if name_str.starts_with('.') || name_str == "target" || name_str == "بناء" {
@@ -296,7 +277,6 @@ impl Cache {
 
             let link_path = target.join(&pkg.name);
 
-            // Remove existing link/directory
             if link_path.exists() {
                 if link_path.is_dir() {
                     fs::remove_dir_all(&link_path)?;
@@ -305,7 +285,6 @@ impl Cache {
                 }
             }
 
-            // Create symlink or copy
             #[cfg(unix)]
             {
                 std::os::unix::fs::symlink(&source, &link_path)?;
@@ -313,7 +292,6 @@ impl Cache {
 
             #[cfg(windows)]
             {
-                // On Windows, copy instead of symlink for simplicity
                 self.copy_dir_recursive(&source, &link_path)?;
             }
         }
@@ -324,7 +302,6 @@ impl Cache {
     pub fn calculate_path_checksum(&self, path: &Path) -> PackageResult<String> {
         let mut hasher = Sha256::new();
 
-        // Hash all files in the directory
         self.hash_directory(path, &mut hasher)?;
 
         let hash = hasher.finalize();
@@ -340,24 +317,20 @@ impl Cache {
             return Ok(());
         }
 
-        // Get sorted entries for deterministic hashing
         let mut entries: Vec<_> = fs::read_dir(path)?.filter_map(|e| e.ok()).collect();
         entries.sort_by_key(|e| e.file_name());
 
         for entry in entries {
             let entry_path = entry.path();
 
-            // Skip hidden files and build directories
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
             if name_str.starts_with('.') || name_str == "target" || name_str == "بناء" {
                 continue;
             }
 
-            // Hash the file name
             hasher.update(name_str.as_bytes());
 
-            // Recursively hash
             self.hash_directory(&entry_path, hasher)?;
         }
 
@@ -374,20 +347,16 @@ impl Cache {
         let decoder = GzDecoder::new(tarball);
         let mut archive = Archive::new(decoder);
 
-        // Manually iterate entries to validate paths (prevents zip-slip)
         for entry in archive.entries()? {
             let mut entry = entry?;
             let entry_path = entry.path()?;
 
-            // Validate the path doesn't escape target directory
             let safe_path = validate_extraction_path(&entry_path, target)?;
 
-            // Create parent directories if needed
             if let Some(parent) = safe_path.parent() {
                 fs::create_dir_all(parent)?;
             }
 
-            // Extract the entry
             if entry.header().entry_type().is_dir() {
                 fs::create_dir_all(&safe_path)?;
             } else {
@@ -395,7 +364,6 @@ impl Cache {
                 std::io::copy(&mut entry, &mut file)?;
                 file.flush()?;
 
-                // Preserve permissions on Unix
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -414,7 +382,6 @@ impl Cache {
         let hash = Sha256::digest(data);
         let computed = format!("sha256:{}", hex::encode(hash));
 
-        // Support both with and without prefix
         if expected.starts_with("sha256:") {
             computed == expected
         } else {
@@ -491,16 +458,13 @@ mod tests {
         let temp = tempdir().unwrap();
         let cache = Cache::with_root(temp.path().to_path_buf()).unwrap();
 
-        // Path traversal in package name should be rejected
         assert!(cache.get_package_path("../etc", "1.0.0").is_err());
         assert!(cache.get_package_path("..\\etc", "1.0.0").is_err());
         assert!(cache.get_package_path("foo/../bar", "1.0.0").is_err());
 
-        // Path traversal in version should be rejected
         assert!(cache.get_package_path("json", "../1.0.0").is_err());
         assert!(cache.get_package_path("json", "1.0.0/../../etc").is_err());
 
-        // Empty strings should be rejected
         assert!(cache.get_package_path("", "1.0.0").is_err());
         assert!(cache.get_package_path("json", "").is_err());
     }
@@ -512,7 +476,6 @@ mod tests {
 
         assert!(!cache.is_cached("json", "1.0.0"));
 
-        // Create the package directory
         let pkg_path = cache.get_package_path("json", "1.0.0").unwrap();
         fs::create_dir_all(&pkg_path).unwrap();
 
@@ -524,7 +487,6 @@ mod tests {
         let temp = tempdir().unwrap();
         let cache = Cache::with_root(temp.path().to_path_buf()).unwrap();
 
-        // Path traversal in clear_package should be rejected
         assert!(cache.clear_package("../etc").is_err());
         assert!(cache.clear_package("foo/bar").is_err());
     }
@@ -547,13 +509,11 @@ mod tests {
         let temp = tempdir().unwrap();
         let cache = Cache::with_root(temp.path().join("cache")).unwrap();
 
-        // Create source directory with files
         let src = temp.path().join("src");
         fs::create_dir_all(src.join("sub")).unwrap();
         fs::write(src.join("file.txt"), "content").unwrap();
         fs::write(src.join("sub/nested.txt"), "nested").unwrap();
 
-        // Copy
         let dst = temp.path().join("dst");
         cache.copy_dir_recursive(&src, &dst).unwrap();
 

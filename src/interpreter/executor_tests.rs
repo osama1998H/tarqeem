@@ -9,9 +9,6 @@ use crate::ir::{
     Module, Parameter, UnaryOp, VarId,
 };
 
-// =============================================================================
-// Test Helpers
-// =============================================================================
 
 fn create_empty_module() -> Module {
     Module::new("test".to_string())
@@ -38,9 +35,6 @@ fn run_module_with_output(module: Module) -> (RuntimeResult<Value>, Vec<String>)
     (result, interpreter.get_output().to_vec())
 }
 
-// =============================================================================
-// Integer Arithmetic Tests
-// =============================================================================
 
 #[test]
 fn test_add_integers() {
@@ -307,9 +301,6 @@ fn test_negative_numbers() {
     assert_eq!(run_module(module).unwrap(), Value::Int(-15));
 }
 
-// =============================================================================
-// Float Arithmetic Tests
-// =============================================================================
 
 #[test]
 fn test_add_floats() {
@@ -413,9 +404,6 @@ fn test_mixed_int_float_arithmetic() {
     assert_eq!(run_module(module).unwrap(), Value::Float(12.5));
 }
 
-// =============================================================================
-// Comparison Tests
-// =============================================================================
 
 #[test]
 fn test_equals_true() {
@@ -553,9 +541,6 @@ fn test_greater_than_or_equal() {
     assert_eq!(run_module(module).unwrap(), Value::Bool(true));
 }
 
-// =============================================================================
-// Logical Operation Tests
-// =============================================================================
 
 #[test]
 fn test_logical_and_true() {
@@ -659,9 +644,6 @@ fn test_logical_or() {
     assert_eq!(run_module(module).unwrap(), Value::Bool(true));
 }
 
-// =============================================================================
-// Bitwise Operation Tests
-// =============================================================================
 
 #[test]
 fn test_bitwise_and() {
@@ -828,9 +810,6 @@ fn test_shift_right() {
     assert_eq!(run_module(module).unwrap(), Value::Int(4));
 }
 
-// =============================================================================
-// Unary Operation Tests
-// =============================================================================
 
 #[test]
 fn test_unary_neg_int() {
@@ -942,9 +921,6 @@ fn test_unary_bitnot() {
     assert_eq!(run_module(module).unwrap(), Value::Int(-1));
 }
 
-// =============================================================================
-// Type Conversion Tests
-// =============================================================================
 
 #[test]
 fn test_int_to_float() {
@@ -1024,9 +1000,6 @@ fn test_to_string() {
     assert_eq!(result.to_display_string(), "42");
 }
 
-// =============================================================================
-// String Operation Tests
-// =============================================================================
 
 #[test]
 fn test_string_concat() {
@@ -1089,9 +1062,6 @@ fn test_string_arabic() {
     assert_eq!(result.to_display_string(), "مرحبا");
 }
 
-// =============================================================================
-// Array Operation Tests
-// =============================================================================
 
 #[test]
 fn test_array_creation() {
@@ -1139,7 +1109,6 @@ fn test_array_get() {
     let mut func = create_main_function();
     let mut block = BasicBlock::new(BlockId(0));
 
-    // Create array [10, 20, 30]
     block.instructions.push(Instruction::Const {
         dest: VarId(0),
         value: Constant::Int(10),
@@ -1161,7 +1130,6 @@ fn test_array_get() {
         elements: vec![VarId(0), VarId(1), VarId(2)],
     });
 
-    // Get element at index 1
     block.instructions.push(Instruction::Const {
         dest: VarId(4),
         value: Constant::Int(1),
@@ -1189,7 +1157,6 @@ fn test_array_set() {
     let mut func = create_main_function();
     let mut block = BasicBlock::new(BlockId(0));
 
-    // Create array [1, 2, 3]
     block.instructions.push(Instruction::Const {
         dest: VarId(0),
         value: Constant::Int(1),
@@ -1211,7 +1178,6 @@ fn test_array_set() {
         elements: vec![VarId(0), VarId(1), VarId(2)],
     });
 
-    // Set element at index 0 to 100
     block.instructions.push(Instruction::Const {
         dest: VarId(4),
         value: Constant::Int(0),
@@ -1228,7 +1194,6 @@ fn test_array_set() {
         value: VarId(5),
     });
 
-    // Get element at index 0
     block.instructions.push(Instruction::ArrayGet {
         dest: VarId(6),
         array: VarId(3),
@@ -1251,7 +1216,6 @@ fn test_array_push() {
     let mut func = create_main_function();
     let mut block = BasicBlock::new(BlockId(0));
 
-    // Create array [1, 2]
     block.instructions.push(Instruction::Const {
         dest: VarId(0),
         value: Constant::Int(1),
@@ -1268,7 +1232,6 @@ fn test_array_push() {
         elements: vec![VarId(0), VarId(1)],
     });
 
-    // Push 3
     block.instructions.push(Instruction::Const {
         dest: VarId(3),
         value: Constant::Int(3),
@@ -1280,7 +1243,6 @@ fn test_array_push() {
         elem_ty: IrType::Int,
     });
 
-    // Get length
     block.instructions.push(Instruction::ArrayLen {
         dest: VarId(4),
         array: VarId(2),
@@ -1301,7 +1263,6 @@ fn test_array_index_out_of_bounds() {
     let mut func = create_main_function();
     let mut block = BasicBlock::new(BlockId(0));
 
-    // Create array [1, 2, 3]
     block.instructions.push(Instruction::Const {
         dest: VarId(0),
         value: Constant::Int(1),
@@ -1313,7 +1274,6 @@ fn test_array_index_out_of_bounds() {
         elements: vec![VarId(0)],
     });
 
-    // Try to access index 5
     block.instructions.push(Instruction::Const {
         dest: VarId(2),
         value: Constant::Int(5),
@@ -1336,16 +1296,12 @@ fn test_array_index_out_of_bounds() {
     assert!(result.is_err());
 }
 
-// =============================================================================
-// Control Flow Tests
-// =============================================================================
 
 #[test]
 fn test_branch_true() {
     let mut module = create_empty_module();
     let mut func = create_main_function();
 
-    // Entry block with branch
     let mut entry = BasicBlock::new(BlockId(0));
     entry.instructions.push(Instruction::Const {
         dest: VarId(0),
@@ -1358,7 +1314,6 @@ fn test_branch_true() {
         else_block: BlockId(2),
     });
 
-    // Then block - return 1
     let mut then_block = BasicBlock::new(BlockId(1));
     then_block.instructions.push(Instruction::Const {
         dest: VarId(1),
@@ -1369,7 +1324,6 @@ fn test_branch_true() {
         value: Some(VarId(1)),
     });
 
-    // Else block - return 0
     let mut else_block = BasicBlock::new(BlockId(2));
     else_block.instructions.push(Instruction::Const {
         dest: VarId(2),
@@ -1393,7 +1347,6 @@ fn test_branch_false() {
     let mut module = create_empty_module();
     let mut func = create_main_function();
 
-    // Entry block with branch
     let mut entry = BasicBlock::new(BlockId(0));
     entry.instructions.push(Instruction::Const {
         dest: VarId(0),
@@ -1406,7 +1359,6 @@ fn test_branch_false() {
         else_block: BlockId(2),
     });
 
-    // Then block - return 1
     let mut then_block = BasicBlock::new(BlockId(1));
     then_block.instructions.push(Instruction::Const {
         dest: VarId(1),
@@ -1417,7 +1369,6 @@ fn test_branch_false() {
         value: Some(VarId(1)),
     });
 
-    // Else block - return 0
     let mut else_block = BasicBlock::new(BlockId(2));
     else_block.instructions.push(Instruction::Const {
         dest: VarId(2),
@@ -1441,7 +1392,6 @@ fn test_loop_with_jump() {
     let mut module = create_empty_module();
     let mut func = create_main_function();
 
-    // Entry: i = 0
     let mut entry = BasicBlock::new(BlockId(0));
     entry.instructions.push(Instruction::Alloca {
         dest: VarId(0),
@@ -1460,7 +1410,6 @@ fn test_loop_with_jump() {
         .instructions
         .push(Instruction::Jump { target: BlockId(1) });
 
-    // Loop: while i < 5
     let mut loop_block = BasicBlock::new(BlockId(1));
     loop_block.instructions.push(Instruction::Load {
         dest: VarId(2),
@@ -1485,7 +1434,6 @@ fn test_loop_with_jump() {
         else_block: BlockId(3),
     });
 
-    // Body: i = i + 1
     let mut body = BasicBlock::new(BlockId(2));
     body.instructions.push(Instruction::Load {
         dest: VarId(5),
@@ -1511,7 +1459,6 @@ fn test_loop_with_jump() {
     body.instructions
         .push(Instruction::Jump { target: BlockId(1) });
 
-    // Exit: return i
     let mut exit = BasicBlock::new(BlockId(3));
     exit.instructions.push(Instruction::Load {
         dest: VarId(8),
@@ -1531,9 +1478,6 @@ fn test_loop_with_jump() {
     assert_eq!(run_module(module).unwrap(), Value::Int(5));
 }
 
-// =============================================================================
-// Built-in Function Tests
-// =============================================================================
 
 #[test]
 fn test_builtin_len_array() {
@@ -1541,7 +1485,6 @@ fn test_builtin_len_array() {
     let mut func = create_main_function();
     let mut block = BasicBlock::new(BlockId(0));
 
-    // Create array
     block.instructions.push(Instruction::Const {
         dest: VarId(0),
         value: Constant::Int(1),
@@ -1558,7 +1501,6 @@ fn test_builtin_len_array() {
         elements: vec![VarId(0), VarId(1)],
     });
 
-    // Call len
     block.instructions.push(Instruction::Call {
         dest: Some(VarId(3)),
         func: FuncId("طول".to_string()),
@@ -1716,15 +1658,11 @@ fn test_builtin_print() {
     assert_eq!(output, vec!["Hello"]);
 }
 
-// =============================================================================
-// Recursive Function Tests
-// =============================================================================
 
 #[test]
 fn test_recursive_factorial() {
     let mut module = create_empty_module();
 
-    // Factorial function: fn factorial(n) { if n <= 1 { return 1 } return n * factorial(n - 1) }
     let mut factorial = Function::new(
         FuncId("factorial".to_string()),
         "factorial".to_string(),
@@ -1736,7 +1674,6 @@ fn test_recursive_factorial() {
         IrType::Int,
     );
 
-    // Entry: if n <= 1
     let mut entry = BasicBlock::new(BlockId(0));
     entry.instructions.push(Instruction::Const {
         dest: VarId(1),
@@ -1756,13 +1693,11 @@ fn test_recursive_factorial() {
         else_block: BlockId(2),
     });
 
-    // Base case: return 1
     let mut base = BasicBlock::new(BlockId(1));
     base.instructions.push(Instruction::Return {
         value: Some(VarId(1)),
     });
 
-    // Recursive case: return n * factorial(n - 1)
     let mut recursive = BasicBlock::new(BlockId(2));
     recursive.instructions.push(Instruction::Binary {
         dest: VarId(3),
@@ -1793,7 +1728,6 @@ fn test_recursive_factorial() {
     factorial.blocks.push(recursive);
     module.functions.push(factorial);
 
-    // Main: return factorial(5)
     let mut main_func = create_main_function();
     let mut main_block = BasicBlock::new(BlockId(0));
     main_block.instructions.push(Instruction::Const {
@@ -1817,21 +1751,16 @@ fn test_recursive_factorial() {
     assert_eq!(run_module(module).unwrap(), Value::Int(120));
 }
 
-// =============================================================================
-// Object Tests
-// =============================================================================
 
 #[test]
 fn test_new_object() {
     let mut module = create_empty_module();
 
-    // Define a class
     let mut class = Class::new(ClassId("Point".to_string()), "Point".to_string());
     class.fields.push(("x".to_string(), IrType::Int));
     class.fields.push(("y".to_string(), IrType::Int));
     module.classes.push(class);
 
-    // Main function creates an object
     let mut func = create_main_function();
     func.return_type = IrType::Void;
     let mut block = BasicBlock::new(BlockId(0));
@@ -1849,9 +1778,6 @@ fn test_new_object() {
     assert!(result.is_ok());
 }
 
-// =============================================================================
-// Exception Handling Tests
-// =============================================================================
 
 #[test]
 fn test_throw_exception() {
@@ -1878,9 +1804,6 @@ fn test_throw_exception() {
     assert!(result.is_err());
 }
 
-// =============================================================================
-// Memory Operation Tests
-// =============================================================================
 
 #[test]
 fn test_alloca_load_store() {
@@ -1888,13 +1811,11 @@ fn test_alloca_load_store() {
     let mut func = create_main_function();
     let mut block = BasicBlock::new(BlockId(0));
 
-    // Allocate memory
     block.instructions.push(Instruction::Alloca {
         dest: VarId(0),
         ty: IrType::Int,
     });
 
-    // Store 42
     block.instructions.push(Instruction::Const {
         dest: VarId(1),
         value: Constant::Int(42),
@@ -1905,7 +1826,6 @@ fn test_alloca_load_store() {
         value: VarId(1),
     });
 
-    // Load and return
     block.instructions.push(Instruction::Load {
         dest: VarId(2),
         ptr: VarId(0),
@@ -1921,9 +1841,6 @@ fn test_alloca_load_store() {
     assert_eq!(run_module(module).unwrap(), Value::Int(42));
 }
 
-// =============================================================================
-// Error Case Tests
-// =============================================================================
 
 #[test]
 fn test_undefined_variable_error() {
@@ -1931,7 +1848,6 @@ fn test_undefined_variable_error() {
     let mut func = create_main_function();
     let mut block = BasicBlock::new(BlockId(0));
 
-    // Try to use undefined variable
     block.instructions.push(Instruction::Return {
         value: Some(VarId(999)),
     });

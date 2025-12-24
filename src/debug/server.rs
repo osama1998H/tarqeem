@@ -304,7 +304,6 @@ impl DapServer {
             addr, addr
         );
 
-        // Accept one connection
         let (stream, peer_addr) = listener.accept()?;
         println!(
             "Client connected from {} | عميل متصل من {}",
@@ -323,7 +322,6 @@ impl DapServer {
                 break;
             }
 
-            // Read request
             let message = match DapProtocol::read_message(&mut reader) {
                 Ok(msg) => msg,
                 Err(e) => {
@@ -337,14 +335,11 @@ impl DapServer {
                 }
             };
 
-            // Handle request
             if let DapMessage::Request(request) = message {
                 let response = self.adapter.handle_request(request);
 
-                // Send response
                 DapProtocol::write_message(&mut writer, &DapMessage::Response(response))?;
 
-                // Send pending events
                 for event in self.adapter.take_events() {
                     DapProtocol::write_message(&mut writer, &DapMessage::Event(event))?;
                 }
@@ -364,7 +359,6 @@ impl DapServer {
             addr, addr
         );
 
-        // Accept one connection
         let (stream, peer_addr) = listener.accept().await?;
         println!(
             "Client connected from {} | عميل متصل من {}",
@@ -387,7 +381,6 @@ impl DapServer {
                 break;
             }
 
-            // Read request
             let message = match DapProtocolAsync::read_message(&mut reader).await {
                 Ok(msg) => msg,
                 Err(e) => {
@@ -401,15 +394,12 @@ impl DapServer {
                 }
             };
 
-            // Handle request
             if let DapMessage::Request(request) = message {
                 let response = self.adapter.handle_request(request);
 
-                // Send response
                 DapProtocolAsync::write_message(&mut writer, &DapMessage::Response(response))
                     .await?;
 
-                // Send pending events
                 for event in self.adapter.take_events() {
                     DapProtocolAsync::write_message(&mut writer, &DapMessage::Event(event)).await?;
                 }
@@ -432,7 +422,6 @@ impl DapServer {
                 break;
             }
 
-            // Read request
             let message = match DapProtocol::read_message(&mut reader) {
                 Ok(msg) => msg,
                 Err(e) => {
@@ -446,14 +435,11 @@ impl DapServer {
                 }
             };
 
-            // Handle request
             if let DapMessage::Request(request) = message {
                 let response = self.adapter.handle_request(request);
 
-                // Send response
                 DapProtocol::write_message(&mut writer, &DapMessage::Response(response))?;
 
-                // Send pending events
                 for event in self.adapter.take_events() {
                     DapProtocol::write_message(&mut writer, &DapMessage::Event(event))?;
                 }
@@ -475,7 +461,6 @@ impl DapServer {
                 break;
             }
 
-            // Read request
             let message = match DapProtocolAsync::read_message(&mut reader).await {
                 Ok(msg) => msg,
                 Err(e) => {
@@ -489,15 +474,12 @@ impl DapServer {
                 }
             };
 
-            // Handle request
             if let DapMessage::Request(request) = message {
                 let response = self.adapter.handle_request(request);
 
-                // Send response
                 DapProtocolAsync::write_message(&mut writer, &DapMessage::Response(response))
                     .await?;
 
-                // Send pending events
                 for event in self.adapter.take_events() {
                     DapProtocolAsync::write_message(&mut writer, &DapMessage::Event(event)).await?;
                 }

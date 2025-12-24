@@ -17,8 +17,6 @@
 
 int64_t trq_pow_int(int64_t base, int64_t exp) {
     if (exp < 0) {
-        // Integer power with negative exponent returns 0
-        // (would be fraction in float, but truncates to 0 in int)
         return 0;
     }
 
@@ -30,7 +28,6 @@ int64_t trq_pow_int(int64_t base, int64_t exp) {
     int64_t b = base;
     int64_t e = exp;
 
-    // Fast exponentiation by squaring
     while (e > 0) {
         if (e & 1) {
             result *= b;
@@ -255,7 +252,6 @@ static void ensure_random_init(void) {
 
 int64_t trq_random_int(void) {
     ensure_random_init();
-    // Combine multiple rand() calls for better range
     return ((int64_t)rand() << 32) | (int64_t)rand();
 }
 
@@ -285,12 +281,10 @@ bool trq_random_bool(void) {
  * Exception Handling
  *============================================================================*/
 
-// Thread-local current exception
 static __thread TrqException* current_exception = NULL;
 
 void trq_throw(TrqException* exception) {
     if (current_exception) {
-        // Release previous exception
         if (current_exception->message) {
             trq_release(current_exception->message);
         }
@@ -302,16 +296,12 @@ void trq_throw(TrqException* exception) {
 
     current_exception = exception;
 
-    // In a full implementation, this would unwind the stack
-    // For now, print error and abort
     if (exception && exception->message && exception->message->data) {
         fprintf(stderr, "Exception / استثناء: %s\n", exception->message->data);
     } else {
         fprintf(stderr, "Exception / استثناء: (unknown)\n");
     }
 
-    // TODO: Implement proper stack unwinding
-    // For now, this is a fatal error
     abort();
 }
 
@@ -359,7 +349,6 @@ TrqException* trq_exception_new(TrqString* message, TrqString* type) {
  * Type Checking
  *============================================================================*/
 
-// Type tags for runtime type info
 typedef enum {
     TRQ_TYPE_NULL = 0,
     TRQ_TYPE_BOOL = 1,
@@ -372,13 +361,10 @@ typedef enum {
 } TrqTypeTag;
 
 TrqString* trq_type_of(void* value) {
-    // This is a simplified implementation
-    // A full implementation would use tagged pointers or type metadata
     if (!value) {
         return trq_string_from_cstr("فارغ"); // null
     }
 
-    // Default to object type
     return trq_string_from_cstr("كائن"); // object
 }
 
@@ -430,15 +416,10 @@ void trq_runtime_init(void) {
         return;
     }
 
-    // Initialize any global state
     current_exception = NULL;
 
-    // Set up locale for proper UTF-8 output
-    // Note: This may need to be configured based on platform
     #ifdef _WIN32
-    // Windows-specific UTF-8 setup would go here
     #else
-    // Unix-like systems typically handle UTF-8 by default
     #endif
 
     runtime_initialized = true;
@@ -449,7 +430,6 @@ void trq_runtime_cleanup(void) {
         return;
     }
 
-    // Clean up any remaining exceptions
     trq_clear_exception();
 
     runtime_initialized = false;
@@ -471,7 +451,6 @@ int main(int argc, char** argv) {
 
     trq_runtime_init();
 
-    // Call the user's main function
     __main__();
 
     trq_runtime_cleanup();

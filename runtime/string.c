@@ -23,7 +23,6 @@ TrqString* trq_string_new(const char* data, int64_t len) {
         len = 0;
     }
 
-    // Allocate data with extra byte for null terminator
     int64_t cap = len + 1;
     str->data = (char*)malloc(cap);
     if (!str->data) {
@@ -96,14 +95,11 @@ int64_t trq_string_len_chars(TrqString* str) {
         return 0;
     }
 
-    // Count UTF-8 code points
     int64_t count = 0;
     const unsigned char* p = (const unsigned char*)str->data;
     const unsigned char* end = p + str->len;
 
     while (p < end) {
-        // UTF-8 continuation bytes start with 10xxxxxx
-        // Skip them, count only leading bytes
         if ((*p & 0xC0) != 0x80) {
             count++;
         }
@@ -131,7 +127,6 @@ int64_t trq_string_compare(TrqString* a, TrqString* b) {
         return result;
     }
 
-    // Strings are equal up to min_len, compare lengths
     if (a->len < b->len) {
         return -1;
     }
@@ -159,7 +154,6 @@ TrqString* trq_string_substr(TrqString* str, int64_t start, int64_t len) {
         return trq_string_new("", 0);
     }
 
-    // Clamp start
     if (start < 0) {
         start = 0;
     }
@@ -167,7 +161,6 @@ TrqString* trq_string_substr(TrqString* str, int64_t start, int64_t len) {
         return trq_string_new("", 0);
     }
 
-    // Clamp length
     if (len < 0) {
         len = 0;
     }
@@ -196,10 +189,8 @@ TrqString* trq_float_to_string(double value) {
 
 TrqString* trq_bool_to_string(bool value) {
     if (value) {
-        // "صحيح" in UTF-8
         return trq_string_from_cstr("صحيح");
     } else {
-        // "خاطئ" in UTF-8
         return trq_string_from_cstr("خاطئ");
     }
 }
@@ -212,7 +203,6 @@ int64_t trq_string_to_int(TrqString* str) {
     char* end;
     long long result = strtoll(str->data, &end, 10);
 
-    // Check if conversion was successful
     if (end == str->data) {
         return 0;
     }
@@ -228,7 +218,6 @@ double trq_string_to_float(TrqString* str) {
     char* end;
     double result = strtod(str->data, &end);
 
-    // Check if conversion was successful
     if (end == str->data) {
         return 0.0;
     }
@@ -251,7 +240,6 @@ bool trq_string_contains(TrqString* str, TrqString* substr) {
         return false;
     }
 
-    // Simple substring search
     for (int64_t i = 0; i <= str->len - substr->len; i++) {
         if (memcmp(str->data + i, substr->data, substr->len) == 0) {
             return true;
@@ -319,7 +307,6 @@ TrqString* trq_string_to_upper(TrqString* str) {
         return NULL;
     }
 
-    // Convert ASCII characters only
     for (int64_t i = 0; i < result->len; i++) {
         char c = result->data[i];
         if (c >= 'a' && c <= 'z') {
@@ -339,7 +326,6 @@ TrqString* trq_string_to_lower(TrqString* str) {
         return NULL;
     }
 
-    // Convert ASCII characters only
     for (int64_t i = 0; i < result->len; i++) {
         char c = result->data[i];
         if (c >= 'A' && c <= 'Z') {
@@ -357,12 +343,10 @@ TrqString* trq_string_trim(TrqString* str) {
     const char* start = str->data;
     const char* end = str->data + str->len - 1;
 
-    // Trim leading whitespace
     while (start <= end && (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r')) {
         start++;
     }
 
-    // Trim trailing whitespace
     while (end >= start && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) {
         end--;
     }
@@ -418,7 +402,6 @@ TrqString* trq_string_replace(TrqString* str, TrqString* old_str, TrqString* new
         return trq_string_new(str->data, str->len);
     }
 
-    // Calculate new length
     int64_t new_len = str->len - old_str->len + new_str->len;
     TrqString* result = (TrqString*)trq_alloc(sizeof(TrqString));
     if (!result) {
@@ -431,11 +414,8 @@ TrqString* trq_string_replace(TrqString* str, TrqString* old_str, TrqString* new
         return NULL;
     }
 
-    // Copy before match
     memcpy(result->data, str->data, idx);
-    // Copy replacement
     memcpy(result->data + idx, new_str->data, new_str->len);
-    // Copy after match
     memcpy(result->data + idx + new_str->len, str->data + idx + old_str->len, str->len - idx - old_str->len);
     result->data[new_len] = '\0';
     result->len = new_len;
@@ -445,7 +425,6 @@ TrqString* trq_string_replace(TrqString* str, TrqString* old_str, TrqString* new
 }
 
 TrqArray* trq_string_split(TrqString* str, TrqString* delim) {
-    // Create array of string pointers
     TrqArray* result = trq_array_new(0, sizeof(TrqString*));
     if (!result) {
         return NULL;
@@ -456,7 +435,6 @@ TrqArray* trq_string_split(TrqString* str, TrqString* delim) {
     }
 
     if (!delim || delim->len == 0) {
-        // No delimiter, return the whole string
         TrqString* copy = trq_string_new(str->data, str->len);
         trq_array_push(result, &copy, sizeof(TrqString*));
         return result;
@@ -468,7 +446,6 @@ TrqArray* trq_string_split(TrqString* str, TrqString* delim) {
 
     while (pos <= end - delim->len) {
         if (memcmp(pos, delim->data, delim->len) == 0) {
-            // Found delimiter, add substring
             TrqString* part = trq_string_new(start, pos - start);
             trq_array_push(result, &part, sizeof(TrqString*));
             pos += delim->len;
@@ -478,7 +455,6 @@ TrqArray* trq_string_split(TrqString* str, TrqString* delim) {
         }
     }
 
-    // Add remaining part
     if (start <= end) {
         TrqString* part = trq_string_new(start, end - start);
         trq_array_push(result, &part, sizeof(TrqString*));
@@ -502,7 +478,6 @@ int64_t trq_string_last_index_of(TrqString* str, TrqString* substr) {
         return -1;
     }
 
-    // Search from end
     for (int64_t i = str->len - substr->len; i >= 0; i--) {
         if (memcmp(str->data + i, substr->data, substr->len) == 0) {
             return i;
@@ -539,7 +514,6 @@ TrqString* trq_string_reverse(TrqString* str) {
         return trq_string_new("", 0);
     }
 
-    // For UTF-8 aware reversal, we need to handle multi-byte characters
     TrqString* result = (TrqString*)trq_alloc(sizeof(TrqString));
     if (!result) {
         return NULL;
@@ -551,7 +525,6 @@ TrqString* trq_string_reverse(TrqString* str) {
         return NULL;
     }
 
-    // Find UTF-8 code point boundaries
     const unsigned char* src = (const unsigned char*)str->data;
     int64_t n_chars = 0;
     int64_t* offsets = (int64_t*)malloc((str->len + 1) * sizeof(int64_t));
@@ -579,7 +552,6 @@ TrqString* trq_string_reverse(TrqString* str) {
         offsets[n_chars] = i;
     }
 
-    // Copy in reverse order
     char* dest = result->data;
     for (int64_t i = n_chars - 1; i >= 0; i--) {
         int64_t start = offsets[i];
@@ -661,7 +633,6 @@ TrqString* trq_string_join(TrqArray* arr, TrqString* delim) {
         return trq_string_new("", 0);
     }
 
-    // Calculate total length
     int64_t total_len = 0;
     TrqString** strings = (TrqString**)arr->data;
     for (int64_t i = 0; i < arr->len; i++) {
@@ -716,14 +687,12 @@ TrqString* trq_string_replace_all(TrqString* str, TrqString* old_str, TrqString*
         new_str = empty;
     }
 
-    // Count occurrences
     int64_t count = trq_string_count(str, old_str);
     if (count == 0) {
         trq_release(empty);
         return trq_string_new(str->data, str->len);
     }
 
-    // Calculate new length
     int64_t new_len = str->len + count * (new_str->len - old_str->len);
     TrqString* result = (TrqString*)trq_alloc(sizeof(TrqString));
     if (!result) {
@@ -738,7 +707,6 @@ TrqString* trq_string_replace_all(TrqString* str, TrqString* old_str, TrqString*
         return NULL;
     }
 
-    // Build result
     char* dest = result->data;
     const char* src = str->data;
     const char* end = str->data + str->len;
@@ -864,15 +832,12 @@ bool trq_string_is_alpha(TrqString* str) {
     while (p < end) {
         unsigned char c = *p;
 
-        // ASCII letters
         if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
             p++;
             continue;
         }
 
-        // UTF-8 multi-byte (includes Arabic and other scripts)
         if ((c & 0x80) != 0) {
-            // Skip UTF-8 multi-byte character
             if ((c & 0xE0) == 0xC0) {
                 p += 2;
             } else if ((c & 0xF0) == 0xE0) {
@@ -901,8 +866,6 @@ bool trq_string_is_arabic(TrqString* str) {
     while (p < end) {
         unsigned char c = *p;
 
-        // Arabic Unicode range: U+0600-U+06FF
-        // In UTF-8: 0xD8 0x80 to 0xDB 0xBF
         if (c >= 0xD8 && c <= 0xDB) {
             if (p + 1 < end) {
                 p += 2;
@@ -910,7 +873,6 @@ bool trq_string_is_arabic(TrqString* str) {
             }
         }
 
-        // Skip whitespace
         if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
             p++;
             continue;
@@ -946,7 +908,6 @@ TrqString* trq_string_char_at(TrqString* str, int64_t index) {
             return trq_string_new((const char*)p, char_len);
         }
 
-        // Advance to next character
         unsigned char c = *p;
         if ((c & 0x80) == 0) {
             p++;
@@ -974,7 +935,6 @@ TrqString* trq_string_substr_chars(TrqString* str, int64_t start, int64_t len) {
     const unsigned char* end = p + str->len;
     int64_t current = 0;
 
-    // Find start position
     while (p < end && current < start) {
         unsigned char c = *p;
         if ((c & 0x80) == 0) {
@@ -997,7 +957,6 @@ TrqString* trq_string_substr_chars(TrqString* str, int64_t start, int64_t len) {
 
     const unsigned char* substr_start = p;
 
-    // Find end position
     int64_t chars_collected = 0;
     while (p < end && chars_collected < len) {
         unsigned char c = *p;

@@ -3,9 +3,6 @@
 use super::scope::*;
 use super::types::Type;
 
-// =============================================================================
-// Symbol Creation Tests
-// =============================================================================
 
 #[test]
 fn test_symbol_new() {
@@ -85,9 +82,6 @@ fn test_symbol_class_arabic() {
     assert_eq!(symbol.ty, Type::Class("شخص".to_string()));
 }
 
-// =============================================================================
-// SymbolKind Tests
-// =============================================================================
 
 #[test]
 fn test_symbol_kind_equality() {
@@ -108,9 +102,6 @@ fn test_symbol_kind_clone() {
     assert_eq!(kind, cloned);
 }
 
-// =============================================================================
-// ScopeKind Tests
-// =============================================================================
 
 #[test]
 fn test_scope_kind_equality() {
@@ -130,9 +121,6 @@ fn test_scope_kind_copy() {
     assert_eq!(kind, copied);
 }
 
-// =============================================================================
-// Global Scope Tests
-// =============================================================================
 
 #[test]
 fn test_global_scope_creation() {
@@ -144,37 +132,29 @@ fn test_global_scope_creation() {
 fn test_global_scope_has_builtins_arabic() {
     let scope = Scope::new_global();
 
-    // I/O functions
     assert!(scope.lookup("اطبع").is_some());
     assert!(scope.lookup("طباعة").is_some());
     assert!(scope.lookup("ادخل").is_some());
     assert!(scope.lookup("ادخل_رسالة").is_some());
 
-    // Introspection
     assert!(scope.lookup("طول").is_some());
     assert!(scope.lookup("نوع").is_some());
 
-    // Type conversion
     assert!(scope.lookup("عدد").is_some());
     assert!(scope.lookup("عدد_عشري").is_some());
     assert!(scope.lookup("نص").is_some());
     assert!(scope.lookup("منطقي").is_some());
 
-    // Math
     assert!(scope.lookup("مطلق").is_some());
     assert!(scope.lookup("جذر").is_some());
     assert!(scope.lookup("قوة").is_some());
 }
 
-// Note: English builtin functions have been removed.
-// Tarqeem is an Arabic-only language.
-// See test_global_scope_has_builtins_arabic for Arabic builtin tests.
 
 #[test]
 fn test_global_scope_has_trig_functions() {
     let scope = Scope::new_global();
 
-    // Arabic trig functions only (Arabic-only language)
     assert!(scope.lookup("جا").is_some());
     assert!(scope.lookup("جتا").is_some());
     assert!(scope.lookup("ظا").is_some());
@@ -187,7 +167,6 @@ fn test_global_scope_has_trig_functions() {
 fn test_global_scope_has_file_functions() {
     let scope = Scope::new_global();
 
-    // Arabic file functions only (Arabic-only language)
     assert!(scope.lookup("ملف_موجود").is_some());
     assert!(scope.lookup("اقرأ_ملف").is_some());
     assert!(scope.lookup("اكتب_ملف").is_some());
@@ -197,16 +176,12 @@ fn test_global_scope_has_file_functions() {
 fn test_global_scope_has_random_functions() {
     let scope = Scope::new_global();
 
-    // Arabic random functions only (Arabic-only language)
     assert!(scope.lookup("عشوائي").is_some());
     assert!(scope.lookup("عشوائي_عدد").is_some());
     assert!(scope.lookup("عشوائي_عشري").is_some());
     assert!(scope.lookup("عشوائي_منطقي").is_some());
 }
 
-// =============================================================================
-// Scope Define and Lookup Tests
-// =============================================================================
 
 #[test]
 fn test_scope_define() {
@@ -244,9 +219,6 @@ fn test_scope_lookup_local() {
     assert!(scope.lookup_local("undefined").is_none());
 }
 
-// =============================================================================
-// Child Scope Tests
-// =============================================================================
 
 #[test]
 fn test_child_scope_creation() {
@@ -263,9 +235,7 @@ fn test_child_scope_inherits_parent() {
 
     let child = Scope::new_child(global, ScopeKind::Block);
 
-    // Can access parent's variable
     assert!(child.lookup("parentVar").is_some());
-    // Can access global builtins (Arabic)
     assert!(child.lookup("اطبع").is_some());
 }
 
@@ -292,15 +262,11 @@ fn test_nested_child_scopes() {
     let mut level2 = Scope::new_child(level1, ScopeKind::Block);
     level2.define(Symbol::variable("c", Type::Bool, true));
 
-    // Level 2 can see all variables
     assert!(level2.lookup("a").is_some());
     assert!(level2.lookup("b").is_some());
     assert!(level2.lookup("c").is_some());
 }
 
-// =============================================================================
-// Scope Context Tests
-// =============================================================================
 
 #[test]
 fn test_is_in_loop_direct() {
@@ -377,9 +343,6 @@ fn test_is_not_in_class() {
     assert!(!func.is_in_class());
 }
 
-// =============================================================================
-// Scope Mutable Lookup Tests
-// =============================================================================
 
 #[test]
 fn test_lookup_mut_local() {
@@ -413,9 +376,6 @@ fn test_lookup_mut_nonexistent() {
     assert!(scope.lookup_mut("nonexistent").is_none());
 }
 
-// =============================================================================
-// Scope Pop and Iterator Tests
-// =============================================================================
 
 #[test]
 fn test_scope_pop() {
@@ -443,18 +403,13 @@ fn test_scope_symbols_iterator() {
 
     let symbols: Vec<_> = scope.symbols().collect();
 
-    // Should include builtins plus our two variables
     assert!(symbols.len() > 2);
 
-    // Check our variables are present
     let names: Vec<_> = symbols.iter().map(|s| &s.name).collect();
     assert!(names.contains(&&"a".to_string()));
     assert!(names.contains(&&"b".to_string()));
 }
 
-// =============================================================================
-// Symbol Clone and Debug Tests
-// =============================================================================
 
 #[test]
 fn test_symbol_clone() {
@@ -477,9 +432,6 @@ fn test_symbol_debug() {
     assert!(debug_str.contains("Float"));
 }
 
-// =============================================================================
-// Unicode Normalization Tests (Issue 1.3)
-// =============================================================================
 
 #[test]
 fn test_unicode_normalization_lookup() {
@@ -487,19 +439,14 @@ fn test_unicode_normalization_lookup() {
 
     let mut scope = Scope::new_global();
 
-    // "أحمد" in NFC form (precomposed)
     let nfc_name: String = "أحمد".nfc().collect();
 
-    // "أحمد" in NFD form (decomposed) - same visually but different bytes
     let nfd_name: String = "أحمد".nfd().collect();
 
-    // They should have different byte representations
     assert_ne!(nfc_name.as_bytes(), nfd_name.as_bytes());
 
-    // Define with NFC form
     scope.define(Symbol::variable(&nfc_name, Type::Int, true));
 
-    // Lookup with the NFD form should still work
     assert!(scope.lookup(&nfd_name).is_some());
 }
 
@@ -512,10 +459,8 @@ fn test_unicode_normalization_define() {
     let nfc_name: String = "متغير".nfc().collect();
     let nfd_name: String = "متغير".nfd().collect();
 
-    // Define with NFD form
     scope.define(Symbol::variable(&nfd_name, Type::Int, true));
 
-    // Lookup with NFC form should work
     assert!(scope.lookup(&nfc_name).is_some());
 }
 
@@ -528,10 +473,8 @@ fn test_unicode_normalization_prevents_duplicate() {
     let nfc_name: String = "س".nfc().collect();
     let nfd_name: String = "س".nfd().collect();
 
-    // Define with NFC form
     assert!(scope.define(Symbol::variable(&nfc_name, Type::Int, true)));
 
-    // Attempt to define with NFD form should fail (same identifier after normalization)
     assert!(!scope.define(Symbol::variable(&nfd_name, Type::String, true)));
 }
 
@@ -544,10 +487,8 @@ fn test_unicode_normalization_lookup_local() {
     let nfc_name: String = "محلي".nfc().collect();
     let nfd_name: String = "محلي".nfd().collect();
 
-    // Define with one form
     scope.define(Symbol::variable(&nfc_name, Type::Bool, true));
 
-    // lookup_local with the other form should work
     assert!(scope.lookup_local(&nfd_name).is_some());
 }
 
@@ -560,14 +501,11 @@ fn test_unicode_normalization_lookup_mut() {
     let nfc_name: String = "قابل_للتغيير".nfc().collect();
     let nfd_name: String = "قابل_للتغيير".nfd().collect();
 
-    // Define with NFC form
     scope.define(Symbol::variable(&nfc_name, Type::Int, true));
 
-    // lookup_mut with NFD form should work
     let symbol = scope.lookup_mut(&nfd_name).unwrap();
     symbol.ty = Type::String;
 
-    // Verify the change took effect
     let updated = scope.lookup(&nfc_name).unwrap();
     assert_eq!(updated.ty, Type::String);
 }

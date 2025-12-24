@@ -27,9 +27,6 @@ fn create_codegen() -> LlvmCodegen {
     LlvmCodegen::new(Target::native())
 }
 
-// =============================================================================
-// Module Header Tests
-// =============================================================================
 
 #[test]
 fn test_module_header_generation() {
@@ -51,7 +48,6 @@ fn test_runtime_types_emitted() {
 
     let result = codegen.generate(&module).unwrap();
 
-    // Should emit string and array struct types
     assert!(result.contains("%struct.TrqString = type"));
     assert!(result.contains("%struct.TrqArray = type"));
 }
@@ -63,7 +59,6 @@ fn test_runtime_declarations_emitted() {
 
     let result = codegen.generate(&module).unwrap();
 
-    // Should declare runtime functions
     assert!(result.contains("declare ptr @trq_alloc(i64)"));
     assert!(result.contains("declare void @trq_free(ptr)"));
     assert!(result.contains("declare ptr @trq_string_new(ptr, i64)"));
@@ -71,9 +66,6 @@ fn test_runtime_declarations_emitted() {
     assert!(result.contains("declare void @trq_print(ptr)"));
 }
 
-// =============================================================================
-// Constant Generation Tests
-// =============================================================================
 
 #[test]
 fn test_const_int_generation() {
@@ -93,7 +85,6 @@ fn test_const_int_generation() {
 
     let result = codegen.generate(&module).unwrap();
 
-    // Integer constant uses add with 0
     assert!(result.contains("= add i64 42, 0"));
 }
 
@@ -115,7 +106,6 @@ fn test_const_float_generation() {
 
     let result = codegen.generate(&module).unwrap();
 
-    // Float constant uses fadd with 0.0
     assert!(result.contains("fadd double"));
     assert!(result.contains("0.0"));
 }
@@ -188,7 +178,6 @@ fn test_const_string_generation() {
     let mut codegen = create_codegen();
     let mut module = create_test_module("test");
 
-    // Add string to string table
     let str_idx = module.strings.add("مرحبا".to_string());
 
     let mut func = create_test_function("test_fn", vec![], IrType::Void);
@@ -204,14 +193,10 @@ fn test_const_string_generation() {
 
     let result = codegen.generate(&module).unwrap();
 
-    // Should emit string literal and call trq_string_new
     assert!(result.contains("@.str.0"));
     assert!(result.contains("call ptr @trq_string_new"));
 }
 
-// =============================================================================
-// Binary Operation Tests
-// =============================================================================
 
 #[test]
 fn test_binary_add_int() {
@@ -438,7 +423,6 @@ fn test_binary_pow_int() {
 
     let result = codegen.generate(&module).unwrap();
 
-    // Integer power uses runtime function
     assert!(result.contains("call i64 @trq_pow_int"));
 }
 
@@ -629,13 +613,9 @@ fn test_binary_pow_float() {
 
     let result = codegen.generate(&module).unwrap();
 
-    // Float power uses LLVM intrinsic
     assert!(result.contains("call double @llvm.pow.f64"));
 }
 
-// =============================================================================
-// Comparison Tests
-// =============================================================================
 
 #[test]
 fn test_comparison_eq_int() {
@@ -941,9 +921,6 @@ fn test_comparison_float_lt() {
     assert!(result.contains("fcmp olt double"));
 }
 
-// =============================================================================
-// Logical Operation Tests
-// =============================================================================
 
 #[test]
 fn test_logical_and() {
@@ -1021,9 +998,6 @@ fn test_logical_or() {
     assert!(result.contains("or i1"));
 }
 
-// =============================================================================
-// Bitwise Operation Tests
-// =============================================================================
 
 #[test]
 fn test_bitwise_and() {
@@ -1215,9 +1189,6 @@ fn test_shift_right() {
     assert!(result.contains("ashr i64"));
 }
 
-// =============================================================================
-// Unary Operation Tests
-// =============================================================================
 
 #[test]
 fn test_unary_neg_int() {
@@ -1341,9 +1312,6 @@ fn test_unary_bitnot() {
     assert!(result.contains("-1"));
 }
 
-// =============================================================================
-// Type Conversion Tests
-// =============================================================================
 
 #[test]
 fn test_int_to_float_conversion() {
@@ -1403,9 +1371,6 @@ fn test_float_to_int_conversion() {
     assert!(result.contains("to i64"));
 }
 
-// =============================================================================
-// Control Flow Tests
-// =============================================================================
 
 #[test]
 fn test_unconditional_jump() {
@@ -1510,9 +1475,6 @@ fn test_return_value() {
     assert!(result.contains("ret i64"));
 }
 
-// =============================================================================
-// Memory Operation Tests
-// =============================================================================
 
 #[test]
 fn test_alloca_instruction() {
@@ -1541,26 +1503,22 @@ fn test_load_store_instructions() {
 
     let mut func = create_test_function("loadstore_test", vec![], IrType::Int);
 
-    // Alloca
     func.blocks[0].instructions.push(Instruction::Alloca {
         dest: VarId(0),
         ty: IrType::Int,
     });
 
-    // Const value
     func.blocks[0].instructions.push(Instruction::Const {
         dest: VarId(1),
         value: Constant::Int(42),
         ty: IrType::Int,
     });
 
-    // Store
     func.blocks[0].instructions.push(Instruction::Store {
         ptr: VarId(0),
         value: VarId(1),
     });
 
-    // Load
     func.blocks[0].instructions.push(Instruction::Load {
         dest: VarId(2),
         ptr: VarId(0),
@@ -1579,9 +1537,6 @@ fn test_load_store_instructions() {
     assert!(result.contains("load i64"));
 }
 
-// =============================================================================
-// Array Operation Tests
-// =============================================================================
 
 #[test]
 fn test_new_array() {
@@ -1590,7 +1545,6 @@ fn test_new_array() {
 
     let mut func = create_test_function("array_test", vec![], IrType::Void);
 
-    // Create constants for array elements
     func.blocks[0].instructions.push(Instruction::Const {
         dest: VarId(0),
         value: Constant::Int(1),
@@ -1602,7 +1556,6 @@ fn test_new_array() {
         ty: IrType::Int,
     });
 
-    // Create array
     func.blocks[0].instructions.push(Instruction::NewArray {
         dest: VarId(2),
         elem_ty: IrType::Int,
@@ -1689,9 +1642,6 @@ fn test_array_get() {
     assert!(result.contains("load i64"));
 }
 
-// =============================================================================
-// String Operation Tests
-// =============================================================================
 
 #[test]
 fn test_string_concat() {
@@ -1731,16 +1681,12 @@ fn test_string_concat() {
     assert!(result.contains("call ptr @trq_string_concat"));
 }
 
-// =============================================================================
-// Function Call Tests
-// =============================================================================
 
 #[test]
 fn test_function_call() {
     let mut codegen = create_codegen();
     let mut module = create_test_module("test");
 
-    // Define a simple add function
     let mut add_func = create_test_function(
         "add",
         vec![
@@ -1769,7 +1715,6 @@ fn test_function_call() {
     });
     module.functions.push(add_func);
 
-    // Define a main function that calls add
     let mut main_func = create_test_function("main", vec![], IrType::Int);
     main_func.blocks[0].instructions.push(Instruction::Const {
         dest: VarId(0),
@@ -1802,14 +1747,12 @@ fn test_void_function_call() {
     let mut codegen = create_codegen();
     let mut module = create_test_module("test");
 
-    // Define a void function
     let mut void_func = create_test_function("do_nothing", vec![], IrType::Void);
     void_func.blocks[0]
         .instructions
         .push(Instruction::Return { value: None });
     module.functions.push(void_func);
 
-    // Call it from main
     let mut main_func = create_test_function("main", vec![], IrType::Void);
     main_func.blocks[0].instructions.push(Instruction::Call {
         dest: None,
@@ -1827,16 +1770,12 @@ fn test_void_function_call() {
     assert!(result.contains("call void @do_nothing()"));
 }
 
-// =============================================================================
-// Class and Object Tests
-// =============================================================================
 
 #[test]
 fn test_class_definition() {
     let mut codegen = create_codegen();
     let mut module = create_test_module("test");
 
-    // Define a simple class
     let mut class = Class::new(ClassId("Person".to_string()), "Person".to_string());
     class.fields.push(("name".to_string(), IrType::String));
     class.fields.push(("age".to_string(), IrType::Int));
@@ -1858,13 +1797,11 @@ fn test_new_object() {
     let mut codegen = create_codegen();
     let mut module = create_test_module("test");
 
-    // Define class
     let mut class = Class::new(ClassId("Point".to_string()), "Point".to_string());
     class.fields.push(("x".to_string(), IrType::Int));
     class.fields.push(("y".to_string(), IrType::Int));
     module.classes.push(class);
 
-    // Create instance
     let mut func = create_test_function("main", vec![], IrType::Void);
     func.blocks[0].instructions.push(Instruction::NewObject {
         dest: VarId(0),
@@ -1880,9 +1817,6 @@ fn test_new_object() {
     assert!(result.contains("call ptr @trq_alloc"));
 }
 
-// =============================================================================
-// Print Tests
-// =============================================================================
 
 #[test]
 fn test_print_int() {
@@ -1935,16 +1869,12 @@ fn test_print_string() {
     assert!(result.contains("call void @trq_print(ptr"));
 }
 
-// =============================================================================
-// C Main Entry Point Tests
-// =============================================================================
 
 #[test]
 fn test_c_main_entry_point() {
     let mut codegen = create_codegen();
     let mut module = create_test_module("test");
 
-    // Create __main__ function (the entry point)
     let mut main_func = Function::new(
         FuncId("__main__".to_string()),
         "__main__".to_string(),
@@ -1961,22 +1891,17 @@ fn test_c_main_entry_point() {
 
     let result = codegen.generate(&module).unwrap();
 
-    // Should emit C main that calls __main__
     assert!(result.contains("define i32 @main()"));
     assert!(result.contains("call void @__main__()"));
     assert!(result.contains("ret i32 0"));
 }
 
-// =============================================================================
-// Arabic Name Mangling Tests
-// =============================================================================
 
 #[test]
 fn test_arabic_function_name_mangling() {
     let mut codegen = create_codegen();
     let mut module = create_test_module("test");
 
-    // Create function with Arabic name (non-builtin)
     let mut func = Function::new(
         FuncId("دالتي_الخاصة".to_string()),
         "دالتي_الخاصة".to_string(),
@@ -1992,14 +1917,10 @@ fn test_arabic_function_name_mangling() {
 
     let result = codegen.generate(&module).unwrap();
 
-    // Non-builtin Arabic name should be mangled (not appear directly)
     assert!(!result.contains("define void @دالتي_الخاصة"));
     assert!(result.contains("_U")); // Mangled encoding
 }
 
-// =============================================================================
-// Phi Function Tests
-// =============================================================================
 
 #[test]
 fn test_phi_function() {
@@ -2016,14 +1937,12 @@ fn test_phi_function() {
         IrType::Int,
     );
 
-    // Entry block with branch
     func.blocks[0].instructions.push(Instruction::Branch {
         cond: VarId(0),
         then_block: BlockId(1),
         else_block: BlockId(2),
     });
 
-    // Then block
     let mut then_block = BasicBlock::with_label(BlockId(1), "then".to_string());
     then_block.instructions.push(Instruction::Const {
         dest: VarId(1),
@@ -2035,7 +1954,6 @@ fn test_phi_function() {
         .push(Instruction::Jump { target: BlockId(3) });
     func.blocks.push(then_block);
 
-    // Else block
     let mut else_block = BasicBlock::with_label(BlockId(2), "else".to_string());
     else_block.instructions.push(Instruction::Const {
         dest: VarId(2),
@@ -2047,7 +1965,6 @@ fn test_phi_function() {
         .push(Instruction::Jump { target: BlockId(3) });
     func.blocks.push(else_block);
 
-    // Merge block with phi
     let mut merge_block = BasicBlock::with_label(BlockId(3), "merge".to_string());
     merge_block.instructions.push(Instruction::Phi {
         dest: VarId(3),

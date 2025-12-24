@@ -269,7 +269,6 @@ mod tests {
         assert_eq!(Value::int(42), Value::int(42));
         assert_ne!(Value::int(42), Value::int(43));
         assert_eq!(Value::string("hello"), Value::string("hello"));
-        // Int and Float comparison
         assert_eq!(Value::int(42), Value::float(42.0));
     }
 }

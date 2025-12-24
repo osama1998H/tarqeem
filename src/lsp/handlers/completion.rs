@@ -18,36 +18,27 @@ pub fn handle_completion(
     let offset = position_to_offset(&doc.content, position);
     let content = &doc.content;
 
-    // Get context for completion
     let context = get_completion_context(content, offset);
 
     let mut items = Vec::new();
 
     match context {
         CompletionContext::TopLevel => {
-            // Top-level keywords
             items.extend(get_keyword_completions(language));
-            // Add user-defined symbols
             items.extend(get_symbol_completions(doc, language));
         }
         CompletionContext::InFunction => {
-            // Keywords valid in function body
             items.extend(get_statement_keyword_completions(language));
-            // Built-in functions
             items.extend(get_builtin_completions(language));
-            // User-defined symbols
             items.extend(get_symbol_completions(doc, language));
         }
         CompletionContext::AfterDot(prefix) => {
-            // Member completions
             items.extend(get_member_completions(doc, &prefix, language));
         }
         CompletionContext::AfterColon => {
-            // Type completions
             items.extend(get_type_completions(language));
         }
         CompletionContext::InImport => {
-            // Module completions (placeholder for now)
             items.extend(get_module_completions(language));
         }
     }
@@ -68,12 +59,9 @@ enum CompletionContext {
 }
 
 fn get_completion_context(content: &str, offset: usize) -> CompletionContext {
-    // Get the text before the cursor
     let before = &content[..offset.min(content.len())];
 
-    // Check for dot (member access)
     if let Some(dot_pos) = before.rfind('.') {
-        // Get the identifier before the dot
         let prefix_start = before[..dot_pos]
             .rfind(|c: char| !c.is_alphanumeric() && c != '_' && !is_arabic_letter(c))
             .map(|p| p + 1)
@@ -82,17 +70,14 @@ fn get_completion_context(content: &str, offset: usize) -> CompletionContext {
         return CompletionContext::AfterDot(prefix);
     }
 
-    // Check for colon (type annotation)
     if before.trim_end().ends_with(':') {
         return CompletionContext::AfterColon;
     }
 
-    // Check for import context
     if before.contains("استورد") || before.contains("import") {
         return CompletionContext::InImport;
     }
 
-    // Check if we're inside a function body
     let open_braces = before.matches('{').count();
     let close_braces = before.matches('}').count();
 
@@ -251,7 +236,6 @@ fn get_type_completions(language: Language) -> Vec<CompletionItem> {
             ("عدد_عشري", "عدد عشري"),
             ("نص", "سلسلة نصية"),
             ("منطقي", "قيمة منطقية"),
-            // Note: فراغ eliminated - functions default to no return value
             ("مصفوفة", "مصفوفة"),
             ("قاموس", "قاموس"),
             ("أي", "أي نوع"),
@@ -261,7 +245,6 @@ fn get_type_completions(language: Language) -> Vec<CompletionItem> {
             ("float", "Floating point"),
             ("string", "String"),
             ("bool", "Boolean"),
-            // Note: void eliminated - functions default to no return value
             ("array", "Array"),
             ("map", "Map/Dictionary"),
             ("any", "Any type"),
@@ -324,15 +307,12 @@ fn get_member_completions(
     _prefix: &str,
     language: Language,
 ) -> Vec<CompletionItem> {
-    // For now, provide common array and string methods
     let methods = match language {
         Language::Arabic => vec![
-            // Array methods
             ("طول", "طول المصفوفة"),
             ("ألحق", "إضافة عنصر"),
             ("احذف", "حذف عنصر"),
             ("فارغة", "هل المصفوفة فارغة"),
-            // String methods
             ("قص", "قص جزء من النص"),
             ("قسّم", "تقسيم النص"),
             ("استبدل", "استبدال نص"),
@@ -341,12 +321,10 @@ fn get_member_completions(
             ("أحرف_صغيرة", "تحويل لأحرف صغيرة"),
         ],
         Language::English => vec![
-            // Array methods
             ("length", "Array length"),
             ("push", "Add an element"),
             ("pop", "Remove last element"),
             ("isEmpty", "Is array empty"),
-            // String methods
             ("slice", "Slice a portion"),
             ("split", "Split string"),
             ("replace", "Replace text"),

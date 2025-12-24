@@ -98,10 +98,8 @@ impl ClassInfo {
             return Some(field);
         }
 
-        // Check parent class with cycle detection
         if let Some(parent_name) = &self.parent {
             if visited.contains(parent_name) {
-                // Cycle detected - prevent infinite recursion
                 return None;
             }
             visited.insert(parent_name.clone());
@@ -132,10 +130,8 @@ impl ClassInfo {
             return Some(method);
         }
 
-        // Check parent class with cycle detection
         if let Some(parent_name) = &self.parent {
             if visited.contains(parent_name) {
-                // Cycle detected - prevent infinite recursion
                 return None;
             }
             visited.insert(parent_name.clone());
@@ -163,7 +159,6 @@ impl ClassInfo {
     ) -> Vec<(&'a str, &'a FieldInfo)> {
         let mut fields = Vec::new();
 
-        // First add parent fields with cycle detection
         if let Some(parent_name) = &self.parent {
             if !visited.contains(parent_name) {
                 visited.insert(parent_name.clone());
@@ -173,7 +168,6 @@ impl ClassInfo {
             }
         }
 
-        // Then add own fields
         for (name, field) in &self.fields {
             fields.push((name.as_str(), field));
         }
@@ -196,7 +190,6 @@ impl ClassInfo {
     ) -> Vec<(&'a str, &'a MethodInfo)> {
         let mut methods: IndexMap<&str, &MethodInfo> = IndexMap::new();
 
-        // First add parent methods with cycle detection
         if let Some(parent_name) = &self.parent {
             if !visited.contains(parent_name) {
                 visited.insert(parent_name.clone());
@@ -208,7 +201,6 @@ impl ClassInfo {
             }
         }
 
-        // Then add/override with own methods
         for (name, method) in &self.methods {
             methods.insert(name.as_str(), method);
         }
@@ -248,10 +240,8 @@ impl InterfaceInfo {
     ) -> Vec<(&'a str, &'a MethodSignatureInfo)> {
         let mut methods: IndexMap<&str, &MethodSignatureInfo> = IndexMap::new();
 
-        // First add extended interface methods with cycle detection
         for parent_name in &self.extends {
             if visited.contains(parent_name) {
-                // Cycle detected - skip to prevent infinite recursion
                 continue;
             }
             visited.insert(parent_name.clone());
@@ -262,7 +252,6 @@ impl InterfaceInfo {
             }
         }
 
-        // Then add own methods
         for (name, method) in &self.methods {
             methods.insert(name.as_str(), method);
         }
@@ -367,7 +356,6 @@ impl ClassResolver {
         members: &[ClassMember],
         resolve_type: impl Fn(&TypeAnnotation) -> Type,
     ) {
-        // First collect all member info
         let mut fields = IndexMap::new();
         let mut methods = IndexMap::new();
         let mut constructor = None;
@@ -463,8 +451,6 @@ impl ClassResolver {
                 } => {
                     let prop_type = resolve_type(ty);
 
-                    // Register the property as a public-facing field
-                    // This allows member access like object.property to work
                     let property_field_info = FieldInfo {
                         name: name.clone(),
                         ty: prop_type.clone(),
@@ -474,7 +460,6 @@ impl ClassResolver {
                     };
                     fields.insert(name.clone(), property_field_info);
 
-                    // Also create a backing field with underscore prefix (for internal use)
                     let backing_field_name = format!("_{}", name);
                     let backing_field_info = FieldInfo {
                         name: backing_field_name.clone(),
@@ -485,12 +470,10 @@ impl ClassResolver {
                     };
                     fields.insert(backing_field_name, backing_field_info);
 
-                    // Check if property has getter - create synthetic getter method
                     let has_getter = accessors
                         .iter()
                         .any(|a| matches!(a, crate::parser::PropertyAccessor::Get { .. }));
                     if has_getter || accessors.is_empty() {
-                        // Auto-property or explicit getter
                         let getter_name = format!("__احصل_{}", name);
                         let getter_info = MethodInfo {
                             name: getter_name.clone(),
@@ -505,12 +488,10 @@ impl ClassResolver {
                         methods.insert(getter_name, getter_info);
                     }
 
-                    // Check if property has setter - create synthetic setter method
                     let has_setter = accessors
                         .iter()
                         .any(|a| matches!(a, crate::parser::PropertyAccessor::Set { .. }));
                     if has_setter || accessors.is_empty() {
-                        // Auto-property or explicit setter
                         let setter_name = format!("__عيّن_{}", name);
                         let setter_info = MethodInfo {
                             name: setter_name.clone(),
@@ -528,7 +509,6 @@ impl ClassResolver {
             }
         }
 
-        // Update the class
         if let Some(class) = self.classes.get_mut(class_name) {
             class.fields = fields;
             class.methods = methods;
@@ -537,7 +517,6 @@ impl ClassResolver {
     }
 
     pub fn build_vtables(&mut self) {
-        // We need to process classes in topological order (parents before children)
         let order = self.topological_sort_classes();
 
         for class_name in order {
@@ -546,7 +525,6 @@ impl ClassResolver {
     }
 
     fn build_vtable_for_class(&mut self, class_name: &str) {
-        // Get parent vtable if exists
         let parent_vtable: Vec<String> = if let Some(class) = self.classes.get(class_name) {
             if let Some(parent_name) = &class.parent {
                 self.classes
@@ -560,11 +538,9 @@ impl ClassResolver {
             return;
         };
 
-        // Build the new vtable
         let mut vtable = parent_vtable;
 
         if let Some(class) = self.classes.get(class_name) {
-            // Collect method names that need to be added or updated
             let method_names: Vec<String> = class
                 .methods
                 .iter()
@@ -573,16 +549,13 @@ impl ClassResolver {
                 .collect();
 
             for method_name in method_names {
-                // Check if method overrides a parent method
                 if let Some(pos) = vtable.iter().position(|n| n == &method_name) {
-                    // Override: update vtable_index
                     if let Some(class) = self.classes.get_mut(class_name) {
                         if let Some(method) = class.methods.get_mut(&method_name) {
                             method.vtable_index = Some(pos);
                         }
                     }
                 } else {
-                    // New method: add to vtable
                     let new_index = vtable.len();
                     vtable.push(method_name.clone());
                     if let Some(class) = self.classes.get_mut(class_name) {
@@ -594,7 +567,6 @@ impl ClassResolver {
             }
         }
 
-        // Store the vtable
         if let Some(class) = self.classes.get_mut(class_name) {
             class.vtable = vtable;
         }
@@ -617,7 +589,6 @@ impl ClassResolver {
         }
         visited.insert(name.to_string());
 
-        // Visit parent first
         if let Some(class) = self.classes.get(name) {
             if let Some(parent_name) = &class.parent {
                 self.visit_class(parent_name, visited, result);
@@ -665,14 +636,12 @@ impl ClassResolver {
     }
 
     fn check_interface_implementations(&mut self) {
-        // Collect all violations first
         let mut violations = Vec::new();
 
         for (class_name, class) in &self.classes {
             for interface_name in &class.interfaces {
                 if let Some(interface) = self.interfaces.get(interface_name) {
                     for (method_name, sig) in interface.all_methods(self) {
-                        // Check if class has this method
                         let has_method = class.get_method(method_name, self).is_some();
 
                         if !has_method {
@@ -688,7 +657,6 @@ impl ClassResolver {
                                 class.span,
                             ));
                         } else if let Some(method) = class.get_method(method_name, self) {
-                            // Check parameter count matches
                             if method.params.len() != sig.params.len() {
                                 violations.push((
                                     format!(
@@ -702,7 +670,6 @@ impl ClassResolver {
                                     class.span,
                                 ));
                             } else {
-                                // Check parameter types match
                                 for (i, ((_, expected_ty), (_, actual_ty))) in
                                     sig.params.iter().zip(method.params.iter()).enumerate()
                                 {
@@ -722,7 +689,6 @@ impl ClassResolver {
                                 }
                             }
 
-                            // Check return type matches
                             if method.return_type != sig.return_type {
                                 violations.push((
                                     format!(
@@ -742,7 +708,6 @@ impl ClassResolver {
             }
         }
 
-        // Add all violations to diagnostics
         for (msg, msg_ar, span) in violations {
             self.diagnostics
                 .push(Diagnostic::error(&msg, &msg_ar, span));
@@ -757,7 +722,6 @@ impl ClassResolver {
                 if let Some(parent) = self.classes.get(parent_name) {
                     for (method_name, method) in &class.methods {
                         if let Some(parent_method) = parent.get_method(method_name, self) {
-                            // Check visibility is not more restrictive
                             if method.visibility == Visibility::Private
                                 && parent_method.visibility != Visibility::Private
                             {
@@ -776,7 +740,6 @@ impl ClassResolver {
                                 ));
                             }
 
-                            // Check parameter count matches
                             if method.params.len() != parent_method.params.len() {
                                 violations.push((
                                     format!(
@@ -794,17 +757,12 @@ impl ClassResolver {
                                     class.span,
                                 ));
                             } else {
-                                // Check parameter types are compatible (contravariance)
-                                // For a valid override, the child's parameter types should be
-                                // able to accept at least what the parent's parameters accept.
                                 for (i, ((_, child_ty), (_, parent_ty))) in method
                                     .params
                                     .iter()
                                     .zip(parent_method.params.iter())
                                     .enumerate()
                                 {
-                                    // Check bidirectional compatibility for v1
-                                    // (strict contravariance would only check child_ty >= parent_ty)
                                     if !child_ty.is_compatible_with(parent_ty)
                                         && !parent_ty.is_compatible_with(child_ty)
                                     {
@@ -823,7 +781,6 @@ impl ClassResolver {
                                 }
                             }
 
-                            // Check return type is compatible
                             if !method
                                 .return_type
                                 .is_compatible_with(&parent_method.return_type)
@@ -856,19 +813,16 @@ impl ClassResolver {
         let mut violations = Vec::new();
 
         for (class_name, class) in &self.classes {
-            // Skip if this class itself has any abstract methods (it's abstract)
             let is_abstract_class = class.methods.values().any(|m| m.is_abstract);
             if is_abstract_class {
                 continue;
             }
 
-            // Collect all abstract methods from parent chain
             let mut abstract_methods: Vec<(String, String)> = Vec::new(); // (method_name, defining_class)
             let mut current_parent = class.parent.clone();
             let mut visited_parents = HashSet::new();
 
             while let Some(parent_name) = current_parent {
-                // Cycle detection - prevent infinite loop on circular inheritance
                 if visited_parents.contains(&parent_name) {
                     break;
                 }
@@ -877,7 +831,6 @@ impl ClassResolver {
                 if let Some(parent_class) = self.classes.get(&parent_name) {
                     for (method_name, method) in &parent_class.methods {
                         if method.is_abstract {
-                            // Check if this abstract method is already in our list
                             if !abstract_methods.iter().any(|(m, _)| m == method_name) {
                                 abstract_methods.push((method_name.clone(), parent_name.clone()));
                             }
@@ -889,7 +842,6 @@ impl ClassResolver {
                 }
             }
 
-            // Check that all abstract methods are implemented
             for (method_name, defining_class) in abstract_methods {
                 let is_implemented = class
                     .get_method(&method_name, self)
@@ -931,7 +883,6 @@ impl ClassResolver {
             return true;
         }
 
-        // Cycle detection
         if visited.contains(class_name) {
             return false;
         }
@@ -957,19 +908,16 @@ impl ClassResolver {
         interface_name: &str,
         visited: &mut HashSet<String>,
     ) -> bool {
-        // Cycle detection
         if visited.contains(class_name) {
             return false;
         }
         visited.insert(class_name.to_string());
 
         if let Some(class) = self.classes.get(class_name) {
-            // Check direct implementation
             if class.interfaces.contains(&interface_name.to_string()) {
                 return true;
             }
 
-            // Check parent
             if let Some(parent_name) = &class.parent {
                 return self.implements_interface_with_cycle_check(
                     parent_name,
@@ -1039,7 +987,6 @@ mod tests {
         resolver.register_class("أ", &[], None, &[], Span::empty());
         resolver.register_class("ب", &[], Some("أ"), &[], Span::empty());
 
-        // Add a method to class أ
         if let Some(class) = resolver.get_class_mut("أ") {
             class.methods.insert(
                 "دالة1".to_string(),
@@ -1056,7 +1003,6 @@ mod tests {
             );
         }
 
-        // Add methods to class ب
         if let Some(class) = resolver.get_class_mut("ب") {
             class.methods.insert(
                 "دالة1".to_string(), // Override
@@ -1088,7 +1034,6 @@ mod tests {
 
         resolver.build_vtables();
 
-        // Check vtables
         let class_a = resolver.get_class("أ").unwrap();
         assert_eq!(class_a.vtable.len(), 1);
         assert_eq!(class_a.vtable[0], "دالة1");
@@ -1109,9 +1054,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // =========================================================================
-    // Method Override Parameter Contravariance Tests (Issue 1.5)
-    // =========================================================================
 
     #[test]
     fn test_method_override_same_params_valid() {
@@ -1119,7 +1061,6 @@ mod tests {
         resolver.register_class("أ", &[], None, &[], Span::empty());
         resolver.register_class("ب", &[], Some("أ"), &[], Span::empty());
 
-        // Add method to parent with Int parameter
         if let Some(class) = resolver.get_class_mut("أ") {
             class.methods.insert(
                 "دالة".to_string(),
@@ -1136,7 +1077,6 @@ mod tests {
             );
         }
 
-        // Override with same parameter type (valid)
         if let Some(class) = resolver.get_class_mut("ب") {
             class.methods.insert(
                 "دالة".to_string(),
@@ -1163,7 +1103,6 @@ mod tests {
         resolver.register_class("أ", &[], None, &[], Span::empty());
         resolver.register_class("ب", &[], Some("أ"), &[], Span::empty());
 
-        // Parent method with Int parameter
         if let Some(class) = resolver.get_class_mut("أ") {
             class.methods.insert(
                 "دالة".to_string(),
@@ -1180,7 +1119,6 @@ mod tests {
             );
         }
 
-        // Override with String parameter (incompatible!)
         if let Some(class) = resolver.get_class_mut("ب") {
             class.methods.insert(
                 "دالة".to_string(),
@@ -1207,7 +1145,6 @@ mod tests {
         resolver.register_class("أ", &[], None, &[], Span::empty());
         resolver.register_class("ب", &[], Some("أ"), &[], Span::empty());
 
-        // Parent method with 1 parameter
         if let Some(class) = resolver.get_class_mut("أ") {
             class.methods.insert(
                 "دالة".to_string(),
@@ -1224,7 +1161,6 @@ mod tests {
             );
         }
 
-        // Override with 2 parameters (wrong count!)
         if let Some(class) = resolver.get_class_mut("ب") {
             class.methods.insert(
                 "دالة".to_string(),
@@ -1251,7 +1187,6 @@ mod tests {
         resolver.register_class("أ", &[], None, &[], Span::empty());
         resolver.register_class("ب", &[], Some("أ"), &[], Span::empty());
 
-        // Parent with Int parameter
         if let Some(class) = resolver.get_class_mut("أ") {
             class.methods.insert(
                 "دالة".to_string(),
@@ -1268,7 +1203,6 @@ mod tests {
             );
         }
 
-        // Override with Any parameter (valid - Any is contravariant supertype)
         if let Some(class) = resolver.get_class_mut("ب") {
             class.methods.insert(
                 "دالة".to_string(),
@@ -1295,7 +1229,6 @@ mod tests {
         resolver.register_class("أ", &[], None, &[], Span::empty());
         resolver.register_class("ب", &[], Some("أ"), &[], Span::empty());
 
-        // Parent method with 2 parameters
         if let Some(class) = resolver.get_class_mut("أ") {
             class.methods.insert(
                 "دالة".to_string(),
@@ -1315,7 +1248,6 @@ mod tests {
             );
         }
 
-        // Override with 1 parameter (too few!)
         if let Some(class) = resolver.get_class_mut("ب") {
             class.methods.insert(
                 "دالة".to_string(),

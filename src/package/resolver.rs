@@ -125,33 +125,27 @@ impl<'a> Resolver<'a> {
     }
 
     pub fn resolve(&mut self, manifest: &Manifest) -> PackageResult<Vec<ResolvedPackage>> {
-        // Resolve regular dependencies
         for (name, spec) in &manifest.dependencies {
             self.resolve_package(name, spec)?;
         }
 
-        // Resolve dev dependencies
         for (name, spec) in &manifest.dev_dependencies {
             self.resolve_package(name, spec)?;
         }
 
-        // Return topologically sorted packages
         Ok(self.topological_sort())
     }
 
     fn resolve_package(&mut self, name: &str, spec: &DependencySpec) -> PackageResult<()> {
-        // Skip if already resolved
         if self.resolved.contains_key(name) {
             return Ok(());
         }
 
-        // Detect cycles
         if self.resolving.contains(name) {
             return Err(PackageError::CircularDependency(name.to_string()));
         }
         self.resolving.insert(name.to_string());
 
-        // Handle path dependencies specially
         if let Some(path) = spec.path() {
             let resolved = self.resolve_path_dependency(name, path, spec.version_req())?;
             self.resolved.insert(name.to_string(), resolved);
@@ -159,16 +153,12 @@ impl<'a> Resolver<'a> {
             return Ok(());
         }
 
-        // Parse version requirement
         let version_req = self.parse_version_req(spec.version_req())?;
 
-        // Get package info from cache/registry
         let pkg_info = self.cache.get_package_info(name)?;
 
-        // Find best matching version and clone it to avoid borrow issues
         let best_version = self.find_best_version(&pkg_info, &version_req)?;
 
-        // Store resolved package
         let resolved = ResolvedPackage {
             name: name.to_string(),
             version: best_version.version.clone(),
@@ -180,7 +170,6 @@ impl<'a> Resolver<'a> {
             dependencies: best_version.dependencies.keys().cloned().collect(),
         };
 
-        // Get dependencies before inserting
         let deps: Vec<_> = best_version
             .dependencies
             .iter()
@@ -189,7 +178,6 @@ impl<'a> Resolver<'a> {
 
         self.resolved.insert(name.to_string(), resolved);
 
-        // Resolve transitive dependencies after inserting current package
         for (dep_name, dep_version) in deps {
             let dep_spec = DependencySpec::Version(dep_version);
             self.resolve_package(&dep_name, &dep_spec)?;
@@ -206,7 +194,6 @@ impl<'a> Resolver<'a> {
         path: &PathBuf,
         _version_req: &str,
     ) -> PackageResult<ResolvedPackage> {
-        // Read manifest from the path
         let manifest_path = path.join("حزمة.toml");
         let manifest = if manifest_path.exists() {
             Manifest::parse(&manifest_path)?
@@ -219,7 +206,6 @@ impl<'a> Resolver<'a> {
             }
         };
 
-        // Calculate checksum of the directory (simplified: hash of manifest)
         let checksum = self.cache.calculate_path_checksum(path)?;
 
         Ok(ResolvedPackage {
@@ -287,7 +273,6 @@ impl<'a> Resolver<'a> {
         visited.insert(name.to_string());
 
         if let Some(pkg) = self.resolved.get(name) {
-            // Visit dependencies first
             for dep in &pkg.dependencies {
                 self.visit_package(dep, visited, result);
             }
@@ -317,7 +302,6 @@ mod tests {
         let cache = Cache::new().unwrap();
         let resolver = Resolver::new(&cache);
 
-        // Test various version requirements
         assert!(resolver.parse_version_req("1.0.0").is_ok());
         assert!(resolver.parse_version_req("^1.0").is_ok());
         assert!(resolver.parse_version_req("~1.0").is_ok());

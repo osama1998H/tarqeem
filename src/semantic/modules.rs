@@ -80,21 +80,18 @@ impl ModuleLoader {
     }
 
     pub fn resolve_path(&self, from: &Path, import_path: &str) -> Option<PathBuf> {
-        // Handle relative imports
         if import_path.starts_with("./") || import_path.starts_with("../") {
             let base_dir = from.parent().unwrap_or(Path::new("."));
             let relative_path = import_path.trim_start_matches("./");
             return self.find_module_file(&base_dir.join(relative_path));
         }
 
-        // Handle absolute imports by searching search paths
         for search_path in &self.search_paths {
             if let Some(found) = self.find_module_file(&search_path.join(import_path)) {
                 return Some(found);
             }
         }
 
-        // Try relative to current working directory
         if let Some(found) = self.find_module_file(&PathBuf::from(import_path)) {
             return Some(found);
         }
@@ -103,7 +100,6 @@ impl ModuleLoader {
     }
 
     fn find_module_file(&self, base: &Path) -> Option<PathBuf> {
-        // If the path already has a valid extension
         if base.exists() {
             if let Some(ext) = base.extension().and_then(|e| e.to_str()) {
                 if ext == "ترقيم" {
@@ -112,15 +108,12 @@ impl ModuleLoader {
             }
         }
 
-        // Try with .ترقيم extension
         let with_arabic = base.with_extension("ترقيم");
         if with_arabic.exists() {
             return with_arabic.canonicalize().ok();
         }
 
-        // Try as a directory with module index file
         if base.is_dir() {
-            // Arabic index pattern: فهرس.ترقيم
             let index_arabic = base.join("فهرس.ترقيم");
             if index_arabic.exists() {
                 return index_arabic.canonicalize().ok();
@@ -145,7 +138,6 @@ impl ModuleLoader {
 
         let module_id = ModuleId(canonical_path.clone());
 
-        // Check for circular dependency
         if self.loading_stack.contains(&module_id) {
             let cycle = self
                 .loading_stack
@@ -171,12 +163,10 @@ impl ModuleLoader {
             return Err(());
         }
 
-        // Return cached module if available
         if self.modules.contains_key(&module_id) {
             return Ok(self.modules.get(&module_id).unwrap());
         }
 
-        // Load the module
         self.loading_stack.push(module_id.clone());
 
         let result = self.load_module_internal(&canonical_path, span);
@@ -193,7 +183,6 @@ impl ModuleLoader {
     }
 
     fn load_module_internal(&mut self, path: &Path, span: Span) -> Result<LoadedModule, ()> {
-        // Read file
         let source = match std::fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) => {
@@ -206,7 +195,6 @@ impl ModuleLoader {
             }
         };
 
-        // Parse file
         let mut parser = Parser::new(&source);
 
         let ast = match parser.parse() {
@@ -229,7 +217,6 @@ impl ModuleLoader {
             }
         };
 
-        // Collect exports
         let exports = self.collect_exports(&ast);
 
         Ok(LoadedModule {
@@ -343,7 +330,6 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let base_path = temp_dir.path();
 
-        // Create a test module file
         create_test_file(
             base_path,
             "رياضيات.ترقيم",
@@ -376,14 +362,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let base_path = temp_dir.path();
 
-        // Create two files that import each other
         create_test_file(base_path, "أ.ترقيم", "استورد { ب } من \"./ب\"");
         create_test_file(base_path, "ب.ترقيم", "استورد { أ } من \"./أ\"");
 
         let mut loader = ModuleLoader::new();
         let a_path = base_path.join("أ.ترقيم");
 
-        // Start loading - this should detect the cycle
         let resolved = loader.resolve_path(&a_path, "./ب");
         assert!(resolved.is_some());
     }
@@ -393,7 +377,6 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let base_path = temp_dir.path();
 
-        // Create stdlib directory
         let stdlib_dir = base_path.join("مكتبة");
         std::fs::create_dir(&stdlib_dir).unwrap();
         create_test_file(&stdlib_dir, "مجموعات.ترقيم", "صدّر صنف قائمة {}");

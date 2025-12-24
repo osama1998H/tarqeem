@@ -70,7 +70,6 @@ impl DocExtractor {
                 func_doc.is_exported = is_exported;
                 func_doc.line = stmt.span.line;
 
-                // Extract parameter info from AST
                 for param in params {
                     let param_doc = ParamDoc {
                         name: param.name.clone(),
@@ -81,7 +80,6 @@ impl DocExtractor {
                     func_doc.params.push(param_doc);
                 }
 
-                // Extract return type
                 if let Some(ret_ty) = return_type {
                     func_doc.returns = Some(ReturnDoc {
                         ty: Some(self.type_to_string(ret_ty)),
@@ -89,14 +87,12 @@ impl DocExtractor {
                     });
                 }
 
-                // Parse doc comment
                 if let Some(comment) = doc_comment {
                     let parsed = DocCommentParser::parse(comment);
                     func_doc.description = parsed.description;
                     func_doc.examples = parsed.examples;
                     func_doc.see_also = parsed.see_also;
 
-                    // Update param descriptions from doc comment
                     for doc_param in parsed.params {
                         if let Some(ast_param) = func_doc
                             .params
@@ -110,7 +106,6 @@ impl DocExtractor {
                         }
                     }
 
-                    // Update return description from doc comment
                     if let Some(ret) = parsed.returns {
                         if let Some(func_ret) = &mut func_doc.returns {
                             func_ret.description = ret.description;
@@ -141,14 +136,12 @@ impl DocExtractor {
                 class_doc.is_exported = is_exported;
                 class_doc.line = stmt.span.line;
 
-                // Parse class doc comment
                 if let Some(comment) = doc_comment {
                     let parsed = DocCommentParser::parse(comment);
                     class_doc.description = parsed.description;
                     class_doc.examples = parsed.examples;
                 }
 
-                // Extract members
                 for member in members {
                     match member {
                         ClassMember::Field {
@@ -190,7 +183,6 @@ impl DocExtractor {
                             method_doc.is_static = *is_static;
                             method_doc.is_async = *is_async;
 
-                            // Extract params
                             for param in params {
                                 method_doc.params.push(ParamDoc {
                                     name: param.name.clone(),
@@ -200,7 +192,6 @@ impl DocExtractor {
                                 });
                             }
 
-                            // Extract return type
                             if let Some(ret_ty) = return_type {
                                 method_doc.returns = Some(ReturnDoc {
                                     ty: Some(self.type_to_string(ret_ty)),
@@ -208,12 +199,10 @@ impl DocExtractor {
                                 });
                             }
 
-                            // Parse doc comment
                             if let Some(comment) = doc_comment {
                                 let parsed = DocCommentParser::parse(comment);
                                 method_doc.description = parsed.description;
 
-                                // Update param descriptions
                                 for doc_param in parsed.params {
                                     if let Some(ast_param) = method_doc
                                         .params
@@ -224,7 +213,6 @@ impl DocExtractor {
                                     }
                                 }
 
-                                // Update return description
                                 if let Some(ret) = parsed.returns {
                                     if let Some(method_ret) = &mut method_doc.returns {
                                         method_ret.description = ret.description;
@@ -282,7 +270,6 @@ impl DocExtractor {
                             doc_comment,
                             ..
                         } => {
-                            // Treat properties as fields for documentation purposes
                             let mut field_doc = FieldDoc {
                                 name: name.clone(),
                                 ty: Some(self.type_to_string(ty)),
@@ -357,7 +344,6 @@ impl DocExtractor {
             }
 
             StmtKind::Export(inner) => {
-                // Recurse with exported flag
                 self.extract_stmt(inner, true)
             }
 

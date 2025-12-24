@@ -16,18 +16,14 @@ pub fn handle_hover(
     let _offset = position_to_offset(&doc.content, position);
     let content = doc.content.clone();
 
-    // Find the word at the position
     let (start, end, word) = find_word_at_position(&content, position)?;
 
     let analysis = doc.get_analysis(language);
 
-    // Look up the symbol
     let symbol_info = analysis.symbols.get(&word)?;
 
-    // Format the hover content
     let (type_info, kind_label) = format_type_info(&symbol_info.ty, &symbol_info.kind, language);
 
-    // Build markdown content
     let markdown = format!(
         "```tarqeem\n{}: {}\n```\n\n**{}**{}",
         word,
@@ -82,7 +78,6 @@ fn format_type_info(ty: &Type, kind: &SymbolKind, language: Language) -> (String
 
 pub fn get_builtin_hover(name: &str, language: Language) -> Option<Hover> {
     let (signature, description_ar, description_en) = match name {
-        // I/O Functions
         "اطبع" | "print" => (
             "دالة اطبع(قيمة: أي)", // No return type means no return value
             "طباعة قيمة إلى المخرج القياسي",
@@ -99,7 +94,6 @@ pub fn get_builtin_hover(name: &str, language: Language) -> Option<Hover> {
             "Read a line from standard input",
         ),
 
-        // Introspection
         "طول" | "len" | "length" => (
             "دالة طول(قيمة: أي) -> عدد",
             "الحصول على طول المصفوفة أو النص",
@@ -111,7 +105,6 @@ pub fn get_builtin_hover(name: &str, language: Language) -> Option<Hover> {
             "Get the type of a value as a string",
         ),
 
-        // Type conversion
         "عدد" | "int" => (
             "دالة عدد(قيمة: أي) -> عدد",
             "تحويل قيمة إلى عدد صحيح",
@@ -133,7 +126,6 @@ pub fn get_builtin_hover(name: &str, language: Language) -> Option<Hover> {
             "Convert a value to a boolean",
         ),
 
-        // Math
         "مطلق" | "abs" => (
             "دالة مطلق(قيمة: عدد) -> عدد",
             "الحصول على القيمة المطلقة",
@@ -150,7 +142,6 @@ pub fn get_builtin_hover(name: &str, language: Language) -> Option<Hover> {
             "Raise a number to a power",
         ),
 
-        // File operations
         "اقرأ_ملف" | "read_file" => (
             "دالة اقرأ_ملف(مسار: نص) -> نص",
             "قراءة محتوى ملف",

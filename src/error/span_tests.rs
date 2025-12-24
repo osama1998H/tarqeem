@@ -4,9 +4,6 @@
 
 use super::span::*;
 
-// =============================================================================
-// Span Creation Tests
-// =============================================================================
 
 #[test]
 fn test_span_new() {
@@ -38,9 +35,6 @@ fn test_span_default() {
     assert_eq!(span.column, 0);
 }
 
-// =============================================================================
-// Span Length Tests
-// =============================================================================
 
 #[test]
 fn test_span_len() {
@@ -66,9 +60,6 @@ fn test_span_len_large() {
     assert_eq!(span.len(), 10000);
 }
 
-// =============================================================================
-// Span Empty Check Tests
-// =============================================================================
 
 #[test]
 fn test_span_is_empty_true() {
@@ -88,9 +79,6 @@ fn test_span_empty_is_empty() {
     assert!(span.is_empty());
 }
 
-// =============================================================================
-// Span Merge Tests
-// =============================================================================
 
 #[test]
 fn test_span_merge_consecutive() {
@@ -156,7 +144,6 @@ fn test_span_merge_different_lines() {
 
     let merged = span1.merge(&span2);
 
-    // Should take the earlier line
     assert_eq!(merged.line, 1);
     assert_eq!(merged.column, 1);
     assert_eq!(merged.start, 0);
@@ -170,7 +157,6 @@ fn test_span_merge_second_earlier() {
 
     let merged = span1.merge(&span2);
 
-    // Should take the earlier line (from span2)
     assert_eq!(merged.line, 1);
     assert_eq!(merged.column, 1);
     assert_eq!(merged.start, 0);
@@ -188,9 +174,6 @@ fn test_span_merge_empty_with_non_empty() {
     assert_eq!(merged.end, 20);
 }
 
-// =============================================================================
-// Span Display Tests
-// =============================================================================
 
 #[test]
 fn test_span_display_simple() {
@@ -216,9 +199,6 @@ fn test_span_display_large_numbers() {
     assert_eq!(format!("{}", span), "9999:999");
 }
 
-// =============================================================================
-// Span Equality Tests
-// =============================================================================
 
 #[test]
 fn test_span_equality() {
@@ -260,9 +240,6 @@ fn test_span_inequality_column() {
     assert_ne!(span1, span2);
 }
 
-// =============================================================================
-// Span Clone Tests
-// =============================================================================
 
 #[test]
 fn test_span_clone() {
@@ -277,13 +254,9 @@ fn test_span_clone_independence() {
     let original = Span::new(10, 20, 5, 3);
     let cloned = original;
 
-    // Since Span is Copy, they're independent values
     assert_eq!(original.start, cloned.start);
 }
 
-// =============================================================================
-// Span Debug Tests
-// =============================================================================
 
 #[test]
 fn test_span_debug() {
@@ -297,9 +270,6 @@ fn test_span_debug() {
     assert!(debug_str.contains("3"));
 }
 
-// =============================================================================
-// Edge Cases
-// =============================================================================
 
 #[test]
 fn test_span_max_values() {
@@ -312,7 +282,6 @@ fn test_span_max_values() {
 
 #[test]
 fn test_span_single_byte() {
-    // A span covering exactly one byte
     let span = Span::new(42, 43, 10, 5);
 
     assert_eq!(span.len(), 1);
@@ -321,7 +290,6 @@ fn test_span_single_byte() {
 
 #[test]
 fn test_span_first_position() {
-    // First position in a file (line 1, column 1)
     let span = Span::new(0, 5, 1, 1);
 
     assert_eq!(span.line, 1);
@@ -329,14 +297,9 @@ fn test_span_first_position() {
     assert_eq!(format!("{}", span), "1:1");
 }
 
-// =============================================================================
-// Unicode/Arabic Content Tests
-// =============================================================================
 
 #[test]
 fn test_span_arabic_identifier() {
-    // Span for an Arabic identifier "متغير" (6 characters, variable byte length)
-    // In UTF-8, Arabic characters are typically 2 bytes each
     let span = Span::new(0, 12, 1, 1); // 6 chars * 2 bytes = 12 bytes
 
     assert_eq!(span.len(), 12);
@@ -345,28 +308,20 @@ fn test_span_arabic_identifier() {
 
 #[test]
 fn test_span_mixed_content() {
-    // Span covering mixed Arabic and ASCII content
-    // "متغير x" = 6 Arabic chars (12 bytes) + space (1 byte) + 'x' (1 byte) = 14 bytes
     let span = Span::new(0, 14, 1, 1);
 
     assert_eq!(span.len(), 14);
 }
 
-// =============================================================================
-// Real-world Scenario Tests
-// =============================================================================
 
 #[test]
 fn test_span_token_positions() {
-    // Simulating token spans in source code:
-    // "متغير س = 5"
 
     let var_keyword_span = Span::new(0, 10, 1, 1); // "متغير"
     let var_name_span = Span::new(11, 13, 1, 7); // "س"
     let equals_span = Span::new(14, 15, 1, 9); // "="
     let number_span = Span::new(16, 17, 1, 11); // "5"
 
-    // Merge all for full statement span
     let full_span = var_keyword_span
         .merge(&var_name_span)
         .merge(&equals_span)
@@ -378,7 +333,6 @@ fn test_span_token_positions() {
 
 #[test]
 fn test_span_multiline_expression() {
-    // Expression spanning multiple lines
     let line1 = Span::new(0, 20, 1, 1);
     let line2 = Span::new(21, 40, 2, 1);
     let line3 = Span::new(41, 60, 3, 1);
@@ -392,7 +346,6 @@ fn test_span_multiline_expression() {
 
 #[test]
 fn test_span_error_underline_calculation() {
-    // For error reporting, we need to calculate underline length
     let span = Span::new(10, 25, 3, 5);
 
     let underline_start = span.column - 1; // 0-indexed for spacing

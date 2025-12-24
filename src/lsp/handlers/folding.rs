@@ -17,17 +17,14 @@ pub fn handle_folding_ranges(
 
     let mut ranges = Vec::new();
 
-    // Collect folding ranges from AST
     if let Some(ref ast) = analysis.ast {
         for stmt in &ast.statements {
             collect_folding_ranges(&content, &stmt.kind, &stmt.span, &mut ranges);
         }
     }
 
-    // Also add folding ranges for comments (multi-line comment blocks)
     collect_comment_folding_ranges(&content, &mut ranges);
 
-    // Also add folding ranges for import groups
     collect_import_folding_ranges(&content, &analysis.ast, &mut ranges);
 
     if ranges.is_empty() {
@@ -44,12 +41,10 @@ fn collect_folding_ranges(
     ranges: &mut Vec<FoldingRange>,
 ) {
     match stmt {
-        // Function declarations
         StmtKind::FuncDecl { body, .. } => {
             let start_pos = offset_to_position(content, span.start);
             let end_pos = offset_to_position(content, span.end);
 
-            // Only fold if spans multiple lines
             if end_pos.line > start_pos.line {
                 ranges.push(FoldingRange {
                     start_line: start_pos.line,
@@ -61,13 +56,11 @@ fn collect_folding_ranges(
                 });
             }
 
-            // Recursively process body statements
             for stmt in &body.statements {
                 collect_folding_ranges(content, &stmt.kind, &stmt.span, ranges);
             }
         }
 
-        // Class declarations
         StmtKind::ClassDecl { members, .. } => {
             let start_pos = offset_to_position(content, span.start);
             let end_pos = offset_to_position(content, span.end);
@@ -83,7 +76,6 @@ fn collect_folding_ranges(
                 });
             }
 
-            // Process class methods
             for member in members {
                 if let ClassMember::Method { body, .. } = member {
                     for stmt in &body.statements {
@@ -93,7 +85,6 @@ fn collect_folding_ranges(
             }
         }
 
-        // Interface declarations
         StmtKind::InterfaceDecl { .. } => {
             let start_pos = offset_to_position(content, span.start);
             let end_pos = offset_to_position(content, span.end);
@@ -110,7 +101,6 @@ fn collect_folding_ranges(
             }
         }
 
-        // If statements
         StmtKind::If {
             then_branch,
             else_branch,
@@ -130,7 +120,6 @@ fn collect_folding_ranges(
                 });
             }
 
-            // Process branches
             for stmt in &then_branch.statements {
                 collect_folding_ranges(content, &stmt.kind, &stmt.span, ranges);
             }
@@ -141,7 +130,6 @@ fn collect_folding_ranges(
             }
         }
 
-        // While loops
         StmtKind::While { body, .. } => {
             let start_pos = offset_to_position(content, span.start);
             let end_pos = offset_to_position(content, span.end);
@@ -162,7 +150,6 @@ fn collect_folding_ranges(
             }
         }
 
-        // For loops
         StmtKind::For { body, .. } => {
             let start_pos = offset_to_position(content, span.start);
             let end_pos = offset_to_position(content, span.end);
@@ -183,7 +170,6 @@ fn collect_folding_ranges(
             }
         }
 
-        // ForIn loops
         StmtKind::ForIn { body, .. } => {
             let start_pos = offset_to_position(content, span.start);
             let end_pos = offset_to_position(content, span.end);
@@ -204,7 +190,6 @@ fn collect_folding_ranges(
             }
         }
 
-        // Match statements
         StmtKind::Match { arms, .. } => {
             let start_pos = offset_to_position(content, span.start);
             let end_pos = offset_to_position(content, span.end);
@@ -220,7 +205,6 @@ fn collect_folding_ranges(
                 });
             }
 
-            // Process match arm bodies
             for arm in arms {
                 for stmt in &arm.body.statements {
                     collect_folding_ranges(content, &stmt.kind, &stmt.span, ranges);
@@ -228,7 +212,6 @@ fn collect_folding_ranges(
             }
         }
 
-        // Try-catch-finally
         StmtKind::Try {
             body,
             catch,
@@ -263,7 +246,6 @@ fn collect_folding_ranges(
             }
         }
 
-        // Block statement
         StmtKind::Block(block) => {
             let start_pos = offset_to_position(content, span.start);
             let end_pos = offset_to_position(content, span.end);
@@ -302,7 +284,6 @@ fn collect_comment_folding_ranges(content: &str, ranges: &mut Vec<FoldingRange>)
             }
             comment_end = line_num;
         } else if comment_start.is_some() {
-            // End of comment block
             if let Some(start) = comment_start {
                 if comment_end > start {
                     ranges.push(FoldingRange {
@@ -319,7 +300,6 @@ fn collect_comment_folding_ranges(content: &str, ranges: &mut Vec<FoldingRange>)
         }
     }
 
-    // Handle trailing comment block
     if let Some(start) = comment_start {
         if comment_end > start {
             ranges.push(FoldingRange {
@@ -354,7 +334,6 @@ fn collect_import_folding_ranges(
             }
             import_end = pos.line;
         } else if import_start.is_some() {
-            // End of import group
             break;
         }
     }
@@ -411,8 +390,6 @@ mod tests {
         let mut doc = DocumentState::new(uri, 1, content);
 
         let ranges = handle_folding_ranges(&mut doc, Language::Arabic);
-        // Parser may not produce AST for Arabic functions in all cases
-        // If it does, verify the folding ranges are correct
         if let Some(ranges) = ranges {
             assert!(!ranges.is_empty());
         }
@@ -455,7 +432,6 @@ mod tests {
         let mut doc = DocumentState::new(uri, 1, content);
 
         let ranges = handle_folding_ranges(&mut doc, Language::Arabic);
-        // Single line statements should not create folding ranges
         assert!(ranges.is_none() || ranges.unwrap().is_empty());
     }
 }

@@ -6,7 +6,6 @@ use std::process::Command;
 use walkdir::WalkDir;
 
 pub fn run(filter: Option<String>) -> PackageResult<()> {
-    // Find and parse manifest
     let (manifest, manifest_path) = Manifest::find_and_parse()?;
     let project_root = manifest_path.parent().unwrap();
 
@@ -19,7 +18,6 @@ pub fn run(filter: Option<String>) -> PackageResult<()> {
         .cyan()
     );
 
-    // Find test directory
     let test_dirs = ["اختبارات", "tests"];
     let test_dir = test_dirs
         .iter()
@@ -38,7 +36,6 @@ pub fn run(filter: Option<String>) -> PackageResult<()> {
         }
     };
 
-    // Find test files
     let test_files: Vec<_> = WalkDir::new(&test_dir)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -90,7 +87,6 @@ pub fn run(filter: Option<String>) -> PackageResult<()> {
 
         print!("  {} {}...", "→".cyan(), name);
 
-        // Run test file with interpreter
         let mut cmd = Command::new("tarqeem");
         cmd.arg("run");
         cmd.arg(path);

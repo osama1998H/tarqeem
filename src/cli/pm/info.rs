@@ -4,7 +4,6 @@ use crate::package::{Manifest, PackageResult};
 use colored::*;
 
 pub fn run() -> PackageResult<()> {
-    // Find and parse manifest
     let (manifest, manifest_path) = Manifest::find_and_parse()?;
 
     println!();
@@ -12,7 +11,6 @@ pub fn run() -> PackageResult<()> {
     println!("{}", "═".repeat(40));
     println!();
 
-    // Basic info
     println!(
         "  {} {} {}",
         "Name / الاسم:".cyan(),
@@ -39,7 +37,6 @@ pub fn run() -> PackageResult<()> {
 
     println!();
 
-    // Entry points
     println!("{}", "Entry Points / نقاط الدخول".bold());
     println!("{}", "─".repeat(40));
 
@@ -53,7 +50,6 @@ pub fn run() -> PackageResult<()> {
 
     println!();
 
-    // Dependencies
     if !manifest.dependencies.is_empty() {
         println!("{}", "Dependencies / الاعتماديات".bold());
         println!("{}", "─".repeat(40));
@@ -64,7 +60,6 @@ pub fn run() -> PackageResult<()> {
         println!();
     }
 
-    // Dev dependencies
     if !manifest.dev_dependencies.is_empty() {
         println!("{}", "Dev Dependencies / اعتماديات التطوير".bold());
         println!("{}", "─".repeat(40));
@@ -75,7 +70,6 @@ pub fn run() -> PackageResult<()> {
         println!();
     }
 
-    // Manifest path
     println!(
         "  {} {}",
         "Manifest / ملف الحزمة:".dimmed(),

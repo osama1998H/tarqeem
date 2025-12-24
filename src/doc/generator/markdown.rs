@@ -29,22 +29,18 @@ impl Default for MarkdownGenerator {
 
 impl DocGenerator for MarkdownGenerator {
     fn generate(&self, doc: &Documentation, writer: &mut dyn Write) -> std::io::Result<()> {
-        // Title
         writeln!(writer, "# {}", &doc.name)?;
         writeln!(writer)?;
 
-        // Description
         if let Some(desc) = &doc.description {
             writeln!(writer, "{}", desc)?;
             writeln!(writer)?;
         }
 
-        // Table of contents
         if self.include_toc {
             self.write_toc(doc, writer)?;
         }
 
-        // Functions
         let functions: Vec<_> = doc.functions().collect();
         if !functions.is_empty() {
             let header = if self.arabic_headers {
@@ -59,7 +55,6 @@ impl DocGenerator for MarkdownGenerator {
             }
         }
 
-        // Classes
         let classes: Vec<_> = doc.classes().collect();
         if !classes.is_empty() {
             let header = if self.arabic_headers {
@@ -74,7 +69,6 @@ impl DocGenerator for MarkdownGenerator {
             }
         }
 
-        // Interfaces
         let interfaces: Vec<_> = doc.interfaces().collect();
         if !interfaces.is_empty() {
             let header = if self.arabic_headers {
@@ -89,7 +83,6 @@ impl DocGenerator for MarkdownGenerator {
             }
         }
 
-        // Variables
         let variables: Vec<_> = doc.variables().collect();
         if !variables.is_empty() {
             let header = if self.arabic_headers {
@@ -166,11 +159,9 @@ impl MarkdownGenerator {
     }
 
     fn write_function(&self, func: &FunctionDoc, writer: &mut dyn Write) -> std::io::Result<()> {
-        // Function header
         writeln!(writer, "### `{}`", &func.name)?;
         writeln!(writer)?;
 
-        // Signature
         write!(writer, "```tarqeem\n")?;
         if func.is_async {
             write!(writer, "متوازي ")?;
@@ -195,13 +186,11 @@ impl MarkdownGenerator {
         writeln!(writer, "```")?;
         writeln!(writer)?;
 
-        // Description
         if let Some(desc) = &func.description {
             writeln!(writer, "{}", desc)?;
             writeln!(writer)?;
         }
 
-        // Parameters
         if !func.params.is_empty() {
             let header = if self.arabic_headers {
                 "**المعاملات:**"
@@ -223,7 +212,6 @@ impl MarkdownGenerator {
             writeln!(writer)?;
         }
 
-        // Return value
         if let Some(ret) = &func.returns {
             if ret.description.is_some() || ret.ty.is_some() {
                 let header = if self.arabic_headers {
@@ -243,7 +231,6 @@ impl MarkdownGenerator {
             }
         }
 
-        // Examples
         for example in &func.examples {
             let header = if self.arabic_headers {
                 "**مثال:**"
@@ -258,7 +245,6 @@ impl MarkdownGenerator {
             writeln!(writer)?;
         }
 
-        // See also
         if !func.see_also.is_empty() {
             let header = if self.arabic_headers {
                 "**انظر أيضاً:**"
@@ -283,11 +269,9 @@ impl MarkdownGenerator {
     }
 
     fn write_class(&self, class: &ClassDoc, writer: &mut dyn Write) -> std::io::Result<()> {
-        // Class header
         writeln!(writer, "### `{}`", &class.name)?;
         writeln!(writer)?;
 
-        // Signature
         write!(writer, "```tarqeem\n")?;
         write!(writer, "صنف {}", &class.name)?;
         if !class.type_params.is_empty() {
@@ -316,13 +300,11 @@ impl MarkdownGenerator {
         writeln!(writer, "```")?;
         writeln!(writer)?;
 
-        // Description
         if let Some(desc) = &class.description {
             writeln!(writer, "{}", desc)?;
             writeln!(writer)?;
         }
 
-        // Constructor
         if let Some(ctor) = &class.constructor {
             let header = if self.arabic_headers {
                 "#### المُنشئ"
@@ -350,7 +332,6 @@ impl MarkdownGenerator {
             }
         }
 
-        // Fields
         if !class.fields.is_empty() {
             let header = if self.arabic_headers {
                 "#### الحقول"
@@ -374,7 +355,6 @@ impl MarkdownGenerator {
             writeln!(writer)?;
         }
 
-        // Methods
         if !class.methods.is_empty() {
             let header = if self.arabic_headers {
                 "#### الدوال"
@@ -420,11 +400,9 @@ impl MarkdownGenerator {
         interface: &InterfaceDoc,
         writer: &mut dyn Write,
     ) -> std::io::Result<()> {
-        // Interface header
         writeln!(writer, "### `{}`", &interface.name)?;
         writeln!(writer)?;
 
-        // Signature
         write!(writer, "```tarqeem\n")?;
         write!(writer, "ميثاق {}", &interface.name)?;
         if !interface.type_params.is_empty() {
@@ -441,13 +419,11 @@ impl MarkdownGenerator {
         writeln!(writer, "```")?;
         writeln!(writer)?;
 
-        // Description
         if let Some(desc) = &interface.description {
             writeln!(writer, "{}", desc)?;
             writeln!(writer)?;
         }
 
-        // Methods
         if !interface.methods.is_empty() {
             let header = if self.arabic_headers {
                 "#### الدوال"

@@ -14,7 +14,6 @@ pub fn publish_diagnostics(
     doc: &mut DocumentState,
     language: Language,
 ) -> PublishDiagnosticsParams {
-    // Clone data we need before analysis to avoid borrow issues
     let content = doc.content.clone();
     let uri = doc.uri.clone();
     let version = doc.version;
@@ -54,7 +53,6 @@ fn convert_diagnostic(
 
     let range = span_to_range(content, &diag.span);
 
-    // Convert notes to related information
     let related_information: Option<Vec<DiagnosticRelatedInformation>> = if diag.notes.is_empty() {
         None
     } else {

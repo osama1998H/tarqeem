@@ -64,7 +64,6 @@ void* trq_realloc(void* ptr, int64_t new_size) {
         return NULL;
     }
 
-    // Zero out new memory if growing
     if (new_size > new_header->size) {
         char* data = (char*)GET_DATA(new_header);
         memset(data + new_header->size, 0, new_size - new_header->size);

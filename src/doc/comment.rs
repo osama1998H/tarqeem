@@ -42,14 +42,11 @@ impl DocCommentParser {
         for line in comment.lines() {
             let trimmed = line.trim();
 
-            // Check for tags
             if let Some((tag, content)) = Self::parse_tag(trimmed) {
-                // First, save any pending tag
                 if let Some((prev_tag, prev_content)) = current_tag.take() {
                     Self::save_tag(&mut result, prev_tag, &prev_content);
                 }
 
-                // Handle example tag specially (multi-line)
                 if tag == "مثال" || tag == "example" {
                     in_example = true;
                     if !content.is_empty() {
@@ -58,27 +55,21 @@ impl DocCommentParser {
                     continue;
                 }
 
-                // Start new tag
                 current_tag = Some((tag, content));
             } else if in_example {
-                // We're in an example block
                 if trimmed.starts_with('@') {
-                    // New tag starts, end example
                     in_example = false;
                     if !example_lines.is_empty() {
                         result.examples.push(example_lines.join("\n"));
                         example_lines.clear();
                     }
-                    // Re-parse this line
                     if let Some((tag, content)) = Self::parse_tag(trimmed) {
                         current_tag = Some((tag, content));
                     }
                 } else {
-                    // Continue example
                     example_lines.push(trimmed.to_string());
                 }
             } else if current_tag.is_some() {
-                // Continue previous tag content
                 if let Some((_, ref mut content)) = current_tag {
                     if !trimmed.is_empty() {
                         if !content.is_empty() {
@@ -88,24 +79,20 @@ impl DocCommentParser {
                     }
                 }
             } else {
-                // Regular description line
                 if !trimmed.is_empty() {
                     description_lines.push(trimmed.to_string());
                 }
             }
         }
 
-        // Save any remaining tag
         if let Some((tag, content)) = current_tag {
             Self::save_tag(&mut result, tag, &content);
         }
 
-        // Save any remaining example
         if !example_lines.is_empty() {
             result.examples.push(example_lines.join("\n"));
         }
 
-        // Set description
         if !description_lines.is_empty() {
             result.description = Some(description_lines.join("\n"));
         }
@@ -116,7 +103,6 @@ impl DocCommentParser {
     fn parse_tag(line: &str) -> Option<(&'static str, String)> {
         let trimmed = line.trim();
 
-        // Arabic tags
         if let Some(rest) = trimmed.strip_prefix("@معامل") {
             return Some(("param", rest.trim().to_string()));
         }
@@ -142,7 +128,6 @@ impl DocCommentParser {
             return Some(("since", rest.trim().to_string()));
         }
 
-        // English tags
         if let Some(rest) = trimmed.strip_prefix("@param") {
             return Some(("param", rest.trim().to_string()));
         }
@@ -211,7 +196,6 @@ impl DocCommentParser {
             return None;
         }
 
-        // Check for type in braces: {نوع} اسم - وصف
         let (ty, rest) = if content.starts_with('{') {
             if let Some(end) = content.find('}') {
                 let ty = content[1..end].trim().to_string();
@@ -223,11 +207,9 @@ impl DocCommentParser {
             (None, content)
         };
 
-        // Split by - or : to get name and description
         let (name, description) = if let Some(sep) = rest.find(['-', ':', '–', '—']) {
             let name = rest[..sep].trim();
             let desc = rest[sep + 1..].trim();
-            // Handle multi-byte separators
             let desc = if desc.starts_with(' ') {
                 desc.trim_start()
             } else {
@@ -235,7 +217,6 @@ impl DocCommentParser {
             };
             (name.to_string(), Some(desc.to_string()))
         } else {
-            // Just a name, no description
             (
                 rest.split_whitespace().next().unwrap_or(rest).to_string(),
                 None,
@@ -253,7 +234,6 @@ impl DocCommentParser {
     fn parse_return(content: &str) -> ReturnDoc {
         let content = content.trim();
 
-        // Check for type in braces: {نوع} وصف
         let (ty, description) = if content.starts_with('{') {
             if let Some(end) = content.find('}') {
                 let ty = content[1..end].trim().to_string();

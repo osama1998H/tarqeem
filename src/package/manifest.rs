@@ -206,10 +206,8 @@ impl Manifest {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         let manifest = if ext == "حزمة" {
-            // الصيغة العربية الجديدة
             Self::parse_arabic_format(&content)?
         } else {
-            // TOML format
             toml::from_str(&content)?
         };
 
@@ -231,16 +229,13 @@ impl Manifest {
             )
         })?;
 
-        // Parse package section
         let pkg_value = root.get("حزمة").or_else(|| root.get("package"));
         let package = if let Some(pkg) = pkg_value {
             Self::parse_package_info(pkg)?
         } else {
-            // If no حزمة section, try to parse root as package info
             Self::parse_package_info(value)?
         };
 
-        // Parse dependencies
         let dependencies = if let Some(deps) =
             root.get("اعتماديات").or_else(|| root.get("dependencies"))
         {
@@ -249,7 +244,6 @@ impl Manifest {
             HashMap::new()
         };
 
-        // Parse dev dependencies
         let dev_dependencies = if let Some(deps) = root
             .get("اعتماديات_تطوير")
             .or_else(|| root.get("dev-dependencies"))
@@ -259,7 +253,6 @@ impl Manifest {
             HashMap::new()
         };
 
-        // Parse scripts
         let scripts = if let Some(s) = root.get("سكربتات").or_else(|| root.get("scripts")) {
             Self::parse_scripts(s)?
         } else {
@@ -380,7 +373,6 @@ impl Manifest {
         if let Some(s) = value.as_str() {
             s.to_string()
         } else if let Some(n) = value.as_number() {
-            // Handle version numbers like 1.0 or 1
             if n.fract() == 0.0 {
                 format!("{}.0.0", n as i64)
             } else {
@@ -428,10 +420,8 @@ impl Manifest {
             let spec = if let Some(s) = val.as_str() {
                 DependencySpec::Version(s.to_string())
             } else if let Some(n) = val.as_number() {
-                // Version as number like 2.0
                 DependencySpec::Version(Self::format_version_string(val))
             } else if let Some(obj) = val.as_object() {
-                // Detailed dependency
                 let version = obj
                     .get("نسخة")
                     .or_else(|| obj.get("version"))
@@ -524,23 +514,19 @@ impl Manifest {
     }
 
     pub fn validate(&self) -> PackageResult<()> {
-        // Validate package name
         if self.package.name.is_empty() {
             return Err(PackageError::InvalidManifest(
                 "Package name is required / اسم الحزمة مطلوب".to_string(),
             ));
         }
 
-        // Validate version
         if self.package.version.is_empty() {
             return Err(PackageError::InvalidManifest(
                 "Package version is required / نسخة الحزمة مطلوبة".to_string(),
             ));
         }
 
-        // Try to parse version as semver
         if semver::Version::parse(&self.package.version).is_err() {
-            // Allow non-strict versions like "0.1" by adding .0
             let with_patch = format!("{}.0", self.package.version);
             if semver::Version::parse(&with_patch).is_err() {
                 return Err(PackageError::InvalidVersion(self.package.version.clone()));
@@ -582,10 +568,8 @@ impl Manifest {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         let content = if ext == "حزمة" {
-            // Save in Arabic format
             self.to_arabic_format()
         } else {
-            // Save in TOML format
             toml::to_string_pretty(self)?
         };
 
@@ -596,10 +580,8 @@ impl Manifest {
     pub fn to_arabic_format(&self) -> String {
         let mut output = String::new();
 
-        // Header comment
         output.push_str("# ملف تهيئة حزمة ترقيم\n\n");
 
-        // Package section
         output.push_str("حزمة:\n");
         output.push_str(&format!("    اسم: {}\n", self.package.name));
         output.push_str(&format!("    نسخة: {}\n", self.package.version));
@@ -652,7 +634,6 @@ impl Manifest {
             output.push_str(&format!("    ترقيم: {}\n", tarqeem));
         }
 
-        // Dependencies
         if !self.dependencies.is_empty() {
             output.push('\n');
             output.push_str("اعتماديات:\n");
@@ -661,7 +642,6 @@ impl Manifest {
             }
         }
 
-        // Dev dependencies
         if !self.dev_dependencies.is_empty() {
             output.push('\n');
             output.push_str("اعتماديات_تطوير:\n");
@@ -670,7 +650,6 @@ impl Manifest {
             }
         }
 
-        // Scripts
         if !self.scripts.is_empty() {
             output.push('\n');
             output.push_str("سكربتات:\n");
@@ -750,7 +729,6 @@ mod tests {
 
     #[test]
     fn test_parse_arabic_manifest() {
-        // Note: TOML requires quoting non-ASCII section names
         let toml = r#"
 ["حزمة"]
 "اسم" = "مكتبتي"
@@ -791,7 +769,6 @@ json = "2.0"
 
     #[test]
     fn test_parse_mixed_manifest() {
-        // Note: TOML requires quoting non-ASCII section names and keys
         let toml = r#"
 ["حزمة"]
 name = "mixed-pkg"
@@ -910,7 +887,6 @@ dev1 = "0.1"
         assert_eq!(all_deps.len(), 3);
     }
 
-    // ================== Arabic Format Tests ==================
 
     #[test]
     fn test_parse_arabic_format_simple() {
@@ -966,7 +942,6 @@ dev1 = "0.1"
 "#;
         let manifest = Manifest::parse_arabic_format(content).unwrap();
         assert_eq!(manifest.package.name, "مكتبتي");
-        // Version should be converted from Arabic numerals
         assert!(
             manifest.package.version.contains("1.0.0") || manifest.package.version.contains("1")
         );

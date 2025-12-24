@@ -26,13 +26,11 @@ pub use printer::Printer;
 use crate::parser::Parser;
 
 pub fn format_source(source: &str, config: &FormatConfig) -> Result<String, FormatError> {
-    // Parse the source
     let mut parser = Parser::new(source);
     let ast = parser.parse().map_err(|e| FormatError::ParseError {
         message: format!("{:?}", e),
     })?;
 
-    // Format the AST
     let formatter = Formatter::new(config.clone());
     Ok(formatter.format(&ast))
 }
@@ -134,7 +132,6 @@ mod tests {
         let formatted = wrap_with_markers("متغير س = 5");
         let config = FormatConfig::default();
         let result = format_source(&formatted, &config).unwrap();
-        // Check that re-formatting produces similar output (formatter may normalize)
         assert!(result.contains("متغير س = 5"));
     }
 }

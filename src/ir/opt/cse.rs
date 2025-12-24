@@ -33,7 +33,6 @@ enum ExprKey {
         op: UnaryOp,
         operand: VarId,
     },
-    // Could add more expression types here
 }
 
 pub struct CommonSubexprElim {
@@ -58,24 +57,19 @@ impl CommonSubexprElim {
     }
 
     fn eliminate_common_subexpressions(&mut self, function: &mut Function) {
-        // For now, we do local CSE within each basic block
-        // Global CSE would require dominator analysis
         for block in &mut function.blocks {
             self.cse_block(block);
         }
     }
 
     fn cse_block(&mut self, block: &mut BasicBlock) {
-        // Map from expression key to the VarId that computed it
         let mut available: HashMap<ExprKey, VarId> = HashMap::new();
 
-        // Map from old VarId to replacement VarId
         let mut replacements: HashMap<VarId, VarId> = HashMap::new();
 
         let mut new_instructions = Vec::new();
 
         for inst in &block.instructions {
-            // Apply any pending replacements to this instruction
             let inst = self.apply_replacements(inst, &replacements);
 
             match &inst {
@@ -92,16 +86,12 @@ impl CommonSubexprElim {
                         right: *right,
                     };
 
-                    // Check if we have this expression available
                     if let Some(&existing) = available.get(&key) {
-                        // Replace with a copy (or just track the replacement)
                         replacements.insert(*dest, existing);
                         self.stats.cse_hits += 1;
-                        // Don't emit this instruction
                         continue;
                     }
 
-                    // Also check for commutative operations
                     if self.is_commutative(*op) {
                         let commuted_key = ExprKey::Binary {
                             op: *op,
@@ -115,7 +105,6 @@ impl CommonSubexprElim {
                         }
                     }
 
-                    // This is a new expression, record it
                     available.insert(key, *dest);
                     new_instructions.push(inst);
                 }
@@ -138,7 +127,6 @@ impl CommonSubexprElim {
                     new_instructions.push(inst);
                 }
 
-                // For other instructions, just keep them
                 _ => {
                     new_instructions.push(inst);
                 }
@@ -368,7 +356,6 @@ impl CommonSubexprElim {
                     .collect(),
             },
 
-            // Instructions that don't use variables
             _ => inst.clone(),
         }
     }
@@ -407,7 +394,6 @@ mod tests {
 
         let mut block = BasicBlock::new(BlockId(0));
 
-        // %2 = add %0, %1
         block.instructions.push(Instruction::Binary {
             dest: VarId(2),
             op: BinaryOp::Add,
@@ -416,7 +402,6 @@ mod tests {
             ty: IrType::Int,
         });
 
-        // %3 = mul %2, const 2
         block.instructions.push(Instruction::Const {
             dest: VarId(10),
             value: Constant::Int(2),
@@ -430,7 +415,6 @@ mod tests {
             ty: IrType::Int,
         });
 
-        // %4 = add %0, %1 (same as %2 - should be eliminated)
         block.instructions.push(Instruction::Binary {
             dest: VarId(4),
             op: BinaryOp::Add,
@@ -439,7 +423,6 @@ mod tests {
             ty: IrType::Int,
         });
 
-        // %5 = mul %4, const 3 (should use %2 instead of %4)
         block.instructions.push(Instruction::Const {
             dest: VarId(11),
             value: Constant::Int(3),
@@ -453,7 +436,6 @@ mod tests {
             ty: IrType::Int,
         });
 
-        // ret %5
         block.instructions.push(Instruction::Return {
             value: Some(VarId(5)),
         });
@@ -466,13 +448,9 @@ mod tests {
         let mut cse = CommonSubexprElim::new();
         cse.run(&mut module);
 
-        // Should have 1 CSE hit
         assert_eq!(cse.stats().cse_hits, 1);
 
-        // The second add should be removed
         let block = &module.functions[0].blocks[0];
-        // Original: add, const, mul, add, const, mul, ret = 7
-        // After CSE: add, const, mul, const, mul, ret = 6 (one add removed)
         assert_eq!(block.instructions.len(), 6);
     }
 
@@ -498,7 +476,6 @@ mod tests {
 
         let mut block = BasicBlock::new(BlockId(0));
 
-        // %2 = add %0, %1
         block.instructions.push(Instruction::Binary {
             dest: VarId(2),
             op: BinaryOp::Add,
@@ -507,7 +484,6 @@ mod tests {
             ty: IrType::Int,
         });
 
-        // %3 = add %1, %0 (same as %2 due to commutativity)
         block.instructions.push(Instruction::Binary {
             dest: VarId(3),
             op: BinaryOp::Add,
@@ -516,7 +492,6 @@ mod tests {
             ty: IrType::Int,
         });
 
-        // ret %3
         block.instructions.push(Instruction::Return {
             value: Some(VarId(3)),
         });
@@ -529,7 +504,6 @@ mod tests {
         let mut cse = CommonSubexprElim::new();
         cse.run(&mut module);
 
-        // Should recognize commutative equivalence
         assert_eq!(cse.stats().cse_hits, 1);
     }
 }

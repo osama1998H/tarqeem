@@ -10,22 +10,18 @@ use std::path::Path;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FormatConfig {
-    // === Indentation ===
     #[serde(alias = "حجم_المسافة")]
     pub indent_size: usize,
 
     #[serde(alias = "استخدم_تاب")]
     pub use_tabs: bool,
 
-    // === Line length ===
     #[serde(alias = "اقصى_طول_سطر")]
     pub max_line_length: usize,
 
-    // === Braces ===
     #[serde(alias = "نمط_الأقواس")]
     pub brace_style: BraceStyle,
 
-    // === Spacing ===
     #[serde(alias = "مسافة_بعد_الفاصلة")]
     pub space_after_comma: bool,
 
@@ -41,7 +37,6 @@ pub struct FormatConfig {
     #[serde(alias = "مسافة_بعد_النقطتين")]
     pub space_after_colon: bool,
 
-    // === Blank lines ===
     #[serde(alias = "أسطر_فارغة_بعد_الاستيراد")]
     pub blank_lines_after_imports: usize,
 
@@ -51,14 +46,12 @@ pub struct FormatConfig {
     #[serde(alias = "اقصى_أسطر_فارغة_متتالية")]
     pub max_blank_lines: usize,
 
-    // === Arabic-specific ===
     #[serde(alias = "فاصلة_عربية")]
     pub arabic_comma: bool,
 
     #[serde(alias = "فاصلة_منقوطة_عربية")]
     pub arabic_semicolon: bool,
 
-    // === Trailing ===
     #[serde(alias = "فاصلة_نهائية")]
     pub trailing_comma: bool,
 
@@ -69,33 +62,26 @@ pub struct FormatConfig {
 impl Default for FormatConfig {
     fn default() -> Self {
         Self {
-            // Indentation
             indent_size: 4,
             use_tabs: false,
 
-            // Line length
             max_line_length: 100,
 
-            // Braces
             brace_style: BraceStyle::SameLine,
 
-            // Spacing
             space_after_comma: true,
             space_around_operators: true,
             space_before_brace: true,
             space_inside_parens: false,
             space_after_colon: true,
 
-            // Blank lines
             blank_lines_after_imports: 1,
             blank_lines_between_functions: 1,
             max_blank_lines: 1,
 
-            // Arabic-specific
             arabic_comma: false,
             arabic_semicolon: false,
 
-            // Trailing
             trailing_comma: false,
             final_newline: true,
         }
@@ -309,7 +295,6 @@ arabic_comma = true
 
     #[test]
     fn test_arabic_config_aliases() {
-        // Note: TOML requires quoted keys for non-ASCII characters
         let toml = r#"
 "حجم_المسافة" = 2
 "استخدم_تاب" = true

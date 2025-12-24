@@ -92,7 +92,6 @@ impl<'a> Lexer<'a> {
                     self.advance();
                 }
                 '\t' => {
-                    // تعامل مع Tab كـ 4 مسافات
                     count += 4;
                     self.advance();
                 }
@@ -133,7 +132,6 @@ impl<'a> Lexer<'a> {
             match self.advance() {
                 Some(c) if c == quote => break,
                 Some('\\') => {
-                    // التعامل مع الحروف الخاصة
                     match self.advance() {
                         Some('n') => result.push('\n'),
                         Some('t') => result.push('\t'),
@@ -181,8 +179,6 @@ impl<'a> Lexer<'a> {
                 result.push(convert_arabic_digit(c));
                 self.advance();
             } else if c == '.' || c == '٫' {
-                // التحقق مما إذا كان هناك رقم بعد النقطة
-                // هذا يدعم أنماط النسخ مثل 0.1.0
                 result.push('.');
                 dot_count += 1;
                 self.advance();
@@ -191,7 +187,6 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        // إذا كان هناك أكثر من نقطة واحدة، هذا نمط نسخة وليس رقماً
         if dot_count > 1 {
             Ok(Token::String(result))
         } else {
@@ -220,10 +215,8 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn next_token(&mut self) -> FormatResult<Token> {
-        // في بداية السطر، قراءة المسافة البادئة
         if self.at_line_start {
             let indent = self.read_indent();
-            // التحقق مما بعد المسافة البادئة
             if let Some(&c) = self.peek() {
                 if c == '\n' {
                     self.advance();
@@ -242,7 +235,6 @@ impl<'a> Lexer<'a> {
             self.at_line_start = false;
         }
 
-        // تخطي المسافات
         self.skip_whitespace();
 
         let loc = self.location();
@@ -255,7 +247,6 @@ impl<'a> Lexer<'a> {
             }
             Some(':') => Ok(Token::Colon),
             Some('-') => {
-                // التحقق إذا كانت شرطة سالبة أم عنصر قائمة
                 if let Some(&c) = self.peek() {
                     if is_digit(c) {
                         self.advance();
@@ -285,7 +276,6 @@ impl<'a> Lexer<'a> {
                 if c.is_alphabetic() || is_arabic_char(c) || c == '_' || c == '/' || c == '@' =>
             {
                 let ident = self.read_identifier(c);
-                // التحقق من الكلمات المفتاحية
                 match ident.as_str() {
                     "نعم" | "صحيح" | "true" | "yes" => Ok(Token::Bool(true)),
                     "لا" | "خطأ" | "false" | "no" => Ok(Token::Bool(false)),

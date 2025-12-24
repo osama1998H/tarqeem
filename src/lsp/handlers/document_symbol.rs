@@ -14,11 +14,9 @@ pub fn handle_document_symbol(
     let content = doc.content.clone();
     let analysis = doc.get_analysis(language);
 
-    // Collect top-level symbols
     let mut symbols: Vec<DocumentSymbol> = Vec::new();
 
     for (name, info) in &analysis.symbols {
-        // Skip member symbols (they contain '.')
         if name.contains('.') {
             continue;
         }
@@ -36,7 +34,6 @@ pub fn handle_document_symbol(
 
         let range = span_to_range(&content, &info.definition_span);
 
-        // For classes, find their members
         let children = if matches!(info.kind, TrqSymbolKind::Class) {
             let prefix = format!("{}.", name);
             let class_members: Vec<DocumentSymbol> = analysis
@@ -95,7 +92,6 @@ pub fn handle_document_symbol(
         });
     }
 
-    // Sort by name for consistent ordering
     symbols.sort_by(|a, b| a.name.cmp(&b.name));
 
     if symbols.is_empty() {

@@ -158,11 +158,9 @@ impl SourceMap {
     ) {
         let key = InstructionKey::new(func_id, block_id, inst_idx);
 
-        // Add to line map for breakpoint lookup
         let line_key = (location.line, location.file.clone());
         self.line_map.entry(line_key).or_default().push(key.clone());
 
-        // Add to instruction map
         self.instruction_map.insert(key, location);
     }
 
@@ -203,7 +201,6 @@ impl SourceMap {
             if key.func_id == func_id.0 && info.name == name {
                 return Some(VarId(key.var_id));
             }
-            // Also check Arabic name
             if key.func_id == func_id.0 {
                 if let Some(ref name_ar) = info.name_ar {
                     if name_ar == name {
@@ -260,14 +257,12 @@ impl SourceMap {
             return None;
         }
 
-        // Find exact match or next available
         for &line in &valid_lines {
             if line >= target_line {
                 return Some(line);
             }
         }
 
-        // If no line after target, return the last valid line
         valid_lines.last().copied()
     }
 
@@ -358,7 +353,6 @@ mod tests {
         let file = PathBuf::from("test.trq");
         let func_id = FuncId("main".to_string());
 
-        // Add instructions at lines 2, 5, 5, 10
         for (line, idx) in [(2, 0), (5, 1), (5, 2), (10, 3)] {
             let span = Span::new(0, 10, line, 1);
             let loc = SourceLocation::new(file.clone(), span);

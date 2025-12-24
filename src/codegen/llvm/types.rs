@@ -28,11 +28,9 @@ impl TypeMapper {
             IrType::Float => "double".to_string(),
             IrType::String => "ptr".to_string(), // Opaque pointer to string struct
             IrType::Ptr(_) => {
-                // LLVM 15+ uses opaque pointers
                 "ptr".to_string()
             }
             IrType::Array(_, _) => {
-                // Our runtime uses pointer-based dynamic arrays
                 "ptr".to_string()
             }
             IrType::Function { params, ret } => {
@@ -47,13 +45,9 @@ impl TypeMapper {
 
     pub fn map_param_type(&self, ty: &IrType) -> String {
         match ty {
-            // Pass strings by pointer
             IrType::String => "ptr".to_string(),
-            // Pass structs by pointer
             IrType::Struct(_) => "ptr".to_string(),
-            // Pass arrays by pointer
             IrType::Array(_, _) => "ptr".to_string(),
-            // Other types passed directly
             _ => self.map_type(ty),
         }
     }
@@ -69,11 +63,9 @@ impl TypeMapper {
             IrType::Array(elem, size) => self.type_size(elem) * (*size as u64),
             IrType::Function { .. } => self.pointer_bits as u64 / 8,
             IrType::Struct(class_id) => {
-                // Calculate struct size from registered field types
                 if let Some(field_types) = self.struct_fields.get(&class_id.0) {
                     let mut total_size = 0u64;
                     for field_ty in field_types {
-                        // Add alignment padding if needed
                         let field_align = self.type_align(field_ty);
                         if field_align > 0 {
                             let padding = (field_align - (total_size % field_align)) % field_align;
@@ -81,14 +73,12 @@ impl TypeMapper {
                         }
                         total_size += self.type_size(field_ty);
                     }
-                    // Ensure minimum size of pointer
                     if total_size == 0 {
                         self.pointer_bits as u64 / 8
                     } else {
                         total_size
                     }
                 } else {
-                    // Fallback to pointer size if struct not registered
                     self.pointer_bits as u64 / 8
                 }
             }
@@ -123,7 +113,6 @@ impl TypeMapper {
         );
         self.struct_types
             .insert(class_id.0.clone(), type_def.clone());
-        // Store field types for size calculation
         let ir_field_types: Vec<IrType> = fields.iter().map(|(_, ty)| ty.clone()).collect();
         self.struct_fields
             .insert(class_id.0.clone(), ir_field_types);
@@ -131,12 +120,10 @@ impl TypeMapper {
     }
 
     pub fn string_struct_type() -> &'static str {
-        // String structure: { i64 len, i64 cap, ptr data }
         "%struct.TrqString = type { i64, i64, ptr }"
     }
 
     pub fn array_struct_type() -> &'static str {
-        // Array structure: { i64 len, i64 cap, ptr data }
         "%struct.TrqArray = type { i64, i64, ptr }"
     }
 
@@ -161,7 +148,6 @@ pub fn mangle_name(name: &str) -> String {
         if ch.is_ascii_alphanumeric() || ch == '_' {
             result.push(ch);
         } else {
-            // Encode as _U followed by hex codepoint
             result.push_str(&format!("_U{:04X}_", ch as u32));
         }
     }

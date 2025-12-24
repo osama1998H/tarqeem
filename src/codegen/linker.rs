@@ -51,14 +51,12 @@ impl Linker {
     }
 
     pub fn compile_to_object(&self, llvm_ir: &str, output: &Path) -> Result<(), LinkerError> {
-        // Write IR to temporary file
         let ir_path = output.with_extension("ll");
         fs::write(&ir_path, llvm_ir).map_err(|e| LinkerError {
             message: format!("Failed to write LLVM IR: {}", e),
             message_ar: format!("فشل في كتابة LLVM IR: {}", e),
         })?;
 
-        // Prefer clang if available
         if let Some(ref clang) = self.clang_path {
             self.compile_with_clang(clang, &ir_path, output)?;
         } else if let Some(ref llc) = self.llc_path {
@@ -70,7 +68,6 @@ impl Linker {
             });
         }
 
-        // Clean up IR file if not in verbose mode
         if !self.verbose {
             let _ = fs::remove_file(&ir_path);
         }
@@ -84,29 +81,24 @@ impl Linker {
         output: &Path,
         runtime_path: Option<&Path>,
     ) -> Result<(), LinkerError> {
-        // Write IR to temporary file
         let ir_path = output.with_extension("ll");
         fs::write(&ir_path, llvm_ir).map_err(|e| LinkerError {
             message: format!("Failed to write LLVM IR: {}", e),
             message_ar: format!("فشل في كتابة LLVM IR: {}", e),
         })?;
 
-        // If we have clang, use it to compile and link in one step
         if let Some(ref clang) = self.clang_path {
             self.compile_and_link_with_clang(clang, &ir_path, output, runtime_path)?;
         } else {
-            // Compile to object first, then link
             let obj_path = output.with_extension("o");
             self.compile_to_object(llvm_ir, &obj_path)?;
             self.link_object(&obj_path, output, runtime_path)?;
 
-            // Clean up object file
             if !self.verbose {
                 let _ = fs::remove_file(&obj_path);
             }
         }
 
-        // Clean up IR file if not in verbose mode
         if !self.verbose {
             let _ = fs::remove_file(&ir_path);
         }
@@ -115,7 +107,6 @@ impl Linker {
     }
 
     pub fn compile_to_assembly(&self, llvm_ir: &str, output: &Path) -> Result<(), LinkerError> {
-        // Write IR to temporary file
         let ir_path = output.with_extension("ll");
         fs::write(&ir_path, llvm_ir).map_err(|e| LinkerError {
             message: format!("Failed to write LLVM IR: {}", e),
@@ -154,7 +145,6 @@ impl Linker {
             });
         }
 
-        // Clean up IR file
         if !self.verbose {
             let _ = fs::remove_file(&ir_path);
         }
@@ -221,12 +211,10 @@ impl Linker {
             cmd.arg("-g");
         }
 
-        // Link against runtime library if provided
         if let Some(runtime) = runtime_path {
             cmd.arg(runtime);
         }
 
-        // Link against libc and libm
         cmd.arg("-lc").arg("-lm");
 
         self.run_command(cmd, "clang")
@@ -246,14 +234,11 @@ impl Linker {
         let mut cmd = Command::new(ld);
         cmd.arg("-o").arg(output).arg(obj_path);
 
-        // Add runtime library
         if let Some(runtime) = runtime_path {
             cmd.arg(runtime);
         }
 
-        // Platform-specific linker flags
         if self.target.triple.os == "linux" {
-            // Link against system libraries
             cmd.arg("-dynamic-linker")
                 .arg("/lib64/ld-linux-x86-64.so.2")
                 .arg("-lc")
@@ -313,12 +298,10 @@ impl std::fmt::Display for LinkerError {
 impl std::error::Error for LinkerError {}
 
 fn find_program(name: &str) -> Option<PathBuf> {
-    // Try the command itself
     if Command::new(name).arg("--version").output().is_ok() {
         return Some(PathBuf::from(name));
     }
 
-    // Try common paths
     let common_paths = [
         "/usr/bin",
         "/usr/local/bin",
@@ -340,7 +323,6 @@ fn find_linker(target: &Target) -> Option<PathBuf> {
     if target.triple.os == "darwin" {
         find_program("ld")
     } else {
-        // Prefer ld.lld (LLVM linker) then ld
         find_program("ld.lld").or_else(|| find_program("ld"))
     }
 }

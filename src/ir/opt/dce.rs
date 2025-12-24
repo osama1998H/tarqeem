@@ -44,10 +44,8 @@ impl DeadCodeEliminator {
     }
 
     fn eliminate_dead_code(&mut self, function: &mut Function) {
-        // First, remove unreachable blocks
         self.remove_unreachable_blocks(function);
 
-        // Then, remove dead instructions
         self.remove_dead_instructions(function);
     }
 
@@ -56,13 +54,10 @@ impl DeadCodeEliminator {
             return;
         }
 
-        // Find all reachable blocks starting from entry
         let reachable = self.find_reachable_blocks(function);
 
-        // Count blocks to be removed
         let original_count = function.blocks.len();
 
-        // Keep only reachable blocks
         function
             .blocks
             .retain(|block| reachable.contains(&block.id));
@@ -75,7 +70,6 @@ impl DeadCodeEliminator {
         let mut reachable = HashSet::new();
         let mut worklist = VecDeque::new();
 
-        // Start from entry block
         if let Some(entry) = function.blocks.first() {
             worklist.push_back(entry.id);
         }
@@ -86,7 +80,6 @@ impl DeadCodeEliminator {
             }
             reachable.insert(block_id);
 
-            // Get successors from this block
             if let Some(block) = function.get_block(block_id) {
                 for successor in self.get_successors(block) {
                     if !reachable.contains(&successor) {
@@ -126,25 +119,19 @@ impl DeadCodeEliminator {
     }
 
     fn remove_dead_instructions(&mut self, function: &mut Function) {
-        // Find all used variables
         let used_vars = self.find_used_variables(function);
 
-        // Remove instructions that define unused variables
         for block in &mut function.blocks {
             let original_len = block.instructions.len();
 
             block.instructions.retain(|inst| {
-                // Always keep terminators and side-effecting instructions
                 if self.has_side_effects(inst) {
                     return true;
                 }
 
-                // Check if this instruction defines a variable
                 if let Some(dest) = self.get_defined_var(inst) {
-                    // Keep if the variable is used
                     used_vars.contains(&dest)
                 } else {
-                    // Instructions without a destination are kept
                     true
                 }
             });
@@ -158,7 +145,6 @@ impl DeadCodeEliminator {
 
         for block in &function.blocks {
             for inst in &block.instructions {
-                // Collect all variable uses from this instruction
                 self.collect_uses(inst, &mut used);
             }
         }
@@ -362,21 +348,18 @@ mod tests {
 
         let mut block = BasicBlock::new(BlockId(0));
 
-        // %0 = const 5 (used)
         block.instructions.push(Instruction::Const {
             dest: VarId(0),
             value: Constant::Int(5),
             ty: IrType::Int,
         });
 
-        // %1 = const 10 (unused - should be removed)
         block.instructions.push(Instruction::Const {
             dest: VarId(1),
             value: Constant::Int(10),
             ty: IrType::Int,
         });
 
-        // ret %0
         block.instructions.push(Instruction::Return {
             value: Some(VarId(0)),
         });
@@ -389,10 +372,8 @@ mod tests {
         let mut dce = DeadCodeEliminator::new();
         dce.run(&mut module);
 
-        // Should have removed the unused const
         assert_eq!(dce.stats().dead_instructions_removed, 1);
 
-        // Block should now have 2 instructions (const 5, ret)
         assert_eq!(module.functions[0].blocks[0].instructions.len(), 2);
     }
 
@@ -405,19 +386,16 @@ mod tests {
             IrType::Void,
         );
 
-        // Entry block - jumps to block 2
         let mut entry = BasicBlock::new(BlockId(0));
         entry
             .instructions
             .push(Instruction::Jump { target: BlockId(2) });
 
-        // Unreachable block (block 1)
         let mut unreachable = BasicBlock::new(BlockId(1));
         unreachable
             .instructions
             .push(Instruction::Return { value: None });
 
-        // Reachable block (block 2)
         let mut reachable = BasicBlock::new(BlockId(2));
         reachable
             .instructions
@@ -433,7 +411,6 @@ mod tests {
         let mut dce = DeadCodeEliminator::new();
         dce.run(&mut module);
 
-        // Should have removed 1 unreachable block
         assert_eq!(dce.stats().dead_blocks_removed, 1);
         assert_eq!(module.functions[0].blocks.len(), 2);
     }
@@ -449,19 +426,16 @@ mod tests {
 
         let mut block = BasicBlock::new(BlockId(0));
 
-        // %0 = const 5
         block.instructions.push(Instruction::Const {
             dest: VarId(0),
             value: Constant::Int(5),
             ty: IrType::Int,
         });
 
-        // print %0 (side effect - must be kept)
         block
             .instructions
             .push(Instruction::Print { value: VarId(0) });
 
-        // ret void
         block.instructions.push(Instruction::Return { value: None });
 
         func.blocks.push(block);
@@ -472,7 +446,6 @@ mod tests {
         let mut dce = DeadCodeEliminator::new();
         dce.run(&mut module);
 
-        // Nothing should be removed
         assert_eq!(dce.stats().dead_instructions_removed, 0);
         assert_eq!(module.functions[0].blocks[0].instructions.len(), 3);
     }

@@ -20,7 +20,6 @@ pub struct Lexer {
 
 impl Lexer {
     pub fn new(source: &str) -> Self {
-        // Normalize Unicode to NFC form for consistent comparison
         let normalized: String = source.nfc().collect();
         Self {
             source: normalized.chars().collect(),
@@ -34,7 +33,6 @@ impl Lexer {
     }
 
     pub fn next_token(&mut self) -> Token {
-        // Check for doc comments first
         if let Some(doc_token) = self.skip_whitespace_and_comments() {
             return doc_token;
         }
@@ -192,13 +190,10 @@ impl Lexer {
     }
 
     fn is_identifier_start(&self, c: char) -> bool {
-        // Only Arabic letters and underscore are allowed as identifier start
-        // English letters (a-z, A-Z) are NOT allowed
         c == '_' || self.is_arabic_letter(c)
     }
 
     fn is_identifier_continue(&self, c: char) -> bool {
-        // Arabic letters, underscore, digits (both ASCII and Arabic-Indic), Arabic diacritics, and tatweel
         self.is_identifier_start(c)
             || c.is_ascii_digit()
             || self.is_arabic_digit(c)
@@ -207,7 +202,6 @@ impl Lexer {
     }
 
     fn is_arabic_diacritic(&self, c: char) -> bool {
-        // Arabic diacritical marks (tashkeel): fathatan, dammatan, kasratan, fatha, damma, kasra, shadda, sukun
         matches!(c, '\u{064B}'..='\u{0652}')
     }
 
@@ -216,8 +210,6 @@ impl Lexer {
     }
 
     fn is_arabic_letter(&self, c: char) -> bool {
-        // Arabic Unicode letter ranges (excluding punctuation and digits)
-        // Note: We explicitly exclude Arabic comma (،) and semicolon (؛) as they are punctuation
         matches!(c,
             '\u{0621}'..='\u{063A}' |  // Arabic letters (alef through za)
             '\u{0641}'..='\u{064A}' |  // Arabic letters (fa through ya)
@@ -250,10 +242,8 @@ impl Lexer {
                     if self.position + 2 < self.source.len()
                         && self.source[self.position + 2] == '/'
                     {
-                        // Doc comment - don't skip, return as token
                         return Some(self.scan_doc_comment());
                     }
-                    // Regular single-line comment - skip it
                     self.advance(); // consume first /
                     self.advance(); // consume second /
                     while !self.is_at_end() && self.peek() != '\n' {
@@ -261,19 +251,15 @@ impl Lexer {
                     }
                 }
                 '/' if self.peek_next() == '*' => {
-                    // Check if it's a block doc comment /**
                     if self.position + 2 < self.source.len()
                         && self.source[self.position + 2] == '*'
                     {
-                        // Check it's not /*** (which is not a doc comment)
                         if self.position + 3 >= self.source.len()
                             || self.source[self.position + 3] != '*'
                         {
-                            // Block doc comment - don't skip, return as token
                             return Some(self.scan_block_doc_comment());
                         }
                     }
-                    // Regular multi-line comment - skip it
                     self.advance(); // consume /
                     self.advance(); // consume *
                     let mut depth = 1;
@@ -306,38 +292,30 @@ impl Lexer {
         self.advance(); // second /
         self.advance(); // third /
 
-        // Collect the content
         let mut content = String::new();
 
-        // Handle multiple consecutive doc comment lines
         loop {
             if self.peek() == ' ' {
                 self.advance();
             }
 
-            // Collect the rest of the line
             while !self.is_at_end() && self.peek() != '\n' {
                 content.push(self.advance());
             }
 
-            // Check if the next line is also a doc comment
             if self.is_at_end() {
                 break;
             }
 
-            // Skip the newline
             let newline_pos = self.position;
             self.advance();
 
-            // Skip whitespace
             while !self.is_at_end() && (self.peek() == ' ' || self.peek() == '\t') {
                 self.advance();
             }
 
-            // Check if next line is also a doc comment
             if self.peek() == '/' && self.peek_next() == '/' {
                 if self.position + 2 < self.source.len() && self.source[self.position + 2] == '/' {
-                    // Another doc comment line - add newline and continue
                     content.push('\n');
                     self.advance(); // first /
                     self.advance(); // second /
@@ -346,8 +324,6 @@ impl Lexer {
                 }
             }
 
-            // Not a doc comment line - backtrack to after the newline
-            // We need to reset position to just after the newline we consumed
             self.position = newline_pos + 1;
             self.line = self.token_start_line + content.matches('\n').count() + 1;
             self.column = 1;
@@ -362,7 +338,6 @@ impl Lexer {
         self.token_start_line = self.line;
         self.token_start_column = self.column;
 
-        // Skip the /** prefix
         self.advance(); // /
         self.advance(); // *
         self.advance(); // *
@@ -384,7 +359,6 @@ impl Lexer {
             }
         }
 
-        // Clean up the content: remove leading * from each line (common doc style)
         let cleaned = content
             .lines()
             .map(|line| {
@@ -415,7 +389,6 @@ impl Lexer {
                 Some(v) => value = v,
                 None => {
                     overflowed = true;
-                    // Continue consuming digits to complete the token
                 }
             }
         }
@@ -484,7 +457,6 @@ impl Lexer {
         let mut ident = String::new();
         ident.push(first);
 
-        // Consume the entire English identifier/word
         while !self.is_at_end() {
             let c = self.peek();
             if c.is_ascii_alphanumeric() || c == '_' {
@@ -494,7 +466,6 @@ impl Lexer {
             }
         }
 
-        // Produce a bilingual error message
         self.make_error(&format!(
             "English identifiers are not allowed. Use Arabic instead / المعرفات الإنجليزية غير مسموح بها. استخدم العربية بدلاً من '{}'"
             , ident
@@ -692,11 +663,9 @@ mod tests {
 
     #[test]
     fn test_english_keywords_not_allowed() {
-        // English keywords should produce errors, not be recognized as keywords
         let mut lexer = Lexer::new("let const function if else");
         let tokens: Vec<_> = lexer.tokenize();
 
-        // All tokens should be errors since English is not allowed
         assert!(matches!(&tokens[0].kind, TokenKind::Error(_)));
         assert!(matches!(&tokens[1].kind, TokenKind::Error(_)));
         assert!(matches!(&tokens[2].kind, TokenKind::Error(_)));
@@ -761,27 +730,22 @@ mod tests {
         let mut lexer = Lexer::new(source);
         let tokens: Vec<_> = lexer.tokenize();
 
-        // Should skip comments and parse both variables
         let keywords: Vec<_> = tokens.iter().filter(|t| t.kind == TokenKind::Let).collect();
         assert_eq!(keywords.len(), 2);
     }
 
     #[test]
     fn test_english_identifiers_produce_errors() {
-        // English identifiers should produce errors
         let source = r#"متغير userName = "أحمد""#;
         let mut lexer = Lexer::new(source);
         let tokens: Vec<_> = lexer.tokenize();
 
-        // First token is متغير (Let keyword) - valid
         assert_eq!(tokens[0].kind, TokenKind::Let);
-        // Second token is userName - should be an error (English identifier)
         assert!(matches!(&tokens[1].kind, TokenKind::Error(msg) if msg.contains("English")));
     }
 
     #[test]
     fn test_arabic_only_identifiers() {
-        // Arabic identifiers should work correctly
         let source = r#"متغير اسم_المستخدم = "أحمد""#;
         let mut lexer = Lexer::new(source);
         let tokens: Vec<_> = lexer.tokenize();
@@ -823,8 +787,6 @@ mod tests {
         let tokens: Vec<_> = lexer.tokenize();
 
         assert!(matches!(&tokens[0].kind, TokenKind::DocComment(s) if s == "هذا تعليق توثيقي"));
-        // Next token should be Newline (doc comment stops before it) or Function
-        // depending on how we handle the newline after doc comment
         assert_eq!(tokens[1].kind, TokenKind::Function);
     }
 
@@ -861,7 +823,6 @@ mod tests {
         let mut lexer = Lexer::new(source);
         let tokens: Vec<_> = lexer.tokenize();
 
-        // Regular comment should be skipped
         assert_eq!(tokens[0].kind, TokenKind::Newline);
         assert_eq!(tokens[1].kind, TokenKind::Let);
     }

@@ -75,11 +75,9 @@ impl DocumentState {
         let mut symbols = HashMap::new();
         let mut has_errors = false;
 
-        // Step 1: Lexical analysis
         let mut lexer = Lexer::new(&self.content);
         let tokens = lexer.tokenize();
 
-        // Check for lexer errors
         for token in &tokens {
             if let TokenKind::Error(msg) = &token.kind {
                 diagnostics.push(Diagnostic::error(
@@ -91,8 +89,6 @@ impl DocumentState {
             }
         }
 
-        // Step 2: Parsing
-        // Note: The content should already contain بسم_الله at start and الحمد_لله at end
         let mut parser = Parser::new(&self.content);
         let ast = match parser.parse() {
             Ok(ast) => Some(ast),
@@ -103,11 +99,9 @@ impl DocumentState {
             }
         };
 
-        // Step 3: Semantic analysis (only if parsing succeeded)
         if let Some(ref ast) = ast {
             let mut analyzer = Analyzer::new();
 
-            // Collect symbols from declarations before analysis
             self.collect_symbols(&ast, &mut symbols);
 
             if let Err(errs) = analyzer.analyze(ast) {
@@ -191,7 +185,6 @@ impl DocumentState {
                         },
                     );
 
-                    // Also add parameters as symbols
                     for param in params {
                         let param_type = param
                             .ty
@@ -229,7 +222,6 @@ impl DocumentState {
                         },
                     );
 
-                    // Add class members
                     for member in members {
                         match member {
                             ClassMember::Field {
@@ -290,7 +282,6 @@ impl DocumentState {
                                 );
                             }
                             ClassMember::Constructor { .. } => {
-                                // Constructor doesn't add a named symbol
                             }
                             ClassMember::Property {
                                 name: prop_name,
@@ -354,7 +345,6 @@ impl DocumentState {
                 return_type: Box::new(self.resolve_type_annotation(return_type)),
             },
             TypeKind::Generic { base, args: _ } => {
-                // For now, just treat generics as the base type
                 self.parse_type_name(base)
             }
             TypeKind::Optional(inner) => {
@@ -383,7 +373,6 @@ impl DocumentState {
     ) -> Option<(&str, &SymbolInfo)> {
         let analysis = self.get_analysis(language);
 
-        // Find which token is at the offset
         for token in &analysis.tokens {
             if token.span.start <= offset && offset < token.span.end {
                 if let TokenKind::Identifier(name) = &token.kind {
@@ -434,11 +423,9 @@ mod tests {
     fn test_document_update() {
         let mut doc = DocumentState::new(uri, 1, wrap_with_markers("متغير س = 5"));
 
-        // First analysis
         let _ = doc.get_analysis(Language::Arabic);
         assert!(doc.analysis.is_some());
 
-        // Update invalidates cache
         doc.update(2, wrap_with_markers("متغير ص = 10"));
         assert!(doc.analysis.is_none());
     }

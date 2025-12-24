@@ -13,7 +13,6 @@ use tower_lsp::lsp_types::{
 
 pub fn server_capabilities() -> ServerCapabilities {
     ServerCapabilities {
-        // Document synchronization
         text_document_sync: Some(TextDocumentSyncCapability::Options(
             TextDocumentSyncOptions {
                 open_close: Some(true),
@@ -24,10 +23,8 @@ pub fn server_capabilities() -> ServerCapabilities {
             },
         )),
 
-        // Hover support (معلومات عند التحويم)
         hover_provider: Some(HoverProviderCapability::Simple(true)),
 
-        // Completion support (إكمال تلقائي)
         completion_provider: Some(CompletionOptions {
             resolve_provider: Some(true),
             trigger_characters: Some(vec![
@@ -43,13 +40,10 @@ pub fn server_capabilities() -> ServerCapabilities {
             completion_item: None,
         }),
 
-        // Go to definition (انتقال للتعريف)
         definition_provider: Some(OneOf::Left(true)),
 
-        // Find references (البحث عن المراجع)
         references_provider: Some(OneOf::Left(true)),
 
-        // Rename (إعادة التسمية)
         rename_provider: Some(OneOf::Right(RenameOptions {
             prepare_provider: Some(true),
             work_done_progress_options: WorkDoneProgressOptions {
@@ -57,31 +51,22 @@ pub fn server_capabilities() -> ServerCapabilities {
             },
         })),
 
-        // Document symbols (مخطط المستند)
         document_symbol_provider: Some(OneOf::Left(true)),
 
-        // Workspace symbols
         workspace_symbol_provider: Some(OneOf::Left(true)),
 
-        // Document formatting (تنسيق الكود)
         document_formatting_provider: Some(OneOf::Left(true)),
 
-        // Code actions (إجراءات الكود)
         code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
 
-        // Code lens (not yet implemented)
         code_lens_provider: None,
 
-        // Document links (not yet implemented)
         document_link_provider: None,
 
-        // Folding ranges (طي الكود)
         folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
 
-        // Selection ranges (not yet implemented)
         selection_range_provider: None,
 
-        // Semantic tokens (رموز دلالية)
         semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
             SemanticTokensOptions {
                 legend: get_semantic_tokens_legend(),
@@ -93,7 +78,6 @@ pub fn server_capabilities() -> ServerCapabilities {
             },
         )),
 
-        // Inlay hints (تلميحات مضمنة)
         inlay_hint_provider: Some(OneOf::Right(InlayHintServerCapabilities::Options(
             InlayHintOptions {
                 resolve_provider: Some(false),
@@ -103,7 +87,6 @@ pub fn server_capabilities() -> ServerCapabilities {
             },
         ))),
 
-        // Signature help (مساعدة التوقيع)
         signature_help_provider: Some(SignatureHelpOptions {
             trigger_characters: Some(vec![
                 "(".to_string(), // Opening paren
@@ -119,55 +102,38 @@ pub fn server_capabilities() -> ServerCapabilities {
             },
         }),
 
-        // Type definition
         type_definition_provider: None,
 
-        // Implementation
         implementation_provider: None,
 
-        // Declaration
         declaration_provider: None,
 
-        // Execute command
         execute_command_provider: None,
 
-        // Workspace
         workspace: None,
 
-        // Experimental
         experimental: None,
 
-        // Moniker
         moniker_provider: None,
 
-        // Linked editing range
         linked_editing_range_provider: None,
 
-        // Inline value
         inline_value_provider: None,
 
-        // Diagnostic (not yet implemented)
         diagnostic_provider: None,
 
-        // Call hierarchy
         call_hierarchy_provider: None,
 
-        // Document on type formatting
         document_on_type_formatting_provider: None,
 
-        // Document range formatting
         document_range_formatting_provider: None,
 
-        // Color provider
         color_provider: None,
 
-        // Document highlight
         document_highlight_provider: None,
 
-        // Position encoding
         position_encoding: None,
 
-        // Use default for any other fields
         ..Default::default()
     }
 }

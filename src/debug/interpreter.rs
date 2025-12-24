@@ -103,7 +103,6 @@ impl DebugInterpreter {
     }
 
     pub fn set_local_variable(&mut self, name: &str, value_str: &str) -> DebugResult<Value> {
-        // Get func_id from immutable borrow first
         let func_id = {
             let Some(frame) = self.call_stack.last() else {
                 return Err(DebugError::new(
@@ -114,7 +113,6 @@ impl DebugInterpreter {
             frame.func_id.clone()
         };
 
-        // Find variable by name in source map
         let var_id = self
             .context
             .source_map()
@@ -126,10 +124,8 @@ impl DebugInterpreter {
                 )
             })?;
 
-        // Parse the value string to a Value
         let new_value = self.parse_value_string(value_str)?;
 
-        // Now get mutable access to frame and set the variable
         if let Some(frame) = self.call_stack.last_mut() {
             frame.locals.insert(var_id.0, new_value.clone());
         }
@@ -152,29 +148,24 @@ impl DebugInterpreter {
     }
 
     pub fn set_variable(&mut self, name: &str, value_str: &str) -> DebugResult<Value> {
-        // Try local first
         if self.set_local_variable(name, value_str).is_ok() {
             return self.set_local_variable(name, value_str);
         }
 
-        // Try global
         self.set_global_variable(name, value_str)
     }
 
     pub fn parse_value_string(&self, value_str: &str) -> DebugResult<Value> {
         let trimmed = value_str.trim();
 
-        // Try parsing as integer
         if let Ok(n) = trimmed.parse::<i64>() {
             return Ok(Value::Int(n));
         }
 
-        // Try parsing as float
         if let Ok(f) = trimmed.parse::<f64>() {
             return Ok(Value::Float(f));
         }
 
-        // Try parsing as boolean
         match trimmed {
             "true" | "صحيح" => return Ok(Value::Bool(true)),
             "false" | "خطأ" => return Ok(Value::Bool(false)),
@@ -182,7 +173,6 @@ impl DebugInterpreter {
             _ => {}
         }
 
-        // Try parsing as string (with quotes)
         if (trimmed.starts_with('"') && trimmed.ends_with('"'))
             || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
         {
@@ -190,7 +180,6 @@ impl DebugInterpreter {
             return Ok(Value::String(s.to_string().into()));
         }
 
-        // Treat as plain string
         Ok(Value::String(trimmed.to_string().into()))
     }
 
@@ -201,10 +190,8 @@ impl DebugInterpreter {
     }
 
     pub fn start(&mut self) -> DebugResult<()> {
-        // Initialize globals
         self.init_globals()?;
 
-        // Set state to running or paused at entry
         if self.context.config().stop_on_entry {
             self.context.set_state(DebugState::Paused {
                 reason: PauseReason::Entry,
@@ -218,10 +205,8 @@ impl DebugInterpreter {
     }
 
     pub fn run(&mut self) -> DebugResult<StepResult> {
-        // Find main function
         let main_func = self.find_main_function()?;
 
-        // Execute main
         match self.call_function(&main_func, vec![]) {
             Ok(value) => {
                 self.context.set_state(DebugState::Terminated {
@@ -258,7 +243,6 @@ impl DebugInterpreter {
             current_func,
         );
 
-        // Execute until step is complete
         loop {
             match self.execute_one_instruction()? {
                 StepResult::Continue => {
@@ -312,7 +296,6 @@ impl DebugInterpreter {
 
         let block = &func.blocks[frame.block_idx];
 
-        // Check for user-requested pause
         if self.context.check_and_clear_pause() {
             let reason = PauseReason::UserRequest;
             self.context.set_state(DebugState::Paused {
@@ -326,7 +309,6 @@ impl DebugInterpreter {
             return Ok(StepResult::Paused(reason));
         }
 
-        // Check for breakpoint before executing
         if let Some(location) = self.get_current_location() {
             if let Some(bp) = self.check_breakpoint(&location) {
                 let reason = PauseReason::Breakpoint { id: bp };
@@ -341,31 +323,24 @@ impl DebugInterpreter {
             }
         }
 
-        // Get current instruction
         let frame = self.call_stack.last().unwrap();
         if frame.inst_idx >= block.instructions.len() {
-            // Move to next block or return
             return Ok(StepResult::Continue);
         }
 
         let inst = block.instructions[frame.inst_idx].clone();
 
-        // Execute the instruction
         match self.execute_instruction(&inst, &func)? {
             InstructionResult::Continue => {
-                // Move to next instruction
                 if let Some(frame) = self.call_stack.last_mut() {
                     frame.inst_idx += 1;
                 }
                 Ok(StepResult::Continue)
             }
             InstructionResult::Jump(target) => {
-                // Compute block index first to avoid borrow conflict
                 let new_block_idx = self.find_block_index(&func, target)?;
-                // Get current block ID before mutable borrow
                 let current_frame = self.call_stack.last().unwrap();
                 let prev_block_id = func.blocks[current_frame.block_idx].id;
-                // Now update the frame
                 if let Some(frame) = self.call_stack.last_mut() {
                     frame.prev_block = Some(prev_block_id);
                     frame.block_idx = new_block_idx;
@@ -382,9 +357,7 @@ impl DebugInterpreter {
                 }
             }
             InstructionResult::Throw(exception) => {
-                // Check for exception handler
                 if let Some(catch_block) = self.pop_try_block() {
-                    // Compute block index first to avoid borrow conflict
                     let new_block_idx = self.find_block_index(&func, catch_block)?;
                     self.current_exception = Some(exception);
                     if let Some(frame) = self.call_stack.last_mut() {
@@ -400,7 +373,6 @@ impl DebugInterpreter {
     }
 
     fn check_breakpoint(&mut self, location: &SourceLocation) -> Option<BreakpointId> {
-        // Collect enabled breakpoint IDs first to avoid borrow conflict
         let bp_ids: Vec<BreakpointId> = self
             .context
             .breakpoints_at(&location.file, location.line)
@@ -409,7 +381,6 @@ impl DebugInterpreter {
             .map(|bp| bp.id)
             .collect();
 
-        // Now check each breakpoint with mutable access
         for id in bp_ids {
             if let Some(bp_mut) = self.context.get_breakpoint_mut(id) {
                 if bp_mut.should_trigger() {
@@ -460,7 +431,6 @@ impl DebugInterpreter {
                     frame.inst_idx,
                 );
 
-                // Add source location if available
                 if let Some(loc) = self.context.source_map().get_instruction_location(
                     &frame.func_id,
                     block_id,
@@ -483,7 +453,6 @@ impl DebugInterpreter {
             .locals
             .iter()
             .map(|(&var_id, value)| {
-                // Try to get variable name from source map
                 let var_info = self
                     .context
                     .source_map()
@@ -515,12 +484,9 @@ impl DebugInterpreter {
     }
 
     pub fn evaluate(&self, expression: &str) -> DebugResult<Value> {
-        // For now, just handle simple variable lookups
         let frame = self.call_stack.last();
 
-        // Check if it's a simple variable name
         if let Some(frame) = frame {
-            // Try to find by name in source map
             for (&var_id, value) in &frame.locals {
                 if let Some(info) = self
                     .context
@@ -533,7 +499,6 @@ impl DebugInterpreter {
                 }
             }
 
-            // Try parsing as VarId (%n format)
             if let Some(stripped) = expression.strip_prefix('%') {
                 if let Ok(var_id) = stripped.parse::<u32>() {
                     if let Some(value) = frame.locals.get(&var_id) {
@@ -543,7 +508,6 @@ impl DebugInterpreter {
             }
         }
 
-        // Check globals
         if let Some(value) = self.globals.get(expression) {
             return Ok(value.clone());
         }
@@ -554,7 +518,6 @@ impl DebugInterpreter {
         ))
     }
 
-    // ==================== Interpreter Core Logic ====================
 
     fn init_globals(&mut self) -> DebugResult<()> {
         for (name, _ty, init) in &self.module.globals {
@@ -641,7 +604,6 @@ impl DebugInterpreter {
                     }
                 }
                 BlockResult::Jump(target) => {
-                    // Compute block index first to avoid borrow conflict
                     let new_block_idx = self.find_block_index(func, target)?;
                     if let Some(frame) = self.call_stack.last_mut() {
                         let current_block = &func.blocks[frame.block_idx];
@@ -655,7 +617,6 @@ impl DebugInterpreter {
                 }
                 BlockResult::Throw(exception) => {
                     if let Some(catch_block) = self.pop_try_block() {
-                        // Compute block index first to avoid borrow conflict
                         let new_block_idx = self.find_block_index(func, catch_block)?;
                         self.current_exception = Some(exception);
                         if let Some(frame) = self.call_stack.last_mut() {
@@ -679,7 +640,6 @@ impl DebugInterpreter {
     }
 
     fn execute_block(&mut self, block: &BasicBlock, func: &Function) -> RuntimeResult<BlockResult> {
-        // Update frame instruction index
         if let Some(frame) = self.call_stack.last_mut() {
             frame.inst_idx = 0;
         }
@@ -689,13 +649,11 @@ impl DebugInterpreter {
                 frame.inst_idx = idx;
             }
 
-            // Check for breakpoint
             if let Some(location) = self.get_current_location() {
                 if self
                     .context
                     .has_breakpoint_at(&location.file, location.line)
                 {
-                    // Breakpoint handling is done in the step loop
                 }
             }
 
@@ -1189,10 +1147,8 @@ impl DebugInterpreter {
                 let val = self.get_local(*value)?;
                 let output = val.to_display_string();
 
-                // Add to output buffer
                 self.context.add_output(output.clone());
 
-                // Also print to stdout
                 println!("{}", output);
                 io::stdout().flush().ok();
 
@@ -1203,7 +1159,6 @@ impl DebugInterpreter {
         }
     }
 
-    // ==================== Helper Methods ====================
 
     fn execute_binary_op(
         &self,

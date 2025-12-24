@@ -18,7 +18,6 @@ impl Parser {
         let tokens: Vec<Token> = lexer
             .tokenize()
             .into_iter()
-            // Filter out newlines but keep doc comments
             .filter(|t| !matches!(t.kind, TokenKind::Newline))
             .collect();
 
@@ -47,21 +46,17 @@ impl Parser {
         self.panic_mode = false;
 
         while !self.is_at_end() {
-            // If we just passed a semicolon, we're at a statement boundary
             if self.previous().kind == TokenKind::Semicolon {
                 return;
             }
 
-            // If we see a statement-starting keyword, we're at a statement boundary
             match self.peek().kind {
-                // Declaration keywords
                 TokenKind::Let        // متغير
                 | TokenKind::Const    // ثابت
                 | TokenKind::Function // دالة
                 | TokenKind::Class    // صنف
                 | TokenKind::Interface // ميثاق
                 | TokenKind::Enum     // تعداد
-                // Control flow
                 | TokenKind::If       // إذا
                 | TokenKind::While    // طالما
                 | TokenKind::For      // لكل
@@ -69,10 +64,8 @@ impl Parser {
                 | TokenKind::Return   // أرجع
                 | TokenKind::Try      // حاول
                 | TokenKind::Match    // تطابق
-                // Module
                 | TokenKind::Import   // استورد
                 | TokenKind::Export   // صدّر
-                // File markers
                 | TokenKind::Alhamdulillah => {
                     return;
                 }
@@ -87,23 +80,17 @@ impl Parser {
         self.panic_mode = false;
 
         while !self.is_at_end() {
-            // Stop at class member boundaries
             match self.peek().kind {
-                // Visibility modifiers start a new member
                 TokenKind::Public     // عام
                 | TokenKind::Private  // خاص
                 | TokenKind::Protected // محمي
-                // Static modifier
                 | TokenKind::Static   // مشترك
-                // Member declarations
                 | TokenKind::Function // دالة
                 | TokenKind::Async    // غير_متزامن
                 | TokenKind::Constructor // منشئ
-                // End of class
                 | TokenKind::RightBrace => {
                     return;
                 }
-                // Identifier could be a field declaration
                 TokenKind::Identifier(_) => {
                     return;
                 }
@@ -118,12 +105,9 @@ impl Parser {
         self.panic_mode = false;
 
         while !self.is_at_end() {
-            // Stop at match arm boundaries
             match self.peek().kind {
-                // Case/default start a new arm
                 TokenKind::Case      // حالة
                 | TokenKind::Default // غير_ذلك
-                // End of match
                 | TokenKind::RightBrace => {
                     return;
                 }
@@ -162,7 +146,6 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> Result<Ast, Diagnostic> {
-        // Require file start marker: بسم_الله
         let bismillah_span = if self.check(&TokenKind::Bismillah) {
             let span = self.current_span();
             self.advance();
@@ -177,22 +160,18 @@ impl Parser {
 
         let mut statements = Vec::new();
 
-        // Parse all declarations until we hit الحمد_لله or EOF
-        // Use error recovery to collect multiple errors
         while !self.is_at_end() && !self.check(&TokenKind::Alhamdulillah) {
             match self.parse_declaration() {
                 Ok(stmt) => {
                     statements.push(stmt);
                 }
                 Err(diagnostic) => {
-                    // Report error and try to recover
                     self.report_error(diagnostic);
                     self.synchronize();
                 }
             }
         }
 
-        // Require file end marker: الحمد_لله
         let alhamdulillah_span = if self.check(&TokenKind::Alhamdulillah) {
             let span = self.current_span();
             self.advance();
@@ -203,16 +182,13 @@ impl Parser {
                 "يجب أن ينتهي الملف بـ 'الحمد_لله'",
                 self.current_span(),
             );
-            // If we have other errors, add this to them
             if !self.errors.is_empty() {
                 self.report_error(err);
-                // Clone the first error so get_errors() still has all errors
                 return Err(self.errors[0].clone());
             }
             return Err(err);
         };
 
-        // Ensure nothing comes after الحمد_لله
         if !self.is_at_end() {
             let err = Diagnostic::error(
                 "No code allowed after 'الحمد_لله' (alhamdulillah)",
@@ -221,16 +197,12 @@ impl Parser {
             );
             if !self.errors.is_empty() {
                 self.report_error(err);
-                // Clone the first error so get_errors() still has all errors
                 return Err(self.errors[0].clone());
             }
             return Err(err);
         }
 
-        // If we collected errors during parsing, return the first one
-        // All errors remain available via get_errors()
         if !self.errors.is_empty() {
-            // Clone the first error so get_errors() still has all errors
             return Err(self.errors[0].clone());
         }
 
@@ -242,7 +214,6 @@ impl Parser {
     }
 
     fn parse_declaration(&mut self) -> Result<Stmt, Diagnostic> {
-        // Capture any doc comment before the declaration
         let doc_comment = self.consume_doc_comment();
 
         let result = if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
@@ -345,7 +316,6 @@ impl Parser {
 
         let name = self.expect_identifier("Expected class name", "متوقع اسم الصنف")?;
 
-        // Parse optional generic type parameters: <T, U, ...>
         let type_params = self.parse_type_parameters()?;
 
         let extends = if self.check(&TokenKind::Extends) {
@@ -363,7 +333,6 @@ impl Parser {
                     self.expect_identifier("Expected interface name", "متوقع اسم الميثاق")?;
                 implements.push(interface_name);
 
-                // Skip generic type arguments on interface: <T, U, ...>
                 if self.check(&TokenKind::Less) {
                     self.advance(); // consume '<'
                     loop {
@@ -430,7 +399,6 @@ impl Parser {
         let mut members = Vec::new();
 
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            // Use error recovery to collect multiple errors within a class
             match self.parse_class_member() {
                 Ok(member) => members.push(member),
                 Err(diagnostic) => {
@@ -444,7 +412,6 @@ impl Parser {
     }
 
     fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
-        // Capture any doc comment before the member
         let member_doc = self.consume_doc_comment();
 
         let visibility = self.parse_visibility();
@@ -488,25 +455,20 @@ impl Parser {
                 doc_comment: member_doc,
             })
         } else if self.check(&TokenKind::Property) {
-            // Property: خاصية name: type { احصل { ... } عيّن { ... } }
             self.advance();
             let name = self.expect_identifier("Expected property name", "متوقع اسم الخاصية")?;
             self.expect(&TokenKind::Colon, "Expected ':'", "متوقع ':'")?;
             let ty = self.parse_type_annotation()?;
 
-            // Check for accessor block, default value, or auto-property
             let (accessors, default_value) = if self.match_token(&TokenKind::LeftBrace) {
-                // Property with accessor block
                 let accessors = self.parse_property_accessors()?;
                 self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
                 (accessors, None)
             } else if self.match_token(&TokenKind::Equal) {
-                // Auto-property with default value
                 let default = self.parse_expression()?;
                 self.consume_semicolon()?;
                 (Vec::new(), Some(default))
             } else {
-                // Auto-property without default
                 self.consume_semicolon()?;
                 (Vec::new(), None)
             };
@@ -521,7 +483,6 @@ impl Parser {
                 doc_comment: member_doc,
             })
         } else {
-            // Field
             let name = self.expect_identifier("Expected field name", "متوقع اسم الحقل")?;
             let ty = if self.match_token(&TokenKind::Colon) {
                 Some(self.parse_type_annotation()?)
@@ -550,17 +511,13 @@ impl Parser {
         let mut accessors = Vec::new();
 
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            // Optional visibility modifier for accessor
             let accessor_visibility = self.parse_visibility();
 
             if self.match_token(&TokenKind::Get) {
-                // احصل block
                 let body = if self.match_token(&TokenKind::FatArrow) {
-                    // Short form: احصل => expression
                     let expr = self.parse_expression()?;
                     PropertyAccessorBody::Expr(Box::new(expr))
                 } else {
-                    // Full form: احصل { ... }
                     PropertyAccessorBody::Block(self.parse_block()?)
                 };
 
@@ -569,8 +526,6 @@ impl Parser {
                     body,
                 });
             } else if self.match_token(&TokenKind::Set) {
-                // عيّن block
-                // Optional parameter name: عيّن(قيمة) or just عيّن
                 let param_name = if self.match_token(&TokenKind::LeftParen) {
                     let name =
                         self.expect_identifier("Expected parameter name", "متوقع اسم المعامل")?;
@@ -620,14 +575,12 @@ impl Parser {
 
         let name = self.expect_identifier("Expected interface name", "متوقع اسم الميثاق")?;
 
-        // Parse optional generic type parameters: <T, U, ...>
         let type_params = self.parse_type_parameters()?;
 
         self.expect(&TokenKind::LeftBrace, "Expected '{'", "متوقع '{'")?;
 
         let mut methods = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            // Capture any doc comment before the method signature
             let method_doc = self.consume_doc_comment();
 
             self.expect(&TokenKind::Function, "Expected 'function'", "متوقع 'دالة'")?;
@@ -670,7 +623,6 @@ impl Parser {
 
         let name = self.expect_identifier("Expected enum name", "متوقع اسم التعداد")?;
 
-        // Parse optional generic type parameters: <T, U, ...>
         let type_params = self.parse_type_parameters()?;
 
         self.expect(&TokenKind::LeftBrace, "Expected '{'", "متوقع '{'")?;
@@ -680,7 +632,6 @@ impl Parser {
             let variant = self.parse_enum_variant()?;
             variants.push(variant);
 
-            // Optional comma between variants
             let _ =
                 self.match_token(&TokenKind::Comma) || self.match_token(&TokenKind::ArabicComma);
         }
@@ -702,14 +653,11 @@ impl Parser {
     fn parse_enum_variant(&mut self) -> Result<EnumVariant, Diagnostic> {
         let start = self.current_span();
 
-        // Capture any doc comment before the variant
         let variant_doc = self.consume_doc_comment();
 
         let name = self.expect_identifier("Expected variant name", "متوقع اسم الحالة")?;
 
-        // Check for explicit discriminant: = 1 or = -1
         let discriminant = if self.match_token(&TokenKind::Equal) {
-            // Check for negative number
             let is_negative = self.match_token(&TokenKind::Minus);
 
             match &self.peek().kind {
@@ -730,7 +678,6 @@ impl Parser {
             None
         };
 
-        // Check for associated data: (field: type, ...)
         let fields = if self.check(&TokenKind::LeftParen) {
             self.parse_enum_variant_fields()?
         } else {
@@ -756,7 +703,6 @@ impl Parser {
             loop {
                 let field_start = self.current_span();
 
-                // Check if this is a named field (name: type) or positional (type)
                 let (name, ty) = if self.check_identifier() {
                     let first = self.expect_identifier(
                         "Expected field name or type",
@@ -764,16 +710,13 @@ impl Parser {
                     )?;
 
                     if self.match_token(&TokenKind::Colon) {
-                        // Named field: name: type
                         let ty = self.parse_type_annotation()?;
                         (Some(first), ty)
                     } else {
-                        // Positional field: just a type (the first token was the type name)
                         let span = field_start.merge(&self.previous_span());
                         (None, TypeAnnotation::new(TypeKind::Simple(first), span))
                     }
                 } else {
-                    // Parse a complex type directly
                     let ty = self.parse_type_annotation()?;
                     (None, ty)
                 };
@@ -885,7 +828,6 @@ impl Parser {
 
         let else_branch = if self.match_token(&TokenKind::Else) {
             if self.check(&TokenKind::If) {
-                // else if
                 let else_if = self.parse_if_statement()?;
                 Some(Block::new(vec![else_if], self.previous_span()))
             } else {
@@ -931,7 +873,6 @@ impl Parser {
         let condition = self.parse_expression()?;
         self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
 
-        // Optional semicolon at end
         let _ = self.match_token(&TokenKind::Semicolon)
             || self.match_token(&TokenKind::ArabicSemicolon);
 
@@ -943,7 +884,6 @@ impl Parser {
         let start = self.current_span();
         self.advance(); // consume 'for'
 
-        // Check for for-in loop
         if self.check_identifier() {
             let var_name = self.expect_identifier("Expected variable name", "متوقع اسم المتغير")?;
             if self.check(&TokenKind::In) {
@@ -961,14 +901,12 @@ impl Parser {
                     span,
                 ));
             } else {
-                // Backtrack - this is a regular for loop
                 self.current -= 1;
             }
         }
 
         self.expect(&TokenKind::LeftParen, "Expected '('", "متوقع '('")?;
 
-        // Parse init
         let init = if self.check(&TokenKind::Semicolon) || self.check(&TokenKind::ArabicSemicolon) {
             None
         } else if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
@@ -982,12 +920,10 @@ impl Parser {
             )))
         };
 
-        // For var declarations, semicolon is already consumed
         if init.is_none() {
             self.consume_semicolon()?;
         }
 
-        // Parse condition
         let condition =
             if self.check(&TokenKind::Semicolon) || self.check(&TokenKind::ArabicSemicolon) {
                 None
@@ -996,7 +932,6 @@ impl Parser {
             };
         self.consume_semicolon()?;
 
-        // Parse update
         let update = if self.check(&TokenKind::RightParen) {
             None
         } else {
@@ -1031,7 +966,6 @@ impl Parser {
 
         let mut arms = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            // Use error recovery to collect multiple errors within a match
             match self.parse_match_arm() {
                 Ok(arm) => arms.push(arm),
                 Err(diagnostic) => {
@@ -1054,7 +988,6 @@ impl Parser {
         let mut patterns = Vec::new();
 
         if is_default {
-            // Default case - no patterns needed
         } else {
             self.expect(&TokenKind::Case, "Expected 'case'", "متوقع 'حالة'")?;
             loop {
@@ -1072,8 +1005,6 @@ impl Parser {
         let body = if self.check(&TokenKind::LeftBrace) {
             self.parse_block()?
         } else {
-            // Allow single statements (return, break, continue) without braces
-            // Check for statement keywords first
             if self.check(&TokenKind::Return)
                 || self.check(&TokenKind::Break)
                 || self.check(&TokenKind::Continue)
@@ -1081,7 +1012,6 @@ impl Parser {
                 let stmt = self.parse_statement()?;
                 Block::new(vec![stmt], self.previous_span())
             } else {
-                // Otherwise parse as expression statement
                 let expr = self.parse_expression()?;
                 Block::new(
                     vec![Stmt::new(StmtKind::Expr(expr), self.previous_span())],
@@ -1190,7 +1120,6 @@ impl Parser {
 
         let mut statements = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            // Use error recovery to collect multiple errors within a block
             match self.parse_declaration() {
                 Ok(stmt) => statements.push(stmt),
                 Err(diagnostic) => {
@@ -1230,7 +1159,6 @@ impl Parser {
         let span = token.span;
 
         match &token.kind {
-            // Literals
             TokenKind::IntLiteral(n) => Ok(Expr::new(ExprKind::Literal(Literal::Int(*n)), span)),
             TokenKind::FloatLiteral(n) => {
                 Ok(Expr::new(ExprKind::Literal(Literal::Float(*n)), span))
@@ -1243,10 +1171,8 @@ impl Parser {
             TokenKind::False => Ok(Expr::new(ExprKind::Literal(Literal::Bool(false)), span)),
             TokenKind::Null => Ok(Expr::new(ExprKind::Literal(Literal::Null), span)),
 
-            // Identifiers
             TokenKind::Identifier(name) => Ok(Expr::new(ExprKind::Identifier(name.clone()), span)),
 
-            // Type keywords as identifiers (for type conversion functions like نص(42), منطقي(1))
             TokenKind::TypeInt => Ok(Expr::new(ExprKind::Identifier("عدد".to_string()), span)),
             TokenKind::TypeFloat => Ok(Expr::new(
                 ExprKind::Identifier("عدد_عشري".to_string()),
@@ -1255,17 +1181,13 @@ impl Parser {
             TokenKind::TypeString => Ok(Expr::new(ExprKind::Identifier("نص".to_string()), span)),
             TokenKind::TypeBool => Ok(Expr::new(ExprKind::Identifier("منطقي".to_string()), span)),
 
-            // this/super
             TokenKind::This => Ok(Expr::new(ExprKind::This, span)),
             TokenKind::Super => Ok(Expr::new(ExprKind::Super, span)),
 
-            // Grouping or arrow function parameters
             TokenKind::LeftParen => {
-                // Try to parse as arrow function first
                 if let Some(lambda) = self.try_parse_arrow_function(span)? {
                     return Ok(lambda);
                 }
-                // Fall back to grouping
                 let expr = self.parse_expression()?;
                 self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
                 let end_span = self.previous_span();
@@ -1275,7 +1197,6 @@ impl Parser {
                 ))
             }
 
-            // Array literal
             TokenKind::LeftBracket => {
                 let mut elements = Vec::new();
                 if !self.check(&TokenKind::RightBracket) {
@@ -1293,7 +1214,6 @@ impl Parser {
                 Ok(Expr::new(ExprKind::Array(elements), span.merge(&end_span)))
             }
 
-            // Object literal
             TokenKind::LeftBrace => {
                 let mut pairs = Vec::new();
                 if !self.check(&TokenKind::RightBrace) {
@@ -1314,7 +1234,6 @@ impl Parser {
                 Ok(Expr::new(ExprKind::Object(pairs), span.merge(&end_span)))
             }
 
-            // Unary operators
             TokenKind::Minus => {
                 let operand = self.parse_precedence(Precedence::Unary)?;
                 let end_span = operand.span;
@@ -1360,12 +1279,9 @@ impl Parser {
                 ))
             }
 
-            // new expression: جديد ClassName(args) or جديد ClassName<T>(args)
             TokenKind::New => {
-                // Parse class name at Primary level to avoid parsing args as a call
                 let class = self.parse_precedence(Precedence::Primary)?;
 
-                // Parse generic type arguments if present: <T, U, ...>
                 let type_args = if self.check(&TokenKind::Less) {
                     self.advance(); // consume '<'
                     let mut args = Vec::new();
@@ -1383,7 +1299,6 @@ impl Parser {
                     Vec::new()
                 };
 
-                // Args must follow immediately with parentheses
                 let args = if self.match_token(&TokenKind::LeftParen) {
                     let args = self.parse_arguments()?;
                     self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
@@ -1402,7 +1317,6 @@ impl Parser {
                 ))
             }
 
-            // await expression
             TokenKind::Await => {
                 let expr = self.parse_precedence(Precedence::Unary)?;
                 let end_span = expr.span;
@@ -1425,7 +1339,6 @@ impl Parser {
         let op_prec = Precedence::of(&token.kind);
 
         match &token.kind {
-            // Binary operators
             TokenKind::Plus
             | TokenKind::Minus
             | TokenKind::Star
@@ -1459,7 +1372,6 @@ impl Parser {
                 ))
             }
 
-            // Assignment
             TokenKind::Equal => {
                 self.advance();
                 let right = self.parse_precedence(Precedence::Assignment)?;
@@ -1473,7 +1385,6 @@ impl Parser {
                 ))
             }
 
-            // Compound assignment
             TokenKind::PlusEqual
             | TokenKind::MinusEqual
             | TokenKind::StarEqual
@@ -1493,7 +1404,6 @@ impl Parser {
                 ))
             }
 
-            // Call
             TokenKind::LeftParen => {
                 self.advance();
                 let args = self.parse_arguments()?;
@@ -1508,7 +1418,6 @@ impl Parser {
                 ))
             }
 
-            // Index
             TokenKind::LeftBracket => {
                 self.advance();
                 let index = self.parse_expression()?;
@@ -1523,7 +1432,6 @@ impl Parser {
                 ))
             }
 
-            // Member access
             TokenKind::Dot => {
                 self.advance();
                 let property =
@@ -1538,7 +1446,6 @@ impl Parser {
                 ))
             }
 
-            // Ternary
             TokenKind::Question => {
                 self.advance();
                 let then_expr = self.parse_expression()?;
@@ -1555,7 +1462,6 @@ impl Parser {
                 ))
             }
 
-            // Postfix increment/decrement
             TokenKind::PlusPlus => {
                 self.advance();
                 let span = left.span.merge(&self.previous_span());
@@ -1632,10 +1538,8 @@ impl Parser {
     fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, Diagnostic> {
         let start = self.current_span();
 
-        // Simple type or generic base - can be identifier or type keyword
         let name = self.expect_type_name()?;
 
-        // Check for generics
         if self.match_token(&TokenKind::Less) {
             let mut args = Vec::new();
             loop {
@@ -1654,7 +1558,6 @@ impl Parser {
             ));
         }
 
-        // Check for optional
         let kind = if self.match_token(&TokenKind::Question) {
             TypeKind::Optional(Box::new(TypeAnnotation::new(TypeKind::Simple(name), start)))
         } else {
@@ -1705,10 +1608,8 @@ impl Parser {
     }
 
     fn try_parse_arrow_function(&mut self, start_span: Span) -> Result<Option<Expr>, Diagnostic> {
-        // Save position for backtracking
         let saved_pos = self.current;
 
-        // Try to parse arrow function parameters
         let params = match self.try_parse_arrow_params() {
             Ok(Some(params)) => params,
             Ok(None) => {
@@ -1721,14 +1622,12 @@ impl Parser {
             }
         };
 
-        // Check for '=>'
         if !self.check(&TokenKind::FatArrow) {
             self.current = saved_pos;
             return Ok(None);
         }
         self.advance(); // consume '=>'
 
-        // Parse body: either block or expression
         let body = if self.check(&TokenKind::LeftBrace) {
             LambdaBody::Block(self.parse_block()?)
         } else {
@@ -1745,17 +1644,14 @@ impl Parser {
     fn try_parse_arrow_params(&mut self) -> Result<Option<Vec<Param>>, Diagnostic> {
         let mut params = Vec::new();
 
-        // Empty params: () => ...
         if self.check(&TokenKind::RightParen) {
             self.advance(); // consume ')'
             return Ok(Some(params));
         }
 
-        // Parse comma-separated parameters
         loop {
             let param_start = self.current_span();
 
-            // Parameter must start with an identifier
             let name = match &self.peek().kind {
                 TokenKind::Identifier(name) => {
                     let name = name.clone();
@@ -1765,7 +1661,6 @@ impl Parser {
                 _ => return Ok(None), // Not an arrow function
             };
 
-            // Optional type annotation
             let ty = if self.check(&TokenKind::Colon) {
                 self.advance(); // consume ':'
                 match self.parse_type_annotation() {
@@ -1776,7 +1671,6 @@ impl Parser {
                 None
             };
 
-            // Optional default value
             let default = if self.check(&TokenKind::Equal) {
                 self.advance(); // consume '='
                 match self.parse_expression() {
@@ -1794,7 +1688,6 @@ impl Parser {
                 span: param_start.merge(&self.previous_span()),
             });
 
-            // Check for comma or end
             if self.check(&TokenKind::Comma) || self.check(&TokenKind::ArabicComma) {
                 self.advance(); // consume comma
             } else if self.check(&TokenKind::RightParen) {
@@ -1861,7 +1754,6 @@ impl Parser {
     }
 
     fn expect_type_name(&mut self) -> Result<String, Diagnostic> {
-        // Accept identifiers or type keywords
         let token = self.peek().clone();
         match &token.kind {
             TokenKind::Identifier(name) => {
@@ -1893,8 +1785,6 @@ impl Parser {
                 self.advance();
                 Ok("قاموس".to_string())
             }
-            // Note: TypeVoid has no keyword - functions default to no return
-            // This case kept for internal/future use but lexer won't produce it
             TokenKind::TypeVoid => {
                 self.advance();
                 Ok("void".to_string()) // Internal name only
@@ -1926,13 +1816,10 @@ impl Parser {
         {
             Ok(())
         } else {
-            // Semicolons are optional at end of blocks
             if self.check(&TokenKind::RightBrace) || self.is_at_end() {
                 return Ok(());
             }
 
-            // Automatic semicolon insertion: if current token is on a new line,
-            // treat newline as statement terminator (like Go, Kotlin, Swift)
             let prev_line = self.previous_span().line;
             let curr_line = self.current_span().line;
             if curr_line > prev_line {
@@ -2066,7 +1953,6 @@ mod tests {
         let mut parser = Parser::new(source);
         let ast = parser.parse().unwrap();
 
-        // Should parse as 1 + (2 * 3) due to precedence
         assert!(ast.has_file_markers());
         assert_eq!(ast.statements.len(), 1);
     }
@@ -2151,7 +2037,6 @@ mod tests {
                 assert!(doc_comment.is_some());
                 assert!(doc_comment.as_ref().unwrap().contains("صنف لتمثيل شخص"));
 
-                // Check field has doc comment
                 match &members[0] {
                     ClassMember::Field {
                         name, doc_comment, ..
@@ -2162,7 +2047,6 @@ mod tests {
                     _ => panic!("Expected Field"),
                 }
 
-                // Check method has doc comment
                 match &members[1] {
                     ClassMember::Method {
                         name, doc_comment, ..
@@ -2303,17 +2187,14 @@ mod tests {
                 assert_eq!(name, "الرسالة");
                 assert_eq!(variants.len(), 3);
 
-                // First variant: رسالة_نصية(محتوى: نص)
                 assert_eq!(variants[0].name, "رسالة_نصية");
                 assert_eq!(variants[0].fields.len(), 1);
                 assert_eq!(variants[0].fields[0].name, Some("محتوى".to_string()));
 
-                // Second variant: رسالة_رقمية(قيمة: عدد)
                 assert_eq!(variants[1].name, "رسالة_رقمية");
                 assert_eq!(variants[1].fields.len(), 1);
                 assert_eq!(variants[1].fields[0].name, Some("قيمة".to_string()));
 
-                // Third variant: فارغ (unit variant)
                 assert_eq!(variants[2].name, "فارغ");
                 assert!(variants[2].fields.is_empty());
             }

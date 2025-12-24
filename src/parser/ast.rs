@@ -218,7 +218,6 @@ pub enum Literal {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
-    // Arithmetic
     Add,
     Sub,
     Mul,
@@ -226,7 +225,6 @@ pub enum BinaryOp {
     Mod,
     Pow,
 
-    // Comparison
     Eq,
     NotEq,
     Lt,
@@ -234,7 +232,6 @@ pub enum BinaryOp {
     Gt,
     GtEq,
 
-    // Logical
     And,
     Or,
 }

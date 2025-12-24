@@ -65,7 +65,6 @@ impl TargetTriple {
             all(target_arch = "aarch64", target_os = "macos"),
         )))]
         {
-            // Fallback to x86_64-linux
             Self::new("x86_64", "unknown", "linux", Some("gnu"))
         }
     }
@@ -125,7 +124,6 @@ impl DataLayout {
     }
 
     pub fn to_llvm_string(&self) -> String {
-        // Format: e-m:e-p:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f64:64:64-n8:16:32:64-S128
         let native: Vec<String> = self.native_integers.iter().map(|i| i.to_string()).collect();
         format!(
             "{}-m:e-p:{}:{}-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f64:64:64-n{}-S{}",

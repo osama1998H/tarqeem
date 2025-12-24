@@ -32,7 +32,6 @@ impl Printer {
     }
 
     pub fn finish(mut self) -> String {
-        // Handle final newline
         if self.config.final_newline && !self.buffer.ends_with('\n') && !self.buffer.is_empty() {
             self.buffer.push('\n');
         }
@@ -109,7 +108,6 @@ impl Printer {
     }
 
     fn flush_indent(&mut self) {
-        // First flush any pending blank lines
         self.flush_blank_lines();
 
         if self.at_line_start && self.indent_level > 0 {
@@ -265,7 +263,6 @@ mod tests {
         printer.write("ب");
         printer.newline();
         let result = printer.finish();
-        // Should have exactly 2 blank lines (respecting max)
         assert!(result.contains("أ\n\n\nب")); // original newline + 2 blank
     }
 

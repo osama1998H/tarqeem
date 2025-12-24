@@ -5,7 +5,6 @@ use colored::*;
 use std::fs;
 
 pub fn run() -> PackageResult<()> {
-    // Find and parse manifest
     let (manifest, manifest_path) = Manifest::find_and_parse()?;
     let project_root = manifest_path.parent().unwrap();
 
@@ -20,7 +19,6 @@ pub fn run() -> PackageResult<()> {
 
     let mut cleaned = 0;
 
-    // Clean build directories
     let build_dirs = ["بناء", "build", "target"];
 
     for dir_name in build_dirs {
@@ -32,10 +30,8 @@ pub fn run() -> PackageResult<()> {
         }
     }
 
-    // Optionally clean packages directory
     let packages_dir = project_root.join("packages");
     if packages_dir.exists() {
-        // Don't remove by default, just report
         println!(
             "  {} Skipped packages/ (use --all to remove) / تم تخطي packages/",
             "→".cyan()

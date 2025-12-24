@@ -94,11 +94,9 @@ mod tests {
     fn test_document_lifecycle() {
         let state = ServerState::new();
 
-        // Open
         state.open_document(uri.clone(), 1, "متغير س = 5".to_string());
         assert!(state.is_document_open(&uri));
 
-        // Update
         state.update_document(&uri, 2, "متغير ص = 10".to_string());
         {
             let doc = state.get_document(&uri).unwrap();
@@ -106,7 +104,6 @@ mod tests {
             assert_eq!(doc.content, "متغير ص = 10");
         }
 
-        // Close
         state.close_document(&uri);
         assert!(!state.is_document_open(&uri));
     }

@@ -9,14 +9,12 @@ use std::fs;
 use std::path::Path;
 
 pub fn run(name: Option<String>, lib: bool) -> PackageResult<()> {
-    // Check if already initialized - check all manifest names
     for manifest_name in Manifest::MANIFEST_NAMES {
         if Path::new(manifest_name).exists() {
             return Err(PackageError::AlreadyInitialized);
         }
     }
 
-    // Get package name from argument or directory
     let pkg_name = name.unwrap_or_else(|| {
         std::env::current_dir()
             .ok()
@@ -24,21 +22,18 @@ pub fn run(name: Option<String>, lib: bool) -> PackageResult<()> {
             .unwrap_or_else(|| "my-package".to_string())
     });
 
-    // Validate package name
     if pkg_name.is_empty() {
         return Err(PackageError::InvalidPackageName(
             "Package name cannot be empty".to_string(),
         ));
     }
 
-    // Create manifest
     let manifest = if lib {
         Manifest::new_lib(&pkg_name, "0.1.0")
     } else {
         Manifest::new(&pkg_name, "0.1.0")
     };
 
-    // Create directory structure
     let dirs = if lib {
         vec!["مصدر", "اختبارات", "أمثلة", "توثيق"]
     } else {
@@ -50,7 +45,6 @@ pub fn run(name: Option<String>, lib: bool) -> PackageResult<()> {
         println!("  {} {}/", "→".cyan(), dir);
     }
 
-    // Create entry file - use Arabic extension by default
     let (entry_path, entry_content) = if lib {
         (
             "مصدر/مكتبة.ترقيم",
@@ -85,7 +79,6 @@ pub fn run(name: Option<String>, lib: bool) -> PackageResult<()> {
         println!("  {} {}", "→".cyan(), entry_path);
     }
 
-    // Create test file - use Arabic extension
     let test_path = "اختبارات/اختبار.ترقيم";
     let test_content = if lib {
         r#"# اختبارات المكتبة
@@ -113,11 +106,9 @@ pub fn run(name: Option<String>, lib: bool) -> PackageResult<()> {
         println!("  {} {}", "→".cyan(), test_path);
     }
 
-    // Save manifest in Arabic format
     manifest.save(Path::new("ترقيم.حزمة"))?;
     println!("  {} ترقيم.حزمة", "→".cyan());
 
-    // Create .gitignore
     let gitignore_content = r#"# مخلفات البناء / Tarqeem build artifacts
 /بناء/
 /build/
@@ -151,7 +142,6 @@ Thumbs.db
         println!("  {} .gitignore", "→".cyan());
     }
 
-    // Create README.md
     let readme_content = format!(
         r#"# {}
 

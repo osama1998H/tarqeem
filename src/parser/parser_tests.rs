@@ -14,9 +14,6 @@ fn parser_with_markers(source: &str) -> Parser {
     Parser::new(&wrap_with_markers(source))
 }
 
-// =============================================================================
-// Loop Statement Tests
-// =============================================================================
 
 #[test]
 fn test_parse_while_loop() {
@@ -193,9 +190,6 @@ fn test_parse_for_loop_no_update() {
     }
 }
 
-// =============================================================================
-// Match Statement Tests
-// =============================================================================
 
 #[test]
 fn test_parse_match_statement() {
@@ -237,9 +231,7 @@ fn test_parse_match_with_multiple_patterns() {
     match &ast.statements[0].kind {
         StmtKind::Match { arms, .. } => {
             assert_eq!(arms.len(), 3);
-            // First arm should have 3 patterns
             assert_eq!(arms[0].patterns.len(), 3);
-            // Second arm should have 2 patterns
             assert_eq!(arms[1].patterns.len(), 2);
         }
         _ => panic!("Expected Match statement"),
@@ -271,9 +263,6 @@ fn test_parse_match_with_block_body() {
     }
 }
 
-// =============================================================================
-// Import/Export Tests
-// =============================================================================
 
 #[test]
 fn test_parse_named_import() {
@@ -406,9 +395,6 @@ fn test_parse_export_class() {
     }
 }
 
-// =============================================================================
-// Try-Catch-Finally Tests
-// =============================================================================
 
 #[test]
 fn test_parse_try_catch() {
@@ -507,9 +493,6 @@ fn test_parse_throw_statement() {
     }
 }
 
-// =============================================================================
-// Break and Continue Tests
-// =============================================================================
 
 #[test]
 fn test_parse_break_statement() {
@@ -547,9 +530,6 @@ fn test_parse_continue_statement() {
     }
 }
 
-// =============================================================================
-// Operator Precedence Tests
-// =============================================================================
 
 #[test]
 fn test_precedence_multiplication_over_addition() {
@@ -557,18 +537,15 @@ fn test_precedence_multiplication_over_addition() {
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
-    // Should parse as 1 + (2 * 3)
     match &ast.statements[0].kind {
         StmtKind::Expr(expr) => {
             match &expr.kind {
                 ExprKind::Binary { left, op, right } => {
                     assert_eq!(*op, BinaryOp::Add);
-                    // Left should be 1
                     match &left.kind {
                         ExprKind::Literal(Literal::Int(1)) => {}
                         _ => panic!("Expected literal 1"),
                     }
-                    // Right should be 2 * 3
                     match &right.kind {
                         ExprKind::Binary { op, .. } => {
                             assert_eq!(*op, BinaryOp::Mul);
@@ -589,18 +566,15 @@ fn test_precedence_power_right_associative() {
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
-    // Should parse as 2 ** (3 ** 2) due to right associativity
     match &ast.statements[0].kind {
         StmtKind::Expr(expr) => {
             match &expr.kind {
                 ExprKind::Binary { left, op, right } => {
                     assert_eq!(*op, BinaryOp::Pow);
-                    // Left should be 2
                     match &left.kind {
                         ExprKind::Literal(Literal::Int(2)) => {}
                         _ => panic!("Expected literal 2"),
                     }
-                    // Right should be 3 ** 2
                     match &right.kind {
                         ExprKind::Binary { left, op, right } => {
                             assert_eq!(*op, BinaryOp::Pow);
@@ -629,18 +603,15 @@ fn test_precedence_comparison_and_logical() {
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
-    // Should parse as (أ > ب) && (ج < د)
     match &ast.statements[0].kind {
         StmtKind::Expr(expr) => {
             match &expr.kind {
                 ExprKind::Binary { op, left, right } => {
                     assert_eq!(*op, BinaryOp::And);
-                    // Left should be أ > ب
                     match &left.kind {
                         ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Gt),
                         _ => panic!("Expected comparison"),
                     }
-                    // Right should be ج < د
                     match &right.kind {
                         ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Lt),
                         _ => panic!("Expected comparison"),
@@ -659,13 +630,11 @@ fn test_precedence_parentheses() {
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
 
-    // Should parse as (1 + 2) * 3
     match &ast.statements[0].kind {
         StmtKind::Expr(expr) => {
             match &expr.kind {
                 ExprKind::Binary { op, left, .. } => {
                     assert_eq!(*op, BinaryOp::Mul);
-                    // Left should be grouped (1 + 2)
                     match &left.kind {
                         ExprKind::Grouping(inner) => match &inner.kind {
                             ExprKind::Binary { op, .. } => {
@@ -683,9 +652,6 @@ fn test_precedence_parentheses() {
     }
 }
 
-// =============================================================================
-// Complex Expression Tests
-// =============================================================================
 
 #[test]
 fn test_parse_ternary_expression() {
@@ -878,9 +844,6 @@ fn test_parse_postfix_increment() {
     }
 }
 
-// =============================================================================
-// Class and Interface Tests
-// =============================================================================
 
 #[test]
 fn test_parse_class_with_inheritance() {
@@ -1003,9 +966,6 @@ fn test_parse_class_static_members() {
     }
 }
 
-// =============================================================================
-// Generic Type Tests
-// =============================================================================
 
 #[test]
 fn test_parse_generic_class() {
@@ -1090,7 +1050,6 @@ fn test_parse_new_expression_with_generics() {
                         ExprKind::Identifier(name) => assert_eq!(name, "قائمة"),
                         _ => panic!("Expected identifier"),
                     }
-                    // Should have one type argument: عدد
                     assert_eq!(type_args.len(), 1);
                     assert!(args.is_empty());
                 }
@@ -1101,9 +1060,6 @@ fn test_parse_new_expression_with_generics() {
     }
 }
 
-// =============================================================================
-// Async/Await Tests
-// =============================================================================
 
 #[test]
 fn test_parse_async_function() {
@@ -1150,9 +1106,6 @@ fn test_parse_await_expression() {
     }
 }
 
-// =============================================================================
-// Object Literal Tests
-// =============================================================================
 
 #[test]
 fn test_parse_object_literal() {
@@ -1198,9 +1151,6 @@ fn test_parse_empty_object_literal() {
     }
 }
 
-// =============================================================================
-// Type Annotation Tests
-// =============================================================================
 
 #[test]
 fn test_parse_optional_type() {
@@ -1274,9 +1224,6 @@ fn test_parse_nested_generic_type() {
     }
 }
 
-// =============================================================================
-// This and Super Tests
-// =============================================================================
 
 #[test]
 fn test_parse_this_expression() {
@@ -1340,9 +1287,6 @@ fn test_parse_super_expression() {
     }
 }
 
-// =============================================================================
-// Visibility Tests
-// =============================================================================
 
 #[test]
 fn test_parse_visibility_modifiers() {
@@ -1381,9 +1325,6 @@ fn test_parse_visibility_modifiers() {
     }
 }
 
-// =============================================================================
-// Edge Cases and Error Handling
-// =============================================================================
 
 #[test]
 fn test_parse_empty_block() {
@@ -1404,7 +1345,6 @@ fn test_parse_empty_block() {
 
 #[test]
 fn test_parse_semicolon_insertion() {
-    // Semicolons should be optional at end of lines
     let source = r#"
         متغير س = 1
         متغير ص = 2
@@ -1491,7 +1431,6 @@ fn test_parse_if_else_if() {
             assert!(else_branch.is_some());
             let else_block = else_branch.as_ref().unwrap();
             assert_eq!(else_block.statements.len(), 1);
-            // The else if should be an If statement
             assert!(matches!(
                 &else_block.statements[0].kind,
                 StmtKind::If { .. }
@@ -1501,9 +1440,6 @@ fn test_parse_if_else_if() {
     }
 }
 
-// =============================================================================
-// Do-While Loop Tests
-// =============================================================================
 
 #[test]
 fn test_parse_do_while_loop_arabic() {
@@ -1554,7 +1490,6 @@ fn test_parse_do_while_with_break() {
 
     match &ast.statements[0].kind {
         StmtKind::DoWhile { body, .. } => {
-            // Body should contain an if statement
             assert!(matches!(&body.statements[0].kind, StmtKind::If { .. }));
         }
         _ => panic!("Expected DoWhile statement"),
@@ -1588,16 +1523,12 @@ fn test_parse_nested_do_while() {
 
     match &ast.statements[0].kind {
         StmtKind::DoWhile { body, .. } => {
-            // Inner body should contain another do-while
             assert!(matches!(&body.statements[0].kind, StmtKind::DoWhile { .. }));
         }
         _ => panic!("Expected DoWhile statement"),
     }
 }
 
-// =============================================================================
-// Arrow Function Tests
-// =============================================================================
 
 #[test]
 fn test_parse_arrow_function_single_param() {
@@ -1767,7 +1698,6 @@ fn test_parse_arrow_function_nested() {
                 ExprKind::Lambda { params, body } => {
                     assert_eq!(params.len(), 1);
                     assert_eq!(params[0].name, "س");
-                    // Body should be another lambda
                     match body {
                         LambdaBody::Expr(expr) => match &expr.kind {
                             ExprKind::Lambda {
@@ -1791,7 +1721,6 @@ fn test_parse_arrow_function_nested() {
 
 #[test]
 fn test_parse_grouping_not_arrow_function() {
-    // Make sure regular grouping still works
     let source = r#"
         (5 + 3) * 2;
     "#;
@@ -1810,13 +1739,9 @@ fn test_parse_grouping_not_arrow_function() {
     }
 }
 
-// =============================================================================
-// Error Recovery Tests
-// =============================================================================
 
 #[test]
 fn test_error_recovery_multiple_errors_in_block() {
-    // Multiple syntax errors in a block - should collect all errors
     let source = r#"
         دالة اختبار() {
             متغير = 5;
@@ -1827,7 +1752,6 @@ fn test_error_recovery_multiple_errors_in_block() {
     let mut parser = parser_with_markers(source);
     let result = parser.parse();
 
-    // Should fail, but with multiple errors collected
     assert!(result.is_err());
     let errors = parser.get_errors();
     assert!(
@@ -1839,7 +1763,6 @@ fn test_error_recovery_multiple_errors_in_block() {
 
 #[test]
 fn test_error_recovery_valid_code_after_error() {
-    // Error followed by valid code - valid code should still parse
     let source = r#"
         متغير = 5;
         متغير س = 10;
@@ -1847,17 +1770,13 @@ fn test_error_recovery_valid_code_after_error() {
     let mut parser = parser_with_markers(source);
     let result = parser.parse();
 
-    // Should fail, but the valid statement should be parsed
     assert!(result.is_err());
-    // Even though there's an error, valid statement after should be in AST
-    // The parser collects errors and continues
     let errors = parser.get_errors();
     assert!(!errors.is_empty());
 }
 
 #[test]
 fn test_error_recovery_class_member_errors() {
-    // Multiple errors in class members - should collect all
     let source = r#"
         صنف اختبار {
             خاص = 5;
@@ -1868,7 +1787,6 @@ fn test_error_recovery_class_member_errors() {
     let mut parser = parser_with_markers(source);
     let result = parser.parse();
 
-    // Should fail with multiple errors
     assert!(result.is_err());
     let errors = parser.get_errors();
     assert!(
@@ -1880,7 +1798,6 @@ fn test_error_recovery_class_member_errors() {
 
 #[test]
 fn test_error_recovery_get_errors_returns_all() {
-    // Verify get_errors() returns all collected errors
     let source = r#"
         متغير = 1;
         ثابت = 2;
@@ -1895,7 +1812,6 @@ fn test_error_recovery_get_errors_returns_all() {
         "Expected at least 3 errors, got {}",
         errors.len()
     );
-    // Each error should have both English and Arabic messages
     for err in errors {
         assert!(!err.message.is_empty());
         assert!(!err.message_ar.is_empty());

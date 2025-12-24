@@ -157,11 +157,9 @@ impl Optimizer {
             return; // No optimization
         }
 
-        // Run optimization passes in a fixed-point loop
         for _ in 0..self.max_iterations {
             let mut changed = false;
 
-            // O1+: Constant folding
             if self.level >= OptLevel::O1 {
                 let mut folder = ConstantFolder::new();
                 folder.run(module);
@@ -171,7 +169,6 @@ impl Optimizer {
                 }
             }
 
-            // O1+: Dead code elimination
             if self.level >= OptLevel::O1 {
                 let mut dce = DeadCodeEliminator::new();
                 dce.run(module);
@@ -182,7 +179,6 @@ impl Optimizer {
                 }
             }
 
-            // O2+: Common subexpression elimination
             if self.level >= OptLevel::O2 {
                 let mut cse = CommonSubexprElim::new();
                 cse.run(module);
@@ -192,7 +188,6 @@ impl Optimizer {
                 }
             }
 
-            // O2+: Loop optimizations (LICM, strength reduction)
             if self.level >= OptLevel::O2 {
                 let mut loop_opt = LoopOptimizer::new();
                 loop_opt.run(module);
@@ -202,7 +197,6 @@ impl Optimizer {
                 }
             }
 
-            // O3: Function inlining
             if self.level >= OptLevel::O3 {
                 let mut inliner = FunctionInliner::new();
                 inliner.run(module);
@@ -212,7 +206,6 @@ impl Optimizer {
                 }
             }
 
-            // O3: Loop unrolling (more aggressive)
             if self.level >= OptLevel::O3 {
                 let mut loop_opt = LoopOptimizer::new();
                 loop_opt.enable_unrolling(true);
@@ -223,7 +216,6 @@ impl Optimizer {
                 }
             }
 
-            // If no changes were made, we've reached a fixed point
             if !changed {
                 break;
             }

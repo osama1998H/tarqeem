@@ -35,13 +35,10 @@ impl ConstantFolder {
     }
 
     pub fn run(&mut self, module: &mut Module) {
-        // We need to collect function indices first to avoid borrowing issues
         let func_count = module.functions.len();
         for i in 0..func_count {
-            // Map from VarId to known constant value
             let mut constants: HashMap<VarId, Constant> = HashMap::new();
 
-            // Process each block in the function
             let block_count = module.functions[i].blocks.len();
             for j in 0..block_count {
                 self.fold_block_with_strings(
@@ -63,13 +60,11 @@ impl ConstantFolder {
 
         for inst in &block.instructions {
             match inst {
-                // Track constant definitions
                 Instruction::Const { dest, value, .. } => {
                     constants.insert(*dest, value.clone());
                     new_instructions.push(inst.clone());
                 }
 
-                // Try to fold binary operations
                 Instruction::Binary {
                     dest,
                     op,
@@ -81,7 +76,6 @@ impl ConstantFolder {
                         (constants.get(left), constants.get(right))
                     {
                         if let Some(result) = self.fold_binary(*op, left_const, right_const) {
-                            // Replace with constant
                             let new_inst = Instruction::Const {
                                 dest: *dest,
                                 value: result.clone(),
@@ -96,7 +90,6 @@ impl ConstantFolder {
                     new_instructions.push(inst.clone());
                 }
 
-                // Fold unary operations
                 Instruction::Unary {
                     dest,
                     op,
@@ -119,14 +112,12 @@ impl ConstantFolder {
                     new_instructions.push(inst.clone());
                 }
 
-                // Fold conditional branches with known conditions
                 Instruction::Branch {
                     cond,
                     then_block,
                     else_block,
                 } => {
                     if let Some(Constant::Bool(b)) = constants.get(cond) {
-                        // Replace with unconditional jump
                         let target = if *b { *then_block } else { *else_block };
                         new_instructions.push(Instruction::Jump { target });
                         self.stats.constants_folded += 1;
@@ -135,12 +126,10 @@ impl ConstantFolder {
                     new_instructions.push(inst.clone());
                 }
 
-                // Fold string concatenation of constant strings
                 Instruction::StringConcat { dest, left, right } => {
                     if let (Some(Constant::String(left_idx)), Some(Constant::String(right_idx))) =
                         (constants.get(left), constants.get(right))
                     {
-                        // Look up both strings and concatenate
                         if let (Some(left_str), Some(right_str)) =
                             (strings.get(*left_idx), strings.get(*right_idx))
                         {
@@ -161,7 +150,6 @@ impl ConstantFolder {
                     new_instructions.push(inst.clone());
                 }
 
-                // Keep other instructions as-is
                 _ => {
                     new_instructions.push(inst.clone());
                 }
@@ -173,7 +161,6 @@ impl ConstantFolder {
 
     fn fold_binary(&self, op: BinaryOp, left: &Constant, right: &Constant) -> Option<Constant> {
         match (left, right) {
-            // Integer operations
             (Constant::Int(l), Constant::Int(r)) => match op {
                 BinaryOp::Add => Some(Constant::Int(l.wrapping_add(*r))),
                 BinaryOp::Sub => Some(Constant::Int(l.wrapping_sub(*r))),
@@ -195,7 +182,6 @@ impl ConstantFolder {
                 _ => None,
             },
 
-            // Float operations
             (Constant::Float(l), Constant::Float(r)) => match op {
                 BinaryOp::Add => Some(Constant::Float(l + r)),
                 BinaryOp::Sub => Some(Constant::Float(l - r)),
@@ -211,7 +197,6 @@ impl ConstantFolder {
                 _ => None,
             },
 
-            // Boolean operations
             (Constant::Bool(l), Constant::Bool(r)) => match op {
                 BinaryOp::And => Some(Constant::Bool(*l && *r)),
                 BinaryOp::Or => Some(Constant::Bool(*l || *r)),
@@ -256,21 +241,18 @@ mod tests {
 
         let mut block = BasicBlock::new(BlockId(0));
 
-        // %0 = const 2
         block.instructions.push(Instruction::Const {
             dest: VarId(0),
             value: Constant::Int(2),
             ty: IrType::Int,
         });
 
-        // %1 = const 3
         block.instructions.push(Instruction::Const {
             dest: VarId(1),
             value: Constant::Int(3),
             ty: IrType::Int,
         });
 
-        // %2 = add %0, %1  (should be folded to const 5)
         block.instructions.push(Instruction::Binary {
             dest: VarId(2),
             op: BinaryOp::Add,
@@ -279,7 +261,6 @@ mod tests {
             ty: IrType::Int,
         });
 
-        // ret void
         block.instructions.push(Instruction::Return { value: None });
 
         func.blocks.push(block);
@@ -294,12 +275,9 @@ mod tests {
         let mut folder = ConstantFolder::new();
         folder.run(&mut module);
 
-        // Check that the add was folded
         assert!(folder.stats().constants_folded > 0);
 
-        // Check the resulting instruction
         let block = &module.functions[0].blocks[0];
-        // Should now have: const 2, const 3, const 5, ret
         let folded = &block.instructions[2];
         match folded {
             Instruction::Const { value, .. } => {
@@ -320,21 +298,18 @@ mod tests {
 
         let mut block = BasicBlock::new(BlockId(0));
 
-        // %0 = const 5
         block.instructions.push(Instruction::Const {
             dest: VarId(0),
             value: Constant::Int(5),
             ty: IrType::Int,
         });
 
-        // %1 = const 3
         block.instructions.push(Instruction::Const {
             dest: VarId(1),
             value: Constant::Int(3),
             ty: IrType::Int,
         });
 
-        // %2 = gt %0, %1  (should be folded to const true)
         block.instructions.push(Instruction::Binary {
             dest: VarId(2),
             op: BinaryOp::Gt,
@@ -375,14 +350,12 @@ mod tests {
         let then_block = BasicBlock::new(BlockId(1));
         let else_block = BasicBlock::new(BlockId(2));
 
-        // %0 = const true
         entry.instructions.push(Instruction::Const {
             dest: VarId(0),
             value: Constant::Bool(true),
             ty: IrType::Bool,
         });
 
-        // branch %0, bb1, bb2 (should be folded to jump bb1)
         entry.instructions.push(Instruction::Branch {
             cond: VarId(0),
             then_block: BlockId(1),
@@ -399,7 +372,6 @@ mod tests {
         let mut folder = ConstantFolder::new();
         folder.run(&mut module);
 
-        // The branch should be replaced with a jump
         let terminator = module.functions[0].blocks[0].instructions.last().unwrap();
         match terminator {
             Instruction::Jump { target } => {

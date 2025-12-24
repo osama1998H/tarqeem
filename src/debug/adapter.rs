@@ -331,12 +331,10 @@ impl DapAdapter {
         response
     }
 
-    // ==================== Request Handlers ====================
 
     fn handle_initialize(&mut self, request: &DapRequest) -> DapResponse {
         self.initialized = true;
 
-        // Queue initialized event
         self.queue_event(DapEvent::initialized());
 
         DapResponse::success(
@@ -366,7 +364,6 @@ impl DapAdapter {
     }
 
     fn handle_launch(&mut self, request: &DapRequest) -> DapResponse {
-        // Get program path from arguments
         let program = request.arguments.get("program").and_then(|v| v.as_str());
 
         if program.is_none() {
@@ -376,13 +373,11 @@ impl DapAdapter {
         let program_path = PathBuf::from(program.unwrap());
         self.source_file = Some(program_path.clone());
 
-        // Read and compile the program
         let source = match std::fs::read_to_string(&program_path) {
             Ok(s) => s,
             Err(e) => return DapResponse::error(request, format!("Failed to read file: {}", e)),
         };
 
-        // Parse
         let mut parser = crate::parser::Parser::new(&source);
         let ast = match parser.parse() {
             Ok(ast) => ast,
@@ -394,7 +389,6 @@ impl DapAdapter {
             }
         };
 
-        // Semantic analysis
         let mut analyzer = crate::semantic::Analyzer::new();
         if let Err(diagnostics) = analyzer.analyze(&ast) {
             let msg = diagnostics
@@ -405,7 +399,6 @@ impl DapAdapter {
             return DapResponse::error(request, format!("Semantic errors:\n{}", msg));
         }
 
-        // Build IR
         let ir_builder = crate::ir::IrBuilder::new("debug".to_string());
         let ir_module = match ir_builder.build(&ast) {
             Ok(m) => m,
@@ -417,10 +410,8 @@ impl DapAdapter {
             }
         };
 
-        // Create debug context with source map
         let mut context = DebugContext::new();
 
-        // Set stop on entry if requested
         let stop_on_entry = request
             .arguments
             .get("stopOnEntry")
@@ -429,16 +420,13 @@ impl DapAdapter {
 
         context.config_mut().stop_on_entry = stop_on_entry;
 
-        // Add source content to source map
         context
             .source_map_mut()
             .add_source(program_path.clone(), source);
 
-        // Create debug interpreter
         let mut interpreter = DebugInterpreter::new(ir_module, context);
         interpreter.set_source_file(program_path);
 
-        // Start the interpreter
         if let Err(e) = interpreter.start() {
             return DapResponse::error(request, format!("Failed to start: {}", e.message));
         }
@@ -446,7 +434,6 @@ impl DapAdapter {
         self.interpreter = Some(interpreter);
         self.launched = true;
 
-        // If stop on entry, emit stopped event
         if stop_on_entry {
             self.queue_event(DapEvent::stopped(
                 "entry",
@@ -476,10 +463,8 @@ impl DapAdapter {
     }
 
     fn handle_configuration_done(&mut self, request: &DapRequest) -> DapResponse {
-        // If not stopping on entry, start running
         if let Some(ref interpreter) = self.interpreter {
             if !interpreter.context().config().stop_on_entry {
-                // Will be handled by the run loop
             }
         }
         DapResponse::success(request, None)
@@ -508,7 +493,6 @@ impl DapAdapter {
         let mut result_breakpoints = Vec::new();
 
         if let Some(ref mut interpreter) = self.interpreter {
-            // Clear existing breakpoints for this file
             let existing: Vec<_> = interpreter
                 .context()
                 .breakpoints()
@@ -520,7 +504,6 @@ impl DapAdapter {
                 let _ = interpreter.context_mut().remove_breakpoint(id);
             }
 
-            // Add new breakpoints
             for bp_json in breakpoints {
                 let line = bp_json.get("line").and_then(|l| l.as_i64()).unwrap_or(0) as usize;
 
@@ -631,13 +614,11 @@ impl DapAdapter {
     }
 
     fn handle_scopes(&mut self, request: &DapRequest) -> DapResponse {
-        // Create scope references
         let locals_ref = self.var_ref_counter;
         self.var_ref_counter += 1;
         let globals_ref = self.var_ref_counter;
         self.var_ref_counter += 1;
 
-        // Store variable references
         if let Some(ref interpreter) = self.interpreter {
             self.var_refs.insert(locals_ref, interpreter.get_locals());
             self.var_refs.insert(globals_ref, interpreter.get_globals());
@@ -740,7 +721,6 @@ impl DapAdapter {
     fn handle_step_result(&mut self, result: StepResult) {
         match result {
             StepResult::Continue => {
-                // This shouldn't happen from user-initiated steps
             }
             StepResult::Paused(reason) => {
                 let (dap_reason, description) = match reason {
@@ -853,7 +833,6 @@ impl DapAdapter {
     }
 
     fn handle_source(&mut self, request: &DapRequest) -> DapResponse {
-        // Return source content if requested
         if let Some(ref interpreter) = self.interpreter {
             if let Some(ref source_file) = self.source_file {
                 if let Some(content) = std::fs::read_to_string(source_file).ok() {
@@ -917,7 +896,6 @@ mod tests {
         assert!(response.success);
         assert!(adapter.initialized);
 
-        // Should have queued initialized event
         let events = adapter.take_events();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event, "initialized");

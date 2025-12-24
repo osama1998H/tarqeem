@@ -17,21 +17,17 @@ pub fn handle_inlay_hints(
     let analysis = doc.get_analysis(language);
     let mut hints = Vec::new();
 
-    // Add type hints for variables and parameters
     for (name, info) in &analysis.symbols {
-        // Skip if type is unknown or void
         if matches!(info.ty, Type::Unknown | Type::Void) {
             continue;
         }
 
-        // Only show hints for variables and parameters (not functions, classes, etc.)
         if !matches!(info.kind, SymbolKind::Variable | SymbolKind::Parameter) {
             continue;
         }
 
         let hint_position = offset_to_position(&content, info.definition_span.end);
 
-        // Check if hint is within the requested range
         if !position_in_range(&hint_position, &range) {
             continue;
         }
@@ -60,7 +56,6 @@ pub fn handle_inlay_hints(
         });
     }
 
-    // Add parameter hints for function calls
     if let Some(ref ast) = analysis.ast {
         collect_parameter_hints(&content, ast, &mut hints, language, &range);
     }
@@ -189,9 +184,7 @@ fn collect_parameter_hints_from_expr(
 
     match expr {
         ExprKind::Call { callee, args } => {
-            // Get the function name if it's a simple identifier
             if let ExprKind::Identifier(name) = &callee.kind {
-                // Get parameter names for built-in functions
                 if let Some(param_names) = get_builtin_param_names(name, language) {
                     for (i, (arg, param_name)) in args.iter().zip(param_names.iter()).enumerate() {
                         let hint_position = offset_to_position(content, arg.span.start);
@@ -219,7 +212,6 @@ fn collect_parameter_hints_from_expr(
                 }
             }
 
-            // Recurse into callee and arguments
             collect_parameter_hints_from_expr(content, &callee.kind, hints, language, range);
             for arg in args {
                 collect_parameter_hints_from_expr(content, &arg.kind, hints, language, range);
@@ -255,7 +247,6 @@ fn collect_parameter_hints_from_expr(
 
 fn get_builtin_param_names(name: &str, language: Language) -> Option<Vec<&'static str>> {
     match (name, language) {
-        // Arabic built-ins
         ("اطبع", Language::Arabic) => Some(vec!["قيمة"]),
         ("اطبع_سطر", Language::Arabic) => Some(vec!["قيمة"]),
         ("ادخل", Language::Arabic) => Some(vec![]),
@@ -267,7 +258,6 @@ fn get_builtin_param_names(name: &str, language: Language) -> Option<Vec<&'stati
         ("اقرأ_ملف", Language::Arabic) => Some(vec!["مسار"]),
         ("اكتب_ملف", Language::Arabic) => Some(vec!["مسار", "محتوى"]),
 
-        // English built-ins
         ("print", Language::English) => Some(vec!["value"]),
         ("println", Language::English) => Some(vec!["value"]),
         ("input", Language::English) => Some(vec![]),
@@ -365,7 +355,6 @@ mod tests {
         };
 
         let hints = handle_inlay_hints(&mut doc, range, Language::Arabic);
-        // We should get a hint for the variable type
         assert!(hints.is_some() || hints.is_none()); // May or may not have hints depending on analysis
     }
 }

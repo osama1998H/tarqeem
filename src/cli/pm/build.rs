@@ -5,11 +5,9 @@ use colored::*;
 use std::process::Command;
 
 pub fn run(release: bool) -> PackageResult<()> {
-    // Find and parse manifest
     let (manifest, manifest_path) = Manifest::find_and_parse()?;
     let project_root = manifest_path.parent().unwrap();
 
-    // Determine entry point
     let entry = manifest
         .package
         .entry
@@ -26,7 +24,6 @@ pub fn run(release: bool) -> PackageResult<()> {
         return Err(PackageError::EntryPointNotFound(entry_path));
     }
 
-    // Create output directory
     let output_dir = if release {
         project_root.join("بناء").join("إصدار")
     } else {
@@ -34,7 +31,6 @@ pub fn run(release: bool) -> PackageResult<()> {
     };
     std::fs::create_dir_all(&output_dir)?;
 
-    // Determine output name
     let output_name = &manifest.package.name;
     let output_path = output_dir.join(output_name);
 
@@ -53,7 +49,6 @@ pub fn run(release: bool) -> PackageResult<()> {
         println!("  {} Debug mode / وضع التطوير", "→".cyan());
     }
 
-    // Build command
     let mut cmd = Command::new("tarqeem");
     cmd.arg("compile");
     cmd.arg(&entry_path);
@@ -64,7 +59,6 @@ pub fn run(release: bool) -> PackageResult<()> {
         cmd.arg("-O2");
     }
 
-    // Set current directory to project root for proper module resolution
     cmd.current_dir(project_root);
 
     println!(
@@ -97,7 +91,6 @@ pub fn run(release: bool) -> PackageResult<()> {
         ));
     }
 
-    // Print any output
     let stdout = String::from_utf8_lossy(&output.stdout);
     if !stdout.is_empty() {
         println!("{}", stdout);

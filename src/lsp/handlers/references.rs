@@ -15,17 +15,14 @@ pub fn handle_references(
 ) -> Option<Vec<Location>> {
     let content = doc.content.clone();
 
-    // Find the word at the cursor position
     let (_, _, word) = find_word_at_position(&content, position)?;
 
-    // Find all references
     let references = doc.find_references(&word, language);
 
     if references.is_empty() {
         return None;
     }
 
-    // Convert spans to locations
     let locations: Vec<Location> = references
         .iter()
         .map(|span| Location {
@@ -34,8 +31,6 @@ pub fn handle_references(
         })
         .collect();
 
-    // If not including declaration, we'd filter it out
-    // For now, include all references
     let _ = include_declaration;
 
     Some(locations)
@@ -56,14 +51,12 @@ mod tests {
         .to_string();
         let mut doc = DocumentState::new(uri, 1, content);
 
-        // Position on first "س"
         let position = Position {
             line: 1,
             character: 6,
         };
         let result = handle_references(&mut doc, position, true, Language::Arabic);
 
-        // Should find multiple references
         if let Some(refs) = result {
             assert!(refs.len() >= 1);
         }
