@@ -62,32 +62,26 @@ impl Lexer {
 
         let c = self.advance();
 
-        // Check for newlines
         if c == '\n' {
             return self.make_token(TokenKind::Newline);
         }
 
-        // Numbers (including Arabic-Indic numerals)
         if self.is_digit(c) {
             return self.scan_number(c);
         }
 
-        // Check for English letters - produce helpful error
         if self.is_english_letter(c) {
             return self.scan_english_identifier_error(c);
         }
 
-        // Identifiers and keywords (Arabic only)
         if self.is_identifier_start(c) {
             return self.scan_identifier(c);
         }
 
-        // Strings
         if c == '"' || c == '\'' || c == '«' {
             return self.scan_string(c);
         }
 
-        // Operators and punctuation
         self.scan_operator(c)
     }
 
@@ -104,8 +98,6 @@ impl Lexer {
         }
         tokens
     }
-
-    // ============ Helper Methods ============
 
     fn is_at_end(&self) -> bool {
         self.position >= self.source.len()
@@ -180,8 +172,6 @@ impl Lexer {
             self.current_lexeme(),
         )
     }
-
-    // ============ Character Classification ============
 
     fn is_digit(&self, c: char) -> bool {
         c.is_ascii_digit() || self.is_arabic_digit(c)
@@ -258,8 +248,6 @@ impl Lexer {
             '\u{FE70}'..='\u{FEFF}'    // Arabic Presentation Forms-B
         )
     }
-
-    // ============ Whitespace and Comments ============
 
     /// Skip whitespace and regular comments, but return doc comments as tokens
     /// Returns Some(Token) if a doc comment was found, None otherwise
@@ -436,13 +424,10 @@ impl Lexer {
         self.make_token(TokenKind::BlockDocComment(cleaned))
     }
 
-    // ============ Token Scanners ============
-
     fn scan_number(&mut self, first: char) -> Token {
         let mut value: i64 = self.digit_value(first) as i64;
         let mut overflowed = false;
 
-        // Consume integer part using checked arithmetic
         while !self.is_at_end() && self.is_digit(self.peek()) {
             let c = self.advance();
             let digit = self.digit_value(c) as i64;
@@ -456,7 +441,6 @@ impl Lexer {
             }
         }
 
-        // Check for decimal point
         if self.peek() == '.' && self.is_digit(self.peek_next()) {
             self.advance(); // consume '.'
 
@@ -469,11 +453,9 @@ impl Lexer {
                 divisor *= 10.0;
             }
 
-            // For floats, overflow is less critical - the value gets large but doesn't crash
             return self.make_token(TokenKind::FloatLiteral(value as f64 + fraction));
         }
 
-        // Check for exponent
         if self.peek() == 'e' || self.peek() == 'E' {
             self.advance();
 
@@ -495,7 +477,6 @@ impl Lexer {
             return self.make_token(TokenKind::FloatLiteral(float_val));
         }
 
-        // If integer overflowed, report error
         if overflowed {
             return self.make_token(TokenKind::Error(
                 "Integer literal too large / العدد الصحيح كبير جداً".to_string(),
@@ -513,7 +494,6 @@ impl Lexer {
             ident.push(self.advance());
         }
 
-        // Check if it's a keyword
         if let Some(keyword) = lookup_keyword(&ident) {
             self.make_token(keyword)
         } else {
@@ -587,7 +567,6 @@ impl Lexer {
 
     fn scan_operator(&mut self, c: char) -> Token {
         match c {
-            // Single-character tokens
             '(' => self.make_token(TokenKind::LeftParen),
             ')' => self.make_token(TokenKind::RightParen),
             '{' => self.make_token(TokenKind::LeftBrace),
@@ -597,16 +576,10 @@ impl Lexer {
             '.' => self.make_token(TokenKind::Dot),
             ':' => self.make_token(TokenKind::Colon),
             '?' => self.make_token(TokenKind::Question),
-
-            // Comma (ASCII and Arabic)
             ',' => self.make_token(TokenKind::Comma),
-            '،' => self.make_token(TokenKind::ArabicComma),
-
-            // Semicolon (ASCII and Arabic)
+            '،' => self.make_token(TokenKind::ArabicComma), // Arabic comma
             ';' => self.make_token(TokenKind::Semicolon),
-            '؛' => self.make_token(TokenKind::ArabicSemicolon),
-
-            // Two-character operators
+            '؛' => self.make_token(TokenKind::ArabicSemicolon), // Arabic semicolon
             '+' => {
                 if self.match_char('+') {
                     self.make_token(TokenKind::PlusPlus)

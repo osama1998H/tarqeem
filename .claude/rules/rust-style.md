@@ -85,36 +85,18 @@ pub enum ParseError {
 
 ## Documentation
 
-### Document public APIs
+See `.claude/rules/comments.md` for the full commenting philosophy.
+
+**Key principle**: Comments explain WHY, not WHAT. Don't translate code into English.
 
 ```rust
-/// Parses a variable declaration statement.
-///
-/// # Grammar
-/// ```text
-/// متغير <name> [: <type>] = <expr>
-/// ثابت <name> [: <type>] = <expr>
-/// ```
-///
-/// # Examples
-/// ```
-/// let stmt = parser.parse_var_decl()?;
-/// ```
-pub fn parse_var_decl(&mut self) -> ParseResult<Stmt> { }
-```
+// BAD: Restates code
+// Check for newlines
+if c == '\n' { }
 
-### Document complex logic
-
-```rust
-fn resolve_method(&self, class: &ClassType, name: &str) -> Option<&Method> {
-    // Method resolution order (MRO):
-    // 1. Check the class itself
-    // 2. Check implemented interfaces
-    // 3. Check parent class (recursively)
-    // This follows a linearized C3 superclass ordering.
-
-    // ...implementation
-}
+// GOOD: Explains design decision
+// English letters explicitly rejected to enforce Arabic-only identifiers
+fn is_identifier_start(&self, c: char) -> bool { }
 ```
 
 ## Struct Organization
