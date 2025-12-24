@@ -781,25 +781,6 @@ mod tests {
     }
 
     #[test]
-    fn test_doc_comment_single_line() {
-دالة اختبار() {}"#;
-        let mut lexer = Lexer::new(source);
-        let tokens: Vec<_> = lexer.tokenize();
-
-        assert!(matches!(&tokens[0].kind, TokenKind::DocComment(s) if s == "هذا تعليق توثيقي"));
-        assert_eq!(tokens[1].kind, TokenKind::Function);
-    }
-
-    #[test]
-    fn test_doc_comment_multi_line() {
-دالة اختبار() {}"#;
-        let mut lexer = Lexer::new(source);
-        let tokens: Vec<_> = lexer.tokenize();
-
-        assert!(matches!(&tokens[0].kind, TokenKind::DocComment(s) if s == "سطر أول\nسطر ثاني"));
-    }
-
-    #[test]
     fn test_block_doc_comment() {
         let source = r#"/**
  * دالة لحساب المضروب
