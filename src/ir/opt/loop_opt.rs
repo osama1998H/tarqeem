@@ -787,7 +787,8 @@ fn instruction_dest(inst: &Instruction) -> Option<VarId> {
         | Instruction::ArrayGet { dest, .. }
         | Instruction::StringConcat { dest, .. }
         | Instruction::GetException { dest, .. }
-        | Instruction::Phi { dest, .. } => Some(*dest),
+        | Instruction::Phi { dest, .. }
+        | Instruction::Copy { dest, .. } => Some(*dest),
 
         Instruction::Call { dest, .. }
         | Instruction::CallIndirect { dest, .. }
@@ -811,7 +812,8 @@ fn instruction_operands(inst: &Instruction) -> Vec<VarId> {
         Instruction::IntToFloat { src, .. }
         | Instruction::FloatToInt { src, .. }
         | Instruction::ToString { src, .. }
-        | Instruction::Bitcast { src, .. } => vec![*src],
+        | Instruction::Bitcast { src, .. }
+        | Instruction::Copy { src, .. } => vec![*src],
 
         Instruction::Load { ptr, .. } => vec![*ptr],
 

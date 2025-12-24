@@ -1889,18 +1889,18 @@ impl IrBuilder {
             }
         };
 
-        let is_local = self.lookup_var(&name).is_some();
+        // Store the lookup result to avoid redundant lookups and unwrap() calls
+        let local_ptr = self.lookup_var(&name);
         let is_global = self.global_variables.contains(&name);
 
-        if !is_local && !is_global {
+        if local_ptr.is_none() && !is_global {
             return Err(IrError::new(
                 format!("Cannot modify undefined variable '{}'", name),
                 format!("لا يمكن تعديل متغير غير معرّف '{}'", name),
             ));
         }
 
-        let result_ty = if is_local {
-            let ptr = self.lookup_var(&name).unwrap();
+        let result_ty = if let Some(ptr) = local_ptr {
             let var_type = self.var_types.get(&ptr.0).cloned().unwrap_or(IrType::Int);
             match var_type {
                 IrType::Float => IrType::Float,
@@ -1919,8 +1919,7 @@ impl IrBuilder {
         };
 
         let old_val = self.new_var();
-        if is_local {
-            let ptr = self.lookup_var(&name).unwrap();
+        if let Some(ptr) = local_ptr {
             self.emit(Instruction::Load {
                 dest: old_val,
                 ptr,
@@ -1963,8 +1962,7 @@ impl IrBuilder {
         });
         self.var_types.insert(new_val.0, result_ty);
 
-        if is_local {
-            let ptr = self.lookup_var(&name).unwrap();
+        if let Some(ptr) = local_ptr {
             self.emit(Instruction::Store {
                 ptr,
                 value: new_val,
