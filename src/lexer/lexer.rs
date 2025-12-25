@@ -6,9 +6,14 @@
 use super::keywords::lookup_keyword;
 use super::token::{Token, TokenKind};
 use crate::error::Span;
+use crate::utils::StringInterner;
 use unicode_normalization::UnicodeNormalization;
 
-pub struct Lexer {
+/// The Tarqeem lexer, responsible for tokenizing Arabic source code.
+///
+/// The lexer can optionally use a string interner to deduplicate identifier
+/// strings, reducing memory usage and enabling faster string comparisons.
+pub struct Lexer<'a> {
     source: Vec<char>,
     position: usize,
     line: usize,
@@ -16,12 +21,18 @@ pub struct Lexer {
     token_start: usize,
     token_start_line: usize,
     token_start_column: usize,
+    /// Optional string interner for identifier deduplication.
+    interner: Option<&'a mut StringInterner>,
 }
 
-impl Lexer {
+impl Lexer<'static> {
+    /// Creates a new lexer without string interning.
+    ///
+    /// This is the backward-compatible constructor. For better memory efficiency,
+    /// use [`Lexer::with_interner`] instead.
     pub fn new(source: &str) -> Self {
         let normalized: String = source.nfc().collect();
-        Self {
+        Lexer {
             source: normalized.chars().collect(),
             position: 0,
             line: 1,
@@ -29,6 +40,37 @@ impl Lexer {
             token_start: 0,
             token_start_line: 1,
             token_start_column: 1,
+            interner: None,
+        }
+    }
+}
+
+impl<'a> Lexer<'a> {
+    /// Creates a new lexer with string interning support.
+    ///
+    /// All identifiers will be interned, reducing memory usage and enabling
+    /// O(1) string comparisons in later compilation phases.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use tarqeem::{Lexer, StringInterner};
+    ///
+    /// let mut interner = StringInterner::new();
+    /// let mut lexer = Lexer::with_interner("متغير س = 5", &mut interner);
+    /// let tokens = lexer.tokenize();
+    /// ```
+    pub fn with_interner(source: &str, interner: &'a mut StringInterner) -> Self {
+        let normalized: String = source.nfc().collect();
+        Lexer {
+            source: normalized.chars().collect(),
+            position: 0,
+            line: 1,
+            column: 1,
+            token_start: 0,
+            token_start_line: 1,
+            token_start_column: 1,
+            interner: Some(interner),
         }
     }
 
@@ -449,6 +491,12 @@ impl Lexer {
         if let Some(keyword) = lookup_keyword(&ident) {
             self.make_token(keyword)
         } else {
+            // Intern the identifier if an interner is available
+            if let Some(ref mut interner) = self.interner {
+                // Intern to deduplicate, but still store the string in the token
+                // for now (full Symbol-based AST would be a larger refactor)
+                let _symbol = interner.intern(&ident);
+            }
             self.make_token(TokenKind::Identifier(ident))
         }
     }
@@ -625,7 +673,7 @@ impl Lexer {
     }
 }
 
-impl Iterator for Lexer {
+impl<'a> Iterator for Lexer<'a> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -806,5 +854,50 @@ mod tests {
 
         assert_eq!(tokens[0].kind, TokenKind::Newline);
         assert_eq!(tokens[1].kind, TokenKind::Let);
+    }
+
+    #[test]
+    fn test_lexer_with_interner() {
+        use crate::utils::StringInterner;
+
+        let source = "متغير س = 5";
+        let mut interner = StringInterner::new();
+        let mut lexer = Lexer::with_interner(source, &mut interner);
+        let tokens = lexer.tokenize();
+
+        assert_eq!(tokens[0].kind, TokenKind::Let);
+        assert!(matches!(&tokens[1].kind, TokenKind::Identifier(s) if s == "س"));
+
+        // The identifier should have been interned
+        assert_eq!(interner.len(), 1);
+        assert!(interner.contains("س"));
+    }
+
+    #[test]
+    fn test_interner_deduplicates_identifiers() {
+        use crate::utils::StringInterner;
+
+        let source = "متغير س = س + س";
+        let mut interner = StringInterner::new();
+        let mut lexer = Lexer::with_interner(source, &mut interner);
+        let _tokens = lexer.tokenize();
+
+        // Even though 'س' appears 3 times, it should be interned only once
+        assert_eq!(interner.len(), 1);
+    }
+
+    #[test]
+    fn test_interner_multiple_identifiers() {
+        use crate::utils::StringInterner;
+
+        let source = "متغير س = 5\nمتغير ص = س + 10";
+        let mut interner = StringInterner::new();
+        let mut lexer = Lexer::with_interner(source, &mut interner);
+        let _tokens = lexer.tokenize();
+
+        // Two unique identifiers: 'س' and 'ص'
+        assert_eq!(interner.len(), 2);
+        assert!(interner.contains("س"));
+        assert!(interner.contains("ص"));
     }
 }

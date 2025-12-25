@@ -41,5 +41,6 @@ pub use package::{Cache, LockFile, Manifest, PackageError, Resolver};
 pub use parser::{Ast, Parser};
 pub use semantic::Analyzer;
 pub use utils::{
-    has_tarqeem_extension, is_valid_source_extension, FileExtension, StringInterner, Symbol,
+    has_tarqeem_extension, is_valid_source_extension, CompilerContext, FileExtension,
+    StringInterner, Symbol,
 };
