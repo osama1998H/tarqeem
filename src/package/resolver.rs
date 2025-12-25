@@ -26,7 +26,10 @@ pub struct ResolvedPackage {
 
 #[derive(Debug, Clone)]
 pub enum ResolvedSource {
-    Registry { url: String, tarball_url: String },
+    Registry {
+        url: String,
+        tarball_url: String,
+    },
 
     Git {
         url: String,

@@ -47,7 +47,6 @@ fn parse_error(source: &str) -> String {
     }
 }
 
-
 mod module_system {
     use super::*;
 
@@ -132,7 +131,6 @@ mod module_system {
         );
     }
 }
-
 
 mod collections {
     use super::*;
@@ -281,7 +279,6 @@ mod collections {
         );
     }
 }
-
 
 mod string_utilities {
     use super::*;
@@ -466,7 +463,6 @@ mod math_library {
     }
 }
 
-
 mod file_system {
     use super::*;
 
@@ -603,7 +599,6 @@ mod file_system {
         );
     }
 }
-
 
 mod date_time {
     use super::*;
@@ -744,7 +739,6 @@ mod date_time {
         );
     }
 }
-
 
 mod error_handling {
     use super::*;
@@ -916,7 +910,6 @@ mod error_handling {
     }
 }
 
-
 mod console_io {
     use super::*;
 
@@ -967,7 +960,6 @@ mod console_io {
         );
     }
 }
-
 
 mod networking {
     use super::*;
@@ -1081,7 +1073,6 @@ mod networking {
         );
     }
 }
-
 
 mod integration {
     use super::*;

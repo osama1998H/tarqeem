@@ -4,7 +4,6 @@
 
 use super::span::*;
 
-
 #[test]
 fn test_span_new() {
     let span = Span::new(10, 20, 5, 3);
@@ -35,7 +34,6 @@ fn test_span_default() {
     assert_eq!(span.column, 0);
 }
 
-
 #[test]
 fn test_span_len() {
     let span = Span::new(10, 20, 1, 1);
@@ -60,7 +58,6 @@ fn test_span_len_large() {
     assert_eq!(span.len(), 10000);
 }
 
-
 #[test]
 fn test_span_is_empty_true() {
     let span = Span::new(5, 5, 1, 1);
@@ -78,7 +75,6 @@ fn test_span_empty_is_empty() {
     let span = Span::empty();
     assert!(span.is_empty());
 }
-
 
 #[test]
 fn test_span_merge_consecutive() {
@@ -174,7 +170,6 @@ fn test_span_merge_empty_with_non_empty() {
     assert_eq!(merged.end, 20);
 }
 
-
 #[test]
 fn test_span_display_simple() {
     let span = Span::new(0, 10, 1, 1);
@@ -198,7 +193,6 @@ fn test_span_display_large_numbers() {
     let span = Span::new(0, 10000, 9999, 999);
     assert_eq!(format!("{}", span), "9999:999");
 }
-
 
 #[test]
 fn test_span_equality() {
@@ -240,7 +234,6 @@ fn test_span_inequality_column() {
     assert_ne!(span1, span2);
 }
 
-
 #[test]
 fn test_span_clone() {
     let original = Span::new(10, 20, 5, 3);
@@ -257,7 +250,6 @@ fn test_span_clone_independence() {
     assert_eq!(original.start, cloned.start);
 }
 
-
 #[test]
 fn test_span_debug() {
     let span = Span::new(10, 20, 5, 3);
@@ -269,7 +261,6 @@ fn test_span_debug() {
     assert!(debug_str.contains("5"));
     assert!(debug_str.contains("3"));
 }
-
 
 #[test]
 fn test_span_max_values() {
@@ -297,7 +288,6 @@ fn test_span_first_position() {
     assert_eq!(format!("{}", span), "1:1");
 }
 
-
 #[test]
 fn test_span_arabic_identifier() {
     let span = Span::new(0, 12, 1, 1); // 6 chars * 2 bytes = 12 bytes
@@ -313,10 +303,8 @@ fn test_span_mixed_content() {
     assert_eq!(span.len(), 14);
 }
 
-
 #[test]
 fn test_span_token_positions() {
-
     let var_keyword_span = Span::new(0, 10, 1, 1); // "متغير"
     let var_name_span = Span::new(11, 13, 1, 7); // "س"
     let equals_span = Span::new(14, 15, 1, 9); // "="

@@ -27,7 +27,6 @@ fn create_codegen() -> LlvmCodegen {
     LlvmCodegen::new(Target::native())
 }
 
-
 #[test]
 fn test_module_header_generation() {
     let mut codegen = create_codegen();
@@ -65,7 +64,6 @@ fn test_runtime_declarations_emitted() {
     assert!(result.contains("declare ptr @trq_array_new(i64, i64)"));
     assert!(result.contains("declare void @trq_print(ptr)"));
 }
-
 
 #[test]
 fn test_const_int_generation() {
@@ -196,7 +194,6 @@ fn test_const_string_generation() {
     assert!(result.contains("@.str.0"));
     assert!(result.contains("call ptr @trq_string_new"));
 }
-
 
 #[test]
 fn test_binary_add_int() {
@@ -616,7 +613,6 @@ fn test_binary_pow_float() {
     assert!(result.contains("call double @llvm.pow.f64"));
 }
 
-
 #[test]
 fn test_comparison_eq_int() {
     let mut codegen = create_codegen();
@@ -921,7 +917,6 @@ fn test_comparison_float_lt() {
     assert!(result.contains("fcmp olt double"));
 }
 
-
 #[test]
 fn test_logical_and() {
     let mut codegen = create_codegen();
@@ -997,7 +992,6 @@ fn test_logical_or() {
 
     assert!(result.contains("or i1"));
 }
-
 
 #[test]
 fn test_bitwise_and() {
@@ -1189,7 +1183,6 @@ fn test_shift_right() {
     assert!(result.contains("ashr i64"));
 }
 
-
 #[test]
 fn test_unary_neg_int() {
     let mut codegen = create_codegen();
@@ -1312,7 +1305,6 @@ fn test_unary_bitnot() {
     assert!(result.contains("-1"));
 }
 
-
 #[test]
 fn test_int_to_float_conversion() {
     let mut codegen = create_codegen();
@@ -1370,7 +1362,6 @@ fn test_float_to_int_conversion() {
     assert!(result.contains("fptosi double"));
     assert!(result.contains("to i64"));
 }
-
 
 #[test]
 fn test_unconditional_jump() {
@@ -1475,7 +1466,6 @@ fn test_return_value() {
     assert!(result.contains("ret i64"));
 }
 
-
 #[test]
 fn test_alloca_instruction() {
     let mut codegen = create_codegen();
@@ -1536,7 +1526,6 @@ fn test_load_store_instructions() {
     assert!(result.contains("store i64"));
     assert!(result.contains("load i64"));
 }
-
 
 #[test]
 fn test_new_array() {
@@ -1642,7 +1631,6 @@ fn test_array_get() {
     assert!(result.contains("load i64"));
 }
 
-
 #[test]
 fn test_string_concat() {
     let mut codegen = create_codegen();
@@ -1680,7 +1668,6 @@ fn test_string_concat() {
 
     assert!(result.contains("call ptr @trq_string_concat"));
 }
-
 
 #[test]
 fn test_function_call() {
@@ -1770,7 +1757,6 @@ fn test_void_function_call() {
     assert!(result.contains("call void @do_nothing()"));
 }
 
-
 #[test]
 fn test_class_definition() {
     let mut codegen = create_codegen();
@@ -1816,7 +1802,6 @@ fn test_new_object() {
 
     assert!(result.contains("call ptr @trq_alloc"));
 }
-
 
 #[test]
 fn test_print_int() {
@@ -1869,7 +1854,6 @@ fn test_print_string() {
     assert!(result.contains("call void @trq_print(ptr"));
 }
 
-
 #[test]
 fn test_c_main_entry_point() {
     let mut codegen = create_codegen();
@@ -1896,7 +1880,6 @@ fn test_c_main_entry_point() {
     assert!(result.contains("ret i32 0"));
 }
 
-
 #[test]
 fn test_arabic_function_name_mangling() {
     let mut codegen = create_codegen();
@@ -1920,7 +1903,6 @@ fn test_arabic_function_name_mangling() {
     assert!(!result.contains("define void @دالتي_الخاصة"));
     assert!(result.contains("_U")); // Mangled encoding
 }
-
 
 #[test]
 fn test_phi_function() {

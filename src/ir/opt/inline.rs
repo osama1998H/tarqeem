@@ -252,7 +252,6 @@ impl FunctionInliner {
             inlined_blocks.push(new_block);
         }
 
-
         let after_call: Vec<Instruction> = caller.blocks[block_idx]
             .instructions
             .drain(inst_idx + 1..)

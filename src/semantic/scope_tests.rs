@@ -3,7 +3,6 @@
 use super::scope::*;
 use super::types::Type;
 
-
 #[test]
 fn test_symbol_new() {
     let symbol = Symbol::new("test", SymbolKind::Variable, Type::Int);
@@ -82,7 +81,6 @@ fn test_symbol_class_arabic() {
     assert_eq!(symbol.ty, Type::Class("شخص".to_string()));
 }
 
-
 #[test]
 fn test_symbol_kind_equality() {
     assert_eq!(SymbolKind::Variable, SymbolKind::Variable);
@@ -102,7 +100,6 @@ fn test_symbol_kind_clone() {
     assert_eq!(kind, cloned);
 }
 
-
 #[test]
 fn test_scope_kind_equality() {
     assert_eq!(ScopeKind::Global, ScopeKind::Global);
@@ -120,7 +117,6 @@ fn test_scope_kind_copy() {
     let copied = kind;
     assert_eq!(kind, copied);
 }
-
 
 #[test]
 fn test_global_scope_creation() {
@@ -149,7 +145,6 @@ fn test_global_scope_has_builtins_arabic() {
     assert!(scope.lookup("جذر").is_some());
     assert!(scope.lookup("قوة").is_some());
 }
-
 
 #[test]
 fn test_global_scope_has_trig_functions() {
@@ -181,7 +176,6 @@ fn test_global_scope_has_random_functions() {
     assert!(scope.lookup("عشوائي_عشري").is_some());
     assert!(scope.lookup("عشوائي_منطقي").is_some());
 }
-
 
 #[test]
 fn test_scope_define() {
@@ -218,7 +212,6 @@ fn test_scope_lookup_local() {
     assert!(scope.lookup_local("اطبع").is_some()); // builtin is also local to global
     assert!(scope.lookup_local("undefined").is_none());
 }
-
 
 #[test]
 fn test_child_scope_creation() {
@@ -266,7 +259,6 @@ fn test_nested_child_scopes() {
     assert!(level2.lookup("b").is_some());
     assert!(level2.lookup("c").is_some());
 }
-
 
 #[test]
 fn test_is_in_loop_direct() {
@@ -343,7 +335,6 @@ fn test_is_not_in_class() {
     assert!(!func.is_in_class());
 }
 
-
 #[test]
 fn test_lookup_mut_local() {
     let mut scope = Scope::new_global();
@@ -375,7 +366,6 @@ fn test_lookup_mut_nonexistent() {
     let mut scope = Scope::new_global();
     assert!(scope.lookup_mut("nonexistent").is_none());
 }
-
 
 #[test]
 fn test_scope_pop() {
@@ -410,7 +400,6 @@ fn test_scope_symbols_iterator() {
     assert!(names.contains(&&"b".to_string()));
 }
 
-
 #[test]
 fn test_symbol_clone() {
     let symbol = Symbol::function("test", vec![Type::Int], Type::Bool);
@@ -431,7 +420,6 @@ fn test_symbol_debug() {
     assert!(debug_str.contains("Variable"));
     assert!(debug_str.contains("Float"));
 }
-
 
 #[test]
 fn test_unicode_normalization_lookup() {

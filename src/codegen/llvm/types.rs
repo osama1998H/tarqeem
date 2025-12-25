@@ -27,12 +27,8 @@ impl TypeMapper {
             IrType::Int => "i64".to_string(),
             IrType::Float => "double".to_string(),
             IrType::String => "ptr".to_string(), // Opaque pointer to string struct
-            IrType::Ptr(_) => {
-                "ptr".to_string()
-            }
-            IrType::Array(_, _) => {
-                "ptr".to_string()
-            }
+            IrType::Ptr(_) => "ptr".to_string(),
+            IrType::Array(_, _) => "ptr".to_string(),
             IrType::Function { params, ret } => {
                 let param_types: Vec<String> = params.iter().map(|p| self.map_type(p)).collect();
                 format!("{} ({})", self.map_type(ret), param_types.join(", "))

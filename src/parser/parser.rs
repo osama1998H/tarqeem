@@ -216,8 +216,6 @@ impl Parser {
     fn parse_declaration(&mut self) -> Result<Stmt, Diagnostic> {
         let doc_comment = self.consume_doc_comment();
 
-        
-
         if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
             self.parse_var_declaration(doc_comment)
         } else if self.check(&TokenKind::Function) {

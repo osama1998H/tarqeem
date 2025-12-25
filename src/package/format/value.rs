@@ -4,8 +4,7 @@
 use indexmap::IndexMap;
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum Value {
     #[default]
     Null,
@@ -157,7 +156,6 @@ impl fmt::Display for Value {
         }
     }
 }
-
 
 impl From<bool> for Value {
     fn from(b: bool) -> Self {

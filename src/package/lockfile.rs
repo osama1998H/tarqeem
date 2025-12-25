@@ -50,9 +50,7 @@ pub struct LockedPackage {
 #[serde(tag = "type")]
 pub enum PackageSource {
     #[serde(rename = "registry")]
-    Registry {
-        url: String,
-    },
+    Registry { url: String },
 
     #[serde(rename = "git")]
     Git {
@@ -62,9 +60,7 @@ pub enum PackageSource {
     },
 
     #[serde(rename = "path")]
-    Path {
-        path: String,
-    },
+    Path { path: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -296,7 +292,10 @@ impl LockFile {
     ) -> PackageResult<HashMap<String, String>> {
         let mut deps = HashMap::new();
 
-        if let Some(deps_val) = pkg_obj.get("اعتماديات").or_else(|| pkg_obj.get("dependencies")) {
+        if let Some(deps_val) = pkg_obj
+            .get("اعتماديات")
+            .or_else(|| pkg_obj.get("dependencies"))
+        {
             if let Some(deps_obj) = deps_val.as_object() {
                 for (name, version_val) in deps_obj {
                     if let Some(version) = version_val.as_str() {

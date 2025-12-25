@@ -191,9 +191,7 @@ impl<'a> Parser<'a> {
                             }
                         }
                     }
-                    Token::Dash => {
-                        self.parse_array(current_indent)
-                    }
+                    Token::Dash => self.parse_array(current_indent),
                     _ => Ok(Value::Null),
                 }
             }

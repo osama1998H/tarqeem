@@ -95,9 +95,15 @@ pub enum StmtKind {
         else_branch: Option<Block>,
     },
 
-    While { condition: Expr, body: Block },
+    While {
+        condition: Expr,
+        body: Block,
+    },
 
-    DoWhile { body: Block, condition: Expr },
+    DoWhile {
+        body: Block,
+        condition: Expr,
+    },
 
     For {
         init: Option<Box<Stmt>>,
@@ -112,7 +118,10 @@ pub enum StmtKind {
         body: Block,
     },
 
-    Match { expr: Expr, arms: Vec<MatchArm> },
+    Match {
+        expr: Expr,
+        arms: Vec<MatchArm>,
+    },
 
     Return(Option<Expr>),
 
@@ -128,7 +137,10 @@ pub enum StmtKind {
 
     Throw(Expr),
 
-    Import { items: ImportItems, from: String },
+    Import {
+        items: ImportItems,
+        from: String,
+    },
 
     Export(Box<Stmt>),
 
@@ -161,15 +173,30 @@ pub enum ExprKind {
         right: Box<Expr>,
     },
 
-    Unary { op: UnaryOp, operand: Box<Expr> },
+    Unary {
+        op: UnaryOp,
+        operand: Box<Expr>,
+    },
 
-    Call { callee: Box<Expr>, args: Vec<Expr> },
+    Call {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+    },
 
-    Member { object: Box<Expr>, property: String },
+    Member {
+        object: Box<Expr>,
+        property: String,
+    },
 
-    Index { object: Box<Expr>, index: Box<Expr> },
+    Index {
+        object: Box<Expr>,
+        index: Box<Expr>,
+    },
 
-    Assignment { target: Box<Expr>, value: Box<Expr> },
+    Assignment {
+        target: Box<Expr>,
+        value: Box<Expr>,
+    },
 
     CompoundAssignment {
         target: Box<Expr>,

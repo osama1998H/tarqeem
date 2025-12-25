@@ -311,7 +311,9 @@ mod tests {
     fn test_many_strings() {
         let mut interner = StringInterner::with_capacity(1000);
 
-        let symbols: Vec<_> = (0..1000).map(|i| interner.intern(&format!("str_{}", i))).collect();
+        let symbols: Vec<_> = (0..1000)
+            .map(|i| interner.intern(&format!("str_{}", i)))
+            .collect();
 
         // Verify all symbols are unique
         let unique: std::collections::HashSet<_> = symbols.iter().collect();

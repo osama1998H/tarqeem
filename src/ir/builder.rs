@@ -146,8 +146,7 @@ impl IrBuilder {
             match &stmt.kind {
                 StmtKind::FuncDecl { .. }
                 | StmtKind::ClassDecl { .. }
-                | StmtKind::InterfaceDecl { .. } => {
-                }
+                | StmtKind::InterfaceDecl { .. } => {}
                 _ => {
                     has_top_level_code = true;
                     break;
@@ -331,9 +330,7 @@ impl IrBuilder {
         match &ty.kind {
             TypeKind::Simple(name) => self.convert_simple_type(name),
             TypeKind::Array(inner) => IrType::Array(Box::new(self.convert_type(inner)), 0),
-            TypeKind::Map(_key, _value) => {
-                IrType::Ptr(Box::new(IrType::Void))
-            }
+            TypeKind::Map(_key, _value) => IrType::Ptr(Box::new(IrType::Void)),
             TypeKind::Function {
                 params,
                 return_type,
@@ -341,26 +338,20 @@ impl IrBuilder {
                 params: params.iter().map(|p| self.convert_type(p)).collect(),
                 ret: Box::new(self.convert_type(return_type)),
             },
-            TypeKind::Generic { base, args } => {
-                match base.as_str() {
-                    "مصفوفة" | "array" | "Array" => {
-                        if let Some(elem_type) = args.first() {
-                            IrType::Array(Box::new(self.convert_type(elem_type)), 0)
-                        } else {
-                            IrType::Array(Box::new(IrType::Ptr(Box::new(IrType::Void))), 0)
-                        }
-                    }
-                    "قاموس" | "map" | "Map" | "dict" | "Dict" => {
-                        IrType::Ptr(Box::new(IrType::Void))
-                    }
-                    _ => {
-                        self.convert_simple_type(base)
+            TypeKind::Generic { base, args } => match base.as_str() {
+                "مصفوفة" | "array" | "Array" => {
+                    if let Some(elem_type) = args.first() {
+                        IrType::Array(Box::new(self.convert_type(elem_type)), 0)
+                    } else {
+                        IrType::Array(Box::new(IrType::Ptr(Box::new(IrType::Void))), 0)
                     }
                 }
-            }
-            TypeKind::Optional(inner) => {
-                IrType::Ptr(Box::new(self.convert_type(inner)))
-            }
+                "قاموس" | "map" | "Map" | "dict" | "Dict" => {
+                    IrType::Ptr(Box::new(IrType::Void))
+                }
+                _ => self.convert_simple_type(base),
+            },
+            TypeKind::Optional(inner) => IrType::Ptr(Box::new(self.convert_type(inner))),
         }
     }
 
@@ -486,12 +477,8 @@ impl IrBuilder {
                 members,
                 ..
             } => self.build_class_decl(name, extends.as_ref(), implements, members),
-            StmtKind::InterfaceDecl { .. } => {
-                Ok(())
-            }
-            StmtKind::EnumDecl { .. } => {
-                Ok(())
-            }
+            StmtKind::InterfaceDecl { .. } => Ok(()),
+            StmtKind::EnumDecl { .. } => Ok(()),
             StmtKind::If {
                 condition,
                 then_branch,
@@ -520,9 +507,7 @@ impl IrBuilder {
                 finally,
             } => self.build_try(body, catch.as_ref(), finally.as_ref()),
             StmtKind::Throw(expr) => self.build_throw(expr),
-            StmtKind::Import { .. } => {
-                Ok(())
-            }
+            StmtKind::Import { .. } => Ok(()),
             StmtKind::Export(inner) => self.build_stmt(inner),
             StmtKind::Expr(expr) => {
                 self.build_expr(expr)?;
@@ -682,9 +667,7 @@ impl IrBuilder {
                     IrType::Ptr(Box::new(IrType::Void))
                 }
             }
-            ExprKind::Ternary { then_expr, .. } => {
-                self.infer_expr_type(then_expr)
-            }
+            ExprKind::Ternary { then_expr, .. } => self.infer_expr_type(then_expr),
             ExprKind::This => {
                 if let Some(var_id) = self.lookup_var("هذا").or_else(|| self.lookup_var("this"))
                 {
@@ -925,8 +908,7 @@ impl IrBuilder {
                     self.current_function = saved_function;
                     self.variables = saved_variables;
                 }
-                ClassMember::Field { .. } => {
-                }
+                ClassMember::Field { .. } => {}
 
                 ClassMember::Property {
                     name: prop_name,
@@ -1285,7 +1267,6 @@ impl IrBuilder {
     }
 
     fn build_for_in(&mut self, variable: &str, iterable: &Expr, body: &Block) -> Result<()> {
-
         let array_var = self.build_expr(iterable)?;
 
         let len_var = self.new_var();

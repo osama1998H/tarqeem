@@ -225,7 +225,6 @@ fn generate_refactorings(
 }
 
 fn extract_identifier_from_message(message: &str) -> Option<String> {
-
     if let Some(start_byte) = message.find('\'') {
         let after_quote = start_byte + '\''.len_utf8();
         if let Some(end_offset) = message[after_quote..].find('\'') {

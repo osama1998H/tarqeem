@@ -105,7 +105,6 @@ impl Scope {
     }
 
     fn register_builtins(scope: &mut Scope) {
-
         scope.define(Symbol::function("اطبع", vec![Type::Any], Type::Void));
         scope.define(Symbol::function("طباعة", vec![Type::Any], Type::Void));
         scope.define(Symbol::function("اطبع_سطر", vec![Type::Any], Type::Void));
@@ -120,16 +119,13 @@ impl Scope {
         scope.define(Symbol::function("ادخل_عدد", vec![], Type::Int));
         scope.define(Symbol::function("ادخل_عشري", vec![], Type::Float));
 
-
         scope.define(Symbol::function("طول", vec![Type::Any], Type::Int));
         scope.define(Symbol::function("نوع", vec![Type::Any], Type::String));
-
 
         scope.define(Symbol::function("عدد", vec![Type::Any], Type::Int));
         scope.define(Symbol::function("عدد_عشري", vec![Type::Any], Type::Float));
         scope.define(Symbol::function("نص", vec![Type::Any], Type::String));
         scope.define(Symbol::function("منطقي", vec![Type::Any], Type::Bool));
-
 
         scope.define(Symbol::function("مطلق", vec![Type::Any], Type::Any));
         scope.define(Symbol::function("مطلق_عدد", vec![Type::Int], Type::Int));
@@ -232,7 +228,6 @@ impl Scope {
 
         scope.define(Symbol::function("عاملي", vec![Type::Int], Type::Int));
 
-
         scope.define(Symbol::function("جا", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("جيب", vec![Type::Float], Type::Float));
         scope.define(Symbol::function("جتا", vec![Type::Float], Type::Float));
@@ -294,7 +289,6 @@ impl Scope {
         ));
         scope.define(Symbol::function("درجات", vec![Type::Float], Type::Float));
 
-
         scope.define(Symbol::function(
             "بذرة_عشوائية",
             vec![Type::Int],
@@ -320,7 +314,6 @@ impl Scope {
             Type::Float,
         ));
         scope.define(Symbol::function("عشوائي_منطقي", vec![], Type::Bool));
-
 
         scope.define(Symbol::function(
             "قص_نص",
@@ -473,14 +466,12 @@ impl Scope {
             Type::Float,
         ));
 
-
         scope.define(Symbol::function("طول_مصفوفة", vec![Type::Any], Type::Int));
         scope.define(Symbol::function(
             "الحق",
             vec![Type::Any, Type::Any],
             Type::Void,
         ));
-
 
         scope.define(Symbol::function(
             "ملف_موجود",
@@ -557,11 +548,9 @@ impl Scope {
         ));
         scope.define(Symbol::function("فاصل_مسار", vec![], Type::String));
 
-
         scope.define(Symbol::function("نم", vec![Type::Int], Type::Void));
         scope.define(Symbol::function("وقت_الآن", vec![], Type::Int));
         scope.define(Symbol::function("وقت_أداء", vec![], Type::Int));
-
 
         scope.define(Symbol::function("توقف", vec![Type::String], Type::Void));
         scope.define(Symbol::function("تأكد", vec![Type::Bool], Type::Void));
@@ -569,6 +558,82 @@ impl Scope {
             "تأكد_رسالة",
             vec![Type::Bool, Type::String],
             Type::Void,
+        ));
+
+        // Cryptography - SHA-256 (بصمة = fingerprint)
+        scope.define(Symbol::function(
+            "احسب_بصمة",
+            vec![Type::String],
+            Type::String,
+        ));
+        scope.define(Symbol::function(
+            "بصمة_ملف",
+            vec![Type::String],
+            Type::String,
+        ));
+        scope.define(Symbol::function(
+            "بصمة_ثنائي",
+            vec![Type::Array(Box::new(Type::Int))],
+            Type::String,
+        ));
+        scope.define(Symbol::function(
+            "طابق_بصمة",
+            vec![Type::String, Type::String],
+            Type::Bool,
+        ));
+
+        // Hex encoding (ست_عشري = hexadecimal)
+        scope.define(Symbol::function(
+            "إلى_ست_عشري",
+            vec![Type::String],
+            Type::String,
+        ));
+        scope.define(Symbol::function(
+            "من_ست_عشري",
+            vec![Type::String],
+            Type::String,
+        ));
+        scope.define(Symbol::function(
+            "ثنائي_إلى_ست_عشري",
+            vec![Type::Array(Box::new(Type::Int))],
+            Type::String,
+        ));
+        scope.define(Symbol::function(
+            "ست_عشري_إلى_ثنائي",
+            vec![Type::String],
+            Type::Array(Box::new(Type::Int)),
+        ));
+
+        // Compression (اضغط = compress, فك_الضغط = decompress)
+        scope.define(Symbol::function(
+            "اضغط",
+            vec![Type::String],
+            Type::Array(Box::new(Type::Int)),
+        ));
+        scope.define(Symbol::function(
+            "فك_الضغط",
+            vec![Type::Array(Box::new(Type::Int))],
+            Type::String,
+        ));
+        scope.define(Symbol::function(
+            "اضغط_ثنائي",
+            vec![Type::Array(Box::new(Type::Int))],
+            Type::Array(Box::new(Type::Int)),
+        ));
+        scope.define(Symbol::function(
+            "فك_ضغط_ثنائي",
+            vec![Type::Array(Box::new(Type::Int))],
+            Type::Array(Box::new(Type::Int)),
+        ));
+        scope.define(Symbol::function(
+            "اضغط_ملف",
+            vec![Type::String, Type::String],
+            Type::Bool,
+        ));
+        scope.define(Symbol::function(
+            "فك_ضغط_ملف",
+            vec![Type::String, Type::String],
+            Type::Bool,
         ));
     }
 

@@ -7,7 +7,6 @@ use super::*;
 use clap::Parser;
 use std::path::PathBuf;
 
-
 #[test]
 fn test_cli_parse_compile_basic() {
     let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq"]);
@@ -158,7 +157,6 @@ fn test_cli_parse_compile_target() {
     }
 }
 
-
 #[test]
 fn test_cli_parse_run_basic() {
     let args = Cli::try_parse_from(["tarqeem", "run", "test.trq"]);
@@ -185,7 +183,6 @@ fn test_cli_parse_run_arabic_alias() {
         _ => panic!("Expected Run command"),
     }
 }
-
 
 #[test]
 fn test_cli_parse_check_basic() {
@@ -214,7 +211,6 @@ fn test_cli_parse_check_arabic_alias() {
     }
 }
 
-
 #[test]
 fn test_cli_parse_repl() {
     let args = Cli::try_parse_from(["tarqeem", "repl"]);
@@ -231,7 +227,6 @@ fn test_cli_parse_repl_arabic_alias() {
 
     assert!(matches!(args.unwrap().command, Commands::Repl));
 }
-
 
 #[test]
 fn test_cli_parse_fmt_basic() {
@@ -317,7 +312,6 @@ fn test_cli_parse_fmt_sample_config() {
     }
 }
 
-
 #[test]
 fn test_cli_parse_lex() {
     let args = Cli::try_parse_from(["tarqeem", "lex", "test.trq"]);
@@ -332,7 +326,6 @@ fn test_cli_parse_lex() {
     }
 }
 
-
 #[test]
 fn test_cli_parse_parse() {
     let args = Cli::try_parse_from(["tarqeem", "parse", "test.trq"]);
@@ -346,7 +339,6 @@ fn test_cli_parse_parse() {
         _ => panic!("Expected Parse command"),
     }
 }
-
 
 #[test]
 fn test_cli_parse_pkg_init() {
@@ -651,7 +643,6 @@ fn test_cli_parse_pkg_clean() {
     }
 }
 
-
 #[test]
 fn test_cli_parse_lsp() {
     let args = Cli::try_parse_from(["tarqeem", "lsp"]);
@@ -660,7 +651,6 @@ fn test_cli_parse_lsp() {
     let cli = args.unwrap();
     assert!(matches!(cli.command, Commands::Lsp));
 }
-
 
 #[test]
 fn test_cli_parse_doc_basic() {
@@ -740,7 +730,6 @@ fn test_cli_parse_doc_single_file() {
     }
 }
 
-
 #[test]
 fn test_cli_english_flag() {
     let args = Cli::try_parse_from(["tarqeem", "-e", "compile", "test.trq"]);
@@ -786,7 +775,6 @@ fn test_cli_multiple_global_flags() {
     assert!(cli.english);
     assert!(cli.verbose);
 }
-
 
 #[test]
 fn test_cli_compile_alias_c() {
@@ -866,7 +854,6 @@ fn test_cli_pkg_alias_pm() {
     }
 }
 
-
 #[test]
 fn test_cli_missing_command() {
     let args = Cli::try_parse_from(["tarqeem"]);
@@ -915,7 +902,6 @@ fn test_cli_pkg_remove_missing_package() {
     assert!(args.is_err());
 }
 
-
 #[test]
 fn test_cli_parse_arabic_extension() {
     let args = Cli::try_parse_from(["tarqeem", "compile", "برنامج.ترقيم"]);
@@ -943,7 +929,6 @@ fn test_cli_run_arabic_file() {
         _ => panic!("Expected Run command"),
     }
 }
-
 
 #[test]
 fn test_cli_compile_full_options() {
@@ -1016,7 +1001,6 @@ fn test_cli_doc_full_options() {
         _ => panic!("Expected Doc command"),
     }
 }
-
 
 use crate::ir::IrBuilder;
 use crate::lexer::Lexer;

@@ -252,7 +252,6 @@ impl LanguageServer for TarqeemLanguageServer {
         }
     }
 
-
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri;
         let range = params.range;
@@ -307,7 +306,6 @@ impl LanguageServer for TarqeemLanguageServer {
 mod tests {
     use super::*;
     use tower_lsp::lsp_types::Url;
-
 
     #[test]
     fn test_server_capabilities_p0_p1() {

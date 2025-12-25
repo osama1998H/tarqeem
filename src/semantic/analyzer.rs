@@ -131,7 +131,6 @@ impl Analyzer {
         &self.diagnostics
     }
 
-
     fn analyze_stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::VarDecl {
@@ -860,9 +859,7 @@ impl Analyzer {
         };
 
         let module_exports = match self.module_loader.load_module(&module_path, span) {
-            Ok(loaded_module) => {
-                loaded_module.exports.clone()
-            }
+            Ok(loaded_module) => loaded_module.exports.clone(),
             Err(()) => {
                 let loader_diagnostics = self.module_loader.take_diagnostics();
                 self.diagnostics.extend(loader_diagnostics);
@@ -941,7 +938,6 @@ impl Analyzer {
         self.diagnostics
             .push(Diagnostic::warning(message, message_ar, span));
     }
-
 
     const ERROR_BASE_CLASSES: &'static [&'static str] = &["استثناء", "Exception", "Error"];
 
@@ -1094,7 +1090,6 @@ impl Analyzer {
 
         self.pop_scope();
     }
-
 
     fn analyze_expr(&mut self, expr: &Expr) -> Type {
         self.infer_type(expr)
@@ -1602,9 +1597,7 @@ impl Analyzer {
                 }
             }
 
-            ExprKind::Await(inner) => {
-                self.infer_type(inner)
-            }
+            ExprKind::Await(inner) => self.infer_type(inner),
 
             ExprKind::Ternary {
                 condition,
@@ -1681,7 +1674,6 @@ impl Analyzer {
         }
     }
 
-
     fn resolve_member_type(&mut self, object_type: &Type, property: &str, span: Span) -> Type {
         let mut method_resolver = MethodResolver::new(&self.class_resolver);
 
@@ -1713,7 +1705,6 @@ impl Analyzer {
         }
     }
 
-
     fn resolve_type(&self, type_ann: &TypeAnnotation) -> Type {
         match &type_ann.kind {
             TypeKind::Simple(name) => parse_type_name(name),
@@ -1729,34 +1720,29 @@ impl Analyzer {
                 params: params.iter().map(|p| self.resolve_type(p)).collect(),
                 return_type: Box::new(self.resolve_type(return_type)),
             },
-            TypeKind::Generic { base, args } => {
-                match base.as_str() {
-                    "مصفوفة" | "array" | "Array" => {
-                        if let Some(elem_type) = args.first() {
-                            Type::Array(Box::new(self.resolve_type(elem_type)))
-                        } else {
-                            Type::Array(Box::new(Type::Unknown))
-                        }
+            TypeKind::Generic { base, args } => match base.as_str() {
+                "مصفوفة" | "array" | "Array" => {
+                    if let Some(elem_type) = args.first() {
+                        Type::Array(Box::new(self.resolve_type(elem_type)))
+                    } else {
+                        Type::Array(Box::new(Type::Unknown))
                     }
-                    "قاموس" | "map" | "Map" | "dict" | "Dict" => {
-                        if args.len() >= 2 {
-                            Type::Map(
-                                Box::new(self.resolve_type(&args[0])),
-                                Box::new(self.resolve_type(&args[1])),
-                            )
-                        } else {
-                            parse_type_name(base)
-                        }
-                    }
-                    _ => {
+                }
+                "قاموس" | "map" | "Map" | "dict" | "Dict" => {
+                    if args.len() >= 2 {
+                        Type::Map(
+                            Box::new(self.resolve_type(&args[0])),
+                            Box::new(self.resolve_type(&args[1])),
+                        )
+                    } else {
                         parse_type_name(base)
                     }
                 }
-            }
+                _ => parse_type_name(base),
+            },
             TypeKind::Optional(inner) => Type::Optional(Box::new(self.resolve_type(inner))),
         }
     }
-
 
     fn push_scope(&mut self, kind: ScopeKind) {
         let old_scope = std::mem::replace(&mut self.scope, Scope::new_global());
@@ -1773,7 +1759,6 @@ impl Analyzer {
             self.scope = parent;
         }
     }
-
 
     fn enter_generic_context(&mut self, type_params: &[String]) {
         use super::generics::{GenericContext, GenericParam};
@@ -1794,7 +1779,6 @@ impl Analyzer {
     fn is_generic_param(&self, name: &str) -> bool {
         self.generic_resolver.is_generic_param(name)
     }
-
 
     fn error(&mut self, message: &str, message_ar: &str, span: Span) {
         self.diagnostics
@@ -1829,28 +1813,26 @@ fn resolve_type_annotation(type_ann: &TypeAnnotation) -> Type {
             params: params.iter().map(resolve_type_annotation).collect(),
             return_type: Box::new(resolve_type_annotation(return_type)),
         },
-        TypeKind::Generic { base, args } => {
-            match base.as_str() {
-                "مصفوفة" | "array" | "Array" => {
-                    if let Some(elem_type) = args.first() {
-                        Type::Array(Box::new(resolve_type_annotation(elem_type)))
-                    } else {
-                        Type::Array(Box::new(Type::Unknown))
-                    }
+        TypeKind::Generic { base, args } => match base.as_str() {
+            "مصفوفة" | "array" | "Array" => {
+                if let Some(elem_type) = args.first() {
+                    Type::Array(Box::new(resolve_type_annotation(elem_type)))
+                } else {
+                    Type::Array(Box::new(Type::Unknown))
                 }
-                "قاموس" | "map" | "Map" | "dict" | "Dict" => {
-                    if args.len() >= 2 {
-                        Type::Map(
-                            Box::new(resolve_type_annotation(&args[0])),
-                            Box::new(resolve_type_annotation(&args[1])),
-                        )
-                    } else {
-                        parse_type_name(base)
-                    }
-                }
-                _ => parse_type_name(base),
             }
-        }
+            "قاموس" | "map" | "Map" | "dict" | "Dict" => {
+                if args.len() >= 2 {
+                    Type::Map(
+                        Box::new(resolve_type_annotation(&args[0])),
+                        Box::new(resolve_type_annotation(&args[1])),
+                    )
+                } else {
+                    parse_type_name(base)
+                }
+            }
+            _ => parse_type_name(base),
+        },
         TypeKind::Optional(inner) => Type::Optional(Box::new(resolve_type_annotation(inner))),
     }
 }
@@ -1913,7 +1895,6 @@ mod tests {
         let result = analyze("أرجع 5;");
         assert!(result.is_err());
     }
-
 
     #[test]
     fn test_class_declaration() {
@@ -2068,7 +2049,6 @@ mod tests {
         );
         assert!(result.is_ok());
     }
-
 
     #[test]
     fn test_throw_error_object() {

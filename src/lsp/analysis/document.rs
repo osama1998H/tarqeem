@@ -131,11 +131,7 @@ impl DocumentState {
         for token in &tokens {
             if let TokenKind::Error(msg) = &token.kind {
                 let arabic_msg = translate_lexer_error(msg);
-                diagnostics.push(Diagnostic::error(
-                    msg.clone(),
-                    arabic_msg,
-                    token.span,
-                ));
+                diagnostics.push(Diagnostic::error(msg.clone(), arabic_msg, token.span));
                 has_errors = true;
             }
         }
@@ -332,8 +328,7 @@ impl DocumentState {
                                     },
                                 );
                             }
-                            ClassMember::Constructor { .. } => {
-                            }
+                            ClassMember::Constructor { .. } => {}
                             ClassMember::Property {
                                 name: prop_name,
                                 ty,
@@ -395,9 +390,7 @@ impl DocumentState {
                     .collect(),
                 return_type: Box::new(self.resolve_type_annotation(return_type)),
             },
-            TypeKind::Generic { base, args: _ } => {
-                self.parse_type_name(base)
-            }
+            TypeKind::Generic { base, args: _ } => self.parse_type_name(base),
             TypeKind::Optional(inner) => {
                 Type::Optional(Box::new(self.resolve_type_annotation(inner)))
             }

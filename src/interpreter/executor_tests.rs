@@ -9,7 +9,6 @@ use crate::ir::{
     Module, Parameter, UnaryOp, VarId,
 };
 
-
 fn create_empty_module() -> Module {
     Module::new("test".to_string())
 }
@@ -34,7 +33,6 @@ fn run_module_with_output(module: Module) -> (RuntimeResult<Value>, Vec<String>)
     let result = interpreter.run();
     (result, interpreter.get_output().to_vec())
 }
-
 
 #[test]
 fn test_add_integers() {
@@ -301,7 +299,6 @@ fn test_negative_numbers() {
     assert_eq!(run_module(module).unwrap(), Value::Int(-15));
 }
 
-
 #[test]
 fn test_add_floats() {
     let mut module = create_empty_module();
@@ -403,7 +400,6 @@ fn test_mixed_int_float_arithmetic() {
 
     assert_eq!(run_module(module).unwrap(), Value::Float(12.5));
 }
-
 
 #[test]
 fn test_equals_true() {
@@ -541,7 +537,6 @@ fn test_greater_than_or_equal() {
     assert_eq!(run_module(module).unwrap(), Value::Bool(true));
 }
 
-
 #[test]
 fn test_logical_and_true() {
     let mut module = create_empty_module();
@@ -643,7 +638,6 @@ fn test_logical_or() {
 
     assert_eq!(run_module(module).unwrap(), Value::Bool(true));
 }
-
 
 #[test]
 fn test_bitwise_and() {
@@ -810,7 +804,6 @@ fn test_shift_right() {
     assert_eq!(run_module(module).unwrap(), Value::Int(4));
 }
 
-
 #[test]
 fn test_unary_neg_int() {
     let mut module = create_empty_module();
@@ -921,7 +914,6 @@ fn test_unary_bitnot() {
     assert_eq!(run_module(module).unwrap(), Value::Int(-1));
 }
 
-
 #[test]
 fn test_int_to_float() {
     let mut module = create_empty_module();
@@ -1000,7 +992,6 @@ fn test_to_string() {
     assert_eq!(result.to_display_string(), "42");
 }
 
-
 #[test]
 fn test_string_concat() {
     let mut module = create_empty_module();
@@ -1061,7 +1052,6 @@ fn test_string_arabic() {
     let result = run_module(module).unwrap();
     assert_eq!(result.to_display_string(), "مرحبا");
 }
-
 
 #[test]
 fn test_array_creation() {
@@ -1296,7 +1286,6 @@ fn test_array_index_out_of_bounds() {
     assert!(result.is_err());
 }
 
-
 #[test]
 fn test_branch_true() {
     let mut module = create_empty_module();
@@ -1478,7 +1467,6 @@ fn test_loop_with_jump() {
     assert_eq!(run_module(module).unwrap(), Value::Int(5));
 }
 
-
 #[test]
 fn test_builtin_len_array() {
     let mut module = create_empty_module();
@@ -1658,7 +1646,6 @@ fn test_builtin_print() {
     assert_eq!(output, vec!["Hello"]);
 }
 
-
 #[test]
 fn test_recursive_factorial() {
     let mut module = create_empty_module();
@@ -1751,7 +1738,6 @@ fn test_recursive_factorial() {
     assert_eq!(run_module(module).unwrap(), Value::Int(120));
 }
 
-
 #[test]
 fn test_new_object() {
     let mut module = create_empty_module();
@@ -1778,7 +1764,6 @@ fn test_new_object() {
     assert!(result.is_ok());
 }
 
-
 #[test]
 fn test_throw_exception() {
     let mut module = create_empty_module();
@@ -1803,7 +1788,6 @@ fn test_throw_exception() {
     let result = run_module(module);
     assert!(result.is_err());
 }
-
 
 #[test]
 fn test_alloca_load_store() {
@@ -1840,7 +1824,6 @@ fn test_alloca_load_store() {
 
     assert_eq!(run_module(module).unwrap(), Value::Int(42));
 }
-
 
 #[test]
 fn test_undefined_variable_error() {
