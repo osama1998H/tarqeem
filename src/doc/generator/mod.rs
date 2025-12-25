@@ -30,7 +30,7 @@ impl OutputFormat {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "html" | "htm" => Some(OutputFormat::Html),
             "markdown" | "md" => Some(OutputFormat::Markdown),

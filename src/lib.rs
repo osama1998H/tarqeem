@@ -8,6 +8,14 @@
 //! with English keywords. It combines the best features from Python, PHP, and
 //! JavaScript into a cohesive, type-safe language.
 
+// Allow large error variants for Diagnostic - boxing would require extensive refactoring.
+// TODO(v1.3): Refactor to use Box<Diagnostic> for better performance.
+#![allow(clippy::result_large_err)]
+// Allow methods that only use self in recursion - these are intentional for API consistency.
+#![allow(clippy::only_used_in_recursion)]
+// Allow module naming pattern (e.g., lexer/lexer.rs) - intentional structure.
+#![allow(clippy::module_inception)]
+
 pub mod cli;
 pub mod codegen;
 pub mod debug;

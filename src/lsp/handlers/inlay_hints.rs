@@ -105,11 +105,12 @@ fn collect_parameter_hints_from_stmt(
         StmtKind::Expr(expr) => {
             collect_parameter_hints_from_expr(content, &expr.kind, hints, language, range);
         }
-        StmtKind::VarDecl { init, .. } => {
-            if let Some(val) = init {
-                collect_parameter_hints_from_expr(content, &val.kind, hints, language, range);
-            }
+        StmtKind::VarDecl {
+            init: Some(val), ..
+        } => {
+            collect_parameter_hints_from_expr(content, &val.kind, hints, language, range);
         }
+        StmtKind::VarDecl { init: None, .. } => {}
         StmtKind::FuncDecl { body, .. } => {
             for stmt in &body.statements {
                 collect_parameter_hints_from_stmt(content, &stmt.kind, hints, language, range);

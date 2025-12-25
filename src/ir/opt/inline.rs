@@ -24,7 +24,7 @@
 //! ```
 
 use super::OptStats;
-use crate::ir::{BasicBlock, BlockId, FuncId, Function, Instruction, IrType, Module, VarId};
+use crate::ir::{BasicBlock, BlockId, FuncId, Function, Instruction, Module, VarId};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
@@ -708,7 +708,7 @@ impl Default for FunctionInliner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::Parameter;
+    use crate::ir::{IrType, Parameter};
 
     #[test]
     fn test_inline_candidate_detection() {

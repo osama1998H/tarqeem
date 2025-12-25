@@ -9,7 +9,7 @@ use super::lockfile::{LockedPackage, PackageSource};
 use super::manifest::{DependencySpec, Manifest};
 use semver::{Version, VersionReq};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct ResolvedPackage {
@@ -191,7 +191,7 @@ impl<'a> Resolver<'a> {
     fn resolve_path_dependency(
         &self,
         name: &str,
-        path: &PathBuf,
+        path: &Path,
         _version_req: &str,
     ) -> PackageResult<ResolvedPackage> {
         let manifest_path = path.join("حزمة.toml");
@@ -212,7 +212,7 @@ impl<'a> Resolver<'a> {
             name: name.to_string(),
             version: manifest.package.version,
             checksum,
-            source: ResolvedSource::Path(path.clone()),
+            source: ResolvedSource::Path(path.to_path_buf()),
             dependencies: manifest.dependencies.keys().cloned().collect(),
         })
     }

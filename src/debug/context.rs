@@ -4,7 +4,7 @@
 //! including breakpoints, watch expressions, and configuration.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::ir::FuncId;
 
@@ -298,8 +298,8 @@ impl DebugContext {
         self.breakpoints.values()
     }
 
-    pub fn breakpoints_at(&self, file: &PathBuf, line: usize) -> Vec<&Breakpoint> {
-        let key = (file.clone(), line);
+    pub fn breakpoints_at(&self, file: &Path, line: usize) -> Vec<&Breakpoint> {
+        let key = (file.to_path_buf(), line);
         self.breakpoints_by_location
             .get(&key)
             .map(|ids| {
@@ -310,8 +310,8 @@ impl DebugContext {
             .unwrap_or_default()
     }
 
-    pub fn has_breakpoint_at(&self, file: &PathBuf, line: usize) -> bool {
-        let key = (file.clone(), line);
+    pub fn has_breakpoint_at(&self, file: &Path, line: usize) -> bool {
+        let key = (file.to_path_buf(), line);
         self.breakpoints_by_location
             .get(&key)
             .map(|ids| !ids.is_empty())

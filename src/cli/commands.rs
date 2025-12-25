@@ -78,13 +78,10 @@ fn find_stdlib_path() -> Option<PathBuf> {
         Some(PathBuf::from("/usr/lib/tarqeem/stdlib_trq")),
     ];
 
-    for path in search_paths.into_iter().flatten() {
-        if path.exists() && path.is_dir() {
-            return Some(path);
-        }
-    }
-
-    None
+    search_paths
+        .into_iter()
+        .flatten()
+        .find(|path| path.exists() && path.is_dir())
 }
 
 fn configure_analyzer(analyzer: &mut Analyzer, verbose: bool) {
