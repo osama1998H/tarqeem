@@ -49,6 +49,11 @@ dashmap = "6.0"    # Concurrent hashmap for document state
 [dev-dependencies]
 pretty_assertions = "1.4"
 tempfile = "3.14"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[features]
+profiling = []   # Enable profiling instrumentation
+concurrent = []  # Enable concurrent string interner
 
 [[bin]]
 name = "tarqeem"
@@ -61,3 +66,28 @@ path = "src/lib.rs"
 [profile.release]
 lto = true
 codegen-units = 1
+
+# Benchmark configuration
+[[bench]]
+name = "lexer"
+harness = false
+
+[[bench]]
+name = "parser"
+harness = false
+
+[[bench]]
+name = "semantic"
+harness = false
+
+[[bench]]
+name = "ir_generation"
+harness = false
+
+[[bench]]
+name = "optimizer"
+harness = false
+
+[[bench]]
+name = "end_to_end"
+harness = false
