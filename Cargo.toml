@@ -37,7 +37,7 @@ dirs = "5.0"
 walkdir = "2.5"
 
 # Error handling
-thiserror = "1.0"
+thiserror = "2.0"
 
 # LSP (Language Server Protocol)
 tower-lsp = "0.20"
