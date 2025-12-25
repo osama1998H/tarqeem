@@ -6,7 +6,12 @@ use std::fs;
 
 pub fn run() -> PackageResult<()> {
     let (manifest, manifest_path) = Manifest::find_and_parse()?;
-    let project_root = manifest_path.parent().unwrap();
+    let project_root = manifest_path.parent().ok_or_else(|| {
+        crate::package::PackageError::InvalidManifest(
+            "Cannot determine project root from manifest path / لا يمكن تحديد جذر المشروع"
+                .to_string(),
+        )
+    })?;
 
     println!(
         "{}",
