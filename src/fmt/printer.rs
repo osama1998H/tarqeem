@@ -254,8 +254,10 @@ mod tests {
 
     #[test]
     fn test_blank_lines() {
-        let mut config = FormatConfig::default();
-        config.max_blank_lines = 2;
+        let config = FormatConfig {
+            max_blank_lines: 2,
+            ..Default::default()
+        };
         let mut printer = Printer::new(config);
         printer.write("أ");
         printer.newline();
@@ -279,8 +281,10 @@ mod tests {
 
     #[test]
     fn test_arabic_comma() {
-        let mut config = FormatConfig::default();
-        config.arabic_comma = true;
+        let config = FormatConfig {
+            arabic_comma: true,
+            ..Default::default()
+        };
         let mut printer = Printer::new(config);
         printer.write("أ");
         printer.write_comma();

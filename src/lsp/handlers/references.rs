@@ -62,7 +62,7 @@ mod tests {
         let result = handle_references(&mut doc, position, true, Language::Arabic);
 
         if let Some(refs) = result {
-            assert!(refs.len() >= 1);
+            assert!(!refs.is_empty());
         }
     }
 }

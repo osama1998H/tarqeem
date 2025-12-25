@@ -46,7 +46,7 @@ jobs:
           clean: false
 
       - name: Run benchmarks on base branch
-        continue-on-error: true
+        continue-on-error: true  # Base branch may not have benchmarks or may have different structure
         run: |
           cargo bench -- --save-baseline base || echo "Base branch benchmarks completed with issues"
           if [ -d "target/criterion" ]; then
@@ -158,11 +158,13 @@ jobs:
 
   # ============================================
   # Individual Benchmark Jobs (Detailed)
+  # These are optional informational jobs that provide granular benchmark data.
+  # They use continue-on-error since benchmark infrastructure may vary.
   # ============================================
   benchmark-lexer:
     name: Benchmark Lexer
     runs-on: ubuntu-latest
-    continue-on-error: true
+    continue-on-error: true  # Individual benchmarks are informational, don't block CI
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

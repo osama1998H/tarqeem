@@ -1,5 +1,7 @@
 //! Comprehensive tests for IR instructions and types
 
+#![allow(clippy::approx_constant)]
+
 use super::instruction::*;
 
 #[test]

@@ -3,6 +3,8 @@
 //! These tests verify that the LLVM IR code generator correctly converts
 //! Tarqeem IR to valid LLVM IR text format.
 
+#![allow(clippy::approx_constant)]
+
 use super::codegen::*;
 use crate::codegen::Target;
 use crate::ir::*;

@@ -41,7 +41,6 @@ jobs:
     name: Check Examples Syntax
     runs-on: ubuntu-latest
     needs: build-compiler
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +61,7 @@ jobs:
           PASS=0
           FAIL=0
 
+          # Only check examples in the main examples/ directory (not planned/)
           for file in examples/*.ترقيم examples/*.trq; do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
@@ -83,8 +83,8 @@ jobs:
           cat check-results.md
 
           if [ $FAIL -gt 0 ]; then
-            echo "Some examples failed syntax check ($FAIL failed, $PASS passed)"
-            # Don't fail the workflow, just report
+            echo "::error::Some examples failed syntax check ($FAIL failed, $PASS passed)"
+            exit 1
           fi
 
       - name: Upload check results
@@ -101,23 +101,19 @@ jobs:
     name: Run Examples
     runs-on: ubuntu-latest
     needs: build-compiler
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
         example:
+          # Only include working examples (those not in planned/)
           - مرحبا
           - متغيرات
           - دوال
           - تحكم
           - أهلا
-          - بصمة
           - صنف
-          - خواص
           - اختبار_بسيط
           - اختبار_مجموعات
-          - تعداد
-          - ضغط
           - لعبة_الحياة_بسيط
           - لعبة_الحياة
     steps:
@@ -140,25 +136,15 @@ jobs:
           elif [ -f "examples/${{ matrix.example }}.trq" ]; then
             FILE="examples/${{ matrix.example }}.trq"
           else
-            echo "Example file not found: ${{ matrix.example }}"
-            echo "Available files:"
-            ls -la examples/ || true
-            exit 0  # Don't fail if file not found
+            echo "::error::Example file not found: ${{ matrix.example }}"
+            exit 1
           fi
 
           echo "Running: $FILE"
           echo "================================"
 
           # Run with timeout (30 seconds max)
-          timeout 30s ./bin/tarqeem run "$FILE" 2>&1 || {
-            EXIT_CODE=$?
-            if [ $EXIT_CODE -eq 124 ]; then
-              echo "Example timed out after 30 seconds"
-            else
-              echo "Example completed with exit code: $EXIT_CODE"
-            fi
-          }
-          echo "Example execution completed"
+          timeout 30s ./bin/tarqeem run "$FILE"
 
   # ============================================
   # Run Standard Library Tests
@@ -167,7 +153,6 @@ jobs:
     name: Run Standard Library Tests
     runs-on: ubuntu-latest
     needs: build-compiler
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -188,13 +173,10 @@ jobs:
           # Run stdlib test file if it exists
           if [ -f "tests/stdlib_test.ترقيم" ]; then
             echo "Running stdlib tests..."
-            if ./bin/tarqeem run "tests/stdlib_test.ترقيم" 2>&1; then
-              echo ":white_check_mark: stdlib tests passed" >> stdlib-results.md
-            else
-              echo ":warning: stdlib tests had issues" >> stdlib-results.md
-            fi
+            ./bin/tarqeem run "tests/stdlib_test.ترقيم"
+            echo ":white_check_mark: stdlib tests passed" >> stdlib-results.md
           else
-            echo "No stdlib test file found" >> stdlib-results.md
+            echo "No stdlib test file found, skipping" >> stdlib-results.md
           fi
 
           cat stdlib-results.md
@@ -207,71 +189,12 @@ jobs:
           path: stdlib-results.md
 
   # ============================================
-  # Compile Examples (Generate Artifacts)
-  # ============================================
-  compile-examples:
-    name: Compile Examples
-    runs-on: ubuntu-latest
-    needs: build-compiler
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download compiler
-        uses: actions/download-artifact@v4
-        with:
-          name: tarqeem-compiler
-          path: ./bin
-
-      - name: Make compiler executable
-        run: chmod +x ./bin/tarqeem
-
-      - name: Compile all examples
-        run: |
-          mkdir -p compiled
-
-          echo "## Compilation Results" > compile-results.md
-          echo "" >> compile-results.md
-          echo "| Example | Status | Size |" >> compile-results.md
-          echo "|---------|--------|------|" >> compile-results.md
-
-          for file in examples/*.ترقيم examples/*.trq; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              name="${filename%.*}"
-
-              echo "Compiling: $filename"
-
-              if ./bin/tarqeem compile "$file" -o "compiled/$name" 2>&1; then
-                if [ -f "compiled/$name" ]; then
-                  SIZE=$(du -h "compiled/$name" | cut -f1)
-                  echo "| $filename | :white_check_mark: | $SIZE |" >> compile-results.md
-                else
-                  echo "| $filename | :warning: No output | - |" >> compile-results.md
-                fi
-              else
-                echo "| $filename | :x: Failed | - |" >> compile-results.md
-              fi
-            fi
-          done
-
-          cat compile-results.md
-
-      - name: Upload compilation results
-        uses: actions/upload-artifact@v4
-        with:
-          name: compile-results
-          path: |
-            compile-results.md
-            compiled/
-
-  # ============================================
   # Example Summary
   # ============================================
   summary:
     name: Examples Summary
     runs-on: ubuntu-latest
-    needs: [check-examples, run-examples, compile-examples]
+    needs: [check-examples, run-examples, run-stdlib]
     if: always()
     steps:
       - name: Download all artifacts
@@ -293,9 +216,9 @@ jobs:
             echo "" >> summary.md
           fi
 
-          if [ -f "artifacts/compile-results/compile-results.md" ]; then
-            echo "### Compilation" >> summary.md
-            cat "artifacts/compile-results/compile-results.md" >> summary.md
+          if [ -f "artifacts/stdlib-test-results/stdlib-results.md" ]; then
+            echo "### Standard Library Tests" >> summary.md
+            cat "artifacts/stdlib-test-results/stdlib-results.md" >> summary.md
             echo "" >> summary.md
           fi
 

@@ -368,7 +368,7 @@ mod tests {
         create_test_file(base_path, "أ.ترقيم", "استورد { ب } من \"./ب\"");
         create_test_file(base_path, "ب.ترقيم", "استورد { أ } من \"./أ\"");
 
-        let mut loader = ModuleLoader::new();
+        let loader = ModuleLoader::new();
         let a_path = base_path.join("أ.ترقيم");
 
         let resolved = loader.resolve_path(&a_path, "./ب");

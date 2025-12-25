@@ -305,7 +305,6 @@ impl LanguageServer for TarqeemLanguageServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tower_lsp::lsp_types::Url;
 
     #[test]
     fn test_server_capabilities_p0_p1() {

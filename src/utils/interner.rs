@@ -149,6 +149,7 @@ impl StringInterner {
 
 /// A thread-safe version of StringInterner for use in concurrent contexts.
 #[cfg(feature = "concurrent")]
+#[allow(dead_code)]
 pub mod concurrent {
     use dashmap::DashMap;
     use std::sync::RwLock;

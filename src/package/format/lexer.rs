@@ -328,6 +328,7 @@ fn convert_arabic_digit(c: char) -> char {
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::*;
 
