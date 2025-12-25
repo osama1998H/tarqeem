@@ -5,6 +5,8 @@
 //!
 //! اختبارات تكامل بروتوكول محول التصحيح
 
+#![allow(dead_code, unused_variables, unused_imports)]
+
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;

@@ -5,7 +5,6 @@
 
 use super::diagnostic::*;
 use super::span::Span;
-use super::Language;
 
 #[test]
 fn test_diagnostic_level_error_english() {

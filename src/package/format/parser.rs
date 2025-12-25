@@ -345,6 +345,7 @@ pub fn parse(source: &str) -> FormatResult<Value> {
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::*;
 

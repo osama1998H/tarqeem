@@ -1,0 +1,270 @@
+name: Benchmarks
+
+on:
+  pull_request:
+    branches: ["main", "develop"]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ============================================
+  # Run Benchmarks and Compare
+  # ============================================
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install critcmp
+        run: cargo install critcmp
+
+      - name: Run benchmarks on PR branch
+        run: |
+          cargo bench -- --save-baseline pr || echo "Benchmark run completed with some issues"
+          mkdir -p benchmark-results
+          if [ -d "target/criterion" ]; then
+            cp -r target/criterion benchmark-results/pr
+          fi
+
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+          clean: false
+
+      - name: Run benchmarks on base branch
+        continue-on-error: true  # Base branch may not have benchmarks or may have different structure
+        run: |
+          cargo bench -- --save-baseline base || echo "Base branch benchmarks completed with issues"
+          if [ -d "target/criterion" ]; then
+            cp -r target/criterion benchmark-results/base
+          fi
+
+      - name: Checkout PR branch again
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Compare benchmarks
+        id: compare
+        run: |
+          echo "## Benchmark Results" > benchmark-report.md
+          echo "" >> benchmark-report.md
+          echo "Comparing **${{ github.head_ref }}** against **${{ github.base_ref }}**" >> benchmark-report.md
+          echo "" >> benchmark-report.md
+
+          # Check if we have both baselines
+          if [ -d "benchmark-results/base" ] && [ -d "benchmark-results/pr" ]; then
+            # Run critcmp and capture output
+            critcmp base pr --color never > critcmp-output.txt 2>&1 || echo "No comparison data available" > critcmp-output.txt
+          else
+            echo "Baseline comparison not available (first run or base branch has no benchmarks)" > critcmp-output.txt
+          fi
+
+          # Parse and format results
+          echo "### Summary" >> benchmark-report.md
+          echo "" >> benchmark-report.md
+          echo "\`\`\`" >> benchmark-report.md
+          cat critcmp-output.txt >> benchmark-report.md
+          echo "\`\`\`" >> benchmark-report.md
+          echo "" >> benchmark-report.md
+
+          # Check for regressions (>5% slower)
+          if grep -E '\+[5-9][0-9]*\.[0-9]+%|\+[0-9]{3,}\.[0-9]+%' critcmp-output.txt > /dev/null 2>&1; then
+            echo "### :warning: Performance Regressions Detected" >> benchmark-report.md
+            echo "" >> benchmark-report.md
+            echo "Some benchmarks show >5% regression. Please review the changes." >> benchmark-report.md
+            echo "regression=true" >> $GITHUB_OUTPUT
+          else
+            echo "### :white_check_mark: No Significant Regressions" >> benchmark-report.md
+            echo "" >> benchmark-report.md
+            echo "All benchmarks are within acceptable performance ranges." >> benchmark-report.md
+            echo "regression=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "" >> benchmark-report.md
+          echo "---" >> benchmark-report.md
+          echo "" >> benchmark-report.md
+          echo "### Benchmark Details" >> benchmark-report.md
+          echo "" >> benchmark-report.md
+          echo "| Benchmark | Base | PR | Change |" >> benchmark-report.md
+          echo "|-----------|------|-----|--------|" >> benchmark-report.md
+
+          # Parse individual benchmark results
+          for bench in lexer parser semantic ir_generation optimizer end_to_end; do
+            if [ -d "benchmark-results/pr/criterion/$bench" ] 2>/dev/null || [ -d "target/criterion/$bench" ] 2>/dev/null; then
+              echo "| **$bench** | - | - | - |" >> benchmark-report.md
+            fi
+          done
+
+      - name: Post benchmark results as PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('benchmark-report.md', 'utf8');
+
+            // Find existing benchmark comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('## Benchmark Results')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: report
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: report
+              });
+            }
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            benchmark-results/
+            benchmark-report.md
+            critcmp-output.txt
+
+  # ============================================
+  # Individual Benchmark Jobs (Detailed)
+  # These are optional informational jobs that provide granular benchmark data.
+  # They use continue-on-error since benchmark infrastructure may vary.
+  # ============================================
+  benchmark-lexer:
+    name: Benchmark Lexer
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Individual benchmarks are informational, don't block CI
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run lexer benchmarks
+        run: cargo bench --bench lexer -- --verbose || echo "Lexer benchmark completed"
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-lexer
+          path: target/criterion/lexer/
+          if-no-files-found: ignore
+
+  benchmark-parser:
+    name: Benchmark Parser
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run parser benchmarks
+        run: cargo bench --bench parser -- --verbose || echo "Parser benchmark completed"
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-parser
+          path: target/criterion/parser/
+          if-no-files-found: ignore
+
+  benchmark-semantic:
+    name: Benchmark Semantic
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run semantic benchmarks
+        run: cargo bench --bench semantic -- --verbose || echo "Semantic benchmark completed"
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-semantic
+          path: target/criterion/semantic/
+          if-no-files-found: ignore
+
+  benchmark-ir:
+    name: Benchmark IR Generation
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run IR benchmarks
+        run: cargo bench --bench ir_generation -- --verbose || echo "IR benchmark completed"
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-ir
+          path: target/criterion/ir_generation/
+          if-no-files-found: ignore
+
+  benchmark-optimizer:
+    name: Benchmark Optimizer
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run optimizer benchmarks
+        run: cargo bench --bench optimizer -- --verbose || echo "Optimizer benchmark completed"
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-optimizer
+          path: target/criterion/optimizer/
+          if-no-files-found: ignore
+
+  benchmark-e2e:
+    name: Benchmark End-to-End
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run end-to-end benchmarks
+        run: cargo bench --bench end_to_end -- --verbose || echo "E2E benchmark completed"
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-e2e
+          path: target/criterion/end_to_end/
+          if-no-files-found: ignore

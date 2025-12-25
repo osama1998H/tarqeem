@@ -129,7 +129,7 @@ mod tests {
         let span = Span::new(0, 1, 1, 1);
         let uri = test_uri();
 
-        let error = Diagnostic::error("error", "خطأ", span.clone());
+        let error = Diagnostic::error("error", "خطأ", span);
         let warning = Diagnostic::warning("warning", "تحذير", span);
 
         let lsp_error = convert_diagnostic(&error, content, &uri, Language::English);

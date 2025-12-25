@@ -863,7 +863,7 @@ fn instruction_operands(inst: &Instruction) -> Vec<VarId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{BasicBlock, FuncId, Function, Parameter};
+    use crate::ir::{BasicBlock, FuncId, Function};
 
     #[test]
     fn test_loop_detection() {

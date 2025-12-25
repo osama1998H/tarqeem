@@ -2,6 +2,8 @@
 //!
 //! These tests verify end-to-end compilation and execution of Tarqeem programs.
 
+#![allow(dead_code, unused_imports)]
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;

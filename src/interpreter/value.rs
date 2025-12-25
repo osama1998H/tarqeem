@@ -229,6 +229,7 @@ impl PartialEq for Value {
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::*;
 
@@ -237,7 +238,7 @@ mod tests {
         assert_eq!(Value::null().type_name(), "null");
         assert_eq!(Value::bool(true).type_name(), "bool");
         assert_eq!(Value::int(42).type_name(), "int");
-        assert_eq!(Value::float(3.14).type_name(), "float");
+        assert_eq!(Value::float(3.15).type_name(), "float");
         assert_eq!(Value::string("hello").type_name(), "string");
         assert_eq!(Value::array().type_name(), "array");
     }

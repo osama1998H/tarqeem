@@ -1,8 +1,10 @@
 //! Tests for the debug module
 
+#![allow(clippy::approx_constant)]
+
 use super::*;
 use crate::ir::{
-    BasicBlock, BlockId, Constant, FuncId, Function, Instruction, IrType, Module, Parameter, VarId,
+    BasicBlock, BlockId, Constant, FuncId, Function, Instruction, IrType, Module, VarId,
 };
 use std::path::PathBuf;
 

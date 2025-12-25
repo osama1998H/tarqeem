@@ -1,0 +1,231 @@
+name: Examples
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main", "develop"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ============================================
+  # Build Tarqeem Compiler
+  # ============================================
+  build-compiler:
+    name: Build Compiler
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --verbose
+
+      - name: Upload compiler binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarqeem-compiler
+          path: target/release/tarqeem
+
+  # ============================================
+  # Validate Examples (Syntax Check)
+  # ============================================
+  check-examples:
+    name: Check Examples Syntax
+    runs-on: ubuntu-latest
+    needs: build-compiler
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download compiler
+        uses: actions/download-artifact@v4
+        with:
+          name: tarqeem-compiler
+          path: ./bin
+
+      - name: Make compiler executable
+        run: chmod +x ./bin/tarqeem
+
+      - name: Check all example files
+        run: |
+          echo "## Syntax Check Results" > check-results.md
+          echo "" >> check-results.md
+
+          PASS=0
+          FAIL=0
+
+          # Only check examples in the main examples/ directory (not planned/)
+          for file in examples/*.ترقيم examples/*.trq; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              echo "Checking: $filename"
+
+              if ./bin/tarqeem check "$file" 2>&1; then
+                echo "- :white_check_mark: $filename" >> check-results.md
+                PASS=$((PASS + 1))
+              else
+                echo "- :x: $filename" >> check-results.md
+                FAIL=$((FAIL + 1))
+              fi
+            fi
+          done
+
+          echo "" >> check-results.md
+          echo "**Passed:** $PASS | **Failed:** $FAIL" >> check-results.md
+
+          cat check-results.md
+
+          if [ $FAIL -gt 0 ]; then
+            echo "::error::Some examples failed syntax check ($FAIL failed, $PASS passed)"
+            exit 1
+          fi
+
+      - name: Upload check results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: syntax-check-results
+          path: check-results.md
+
+  # ============================================
+  # Run Examples (Individual Jobs)
+  # ============================================
+  run-examples:
+    name: Run Examples
+    runs-on: ubuntu-latest
+    needs: build-compiler
+    strategy:
+      fail-fast: false
+      matrix:
+        example:
+          # Only include working examples (those not in planned/)
+          - مرحبا
+          - متغيرات
+          - دوال
+          - تحكم
+          - أهلا
+          - صنف
+          - اختبار_بسيط
+          - اختبار_مجموعات
+          - لعبة_الحياة_بسيط
+          - لعبة_الحياة
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download compiler
+        uses: actions/download-artifact@v4
+        with:
+          name: tarqeem-compiler
+          path: ./bin
+
+      - name: Make compiler executable
+        run: chmod +x ./bin/tarqeem
+
+      - name: Run example - ${{ matrix.example }}
+        run: |
+          # Try both extensions
+          if [ -f "examples/${{ matrix.example }}.ترقيم" ]; then
+            FILE="examples/${{ matrix.example }}.ترقيم"
+          elif [ -f "examples/${{ matrix.example }}.trq" ]; then
+            FILE="examples/${{ matrix.example }}.trq"
+          else
+            echo "::error::Example file not found: ${{ matrix.example }}"
+            exit 1
+          fi
+
+          echo "Running: $FILE"
+          echo "================================"
+
+          # Run with timeout (30 seconds max)
+          timeout 30s ./bin/tarqeem run "$FILE"
+
+  # ============================================
+  # Run Standard Library Tests
+  # ============================================
+  run-stdlib:
+    name: Run Standard Library Tests
+    runs-on: ubuntu-latest
+    needs: build-compiler
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download compiler
+        uses: actions/download-artifact@v4
+        with:
+          name: tarqeem-compiler
+          path: ./bin
+
+      - name: Make compiler executable
+        run: chmod +x ./bin/tarqeem
+
+      - name: Run stdlib tests
+        run: |
+          echo "## Standard Library Test Results" > stdlib-results.md
+          echo "" >> stdlib-results.md
+
+          # Run stdlib test file if it exists
+          if [ -f "tests/stdlib_test.ترقيم" ]; then
+            echo "Running stdlib tests..."
+            ./bin/tarqeem run "tests/stdlib_test.ترقيم"
+            echo ":white_check_mark: stdlib tests passed" >> stdlib-results.md
+          else
+            echo "No stdlib test file found, skipping" >> stdlib-results.md
+          fi
+
+          cat stdlib-results.md
+
+      - name: Upload stdlib results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stdlib-test-results
+          path: stdlib-results.md
+
+  # ============================================
+  # Example Summary
+  # ============================================
+  summary:
+    name: Examples Summary
+    runs-on: ubuntu-latest
+    needs: [check-examples, run-examples, run-stdlib]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate summary
+        run: |
+          echo "# Tarqeem Examples Summary" > summary.md
+          echo "" >> summary.md
+          echo "## Results" >> summary.md
+          echo "" >> summary.md
+
+          # Combine all results
+          if [ -f "artifacts/syntax-check-results/check-results.md" ]; then
+            echo "### Syntax Check" >> summary.md
+            cat "artifacts/syntax-check-results/check-results.md" >> summary.md
+            echo "" >> summary.md
+          fi
+
+          if [ -f "artifacts/stdlib-test-results/stdlib-results.md" ]; then
+            echo "### Standard Library Tests" >> summary.md
+            cat "artifacts/stdlib-test-results/stdlib-results.md" >> summary.md
+            echo "" >> summary.md
+          fi
+
+          cat summary.md
+
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: examples-summary
+          path: summary.md

@@ -1,0 +1,318 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ============================================
+  # Create GitHub Release
+  # ============================================
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Tarqeem ${{ github.ref_name }}
+          body: |
+            ## Tarqeem ${{ github.ref_name }}
+
+            ### Installation
+
+            Download the appropriate binary for your platform and extract it.
+
+            #### Linux (x86_64)
+            ```bash
+            tar -xzf tarqeem-linux-x86_64.tar.gz
+            sudo mv tarqeem /usr/local/bin/
+            ```
+
+            #### Linux (ARM64)
+            ```bash
+            tar -xzf tarqeem-linux-aarch64.tar.gz
+            sudo mv tarqeem /usr/local/bin/
+            ```
+
+            #### macOS (Intel)
+            ```bash
+            tar -xzf tarqeem-macos-x86_64.tar.gz
+            sudo mv tarqeem /usr/local/bin/
+            ```
+
+            #### macOS (Apple Silicon)
+            ```bash
+            tar -xzf tarqeem-macos-aarch64.tar.gz
+            sudo mv tarqeem /usr/local/bin/
+            ```
+
+            #### Windows
+            Extract `tarqeem-windows-x86_64.zip` and add the folder to your PATH.
+
+            ### Verify Installation
+            ```bash
+            tarqeem --version
+            ```
+
+            ### What's New
+            See [CHANGELOG.md](https://github.com/osama1998H/tarqeem/blob/main/CHANGELOG.md) for details.
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+
+  # ============================================
+  # Build Linux (x86_64)
+  # ============================================
+  build-linux-x86_64:
+    name: Build Linux x86_64
+    runs-on: ubuntu-latest
+    needs: create-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Strip binary
+        run: strip target/x86_64-unknown-linux-gnu/release/tarqeem
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-gnu/release/tarqeem dist/
+          cp README.md LICENSE dist/ 2>/dev/null || true
+          cd dist && tar -czvf ../tarqeem-linux-x86_64.tar.gz *
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./tarqeem-linux-x86_64.tar.gz
+          asset_name: tarqeem-linux-x86_64.tar.gz
+          asset_content_type: application/gzip
+
+  # ============================================
+  # Build Linux (ARM64)
+  # ============================================
+  build-linux-aarch64:
+    name: Build Linux ARM64
+    runs-on: ubuntu-latest
+    needs: create-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: |
+          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+          cargo build --release --target aarch64-unknown-linux-gnu
+        env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+
+      - name: Strip binary
+        run: aarch64-linux-gnu-strip target/aarch64-unknown-linux-gnu/release/tarqeem
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/aarch64-unknown-linux-gnu/release/tarqeem dist/
+          cp README.md LICENSE dist/ 2>/dev/null || true
+          cd dist && tar -czvf ../tarqeem-linux-aarch64.tar.gz *
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./tarqeem-linux-aarch64.tar.gz
+          asset_name: tarqeem-linux-aarch64.tar.gz
+          asset_content_type: application/gzip
+
+  # ============================================
+  # Build macOS (x86_64)
+  # ============================================
+  build-macos-x86_64:
+    name: Build macOS x86_64
+    runs-on: macos-latest
+    needs: create-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --target x86_64-apple-darwin
+
+      - name: Strip binary
+        run: strip target/x86_64-apple-darwin/release/tarqeem
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/x86_64-apple-darwin/release/tarqeem dist/
+          cp README.md LICENSE dist/ 2>/dev/null || true
+          cd dist && tar -czvf ../tarqeem-macos-x86_64.tar.gz *
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./tarqeem-macos-x86_64.tar.gz
+          asset_name: tarqeem-macos-x86_64.tar.gz
+          asset_content_type: application/gzip
+
+  # ============================================
+  # Build macOS (ARM64 / Apple Silicon)
+  # ============================================
+  build-macos-aarch64:
+    name: Build macOS ARM64
+    runs-on: macos-latest
+    needs: create-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Strip binary
+        run: strip target/aarch64-apple-darwin/release/tarqeem
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/aarch64-apple-darwin/release/tarqeem dist/
+          cp README.md LICENSE dist/ 2>/dev/null || true
+          cd dist && tar -czvf ../tarqeem-macos-aarch64.tar.gz *
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./tarqeem-macos-aarch64.tar.gz
+          asset_name: tarqeem-macos-aarch64.tar.gz
+          asset_content_type: application/gzip
+
+  # ============================================
+  # Build Windows (x86_64)
+  # ============================================
+  build-windows-x86_64:
+    name: Build Windows x86_64
+    runs-on: windows-latest
+    needs: create-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target/x86_64-pc-windows-msvc/release/tarqeem.exe dist/
+          if (Test-Path README.md) { Copy-Item README.md dist/ }
+          if (Test-Path LICENSE) { Copy-Item LICENSE dist/ }
+          Compress-Archive -Path dist/* -DestinationPath tarqeem-windows-x86_64.zip
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./tarqeem-windows-x86_64.zip
+          asset_name: tarqeem-windows-x86_64.zip
+          asset_content_type: application/zip
+
+  # ============================================
+  # Update Homebrew Formula (Optional)
+  # ============================================
+  # update-homebrew:
+  #   name: Update Homebrew
+  #   runs-on: ubuntu-latest
+  #   needs: [build-macos-x86_64, build-macos-aarch64]
+  #   steps:
+  #     - name: Update Homebrew formula
+  #       run: echo "TODO: Implement Homebrew formula update"
+
+  # ============================================
+  # Publish to crates.io (Optional)
+  # ============================================
+  # publish-crates:
+  #   name: Publish to crates.io
+  #   runs-on: ubuntu-latest
+  #   needs: create-release
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - name: Publish
+  #       run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}

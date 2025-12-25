@@ -3,6 +3,8 @@
 //! These tests verify correct execution of IR instructions including
 //! arithmetic, control flow, arrays, strings, objects, and built-in functions.
 
+#![allow(clippy::approx_constant)]
+
 use super::*;
 use crate::ir::{
     BasicBlock, BinaryOp, BlockId, Class, ClassId, Constant, FuncId, Function, Instruction, IrType,

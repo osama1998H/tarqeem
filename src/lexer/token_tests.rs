@@ -6,7 +6,7 @@ use crate::error::Span;
 #[test]
 fn test_token_new() {
     let span = Span::new(0, 5, 1, 1);
-    let token = Token::new(TokenKind::Let, span.clone(), "let");
+    let token = Token::new(TokenKind::Let, span, "let");
 
     assert_eq!(token.kind, TokenKind::Let);
     assert_eq!(token.span, span);
@@ -41,7 +41,7 @@ fn test_token_kind_int_literal() {
 
 #[test]
 fn test_token_kind_float_literal() {
-    let kind = TokenKind::FloatLiteral(3.14);
+    let kind = TokenKind::FloatLiteral(3.15);
     assert!(kind.is_literal());
     assert!(!kind.is_keyword());
 }
@@ -280,8 +280,8 @@ fn test_token_kind_display_int() {
 
 #[test]
 fn test_token_kind_display_float() {
-    let kind = TokenKind::FloatLiteral(3.14);
-    assert_eq!(format!("{}", kind), "3.14");
+    let kind = TokenKind::FloatLiteral(3.15);
+    assert_eq!(format!("{}", kind), "3.15");
 }
 
 #[test]
@@ -369,7 +369,7 @@ fn test_token_equality() {
 #[test]
 fn test_token_inequality_kind() {
     let span = Span::new(0, 3, 1, 1);
-    let token1 = Token::new(TokenKind::Let, span.clone(), "let");
+    let token1 = Token::new(TokenKind::Let, span, "let");
     let token2 = Token::new(TokenKind::Const, span, "const");
 
     assert_ne!(token1, token2);
