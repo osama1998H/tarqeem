@@ -19,7 +19,10 @@ pub enum DebugCommand {
 
     StepInstruction,
 
-    Break { file: Option<PathBuf>, line: usize },
+    Break {
+        file: Option<PathBuf>,
+        line: usize,
+    },
 
     BreakIf {
         file: Option<PathBuf>,
@@ -27,17 +30,25 @@ pub enum DebugCommand {
         condition: String,
     },
 
-    DeleteBreakpoint { id: BreakpointId },
+    DeleteBreakpoint {
+        id: BreakpointId,
+    },
 
     ClearBreakpoints,
 
-    EnableBreakpoint { id: BreakpointId },
+    EnableBreakpoint {
+        id: BreakpointId,
+    },
 
-    DisableBreakpoint { id: BreakpointId },
+    DisableBreakpoint {
+        id: BreakpointId,
+    },
 
     ListBreakpoints,
 
-    Print { expression: String },
+    Print {
+        expression: String,
+    },
 
     Locals,
 
@@ -47,13 +58,19 @@ pub enum DebugCommand {
 
     Where,
 
-    Watch { expression: String },
+    Watch {
+        expression: String,
+    },
 
-    Unwatch { id: u32 },
+    Unwatch {
+        id: u32,
+    },
 
     ListWatches,
 
-    List { lines: Option<usize> },
+    List {
+        lines: Option<usize>,
+    },
 
     Help,
 
@@ -63,11 +80,18 @@ pub enum DebugCommand {
 
     Restart,
 
-    Set { variable: String, value: String },
+    Set {
+        variable: String,
+        value: String,
+    },
 
-    Info { topic: String },
+    Info {
+        topic: String,
+    },
 
-    Unknown { command: String },
+    Unknown {
+        command: String,
+    },
 }
 
 pub struct DebugCommandParser;

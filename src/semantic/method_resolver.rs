@@ -46,12 +46,10 @@ impl<'a> MethodResolver<'a> {
             Type::Array(_) => self.resolve_array_member(member_name),
             Type::String => self.resolve_string_member(member_name),
             Type::Map(_, _) => self.resolve_map_member(member_name),
-            Type::Any => {
-                MemberResolution::BuiltinProperty {
-                    name: member_name.to_string(),
-                    ty: Type::Any,
-                }
-            }
+            Type::Any => MemberResolution::BuiltinProperty {
+                name: member_name.to_string(),
+                ty: Type::Any,
+            },
             _ => MemberResolution::NotFound,
         }
     }
@@ -210,23 +208,21 @@ impl<'a> MethodResolver<'a> {
             Type::Class(class_name) => {
                 self.resolve_class_method_call(class_name, method_name, span)
             }
-            Type::Any => {
-                Some(MethodCallResolution {
-                    method: MethodInfo {
-                        name: method_name.to_string(),
-                        params: vec![],
-                        return_type: Type::Any,
-                        visibility: crate::parser::Visibility::Public,
-                        is_static: false,
-                        is_async: false,
-                        is_abstract: false,
-                        vtable_index: None,
-                    },
-                    is_virtual: false,
-                    defining_class: String::new(),
+            Type::Any => Some(MethodCallResolution {
+                method: MethodInfo {
+                    name: method_name.to_string(),
+                    params: vec![],
+                    return_type: Type::Any,
+                    visibility: crate::parser::Visibility::Public,
+                    is_static: false,
+                    is_async: false,
+                    is_abstract: false,
                     vtable_index: None,
-                })
-            }
+                },
+                is_virtual: false,
+                defining_class: String::new(),
+                vtable_index: None,
+            }),
             _ => None,
         }
     }

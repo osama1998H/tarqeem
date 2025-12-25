@@ -132,23 +132,21 @@ impl<'a> Lexer<'a> {
         loop {
             match self.advance() {
                 Some(c) if c == quote => break,
-                Some('\\') => {
-                    match self.advance() {
-                        Some('n') => result.push('\n'),
-                        Some('t') => result.push('\t'),
-                        Some('r') => result.push('\r'),
-                        Some('\\') => result.push('\\'),
-                        Some('"') => result.push('"'),
-                        Some('\'') => result.push('\''),
-                        Some(c) => result.push(c),
-                        None => {
-                            return Err(FormatError::new(
-                                FormatErrorKind::UnterminatedString,
-                                start_loc,
-                            ))
-                        }
+                Some('\\') => match self.advance() {
+                    Some('n') => result.push('\n'),
+                    Some('t') => result.push('\t'),
+                    Some('r') => result.push('\r'),
+                    Some('\\') => result.push('\\'),
+                    Some('"') => result.push('"'),
+                    Some('\'') => result.push('\''),
+                    Some(c) => result.push(c),
+                    None => {
+                        return Err(FormatError::new(
+                            FormatErrorKind::UnterminatedString,
+                            start_loc,
+                        ))
                     }
-                }
+                },
                 Some('\n') => {
                     return Err(FormatError::new(
                         FormatErrorKind::UnterminatedString,

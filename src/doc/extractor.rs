@@ -343,9 +343,7 @@ impl DocExtractor {
                 Some(DocItem::Interface(iface_doc))
             }
 
-            StmtKind::Export(inner) => {
-                self.extract_stmt(inner, true)
-            }
+            StmtKind::Export(inner) => self.extract_stmt(inner, true),
 
             _ => None,
         }

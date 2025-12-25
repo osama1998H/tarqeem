@@ -15,7 +15,7 @@ ifdef DEBUG
 endif
 
 # Source files
-SRCS = memory.c string.c array.c io.c builtins.c
+SRCS = memory.c string.c array.c io.c builtins.c crypto.c compress.c
 OBJS = $(SRCS:.c=.o)
 
 # Output
@@ -35,7 +35,7 @@ shared: CFLAGS += -fPIC
 shared: $(LIB_SHARED)
 
 $(LIB_SHARED): $(OBJS)
-	$(CC) -shared -o $@ $^ -lm
+	$(CC) -shared -o $@ $^ -lm -lz
 	@echo "Built shared library: $@"
 
 # Object files
@@ -64,7 +64,7 @@ uninstall:
 test: $(LIB_STATIC)
 	@echo "Testing runtime library..."
 	@echo "int main() { return 0; }" > /tmp/test_trq.c
-	$(CC) -o /tmp/test_trq /tmp/test_trq.c -L. -ltrq -lm
+	$(CC) -o /tmp/test_trq /tmp/test_trq.c -L. -ltrq -lm -lz
 	@rm -f /tmp/test_trq /tmp/test_trq.c
 	@echo "Test passed!"
 

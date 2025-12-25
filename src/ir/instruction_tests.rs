@@ -2,7 +2,6 @@
 
 use super::instruction::*;
 
-
 #[test]
 fn test_var_id_creation() {
     let var = VarId(0);
@@ -49,7 +48,6 @@ fn test_var_id_hash() {
     assert_eq!(set.len(), 2);
 }
 
-
 #[test]
 fn test_block_id_creation() {
     let block = BlockId(0);
@@ -82,7 +80,6 @@ fn test_block_id_hash() {
 
     assert_eq!(set.len(), 2);
 }
-
 
 #[test]
 fn test_func_id_creation() {
@@ -123,7 +120,6 @@ fn test_func_id_hash() {
     assert_eq!(set.len(), 2);
 }
 
-
 #[test]
 fn test_class_id_creation() {
     let class = ClassId("Person".to_string());
@@ -151,7 +147,6 @@ fn test_class_id_equality() {
     assert_eq!(class1, class2);
     assert_ne!(class1, class3);
 }
-
 
 #[test]
 fn test_field_id_creation() {
@@ -187,7 +182,6 @@ fn test_field_id_arabic() {
     assert_eq!(format!("{}", field), "%class.شخص.اسم");
 }
 
-
 #[test]
 fn test_method_id_creation() {
     let method = MethodId {
@@ -217,7 +211,6 @@ fn test_method_id_arabic() {
 
     assert_eq!(format!("{}", method), "%class.حاسبة::اجمع");
 }
-
 
 #[test]
 fn test_ir_type_void() {
@@ -315,7 +308,6 @@ fn test_ir_type_clone() {
     assert_eq!(ty, cloned);
 }
 
-
 #[test]
 fn test_constant_null() {
     let c = Constant::Null;
@@ -386,7 +378,6 @@ fn test_constant_clone() {
     assert_eq!(c, cloned);
 }
 
-
 #[test]
 fn test_binary_op_arithmetic_display() {
     assert_eq!(format!("{}", BinaryOp::Add), "add");
@@ -446,7 +437,6 @@ fn test_binary_op_hash() {
     assert_eq!(set.len(), 2);
 }
 
-
 #[test]
 fn test_unary_op_display() {
     assert_eq!(format!("{}", UnaryOp::Neg), "neg");
@@ -477,7 +467,6 @@ fn test_unary_op_hash() {
 
     assert_eq!(set.len(), 2);
 }
-
 
 #[test]
 fn test_instruction_const() {

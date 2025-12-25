@@ -2,7 +2,6 @@
 
 use super::types::*;
 
-
 #[test]
 fn test_type_int() {
     let ty = Type::Int;
@@ -93,7 +92,6 @@ fn test_type_error() {
     assert_eq!(ty.arabic_name(), "خطأ");
 }
 
-
 #[test]
 fn test_type_array() {
     let ty = Type::Array(Box::new(Type::Int));
@@ -174,7 +172,6 @@ fn test_type_generic() {
     assert!(!ty.is_primitive());
     assert_eq!(ty.to_string(), "T");
 }
-
 
 #[test]
 fn test_compatible_same_types() {
@@ -262,7 +259,6 @@ fn test_incompatible_types() {
     assert!(!Type::Bool.is_compatible_with(&Type::Int));
     assert!(!Type::String.is_compatible_with(&Type::Float));
 }
-
 
 #[test]
 fn test_binary_add_int() {
@@ -475,7 +471,6 @@ fn test_binary_invalid_operations() {
     assert_eq!(Type::Int.binary_result_type("&&", &Type::Int), None);
 }
 
-
 #[test]
 fn test_unary_neg_int() {
     assert_eq!(Type::Int.unary_result_type("-"), Some(Type::Int));
@@ -503,7 +498,6 @@ fn test_unary_invalid() {
     assert_eq!(Type::Int.unary_result_type("!"), None);
     assert_eq!(Type::Bool.unary_result_type("-"), None);
 }
-
 
 #[test]
 fn test_parse_type_name_arabic() {
@@ -540,7 +534,6 @@ fn test_parse_type_name_class() {
         Type::Class("صنف_مخصص".to_string())
     );
 }
-
 
 #[test]
 fn test_type_clone() {

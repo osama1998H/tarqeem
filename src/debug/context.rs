@@ -224,7 +224,6 @@ impl DebugContext {
         self.source_map.add_source(file, content);
     }
 
-
     pub fn add_breakpoint(&mut self, file: PathBuf, line: usize) -> DebugResult<BreakpointId> {
         let id = BreakpointId(self.next_breakpoint_id);
         self.next_breakpoint_id += 1;
@@ -335,7 +334,6 @@ impl DebugContext {
         Ok(bp.enabled)
     }
 
-
     pub fn add_watch(&mut self, expression: String) -> u32 {
         let id = self.next_watch_id;
         self.next_watch_id += 1;
@@ -367,7 +365,6 @@ impl DebugContext {
     pub fn get_watch_mut(&mut self, id: u32) -> Option<&mut WatchExpression> {
         self.watches.get_mut(&id)
     }
-
 
     pub fn start_stepping(
         &mut self,
@@ -413,12 +410,9 @@ impl DebugContext {
             StepMode::Over => {
                 current_depth <= self.step_start_depth && current_line != self.step_start_line
             }
-            StepMode::Out => {
-                current_depth < self.step_start_depth
-            }
+            StepMode::Out => current_depth < self.step_start_depth,
         }
     }
-
 
     pub fn request_pause(&mut self) {
         self.pause_requested = true;
@@ -433,7 +427,6 @@ impl DebugContext {
     pub fn is_pause_requested(&self) -> bool {
         self.pause_requested
     }
-
 
     pub fn should_break_on_exception(&self, is_caught: bool) -> bool {
         if self.config.break_on_all_exceptions {
@@ -450,7 +443,6 @@ impl DebugContext {
         self.config.break_on_uncaught_exceptions = break_uncaught;
     }
 
-
     pub fn add_output(&mut self, output: String) {
         self.output_buffer.push(output);
     }
@@ -462,7 +454,6 @@ impl DebugContext {
     pub fn output(&self) -> &[String] {
         &self.output_buffer
     }
-
 
     pub fn get_source_line(&self, file: &PathBuf, line: usize) -> Option<&str> {
         self.source_map.get_source_line(file, line)

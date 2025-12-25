@@ -115,12 +115,7 @@ fn generate_classes(count: usize) -> String {
 
     // Create instances
     for i in 0..count {
-        source.push_str(&format!(
-            "متغير نقطة_{} = جديد نقطة({}, {})\n",
-            i,
-            i,
-            i * 2
-        ));
+        source.push_str(&format!("متغير نقطة_{} = جديد نقطة({}, {})\n", i, i, i * 2));
     }
 
     source.push_str("الحمد_لله\n");

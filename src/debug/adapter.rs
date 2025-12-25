@@ -329,7 +329,6 @@ impl DapAdapter {
         response
     }
 
-
     fn handle_initialize(&mut self, request: &DapRequest) -> DapResponse {
         self.initialized = true;
 
@@ -462,8 +461,7 @@ impl DapAdapter {
 
     fn handle_configuration_done(&mut self, request: &DapRequest) -> DapResponse {
         if let Some(ref interpreter) = self.interpreter {
-            if !interpreter.context().config().stop_on_entry {
-            }
+            if !interpreter.context().config().stop_on_entry {}
         }
         DapResponse::success(request, None)
     }
@@ -718,8 +716,7 @@ impl DapAdapter {
 
     fn handle_step_result(&mut self, result: StepResult) {
         match result {
-            StepResult::Continue => {
-            }
+            StepResult::Continue => {}
             StepResult::Paused(reason) => {
                 let (dap_reason, description) = match reason {
                     PauseReason::Breakpoint { id } => {

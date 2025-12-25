@@ -460,7 +460,6 @@ fn test_output_capture() {
     assert!(output[0].contains("Hello, Debug!"));
 }
 
-
 #[test]
 fn test_pause_request() {
     let mut context = DebugContext::new();

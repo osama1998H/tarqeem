@@ -3,7 +3,6 @@
 use super::token::*;
 use crate::error::Span;
 
-
 #[test]
 fn test_token_new() {
     let span = Span::new(0, 5, 1, 1);
@@ -31,7 +30,6 @@ fn test_token_display() {
     assert!(display.contains("IntLiteral"));
     assert!(display.contains("42"));
 }
-
 
 #[test]
 fn test_token_kind_int_literal() {
@@ -81,7 +79,6 @@ fn test_token_kind_null() {
     assert!(kind.is_literal());
     assert!(kind.is_keyword());
 }
-
 
 #[test]
 fn test_token_kind_variable_keywords() {
@@ -148,7 +145,6 @@ fn test_token_kind_module_keywords() {
     assert!(TokenKind::As.is_keyword());
 }
 
-
 #[test]
 fn test_token_kind_type_keywords() {
     assert!(TokenKind::TypeInt.is_type_keyword());
@@ -166,7 +162,6 @@ fn test_token_kind_type_not_regular_keyword() {
     assert!(!TokenKind::TypeInt.is_keyword());
     assert!(!TokenKind::TypeFloat.is_keyword());
 }
-
 
 #[test]
 fn test_token_kind_arithmetic_operators() {
@@ -211,7 +206,6 @@ fn test_token_kind_increment_decrement() {
     assert!(TokenKind::MinusMinus.is_operator());
 }
 
-
 #[test]
 fn test_token_kind_doc_comment() {
     let kind = TokenKind::DocComment("This is a doc comment".to_string());
@@ -231,7 +225,6 @@ fn test_token_kind_doc_comment_arabic() {
     let kind = TokenKind::DocComment("هذا تعليق توثيقي".to_string());
     assert!(kind.is_doc_comment());
 }
-
 
 #[test]
 fn test_token_kind_identifier_not_keyword() {
@@ -279,7 +272,6 @@ fn test_token_kind_special_not_keyword() {
     assert!(!TokenKind::Error("test error".to_string()).is_keyword());
 }
 
-
 #[test]
 fn test_token_kind_display_int() {
     let kind = TokenKind::IntLiteral(42);
@@ -317,7 +309,6 @@ fn test_token_kind_display_keyword() {
     assert!(display.contains("Let"));
 }
 
-
 #[test]
 fn test_token_kind_clone() {
     let kind = TokenKind::StringLiteral("test".to_string());
@@ -352,7 +343,6 @@ fn test_token_kind_equality_identifiers() {
     assert_eq!(id1, id2);
     assert_ne!(id1, id3);
 }
-
 
 #[test]
 fn test_token_clone() {
@@ -395,7 +385,6 @@ fn test_token_inequality_span() {
 
     assert_ne!(token1, token2);
 }
-
 
 #[test]
 fn test_token_kind_large_int() {

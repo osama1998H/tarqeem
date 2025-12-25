@@ -7,7 +7,6 @@ use super::diagnostic::*;
 use super::span::Span;
 use super::Language;
 
-
 #[test]
 fn test_diagnostic_level_error_english() {
     let level = DiagnosticLevel::Error;
@@ -56,7 +55,6 @@ fn test_diagnostic_level_hint_arabic() {
     assert_eq!(level.arabic(), "تلميح");
 }
 
-
 #[test]
 fn test_note_creation() {
     let note = Note::new("This is a note", "هذه ملاحظة");
@@ -82,7 +80,6 @@ fn test_note_bilingual_messages() {
     assert!(note.message.contains("not used"));
     assert!(note.message_ar.contains("غير مستخدم"));
 }
-
 
 #[test]
 fn test_suggestion_creation() {
@@ -113,7 +110,6 @@ fn test_suggestion_with_code_replacement() {
 
     assert_eq!(suggestion.replacement, ";");
 }
-
 
 #[test]
 fn test_diagnostic_error_creation() {
@@ -209,7 +205,6 @@ fn test_diagnostic_chained_builders() {
     assert_eq!(diag.suggestions.len(), 1);
 }
 
-
 #[test]
 fn test_diagnostic_display() {
     let span = Span::new(0, 5, 1, 1);
@@ -221,7 +216,6 @@ fn test_diagnostic_display() {
     assert!(display.contains("خطأ"));
     assert!(display.contains("خطأ اختباري"));
 }
-
 
 #[test]
 fn test_bilingual_type_error() {
@@ -258,7 +252,6 @@ fn test_bilingual_undefined_variable() {
     assert!(diag.message_ar.contains("اسم"));
 }
 
-
 #[test]
 fn test_common_error_codes() {
     let span = Span::new(0, 5, 1, 1);
@@ -274,14 +267,12 @@ fn test_common_error_codes() {
     assert_eq!(parse_error.code, Some("E0001".to_string()));
 }
 
-
 #[test]
 fn test_diagnostic_level_equality() {
     assert_eq!(DiagnosticLevel::Error, DiagnosticLevel::Error);
     assert_eq!(DiagnosticLevel::Warning, DiagnosticLevel::Warning);
     assert_ne!(DiagnosticLevel::Error, DiagnosticLevel::Warning);
 }
-
 
 #[test]
 fn test_function_signature_mismatch() {
@@ -348,7 +339,6 @@ fn test_warning_with_suggestions() {
     assert_eq!(diag.suggestions[0].replacement, "_count");
 }
 
-
 #[test]
 fn test_empty_message_strings() {
     let span = Span::new(0, 0, 1, 1);
@@ -393,7 +383,6 @@ fn test_message_with_unicode_normalization() {
 
     assert!(diag.message.contains("مُتَغَيِّر"));
 }
-
 
 #[test]
 fn test_diagnostic_clone() {

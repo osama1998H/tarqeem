@@ -731,23 +731,21 @@ impl Interpreter {
                 (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a * *b as f64)),
                 _ => Err(RuntimeError::type_error("numeric", left.type_name())),
             },
-            BinaryOp::Div => {
-                match (&left, &right) {
-                    (Value::Int(_), Value::Int(0)) => Err(RuntimeError::division_by_zero()),
-                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a / b)),
-                    (Value::Float(_), Value::Float(b)) if *b == 0.0 => {
-                        Err(RuntimeError::division_by_zero())
-                    }
-                    (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a / b)),
-                    (Value::Int(_), Value::Float(b)) if *b == 0.0 => {
-                        Err(RuntimeError::division_by_zero())
-                    }
-                    (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 / b)),
-                    (Value::Float(_), Value::Int(0)) => Err(RuntimeError::division_by_zero()),
-                    (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a / *b as f64)),
-                    _ => Err(RuntimeError::type_error("numeric", left.type_name())),
+            BinaryOp::Div => match (&left, &right) {
+                (Value::Int(_), Value::Int(0)) => Err(RuntimeError::division_by_zero()),
+                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a / b)),
+                (Value::Float(_), Value::Float(b)) if *b == 0.0 => {
+                    Err(RuntimeError::division_by_zero())
                 }
-            }
+                (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a / b)),
+                (Value::Int(_), Value::Float(b)) if *b == 0.0 => {
+                    Err(RuntimeError::division_by_zero())
+                }
+                (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 / b)),
+                (Value::Float(_), Value::Int(0)) => Err(RuntimeError::division_by_zero()),
+                (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a / *b as f64)),
+                _ => Err(RuntimeError::type_error("numeric", left.type_name())),
+            },
             BinaryOp::Mod => match (&left, &right) {
                 (Value::Int(_), Value::Int(0)) => Err(RuntimeError::division_by_zero()),
                 (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a % b)),
@@ -895,37 +893,144 @@ impl Interpreter {
     fn is_builtin(&self, name: &str) -> bool {
         matches!(
             name,
-            "print" | "اطبع" | "println" | "طباعة" | "اطبع_سطر"
-            | "input" | "ادخل" | "ادخل_رسالة" | "input_prompt"
-            | "ادخل_عدد" | "input_int" | "ادخل_عشري" | "input_float"
-            | "len" | "طول" | "length"
-            | "type" | "نوع" | "typeof"
-            | "int" | "عدد" | "float" | "عدد_عشري" | "str" | "نص" | "string" | "bool" | "منطقي"
-            | "abs" | "مطلق"
-            | "pow" | "قوة"
-            | "sqrt" | "جذر" | "cbrt" | "جذر_تكعيبي"
-            | "log" | "لوغاريتم" | "log10" | "لوغ10" | "لوغاريتم10" | "log2" | "لوغ2"
-            | "exp" | "أس" | "أسي"
-            | "floor" | "أرضية" | "ceil" | "سقف" | "round" | "قرب" | "تقريب" | "trunc" | "اقتطع"
-            | "min" | "أقل" | "أدنى" | "max" | "أكبر" | "أقصى" | "clamp" | "حصر"
-            | "sign" | "علامة"
-            | "gcd" | "قاسم_مشترك" | "lcm" | "مضاعف_مشترك"
-            | "factorial" | "عاملي"
-            | "sin" | "جا" | "جيب" | "cos" | "جتا" | "جيب_التمام" | "tan" | "ظا" | "ظل"
-            | "cot" | "ظتا" | "ظل_التمام" | "sec" | "قا" | "قاطع" | "csc" | "قتا" | "قاطع_التمام"
-            | "asin" | "جا_عكسي" | "جيب_عكسي" | "acos" | "جتا_عكسي" | "جيب_تمام_عكسي"
-            | "atan" | "ظا_عكسي" | "ظل_عكسي" | "atan2" | "ظا_عكسي2" | "ظل_عكسي2"
-            | "sinh" | "جا_زائدي" | "جيب_زائدي" | "cosh" | "جتا_زائدي" | "جيب_تمام_زائدي"
-            | "tanh" | "ظا_زائدي" | "ظل_زائدي"
-            | "to_radians" | "الى_راديان" | "راديان" | "to_degrees" | "الى_درجات" | "درجات"
-            | "random" | "عشوائي" | "random_int"
-            | "random_range" | "عشوائي_بين"
-            | "random_float" | "عشوائي_عشري"
-            | "random_bool" | "عشوائي_منطقي"
-            | "assert" | "تأكد" | "assert_msg" | "تأكد_رسالة"
-            | "panic" | "توقف"
-            | "sleep" | "نم" | "time_now" | "وقت_الآن"
-            | "trq_int_to_string" | "trq_float_to_string" | "trq_bool_to_string"
+            "print"
+                | "اطبع"
+                | "println"
+                | "طباعة"
+                | "اطبع_سطر"
+                | "input"
+                | "ادخل"
+                | "ادخل_رسالة"
+                | "input_prompt"
+                | "ادخل_عدد"
+                | "input_int"
+                | "ادخل_عشري"
+                | "input_float"
+                | "len"
+                | "طول"
+                | "length"
+                | "type"
+                | "نوع"
+                | "typeof"
+                | "int"
+                | "عدد"
+                | "float"
+                | "عدد_عشري"
+                | "str"
+                | "نص"
+                | "string"
+                | "bool"
+                | "منطقي"
+                | "abs"
+                | "مطلق"
+                | "pow"
+                | "قوة"
+                | "sqrt"
+                | "جذر"
+                | "cbrt"
+                | "جذر_تكعيبي"
+                | "log"
+                | "لوغاريتم"
+                | "log10"
+                | "لوغ10"
+                | "لوغاريتم10"
+                | "log2"
+                | "لوغ2"
+                | "exp"
+                | "أس"
+                | "أسي"
+                | "floor"
+                | "أرضية"
+                | "ceil"
+                | "سقف"
+                | "round"
+                | "قرب"
+                | "تقريب"
+                | "trunc"
+                | "اقتطع"
+                | "min"
+                | "أقل"
+                | "أدنى"
+                | "max"
+                | "أكبر"
+                | "أقصى"
+                | "clamp"
+                | "حصر"
+                | "sign"
+                | "علامة"
+                | "gcd"
+                | "قاسم_مشترك"
+                | "lcm"
+                | "مضاعف_مشترك"
+                | "factorial"
+                | "عاملي"
+                | "sin"
+                | "جا"
+                | "جيب"
+                | "cos"
+                | "جتا"
+                | "جيب_التمام"
+                | "tan"
+                | "ظا"
+                | "ظل"
+                | "cot"
+                | "ظتا"
+                | "ظل_التمام"
+                | "sec"
+                | "قا"
+                | "قاطع"
+                | "csc"
+                | "قتا"
+                | "قاطع_التمام"
+                | "asin"
+                | "جا_عكسي"
+                | "جيب_عكسي"
+                | "acos"
+                | "جتا_عكسي"
+                | "جيب_تمام_عكسي"
+                | "atan"
+                | "ظا_عكسي"
+                | "ظل_عكسي"
+                | "atan2"
+                | "ظا_عكسي2"
+                | "ظل_عكسي2"
+                | "sinh"
+                | "جا_زائدي"
+                | "جيب_زائدي"
+                | "cosh"
+                | "جتا_زائدي"
+                | "جيب_تمام_زائدي"
+                | "tanh"
+                | "ظا_زائدي"
+                | "ظل_زائدي"
+                | "to_radians"
+                | "الى_راديان"
+                | "راديان"
+                | "to_degrees"
+                | "الى_درجات"
+                | "درجات"
+                | "random"
+                | "عشوائي"
+                | "random_int"
+                | "random_range"
+                | "عشوائي_بين"
+                | "random_float"
+                | "عشوائي_عشري"
+                | "random_bool"
+                | "عشوائي_منطقي"
+                | "assert"
+                | "تأكد"
+                | "assert_msg"
+                | "تأكد_رسالة"
+                | "panic"
+                | "توقف"
+                | "sleep"
+                | "نم"
+                | "time_now"
+                | "وقت_الآن"
+                | "trq_int_to_string"
+                | "trq_float_to_string"
+                | "trq_bool_to_string"
         )
     }
 

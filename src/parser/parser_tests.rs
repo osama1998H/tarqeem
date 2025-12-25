@@ -14,7 +14,6 @@ fn parser_with_markers(source: &str) -> Parser {
     Parser::new(&wrap_with_markers(source))
 }
 
-
 #[test]
 fn test_parse_while_loop() {
     let source = r#"
@@ -190,7 +189,6 @@ fn test_parse_for_loop_no_update() {
     }
 }
 
-
 #[test]
 fn test_parse_match_statement() {
     let source = r#"
@@ -262,7 +260,6 @@ fn test_parse_match_with_block_body() {
         _ => panic!("Expected Match statement"),
     }
 }
-
 
 #[test]
 fn test_parse_named_import() {
@@ -395,7 +392,6 @@ fn test_parse_export_class() {
     }
 }
 
-
 #[test]
 fn test_parse_try_catch() {
     let source = r#"
@@ -493,7 +489,6 @@ fn test_parse_throw_statement() {
     }
 }
 
-
 #[test]
 fn test_parse_break_statement() {
     let source = r#"
@@ -530,7 +525,6 @@ fn test_parse_continue_statement() {
     }
 }
 
-
 #[test]
 fn test_precedence_multiplication_over_addition() {
     let source = "1 + 2 * 3;";
@@ -538,24 +532,22 @@ fn test_precedence_multiplication_over_addition() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Expr(expr) => {
-            match &expr.kind {
-                ExprKind::Binary { left, op, right } => {
-                    assert_eq!(*op, BinaryOp::Add);
-                    match &left.kind {
-                        ExprKind::Literal(Literal::Int(1)) => {}
-                        _ => panic!("Expected literal 1"),
-                    }
-                    match &right.kind {
-                        ExprKind::Binary { op, .. } => {
-                            assert_eq!(*op, BinaryOp::Mul);
-                        }
-                        _ => panic!("Expected multiplication"),
-                    }
+        StmtKind::Expr(expr) => match &expr.kind {
+            ExprKind::Binary { left, op, right } => {
+                assert_eq!(*op, BinaryOp::Add);
+                match &left.kind {
+                    ExprKind::Literal(Literal::Int(1)) => {}
+                    _ => panic!("Expected literal 1"),
                 }
-                _ => panic!("Expected binary expression"),
+                match &right.kind {
+                    ExprKind::Binary { op, .. } => {
+                        assert_eq!(*op, BinaryOp::Mul);
+                    }
+                    _ => panic!("Expected multiplication"),
+                }
             }
-        }
+            _ => panic!("Expected binary expression"),
+        },
         _ => panic!("Expected expression statement"),
     }
 }
@@ -567,32 +559,30 @@ fn test_precedence_power_right_associative() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Expr(expr) => {
-            match &expr.kind {
-                ExprKind::Binary { left, op, right } => {
-                    assert_eq!(*op, BinaryOp::Pow);
-                    match &left.kind {
-                        ExprKind::Literal(Literal::Int(2)) => {}
-                        _ => panic!("Expected literal 2"),
-                    }
-                    match &right.kind {
-                        ExprKind::Binary { left, op, right } => {
-                            assert_eq!(*op, BinaryOp::Pow);
-                            match &left.kind {
-                                ExprKind::Literal(Literal::Int(3)) => {}
-                                _ => panic!("Expected literal 3"),
-                            }
-                            match &right.kind {
-                                ExprKind::Literal(Literal::Int(2)) => {}
-                                _ => panic!("Expected literal 2"),
-                            }
-                        }
-                        _ => panic!("Expected power expression"),
-                    }
+        StmtKind::Expr(expr) => match &expr.kind {
+            ExprKind::Binary { left, op, right } => {
+                assert_eq!(*op, BinaryOp::Pow);
+                match &left.kind {
+                    ExprKind::Literal(Literal::Int(2)) => {}
+                    _ => panic!("Expected literal 2"),
                 }
-                _ => panic!("Expected binary expression"),
+                match &right.kind {
+                    ExprKind::Binary { left, op, right } => {
+                        assert_eq!(*op, BinaryOp::Pow);
+                        match &left.kind {
+                            ExprKind::Literal(Literal::Int(3)) => {}
+                            _ => panic!("Expected literal 3"),
+                        }
+                        match &right.kind {
+                            ExprKind::Literal(Literal::Int(2)) => {}
+                            _ => panic!("Expected literal 2"),
+                        }
+                    }
+                    _ => panic!("Expected power expression"),
+                }
             }
-        }
+            _ => panic!("Expected binary expression"),
+        },
         _ => panic!("Expected expression statement"),
     }
 }
@@ -604,22 +594,20 @@ fn test_precedence_comparison_and_logical() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Expr(expr) => {
-            match &expr.kind {
-                ExprKind::Binary { op, left, right } => {
-                    assert_eq!(*op, BinaryOp::And);
-                    match &left.kind {
-                        ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Gt),
-                        _ => panic!("Expected comparison"),
-                    }
-                    match &right.kind {
-                        ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Lt),
-                        _ => panic!("Expected comparison"),
-                    }
+        StmtKind::Expr(expr) => match &expr.kind {
+            ExprKind::Binary { op, left, right } => {
+                assert_eq!(*op, BinaryOp::And);
+                match &left.kind {
+                    ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Gt),
+                    _ => panic!("Expected comparison"),
                 }
-                _ => panic!("Expected binary expression"),
+                match &right.kind {
+                    ExprKind::Binary { op, .. } => assert_eq!(*op, BinaryOp::Lt),
+                    _ => panic!("Expected comparison"),
+                }
             }
-        }
+            _ => panic!("Expected binary expression"),
+        },
         _ => panic!("Expected expression statement"),
     }
 }
@@ -631,27 +619,24 @@ fn test_precedence_parentheses() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Expr(expr) => {
-            match &expr.kind {
-                ExprKind::Binary { op, left, .. } => {
-                    assert_eq!(*op, BinaryOp::Mul);
-                    match &left.kind {
-                        ExprKind::Grouping(inner) => match &inner.kind {
-                            ExprKind::Binary { op, .. } => {
-                                assert_eq!(*op, BinaryOp::Add);
-                            }
-                            _ => panic!("Expected addition inside grouping"),
-                        },
-                        _ => panic!("Expected grouping"),
-                    }
+        StmtKind::Expr(expr) => match &expr.kind {
+            ExprKind::Binary { op, left, .. } => {
+                assert_eq!(*op, BinaryOp::Mul);
+                match &left.kind {
+                    ExprKind::Grouping(inner) => match &inner.kind {
+                        ExprKind::Binary { op, .. } => {
+                            assert_eq!(*op, BinaryOp::Add);
+                        }
+                        _ => panic!("Expected addition inside grouping"),
+                    },
+                    _ => panic!("Expected grouping"),
                 }
-                _ => panic!("Expected binary expression"),
             }
-        }
+            _ => panic!("Expected binary expression"),
+        },
         _ => panic!("Expected expression statement"),
     }
 }
-
 
 #[test]
 fn test_parse_ternary_expression() {
@@ -844,7 +829,6 @@ fn test_parse_postfix_increment() {
     }
 }
 
-
 #[test]
 fn test_parse_class_with_inheritance() {
     let source = r#"
@@ -966,7 +950,6 @@ fn test_parse_class_static_members() {
     }
 }
 
-
 #[test]
 fn test_parse_generic_class() {
     let source = r#"
@@ -1060,7 +1043,6 @@ fn test_parse_new_expression_with_generics() {
     }
 }
 
-
 #[test]
 fn test_parse_async_function() {
     let source = r#"
@@ -1106,7 +1088,6 @@ fn test_parse_await_expression() {
     }
 }
 
-
 #[test]
 fn test_parse_object_literal() {
     let source = r#"
@@ -1150,7 +1131,6 @@ fn test_parse_empty_object_literal() {
         _ => panic!("Expected VarDecl"),
     }
 }
-
 
 #[test]
 fn test_parse_optional_type() {
@@ -1224,7 +1204,6 @@ fn test_parse_nested_generic_type() {
     }
 }
 
-
 #[test]
 fn test_parse_this_expression() {
     let source = r#"
@@ -1287,7 +1266,6 @@ fn test_parse_super_expression() {
     }
 }
 
-
 #[test]
 fn test_parse_visibility_modifiers() {
     let source = r#"
@@ -1324,7 +1302,6 @@ fn test_parse_visibility_modifiers() {
         _ => panic!("Expected ClassDecl"),
     }
 }
-
 
 #[test]
 fn test_parse_empty_block() {
@@ -1440,7 +1417,6 @@ fn test_parse_if_else_if() {
     }
 }
 
-
 #[test]
 fn test_parse_do_while_loop_arabic() {
     let source = r#"
@@ -1528,7 +1504,6 @@ fn test_parse_nested_do_while() {
         _ => panic!("Expected DoWhile statement"),
     }
 }
-
 
 #[test]
 fn test_parse_arrow_function_single_param() {
@@ -1738,7 +1713,6 @@ fn test_parse_grouping_not_arrow_function() {
         _ => panic!("Expected expression statement"),
     }
 }
-
 
 #[test]
 fn test_error_recovery_multiple_errors_in_block() {

@@ -464,6 +464,26 @@ impl LlvmCodegen {
         emit!(self, "declare ptr @trq_base64_encode(ptr)");
         emit!(self, "declare ptr @trq_base64_decode(ptr)");
 
+        // Cryptography - SHA-256
+        emit!(self, "declare ptr @trq_sha256_string(ptr)");
+        emit!(self, "declare ptr @trq_sha256_file(ptr)");
+        emit!(self, "declare ptr @trq_sha256_bytes(ptr)");
+        emit!(self, "declare i1 @trq_sha256_compare(ptr, ptr)");
+
+        // Cryptography - Hex encoding
+        emit!(self, "declare ptr @trq_hex_encode(ptr)");
+        emit!(self, "declare ptr @trq_hex_decode(ptr)");
+        emit!(self, "declare ptr @trq_hex_encode_bytes(ptr)");
+        emit!(self, "declare ptr @trq_hex_decode_to_bytes(ptr)");
+
+        // Compression - gzip
+        emit!(self, "declare ptr @trq_gzip_compress_string(ptr)");
+        emit!(self, "declare ptr @trq_gzip_decompress_to_string(ptr)");
+        emit!(self, "declare ptr @trq_gzip_compress_bytes(ptr)");
+        emit!(self, "declare ptr @trq_gzip_decompress_bytes(ptr)");
+        emit!(self, "declare i1 @trq_gzip_compress_file(ptr, ptr)");
+        emit!(self, "declare i1 @trq_gzip_decompress_file(ptr, ptr)");
+
         emit!(self, "declare void @trq_throw(ptr)");
         emit!(self, "declare ptr @trq_get_exception()");
         emit!(self, "declare void @trq_panic(ptr)");
@@ -1261,8 +1281,7 @@ impl LlvmCodegen {
                 }
             }
 
-            Instruction::Nop => {
-            }
+            Instruction::Nop => {}
         }
 
         Ok(())
@@ -1624,6 +1643,26 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "فك_رمز_رابط" => Some("trq_url_decode"),
         "ترميز_أساس64" => Some("trq_base64_encode"),
         "فك_أساس64" => Some("trq_base64_decode"),
+
+        // Cryptography - SHA-256 (بصمة = fingerprint)
+        "احسب_بصمة" => Some("trq_sha256_string"),
+        "بصمة_ملف" => Some("trq_sha256_file"),
+        "بصمة_ثنائي" => Some("trq_sha256_bytes"),
+        "طابق_بصمة" => Some("trq_sha256_compare"),
+
+        // Hex encoding (ست_عشري = hexadecimal)
+        "إلى_ست_عشري" => Some("trq_hex_encode"),
+        "من_ست_عشري" => Some("trq_hex_decode"),
+        "ثنائي_إلى_ست_عشري" => Some("trq_hex_encode_bytes"),
+        "ست_عشري_إلى_ثنائي" => Some("trq_hex_decode_to_bytes"),
+
+        // Compression (اضغط = compress, فك_الضغط = decompress)
+        "اضغط" => Some("trq_gzip_compress_string"),
+        "فك_الضغط" => Some("trq_gzip_decompress_to_string"),
+        "اضغط_ثنائي" => Some("trq_gzip_compress_bytes"),
+        "فك_ضغط_ثنائي" => Some("trq_gzip_decompress_bytes"),
+        "اضغط_ملف" => Some("trq_gzip_compress_file"),
+        "فك_ضغط_ملف" => Some("trq_gzip_decompress_file"),
 
         "اطبع" | "طباعة" => Some("trq_print"),
         "اطبع_سطر" => Some("trq_print"), // Will add newline in wrapper

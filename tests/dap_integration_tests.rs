@@ -207,7 +207,6 @@ fn start_dap_server(port: u16) -> (thread::JoinHandle<()>, Arc<AtomicBool>) {
     (handle, shutdown)
 }
 
-
 #[test]
 #[ignore] // Requires TCP networking - run with: cargo test --ignored
 fn test_dap_server_lifecycle() {
@@ -251,7 +250,6 @@ fn test_dap_server_lifecycle() {
     let _ = server_handle.join();
 }
 
-
 #[test]
 #[ignore] // Requires TCP networking - run with: cargo test --ignored
 fn test_dap_initialize_capabilities() {
@@ -280,7 +278,6 @@ fn test_dap_initialize_capabilities() {
     let _ = client.disconnect();
     let _ = server_handle.join();
 }
-
 
 #[test]
 fn test_dap_protocol_message_format() {
@@ -319,7 +316,6 @@ fn test_dap_protocol_message_format() {
     }
 }
 
-
 #[test]
 fn test_dap_event_serialization() {
     let stopped_event = DapEvent::stopped("breakpoint", 1, Some("Hit breakpoint".to_string()));
@@ -337,7 +333,6 @@ fn test_dap_event_serialization() {
     let json = serde_json::to_string(&term_event).expect("Serialization failed");
     assert!(json.contains("\"event\":\"terminated\""));
 }
-
 
 #[test]
 #[ignore] // Requires TCP networking - run with: cargo test --ignored
@@ -371,7 +366,6 @@ fn test_dap_request_response_matching() {
     let _ = server_handle.join();
 }
 
-
 #[test]
 #[ignore] // Requires TCP networking - run with: cargo test --ignored
 fn test_dap_error_handling() {
@@ -398,7 +392,6 @@ fn test_dap_error_handling() {
     let _ = client.disconnect();
     let _ = server_handle.join();
 }
-
 
 #[test]
 #[ignore] // Requires TCP networking - run with: cargo test --ignored
@@ -434,7 +427,6 @@ fn test_dap_scopes_variables_structure() {
     let _ = server_handle.join();
 }
 
-
 #[test]
 #[ignore] // Requires TCP networking - run with: cargo test --ignored
 fn test_dap_step_commands_response() {
@@ -465,7 +457,6 @@ fn test_dap_step_commands_response() {
     let _ = client.disconnect();
     let _ = server_handle.join();
 }
-
 
 #[test]
 #[ignore] // Requires TCP networking - run with: cargo test --ignored
@@ -507,7 +498,6 @@ fn test_dap_breakpoints_response_structure() {
     let _ = server_handle.join();
 }
 
-
 #[test]
 #[ignore] // Requires TCP networking - run with: cargo test --ignored
 fn test_dap_exception_breakpoints() {
@@ -537,7 +527,6 @@ fn test_dap_exception_breakpoints() {
     let _ = server_handle.join();
 }
 
-
 #[test]
 #[ignore] // Requires TCP networking - run with: cargo test --ignored
 fn test_dap_stack_trace_response() {
@@ -563,7 +552,6 @@ fn test_dap_stack_trace_response() {
     let _ = server_handle.join();
 }
 
-
 #[test]
 #[ignore] // Requires TCP networking - run with: cargo test --ignored
 fn test_dap_configuration_done() {
@@ -585,7 +573,6 @@ fn test_dap_configuration_done() {
     let _ = client.disconnect();
     let _ = server_handle.join();
 }
-
 
 #[test]
 #[ignore] // Requires TCP networking - run with: cargo test --ignored

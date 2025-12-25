@@ -9,23 +9,30 @@ use crate::ir::{BlockId, FuncId, VarId};
 use super::source_map::SourceLocation;
 use super::BreakpointId;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum DebugState {
     #[default]
     NotStarted,
 
     Running,
 
-    Paused { reason: PauseReason },
+    Paused {
+        reason: PauseReason,
+    },
 
-    Stepping { mode: StepMode },
+    Stepping {
+        mode: StepMode,
+    },
 
-    Terminated { exit_value: Option<String> },
+    Terminated {
+        exit_value: Option<String>,
+    },
 
-    Error { message: String, message_ar: String },
+    Error {
+        message: String,
+        message_ar: String,
+    },
 }
-
 
 impl DebugState {
     pub fn is_paused(&self) -> bool {
@@ -68,7 +75,9 @@ impl DebugState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PauseReason {
-    Breakpoint { id: BreakpointId },
+    Breakpoint {
+        id: BreakpointId,
+    },
 
     Step,
 
@@ -76,7 +85,9 @@ pub enum PauseReason {
 
     Entry,
 
-    Exception { message: String },
+    Exception {
+        message: String,
+    },
 
     DataBreakpoint {
         variable: String,
@@ -188,7 +199,9 @@ pub enum DebugEvent {
         category: OutputCategory,
     },
 
-    Exited { exit_code: i32 },
+    Exited {
+        exit_code: i32,
+    },
 
     Terminated,
 }

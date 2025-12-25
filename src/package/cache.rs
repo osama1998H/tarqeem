@@ -185,7 +185,6 @@ impl Cache {
         _expected_checksum: &str,
         target: &Path,
     ) -> PackageResult<()> {
-
         if url.starts_with("file://") {
             let source = PathBuf::from(url.trim_start_matches("file://"));
             return self.copy_from_path(&source, target);

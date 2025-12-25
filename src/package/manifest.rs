@@ -887,7 +887,6 @@ dev1 = "0.1"
         assert_eq!(all_deps.len(), 3);
     }
 
-
     #[test]
     fn test_parse_arabic_format_simple() {
         let content = r#"

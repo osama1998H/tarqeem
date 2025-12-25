@@ -831,9 +831,10 @@ impl ClassResolver {
                 if let Some(parent_class) = self.classes.get(&parent_name) {
                     for (method_name, method) in &parent_class.methods {
                         if method.is_abstract
-                            && !abstract_methods.iter().any(|(m, _)| m == method_name) {
-                                abstract_methods.push((method_name.clone(), parent_name.clone()));
-                            }
+                            && !abstract_methods.iter().any(|(m, _)| m == method_name)
+                        {
+                            abstract_methods.push((method_name.clone(), parent_name.clone()));
+                        }
                     }
                     current_parent = parent_class.parent.clone();
                 } else {
@@ -1052,7 +1053,6 @@ mod tests {
         let result = resolver.validate();
         assert!(result.is_err());
     }
-
 
     #[test]
     fn test_method_override_same_params_valid() {

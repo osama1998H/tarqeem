@@ -84,7 +84,6 @@ fn analyzes_ok(source: &str) -> bool {
     analyzer.analyze(&ast).is_ok()
 }
 
-
 mod pipeline {
     use super::*;
 
@@ -208,7 +207,6 @@ mod pipeline {
     }
 }
 
-
 mod builtins {
     use super::*;
 
@@ -327,7 +325,6 @@ mod builtins {
     }
 }
 
-
 mod examples {
     use super::*;
 
@@ -380,7 +377,6 @@ mod examples {
     }
 }
 
-
 mod interpreter {
     use super::*;
 
@@ -431,7 +427,6 @@ mod interpreter {
     }
 }
 
-
 mod errors {
     use super::*;
 
@@ -459,7 +454,6 @@ mod errors {
         let _ = analyzes_ok(source);
     }
 }
-
 
 mod bilingual {
     use super::*;

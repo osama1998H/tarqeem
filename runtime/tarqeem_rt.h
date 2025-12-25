@@ -1469,6 +1469,119 @@ int64_t trq_performance_now(void);
 void trq_panic(TrqString* message);
 
 /*============================================================================
+ * Cryptography - SHA-256 Hashing
+ *============================================================================*/
+
+/**
+ * Compute SHA-256 hash of a string.
+ * @param content String to hash
+ * @return Hex-encoded hash string (64 characters)
+ */
+TrqString* trq_sha256_string(TrqString* content);
+
+/**
+ * Compute SHA-256 hash of a file.
+ * @param path Path to file
+ * @return Hex-encoded hash string (64 characters), or empty string on error
+ */
+TrqString* trq_sha256_file(TrqString* path);
+
+/**
+ * Compute SHA-256 hash of binary data (byte array).
+ * @param data Byte array
+ * @return Hex-encoded hash string (64 characters)
+ */
+TrqString* trq_sha256_bytes(TrqArray* data);
+
+/**
+ * Compare two hashes using constant-time comparison.
+ * @param hash1 First hash
+ * @param hash2 Second hash
+ * @return true if equal
+ */
+bool trq_sha256_compare(TrqString* hash1, TrqString* hash2);
+
+/*============================================================================
+ * Cryptography - Hex Encoding
+ *============================================================================*/
+
+/**
+ * Encode string to hexadecimal.
+ * @param content String to encode
+ * @return Hex-encoded string
+ */
+TrqString* trq_hex_encode(TrqString* content);
+
+/**
+ * Decode hexadecimal string.
+ * @param encoded Hex-encoded string
+ * @return Decoded string
+ */
+TrqString* trq_hex_decode(TrqString* encoded);
+
+/**
+ * Encode byte array to hexadecimal string.
+ * @param data Byte array
+ * @return Hex-encoded string
+ */
+TrqString* trq_hex_encode_bytes(TrqArray* data);
+
+/**
+ * Decode hexadecimal string to byte array.
+ * @param encoded Hex-encoded string
+ * @return Byte array
+ */
+TrqArray* trq_hex_decode_to_bytes(TrqString* encoded);
+
+/*============================================================================
+ * Compression - gzip
+ *============================================================================*/
+
+/**
+ * Compress a string using gzip.
+ * @param content String to compress
+ * @return Byte array containing compressed data
+ */
+TrqArray* trq_gzip_compress_string(TrqString* content);
+
+/**
+ * Decompress gzip data to string.
+ * @param compressed Byte array containing compressed data
+ * @return Decompressed string
+ */
+TrqString* trq_gzip_decompress_to_string(TrqArray* compressed);
+
+/**
+ * Compress binary data using gzip.
+ * @param data Byte array to compress
+ * @return Byte array containing compressed data
+ */
+TrqArray* trq_gzip_compress_bytes(TrqArray* data);
+
+/**
+ * Decompress gzip data to byte array.
+ * @param compressed Byte array containing compressed data
+ * @return Decompressed byte array
+ */
+TrqArray* trq_gzip_decompress_bytes(TrqArray* compressed);
+
+/**
+ * Compress a file to gzip format.
+ * @param source Path to source file
+ * @param dest Path to destination file (.gz)
+ * @return true on success
+ */
+bool trq_gzip_compress_file(TrqString* source, TrqString* dest);
+
+/**
+ * Decompress a gzip file.
+ * @param source Path to gzip file
+ * @param dest Path to destination file
+ * @return true on success
+ */
+bool trq_gzip_decompress_file(TrqString* source, TrqString* dest);
+
+/*============================================================================
  * Runtime Initialization
  *============================================================================*/
 

@@ -611,10 +611,9 @@ impl LoopUnroller {
                 continue;
             }
 
-            if self.require_known_trip_count
-                && !self.has_known_trip_count(func, loop_info) {
-                    continue;
-                }
+            if self.require_known_trip_count && !self.has_known_trip_count(func, loop_info) {
+                continue;
+            }
 
             self.stats.constants_folded += 1; // Placeholder counter
         }
@@ -711,10 +710,9 @@ impl LoopUnroller {
                     if find_constant_value(func, *right).is_some() {
                         return true;
                     }
-                } else if *right == iv
-                    && find_constant_value(func, *left).is_some() {
-                        return true;
-                    }
+                } else if *right == iv && find_constant_value(func, *left).is_some() {
+                    return true;
+                }
             }
         }
 
@@ -869,7 +867,6 @@ mod tests {
 
     #[test]
     fn test_loop_detection() {
-
         let mut func = Function::new(
             FuncId("test".to_string()),
             "test".to_string(),

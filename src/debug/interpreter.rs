@@ -519,7 +519,6 @@ impl DebugInterpreter {
         ))
     }
 
-
     fn init_globals(&mut self) -> DebugResult<()> {
         for (name, _ty, init) in &self.module.globals {
             let value = match init {
@@ -654,8 +653,7 @@ impl DebugInterpreter {
                 if self
                     .context
                     .has_breakpoint_at(&location.file, location.line)
-                {
-                }
+                {}
             }
 
             match self.execute_instruction(inst, func)? {
@@ -1166,7 +1164,6 @@ impl DebugInterpreter {
             Instruction::Nop => Ok(InstructionResult::Continue),
         }
     }
-
 
     fn execute_binary_op(
         &self,

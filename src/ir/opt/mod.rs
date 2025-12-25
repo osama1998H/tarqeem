@@ -26,8 +26,7 @@ pub use loop_opt::{LoopAnalysis, LoopOptimizer};
 
 use super::Module;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum OptLevel {
     #[default]
     O0,
@@ -35,7 +34,6 @@ pub enum OptLevel {
     O2,
     O3,
 }
-
 
 impl std::fmt::Display for OptLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
