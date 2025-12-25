@@ -1,0 +1,240 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main", "develop"]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ============================================
+  # Code Quality Checks
+  # ============================================
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run security audit
+        run: cargo audit
+
+  # ============================================
+  # Module Tests (Parallel Matrix)
+  # ============================================
+  test-modules:
+    name: Test ${{ matrix.module }}
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - lexer
+          - parser
+          - semantic
+          - ir
+          - codegen
+          - interpreter
+          - cli
+          - error
+          - lsp
+          - package
+          - doc
+          - fmt
+          - utils
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Run ${{ matrix.module }} tests
+        run: |
+          case "${{ matrix.module }}" in
+            error)
+              cargo test diagnostic --verbose -- --nocapture
+              cargo test span --verbose -- --nocapture
+              ;;
+            *)
+              cargo test ${{ matrix.module }} --verbose -- --nocapture
+              ;;
+          esac
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.module }}
+          path: target/debug/.fingerprint/
+
+  # ============================================
+  # Integration Tests
+  # ============================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: test-modules
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --verbose
+
+      - name: Run integration tests
+        run: cargo test --test integration_tests --verbose -- --nocapture
+
+      - name: Run phase3 criteria tests
+        run: cargo test --test phase3_criteria_tests --verbose -- --nocapture
+
+      - name: Run DAP integration tests
+        run: cargo test --test dap_integration_tests --verbose -- --nocapture
+
+  # ============================================
+  # Full Test Suite
+  # ============================================
+  full-test:
+    name: Full Test Suite
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run all tests
+        run: cargo test --all-features --verbose
+
+  # ============================================
+  # Code Coverage
+  # ============================================
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    needs: full-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      - name: Generate coverage report
+        run: cargo tarpaulin --out xml --out html --output-dir coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/cobertura.xml
+          fail_ci_if_error: false
+          verbose: true
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+  # ============================================
+  # Build Check (Multiple Platforms)
+  # ============================================
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build debug
+        run: cargo build --verbose
+
+      - name: Build release
+        run: cargo build --release --verbose
+
+  # ============================================
+  # Documentation
+  # ============================================
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build documentation
+        run: cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+      - name: Upload documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: target/doc/
