@@ -25,7 +25,7 @@ phf = { version = "0.11", features = ["macros"] }
 # Serialization (for package manager)
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml = "0.8"
+toml = "0.9"
 
 # Package management
 semver = "1.0"
