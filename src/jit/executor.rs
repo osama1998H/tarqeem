@@ -1,13 +1,16 @@
 //! JIT-Enabled Executor
 //!
 //! This module provides a JIT-enabled execution engine that combines
-//! the interpreter with profiling and (in future phases) JIT compilation.
+//! the interpreter with profiling and JIT compilation.
 
 use std::sync::Arc;
 
 use crate::interpreter::{Interpreter, RuntimeError, RuntimeResult, Value};
 use crate::ir::{FuncId, Module};
 
+#[cfg(feature = "jit")]
+use super::baseline::BaselineCompiler;
+use super::cache::CodeCache;
 use super::config::JitConfig;
 use super::profile::{
     CompilationTier, FunctionProfile, ProfileData, ProfileSummary, TierUpDecision,
@@ -87,10 +90,12 @@ impl std::fmt::Display for JitEvent {
     }
 }
 
-/// JIT-enabled executor that combines interpretation with profiling
+/// JIT-enabled executor that combines interpretation with profiling and compilation
 ///
-/// In Phase 1, this executor wraps the interpreter and adds profiling.
-/// In future phases, it will also handle JIT compilation and execution.
+/// This executor wraps the interpreter and adds:
+/// - Profiling for function call tracking
+/// - Tier-up decisions based on call frequency
+/// - JIT compilation of hot functions (when feature enabled)
 pub struct JitExecutor {
     /// The IR module being executed
     module: Module,
@@ -106,6 +111,13 @@ pub struct JitExecutor {
 
     /// Event callback for verbose output
     event_callback: Option<JitEventCallback>,
+
+    /// Code cache for compiled functions
+    code_cache: CodeCache,
+
+    /// Baseline JIT compiler (when feature enabled)
+    #[cfg(feature = "jit")]
+    baseline_compiler: Option<BaselineCompiler>,
 }
 
 impl JitExecutor {
@@ -113,12 +125,23 @@ impl JitExecutor {
     pub fn new(module: Module, config: JitConfig) -> Self {
         let interpreter = Interpreter::new(module.clone());
 
+        // Initialize baseline compiler if JIT feature is enabled
+        #[cfg(feature = "jit")]
+        let baseline_compiler = if config.enabled {
+            BaselineCompiler::new().ok()
+        } else {
+            None
+        };
+
         Self {
             module,
             interpreter,
             config,
             profile_data: ProfileData::new(),
             event_callback: None,
+            code_cache: CodeCache::new(),
+            #[cfg(feature = "jit")]
+            baseline_compiler,
         }
     }
 
@@ -245,22 +268,77 @@ impl JitExecutor {
                     call_count: profile.call_count(),
                 });
 
-                // Phase 1: Just record the tier-up event
-                // Phase 2+: Actually compile the function
+                // Record the tier-up event
                 self.profile_data.record_tier_up();
                 profile.set_tier(target_tier);
 
-                // Placeholder: In Phase 2, this would queue for compilation
-                // self.queue_for_compilation(func_name, target_tier);
+                // Compile the function if JIT is available
+                #[cfg(feature = "jit")]
+                if target_tier == CompilationTier::BaselineCompiled {
+                    self.compile_function(func_name);
+                }
             }
             TierUpDecision::Deoptimize => {
-                // Phase 1: Just reset to interpreted
+                // Reset to interpreted
                 profile.set_tier(CompilationTier::Interpreted);
             }
             TierUpDecision::Stay => {
                 // Nothing to do
             }
         }
+    }
+
+    /// Compile a function using the baseline compiler
+    #[cfg(feature = "jit")]
+    fn compile_function(&mut self, func_name: &str) {
+        // Check if already compiled
+        if self.code_cache.contains(func_name) {
+            return;
+        }
+
+        // Get the function from the module
+        let func_id = FuncId(func_name.to_string());
+        let func = match self.module.get_function(&func_id) {
+            Some(f) => f,
+            None => return,
+        };
+
+        // Clone the function for compilation (to avoid borrow issues)
+        let func_clone = func.clone();
+
+        // Compile using baseline compiler
+        if let Some(ref mut compiler) = self.baseline_compiler {
+            match compiler.compile(&self.module, &func_clone) {
+                Ok(compiled) => {
+                    let compile_time_ms = compiled.info.compile_time_ms;
+                    let tier = compiled.info.tier;
+
+                    self.emit_event(JitEvent::FunctionCompiled {
+                        name: func_name.to_string(),
+                        tier,
+                        compile_time_ms,
+                    });
+
+                    // Store in cache
+                    self.code_cache.insert(compiled);
+                }
+                Err(e) => {
+                    if self.config.verbose {
+                        eprintln!("[JIT] Compilation failed for '{}': {}", func_name, e);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Check if a function is compiled
+    pub fn is_compiled(&self, func_name: &str) -> bool {
+        self.code_cache.contains(func_name)
+    }
+
+    /// Get code cache statistics
+    pub fn cache_stats(&self) -> super::cache::CacheStats {
+        self.code_cache.stats()
     }
 
     /// Find the main function

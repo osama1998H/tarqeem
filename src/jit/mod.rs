@@ -35,6 +35,8 @@
 //! let result = executor.run()?;
 //! ```
 
+pub mod baseline;
+mod cache;
 mod config;
 mod error;
 mod executor;
@@ -43,6 +45,8 @@ mod profile;
 #[cfg(test)]
 mod tests;
 
+pub use baseline::{is_baseline_jit_available, BaselineCompiler};
+pub use cache::{CacheStats, CodeCache, CompiledFunction, CompiledFunctionInfo};
 pub use config::JitConfig;
 pub use error::{JitError, JitResult};
 pub use executor::JitExecutor;
