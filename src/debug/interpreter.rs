@@ -324,7 +324,10 @@ impl DebugInterpreter {
             }
         }
 
-        let frame = self.call_stack.last().unwrap();
+        let frame = self
+            .call_stack
+            .last()
+            .ok_or_else(|| DebugError::internal("Call stack unexpectedly empty"))?;
         if frame.inst_idx >= block.instructions.len() {
             return Ok(StepResult::Continue);
         }
@@ -340,7 +343,10 @@ impl DebugInterpreter {
             }
             InstructionResult::Jump(target) => {
                 let new_block_idx = self.find_block_index(&func, target)?;
-                let current_frame = self.call_stack.last().unwrap();
+                let current_frame = self
+                    .call_stack
+                    .last()
+                    .ok_or_else(|| DebugError::internal("Call stack unexpectedly empty"))?;
                 let prev_block_id = func.blocks[current_frame.block_idx].id;
                 if let Some(frame) = self.call_stack.last_mut() {
                     frame.prev_block = Some(prev_block_id);
@@ -583,7 +589,10 @@ impl DebugInterpreter {
         }
 
         loop {
-            let frame = self.call_stack.last().unwrap();
+            let frame = self
+                .call_stack
+                .last()
+                .ok_or_else(|| RuntimeError::internal("call stack unexpectedly empty"))?;
             let block_idx = frame.block_idx;
 
             if block_idx >= func.blocks.len() {

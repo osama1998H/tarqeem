@@ -13,7 +13,7 @@ use crate::ir::{IrBuilder, OptLevel, Optimizer};
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::semantic::Analyzer;
-use crate::utils::{is_valid_source_extension, valid_source_extension_display};
+use crate::utils::{is_valid_source_extension, valid_source_extension_display, CompilerContext};
 use colored::Colorize;
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -129,8 +129,11 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             let filename = file.display().to_string();
 
+            // Create compiler context with string interner
+            let mut ctx = CompilerContext::new();
+
             if dump_tokens {
-                let mut lexer = Lexer::new(&source);
+                let mut lexer = Lexer::with_interner(&source, ctx.interner_mut());
                 println!("{}", "=== Tokens / الرموز ===".cyan().bold());
                 for token in lexer.tokenize() {
                     println!("  {:?} @ {}", token.kind, token.span);
@@ -379,6 +382,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             let filename = file.display().to_string();
 
+            // Create compiler context with string interner
+            let mut _ctx = CompilerContext::new();
+
             let mut parser = Parser::new(&source);
             let ast = parser.parse().map_err(|e| {
                 e.emit(&source, &filename, lang);
@@ -438,6 +444,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
 
             let filename = file.display().to_string();
+
+            // Create compiler context with string interner
+            let mut _ctx = CompilerContext::new();
 
             let mut parser = Parser::new(&source);
             let ast = parser.parse().map_err(|e| {
@@ -991,6 +1000,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
             let filename = file.display().to_string();
 
+            // Create compiler context with string interner
+            let mut _ctx = CompilerContext::new();
+
             let mut parser = Parser::new(&source);
             let ast = parser.parse().map_err(|e| {
                 e.emit(&source, &filename, lang);
@@ -1029,6 +1041,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
             let stdin = io::stdin();
             let mut stdout = io::stdout();
             let mut line_count = 0u32;
+
+            // Create compiler context - reused across all REPL lines for deduplication
+            let mut _ctx = CompilerContext::new();
 
             loop {
                 print!("{}", "ترقيم> ".green().bold());
@@ -1396,6 +1411,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     .cyan()
                 );
             }
+
+            // Create compiler context with string interner
+            let mut _ctx = CompilerContext::new();
 
             let mut all_docs = Vec::new();
             for source_file in &source_files {
