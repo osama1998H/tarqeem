@@ -513,4 +513,59 @@ mod tests {
         // assert!(symbol.doc.as_ref().unwrap().contains("لجمع عددين"));
         assert!(symbol.doc.is_none() || symbol.doc.as_ref().unwrap().contains("لجمع"));
     }
+
+    #[test]
+    fn test_arabic_lexer_error_translation() {
+        // Test unterminated string error gets Arabic translation
+        let content = wrap_with_markers(r#"متغير س = "نص غير مغلق"#);
+        let mut doc = DocumentState::new(test_uri(), 1, content);
+
+        let analysis = doc.get_analysis(Language::Arabic);
+        assert!(analysis.has_errors, "Should have lexer errors");
+        assert!(!analysis.diagnostics.is_empty(), "Should have diagnostics");
+
+        // Verify at least one diagnostic has an Arabic message
+        let has_arabic_error = analysis.diagnostics.iter().any(|d| {
+            d.message_ar
+                .chars()
+                .any(|c| matches!(c, '\u{0600}'..='\u{06FF}'))
+        });
+        assert!(has_arabic_error, "Diagnostics should have Arabic messages");
+    }
+
+    #[test]
+    fn test_translate_lexer_error_unexpected_char() {
+        let arabic = translate_lexer_error("Unexpected character '@'");
+        assert!(
+            arabic.contains("غير متوقع"),
+            "Should translate 'unexpected character'"
+        );
+    }
+
+    #[test]
+    fn test_translate_lexer_error_unterminated_string() {
+        let arabic = translate_lexer_error("Unterminated string");
+        assert!(
+            arabic.contains("غير مُنهى"),
+            "Should translate 'unterminated string'"
+        );
+    }
+
+    #[test]
+    fn test_translate_lexer_error_invalid_number() {
+        let arabic = translate_lexer_error("Invalid number format");
+        assert!(
+            arabic.contains("غير صالح"),
+            "Should translate 'invalid number'"
+        );
+    }
+
+    #[test]
+    fn test_translate_lexer_error_unknown() {
+        let arabic = translate_lexer_error("Some unknown error");
+        assert!(
+            arabic.contains("خطأ معجمي"),
+            "Unknown errors should have Arabic prefix"
+        );
+    }
 }
