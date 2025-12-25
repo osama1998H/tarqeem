@@ -51,13 +51,8 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_newlines_and_comments(&mut self) -> FormatResult<()> {
-        loop {
-            match &self.current {
-                Token::Newline | Token::Comment(_) => {
-                    self.advance()?;
-                }
-                _ => break,
-            }
+        while matches!(&self.current, Token::Newline | Token::Comment(_)) {
+            self.advance()?;
         }
         Ok(())
     }

@@ -4,7 +4,7 @@
 //! source locations, enabling the debugger to correlate execution with source code.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::error::Span;
 use crate::ir::{BlockId, FuncId, VarId};
@@ -183,8 +183,8 @@ impl SourceMap {
         self.instruction_map.get(&key)
     }
 
-    pub fn get_instructions_at_line(&self, file: &PathBuf, line: usize) -> Vec<&InstructionKey> {
-        let key = (line, file.clone());
+    pub fn get_instructions_at_line(&self, file: &Path, line: usize) -> Vec<&InstructionKey> {
+        let key = (line, file.to_path_buf());
         self.line_map
             .get(&key)
             .map(|v| v.iter().collect())

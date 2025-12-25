@@ -123,6 +123,7 @@ impl ModuleLoader {
         None
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn load_module(&mut self, path: &Path, span: Span) -> Result<&LoadedModule, ()> {
         let canonical_path = match path.canonicalize() {
             Ok(p) => p,
@@ -164,7 +165,8 @@ impl ModuleLoader {
         }
 
         if self.modules.contains_key(&module_id) {
-            return Ok(self.modules.get(&module_id).unwrap());
+            // Safe: we just checked the key exists
+            return Ok(self.modules.get(&module_id).expect("key exists"));
         }
 
         self.loading_stack.push(module_id.clone());
@@ -176,7 +178,8 @@ impl ModuleLoader {
         match result {
             Ok(module) => {
                 self.modules.insert(module_id.clone(), module);
-                Ok(self.modules.get(&module_id).unwrap())
+                // Safe: we just inserted this key
+                Ok(self.modules.get(&module_id).expect("just inserted"))
             }
             Err(()) => Err(()),
         }

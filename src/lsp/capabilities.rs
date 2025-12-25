@@ -133,7 +133,5 @@ pub fn server_capabilities() -> ServerCapabilities {
         document_highlight_provider: None,
 
         position_encoding: None,
-
-        ..Default::default()
     }
 }
