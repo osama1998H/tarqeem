@@ -20,7 +20,7 @@ unicode-normalization = "0.1"
 
 # Utilities
 indexmap = "2.12"
-phf = { version = "0.11", features = ["macros"] }
+phf = { version = "0.13", features = ["macros"] }
 
 # Serialization (for package manager)
 serde = { version = "1.0", features = ["derive"] }
