@@ -1,7 +1,7 @@
 //! CLI command implementations
 
 use super::{Cli, Commands, PkgCommands};
-use crate::codegen::{target::TargetTriple, Linker, LlvmCodegen, Target};
+use crate::codegen::{target::TargetTriple, Linker, LlvmCodegen, Target, WasmConfig};
 use crate::debug::{
     DebugCommand, DebugCommandParser, DebugContext, DebugInterpreter, DebugState, StepResult,
 };
@@ -64,6 +64,27 @@ fn find_runtime() -> Option<PathBuf> {
     None
 }
 
+/// Find the WebAssembly runtime library
+fn find_wasm_runtime() -> Option<PathBuf> {
+    let search_paths: Vec<Option<PathBuf>> = vec![
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.join("runtime/wasm/libtrq_wasm.a"))),
+        std::env::current_exe().ok().and_then(|p| {
+            p.parent()
+                .and_then(|p| p.parent().map(|p| p.join("runtime/wasm/libtrq_wasm.a")))
+        }),
+        Some(PathBuf::from("runtime/wasm/libtrq_wasm.a")),
+        Some(PathBuf::from("/usr/local/lib/tarqeem/libtrq_wasm.a")),
+        Some(PathBuf::from("/usr/lib/tarqeem/libtrq_wasm.a")),
+    ];
+
+    search_paths
+        .into_iter()
+        .flatten()
+        .find(|path| path.exists())
+}
+
 fn find_stdlib_path() -> Option<PathBuf> {
     let search_paths: Vec<Option<PathBuf>> = vec![
         std::env::current_exe()
@@ -116,6 +137,10 @@ pub fn run(cli: Cli) -> Result<(), String> {
             emit_llvm,
             emit_asm,
             emit_obj,
+            emit_wasm,
+            wasm_js_bindings,
+            wasm_export_all,
+            wasm_memory_pages,
             target,
             dump_tokens,
             dump_ast,
@@ -206,6 +231,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 return Ok(());
             }
 
+            // Determine target: use explicit target, WASM if requested, or native
             let target_config = if let Some(ref triple_str) = target {
                 TargetTriple::parse(triple_str)
                     .map(Target::from_triple)
@@ -215,6 +241,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
                             triple_str, triple_str
                         )
                     })?
+            } else if emit_wasm {
+                // Default to wasm32-unknown-unknown for browser use
+                Target::wasm32()
             } else {
                 Target::native()
             };
@@ -238,6 +267,8 @@ pub fn run(cli: Cli) -> Result<(), String> {
                     PathBuf::from(format!("{}.s", stem))
                 } else if emit_obj {
                     PathBuf::from(format!("{}.o", stem))
+                } else if emit_wasm || target_config.is_wasm() {
+                    PathBuf::from(format!("{}.wasm", stem))
                 } else {
                     PathBuf::from(stem)
                 }
@@ -300,6 +331,78 @@ pub fn run(cli: Cli) -> Result<(), String> {
                             output_path.display()
                         )
                         .green()
+                    );
+                }
+            } else if emit_wasm || target_config.is_wasm() {
+                // WebAssembly compilation
+                let wasm_config = WasmConfig::new().with_memory_pages(wasm_memory_pages);
+                let wasm_config = if wasm_js_bindings {
+                    wasm_config.with_js_bindings()
+                } else {
+                    wasm_config
+                };
+                let wasm_config = if wasm_export_all {
+                    wasm_config.with_export_all()
+                } else {
+                    wasm_config
+                };
+
+                let linker = Linker::new(target_config.clone())
+                    .optimization_level(opt_level as u32)
+                    .verbose(cli.verbose)
+                    .wasm_config(wasm_config);
+
+                if !linker.is_wasm_available() {
+                    return Err("WASM compilation not available. Install LLVM with WebAssembly support. / ترجمة WebAssembly غير متاحة. ثبّت LLVM مع دعم WebAssembly.".to_string());
+                }
+
+                // Find WASM runtime if available
+                let wasm_runtime = find_wasm_runtime();
+
+                linker
+                    .compile_to_wasm(&llvm_ir, &output_path, wasm_runtime.as_deref())
+                    .map_err(|e| {
+                        format!(
+                            "WASM compilation failed: {} / فشل ترجمة WebAssembly: {}",
+                            e.message, e.message_ar
+                        )
+                    })?;
+
+                println!(
+                    "{}",
+                    format!(
+                        "WebAssembly created: {} / تم إنشاء WebAssembly: {}",
+                        output_path.display(),
+                        output_path.display()
+                    )
+                    .green()
+                );
+
+                if wasm_js_bindings {
+                    let js_path = output_path.with_extension("js");
+                    println!(
+                        "{}",
+                        format!(
+                            "JavaScript bindings: {} / روابط JavaScript: {}",
+                            js_path.display(),
+                            js_path.display()
+                        )
+                        .green()
+                    );
+                }
+
+                if cli.verbose {
+                    println!(
+                        "  Target: {} / الهدف: {}",
+                        target_config.llvm_triple(),
+                        target_config.llvm_triple()
+                    );
+                    println!(
+                        "  Memory: {} pages ({} KB) / الذاكرة: {} صفحة ({} كيلوبايت)",
+                        wasm_memory_pages,
+                        wasm_memory_pages * 64,
+                        wasm_memory_pages,
+                        wasm_memory_pages * 64
                     );
                 }
             } else {

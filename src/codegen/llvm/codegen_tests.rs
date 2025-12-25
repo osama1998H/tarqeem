@@ -1966,3 +1966,393 @@ fn test_phi_function() {
 
     assert!(result.contains("phi i64"));
 }
+
+// =============================================================================
+// WASM Code Generation Tests
+// =============================================================================
+
+fn create_wasm_codegen() -> LlvmCodegen {
+    LlvmCodegen::new(Target::wasm32())
+}
+
+#[test]
+fn test_wasm_target_module_header() {
+    let mut codegen = create_wasm_codegen();
+    let module = create_test_module("wasm_test");
+
+    let result = codegen.generate(&module).unwrap();
+
+    assert!(result.contains("; ModuleID = 'wasm_test'"));
+    assert!(result.contains("target triple = \"wasm32-unknown-unknown\""));
+    assert!(result.contains("p:32:32")); // WASM uses 32-bit pointers
+}
+
+#[test]
+fn test_wasm_target_data_layout() {
+    let mut codegen = create_wasm_codegen();
+    let module = create_test_module("wasm_test");
+
+    let result = codegen.generate(&module).unwrap();
+
+    // WASM data layout should have little-endian and 32-bit pointers
+    assert!(result.contains("e-m:e-p:32:32"));
+}
+
+#[test]
+fn test_wasm_simple_function() {
+    let mut codegen = create_wasm_codegen();
+    let mut module = create_test_module("wasm_test");
+
+    let mut func = create_test_function(
+        "add",
+        vec![
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
+        ],
+        IrType::Int,
+    );
+    func.blocks[0].instructions.push(Instruction::Binary {
+        dest: VarId(2),
+        op: BinaryOp::Add,
+        left: VarId(0),
+        right: VarId(1),
+        ty: IrType::Int,
+    });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
+    module.functions.push(func);
+
+    let result = codegen.generate(&module).unwrap();
+
+    // WASM function definition should exist and contain the add operation
+    assert!(result.contains("define i64 @add"));
+    assert!(result.contains("i64 %arg.0")); // Parameters use arg.N format
+    assert!(result.contains("i64 %arg.1"));
+    assert!(result.contains("add i64"));
+}
+
+#[test]
+fn test_wasm_arabic_function_name() {
+    let mut codegen = create_wasm_codegen();
+    let mut module = create_test_module("wasm_test");
+
+    let mut func = Function::new(
+        FuncId("جمع".to_string()),
+        "جمع".to_string(),
+        vec![
+            Parameter {
+                id: VarId(0),
+                name: "أ".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "ب".to_string(),
+                ty: IrType::Int,
+            },
+        ],
+        IrType::Int,
+    );
+    func.blocks
+        .push(BasicBlock::with_label(BlockId(0), "entry".to_string()));
+    func.blocks[0].instructions.push(Instruction::Binary {
+        dest: VarId(2),
+        op: BinaryOp::Add,
+        left: VarId(0),
+        right: VarId(1),
+        ty: IrType::Int,
+    });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
+    module.functions.push(func);
+
+    let result = codegen.generate(&module).unwrap();
+
+    // Should generate a function with mangled Arabic name
+    assert!(result.contains("@_U"));
+    assert!(result.contains("add i64"));
+}
+
+#[test]
+fn test_wasm_runtime_declarations() {
+    let mut codegen = create_wasm_codegen();
+    let module = create_test_module("wasm_test");
+
+    let result = codegen.generate(&module).unwrap();
+
+    // WASM runtime should declare memory management functions
+    assert!(result.contains("declare ptr @trq_alloc"));
+    assert!(result.contains("declare void @trq_free"));
+}
+
+#[test]
+fn test_wasm_arithmetic_operations() {
+    let mut codegen = create_wasm_codegen();
+    let mut module = create_test_module("wasm_test");
+
+    // Create a function with multiple operations
+    let mut func = create_test_function(
+        "calculate",
+        vec![
+            Parameter {
+                id: VarId(0),
+                name: "x".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "y".to_string(),
+                ty: IrType::Int,
+            },
+        ],
+        IrType::Int,
+    );
+
+    // x * y
+    func.blocks[0].instructions.push(Instruction::Binary {
+        dest: VarId(2),
+        op: BinaryOp::Mul,
+        left: VarId(0),
+        right: VarId(1),
+        ty: IrType::Int,
+    });
+    // x + y
+    func.blocks[0].instructions.push(Instruction::Binary {
+        dest: VarId(3),
+        op: BinaryOp::Add,
+        left: VarId(0),
+        right: VarId(1),
+        ty: IrType::Int,
+    });
+    // (x * y) - (x + y)
+    func.blocks[0].instructions.push(Instruction::Binary {
+        dest: VarId(4),
+        op: BinaryOp::Sub,
+        left: VarId(2),
+        right: VarId(3),
+        ty: IrType::Int,
+    });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(4)),
+    });
+    module.functions.push(func);
+
+    let result = codegen.generate(&module).unwrap();
+
+    assert!(result.contains("mul i64"));
+    assert!(result.contains("add i64"));
+    assert!(result.contains("sub i64"));
+}
+
+#[test]
+fn test_wasm_float_operations() {
+    let mut codegen = create_wasm_codegen();
+    let mut module = create_test_module("wasm_test");
+
+    let mut func = create_test_function(
+        "float_calc",
+        vec![
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Float,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Float,
+            },
+        ],
+        IrType::Float,
+    );
+    func.blocks[0].instructions.push(Instruction::Binary {
+        dest: VarId(2),
+        op: BinaryOp::Add,
+        left: VarId(0),
+        right: VarId(1),
+        ty: IrType::Float,
+    });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(2)),
+    });
+    module.functions.push(func);
+
+    let result = codegen.generate(&module).unwrap();
+
+    assert!(result.contains("fadd double"));
+}
+
+#[test]
+fn test_wasm_control_flow() {
+    let mut codegen = create_wasm_codegen();
+    let mut module = create_test_module("wasm_test");
+
+    let mut func = create_test_function(
+        "abs",
+        vec![Parameter {
+            id: VarId(0),
+            name: "x".to_string(),
+            ty: IrType::Int,
+        }],
+        IrType::Int,
+    );
+
+    // if x < 0 then -x else x
+    func.blocks[0].instructions.push(Instruction::Const {
+        dest: VarId(1),
+        value: Constant::Int(0),
+        ty: IrType::Int,
+    });
+    func.blocks[0].instructions.push(Instruction::Binary {
+        dest: VarId(2),
+        op: BinaryOp::Lt,
+        left: VarId(0),
+        right: VarId(1),
+        ty: IrType::Int,
+    });
+    func.blocks[0].instructions.push(Instruction::Branch {
+        cond: VarId(2),
+        then_block: BlockId(1),
+        else_block: BlockId(2),
+    });
+
+    let mut neg_block = BasicBlock::with_label(BlockId(1), "negative".to_string());
+    neg_block.instructions.push(Instruction::Unary {
+        dest: VarId(3),
+        op: UnaryOp::Neg,
+        operand: VarId(0),
+        ty: IrType::Int,
+    });
+    neg_block
+        .instructions
+        .push(Instruction::Jump { target: BlockId(3) });
+    func.blocks.push(neg_block);
+
+    let mut pos_block = BasicBlock::with_label(BlockId(2), "positive".to_string());
+    pos_block
+        .instructions
+        .push(Instruction::Jump { target: BlockId(3) });
+    func.blocks.push(pos_block);
+
+    let mut merge_block = BasicBlock::with_label(BlockId(3), "merge".to_string());
+    merge_block.instructions.push(Instruction::Phi {
+        dest: VarId(4),
+        ty: IrType::Int,
+        incoming: vec![(VarId(3), BlockId(1)), (VarId(0), BlockId(2))],
+    });
+    merge_block.instructions.push(Instruction::Return {
+        value: Some(VarId(4)),
+    });
+    func.blocks.push(merge_block);
+
+    module.functions.push(func);
+
+    let result = codegen.generate(&module).unwrap();
+
+    assert!(result.contains("br i1"));
+    assert!(result.contains("phi i64"));
+}
+
+#[test]
+fn test_wasm_vs_native_target() {
+    let wasm_target = Target::wasm32();
+    let native_target = Target::native();
+
+    // WASM should have 32-bit pointers
+    assert_eq!(wasm_target.triple.pointer_bits(), 32);
+
+    // Native is typically 64-bit (on modern systems)
+    // Note: This may vary depending on the build machine
+    assert!(native_target.triple.pointer_bits() >= 32);
+
+    // WASM-specific checks
+    assert!(wasm_target.is_wasm());
+    assert!(!native_target.is_wasm());
+}
+
+#[test]
+fn test_wasm_wasi_target() {
+    let wasi_target = Target::wasm32_wasi();
+
+    assert!(wasi_target.is_wasm());
+    assert!(wasi_target.is_wasi());
+    assert_eq!(wasi_target.triple.arch, "wasm32");
+}
+
+#[test]
+fn test_wasm_string_operations() {
+    let mut codegen = create_wasm_codegen();
+    let mut module = create_test_module("wasm_test");
+
+    let str_idx = module.strings.add("مرحبا بالعالم".to_string());
+
+    let mut func = create_test_function("greet", vec![], IrType::String);
+    func.blocks[0].instructions.push(Instruction::Const {
+        dest: VarId(0),
+        value: Constant::String(str_idx),
+        ty: IrType::String,
+    });
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(0)),
+    });
+    module.functions.push(func);
+
+    let result = codegen.generate(&module).unwrap();
+
+    assert!(result.contains("@.str.0"));
+    assert!(result.contains("call ptr @trq_string_new"));
+}
+
+#[test]
+fn test_wasm_array_operations() {
+    let mut codegen = create_wasm_codegen();
+    let mut module = create_test_module("wasm_test");
+
+    let mut func = create_test_function(
+        "make_array",
+        vec![],
+        IrType::Array(Box::new(IrType::Int), 0),
+    );
+
+    // Create elements
+    func.blocks[0].instructions.push(Instruction::Const {
+        dest: VarId(0),
+        value: Constant::Int(1),
+        ty: IrType::Int,
+    });
+    func.blocks[0].instructions.push(Instruction::Const {
+        dest: VarId(1),
+        value: Constant::Int(2),
+        ty: IrType::Int,
+    });
+    func.blocks[0].instructions.push(Instruction::Const {
+        dest: VarId(2),
+        value: Constant::Int(3),
+        ty: IrType::Int,
+    });
+
+    func.blocks[0].instructions.push(Instruction::NewArray {
+        dest: VarId(3),
+        elem_ty: IrType::Int,
+        elements: vec![VarId(0), VarId(1), VarId(2)],
+    });
+
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(3)),
+    });
+    module.functions.push(func);
+
+    let result = codegen.generate(&module).unwrap();
+
+    assert!(result.contains("call ptr @trq_array_new"));
+}

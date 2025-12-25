@@ -1,6 +1,7 @@
 //! Target Configuration
 //!
 //! This module defines target machine configurations for code generation.
+//! Supports native targets (x86_64, aarch64) and WebAssembly targets.
 
 use std::fmt;
 use std::process::Command;
@@ -26,6 +27,15 @@ impl TargetTriple {
     pub fn parse(s: &str) -> Option<Self> {
         let parts: Vec<&str> = s.split('-').collect();
         if parts.len() < 3 {
+            // Handle special case for wasm32-unknown-unknown which is valid
+            if parts.len() == 2 && parts[0] == "wasm32" {
+                return Some(Self {
+                    arch: "wasm32".to_string(),
+                    vendor: parts[1].to_string(),
+                    os: "unknown".to_string(),
+                    env: None,
+                });
+            }
             return None;
         }
 
@@ -69,15 +79,46 @@ impl TargetTriple {
         }
     }
 
+    /// WebAssembly target for browser deployment (via JavaScript bindings)
+    pub fn wasm32_unknown() -> Self {
+        Self::new("wasm32", "unknown", "unknown", None)
+    }
+
+    /// WebAssembly target with WASI support for standalone execution
+    pub fn wasm32_wasi() -> Self {
+        Self::new("wasm32", "wasi", "wasi", None)
+    }
+
+    /// WebAssembly target with WASI Preview 1 (explicit)
+    pub fn wasm32_wasip1() -> Self {
+        Self::new("wasm32", "wasip1", "wasi", None)
+    }
+
+    /// Check if this is a WebAssembly target
+    pub fn is_wasm(&self) -> bool {
+        self.arch.starts_with("wasm")
+    }
+
+    /// Check if this is a WASI target (standalone WASM with system interface)
+    pub fn is_wasi(&self) -> bool {
+        self.is_wasm() && (self.vendor.contains("wasi") || self.os == "wasi")
+    }
+
     pub fn is_64bit(&self) -> bool {
-        matches!(self.arch.as_str(), "x86_64" | "aarch64")
+        matches!(self.arch.as_str(), "x86_64" | "aarch64" | "wasm64")
+    }
+
+    pub fn is_32bit(&self) -> bool {
+        matches!(self.arch.as_str(), "wasm32" | "i686" | "i386")
     }
 
     pub fn pointer_size(&self) -> u32 {
         if self.is_64bit() {
             8
-        } else {
+        } else if self.is_32bit() {
             4
+        } else {
+            8 // Default to 64-bit
         }
     }
 
@@ -123,6 +164,16 @@ impl DataLayout {
         }
     }
 
+    /// WebAssembly 32-bit data layout
+    pub fn wasm32() -> Self {
+        Self {
+            endianness: 'e',
+            pointer_bits: 32,
+            stack_alignment: 128,
+            native_integers: vec![32, 64],
+        }
+    }
+
     pub fn to_llvm_string(&self) -> String {
         let native: Vec<String> = self.native_integers.iter().map(|i| i.to_string()).collect();
         format!(
@@ -133,6 +184,12 @@ impl DataLayout {
             native.join(":"),
             self.stack_alignment
         )
+    }
+
+    /// WebAssembly-specific data layout string
+    pub fn to_llvm_string_wasm(&self) -> String {
+        // Standard WASM32 data layout used by LLVM
+        "e-m:e-p:32:32-i64:64-n32:64-S128-ni:1:10:20".to_string()
     }
 }
 
@@ -149,6 +206,7 @@ impl Target {
         let data_layout = match triple.arch.as_str() {
             "x86_64" => DataLayout::x86_64(),
             "aarch64" => DataLayout::aarch64(),
+            "wasm32" => DataLayout::wasm32(),
             _ => DataLayout::x86_64(), // Default
         };
 
@@ -164,12 +222,36 @@ impl Target {
         Self::from_triple(TargetTriple::native())
     }
 
+    /// WebAssembly target for browser deployment
+    pub fn wasm32() -> Self {
+        Self::from_triple(TargetTriple::wasm32_unknown())
+    }
+
+    /// WebAssembly target with WASI for standalone execution
+    pub fn wasm32_wasi() -> Self {
+        Self::from_triple(TargetTriple::wasm32_wasi())
+    }
+
+    /// Check if this is a WebAssembly target
+    pub fn is_wasm(&self) -> bool {
+        self.triple.is_wasm()
+    }
+
+    /// Check if this is a WASI target
+    pub fn is_wasi(&self) -> bool {
+        self.triple.is_wasi()
+    }
+
     pub fn llvm_triple(&self) -> String {
         self.triple.to_string()
     }
 
     pub fn llvm_data_layout(&self) -> String {
-        self.data_layout.to_llvm_string()
+        if self.triple.is_wasm() {
+            self.data_layout.to_llvm_string_wasm()
+        } else {
+            self.data_layout.to_llvm_string()
+        }
     }
 
     pub fn has_clang() -> bool {
@@ -185,6 +267,28 @@ impl Target {
             .arg("--version")
             .output()
             .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    /// Check if wasm-ld (WebAssembly linker) is available
+    pub fn has_wasm_ld() -> bool {
+        Command::new("wasm-ld")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    /// Check if LLVM has WebAssembly target support
+    pub fn has_wasm_support() -> bool {
+        Command::new("llc")
+            .args(["--version"])
+            .output()
+            .map(|o| {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                // Check if wasm32 is in the registered targets
+                stdout.contains("wasm") || Self::has_wasm_ld()
+            })
             .unwrap_or(false)
     }
 }
@@ -229,5 +333,67 @@ mod tests {
         let s = layout.to_llvm_string();
         assert!(s.starts_with("e-"));
         assert!(s.contains("p:64:64"));
+    }
+
+    #[test]
+    fn test_wasm32_target_triple() {
+        let triple = TargetTriple::wasm32_unknown();
+        assert_eq!(triple.arch, "wasm32");
+        assert_eq!(triple.vendor, "unknown");
+        assert_eq!(triple.os, "unknown");
+        assert!(triple.is_wasm());
+        assert!(!triple.is_wasi());
+        assert!(triple.is_32bit());
+        assert!(!triple.is_64bit());
+        assert_eq!(triple.pointer_bits(), 32);
+    }
+
+    #[test]
+    fn test_wasm32_wasi_target_triple() {
+        let triple = TargetTriple::wasm32_wasi();
+        assert_eq!(triple.arch, "wasm32");
+        assert!(triple.is_wasm());
+        assert!(triple.is_wasi());
+        assert_eq!(triple.to_string(), "wasm32-wasi-wasi");
+    }
+
+    #[test]
+    fn test_wasm32_target_parse() {
+        let triple = TargetTriple::parse("wasm32-unknown-unknown").unwrap();
+        assert!(triple.is_wasm());
+        assert!(!triple.is_wasi());
+
+        let triple = TargetTriple::parse("wasm32-wasi-wasi").unwrap();
+        assert!(triple.is_wasm());
+        assert!(triple.is_wasi());
+    }
+
+    #[test]
+    fn test_wasm32_data_layout() {
+        let layout = DataLayout::wasm32();
+        assert_eq!(layout.pointer_bits, 32);
+
+        let wasm_layout = layout.to_llvm_string_wasm();
+        assert!(wasm_layout.contains("p:32:32"));
+    }
+
+    #[test]
+    fn test_wasm_target() {
+        let target = Target::wasm32();
+        assert!(target.is_wasm());
+        assert!(!target.is_wasi());
+        assert_eq!(target.triple.pointer_bits(), 32);
+
+        let target_wasi = Target::wasm32_wasi();
+        assert!(target_wasi.is_wasm());
+        assert!(target_wasi.is_wasi());
+    }
+
+    #[test]
+    fn test_wasm_data_layout_string() {
+        let target = Target::wasm32();
+        let layout = target.llvm_data_layout();
+        // WASM should use the specialized layout string
+        assert!(layout.contains("p:32:32"));
     }
 }
