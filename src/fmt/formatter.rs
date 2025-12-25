@@ -65,6 +65,13 @@ impl Formatter {
     }
 
     fn format_stmt(&self, stmt: &Stmt, p: &mut Printer) {
+        // Output leading line comments
+        for comment in &stmt.leading_comments {
+            p.write("//");
+            p.write(comment);
+            p.newline();
+        }
+
         self.format_doc_comment_for_stmt(&stmt.kind, p);
 
         match &stmt.kind {
@@ -1191,5 +1198,29 @@ mod tests {
     fn test_format_import() {
         let result = format("استورد { قائمة } من \"مجموعات\"");
         assert!(result.contains("استورد { قائمة } من \"مجموعات\""));
+    }
+
+    #[test]
+    fn test_format_preserves_line_comments() {
+        let result = format("// مثال على استخدام التعداد في ترقيم\nمتغير س = 5");
+        assert!(result.contains("// مثال على استخدام التعداد في ترقيم"));
+        assert!(result.contains("متغير س = 5"));
+    }
+
+    #[test]
+    fn test_format_preserves_multiple_comments() {
+        let result = format("// التعليق الأول\n// التعليق الثاني\nمتغير س = 5");
+        assert!(result.contains("// التعليق الأول"));
+        assert!(result.contains("// التعليق الثاني"));
+        assert!(result.contains("متغير س = 5"));
+    }
+
+    #[test]
+    fn test_format_comment_not_broken() {
+        // This test ensures // doesn't become / /
+        let result = format("// تعليق\nمتغير س = 5");
+        // Should contain "//" not "/ /"
+        assert!(result.contains("//"));
+        assert!(!result.contains("/ /"));
     }
 }

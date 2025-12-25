@@ -10,6 +10,8 @@ pub struct Parser {
     current: usize,
     errors: Vec<Diagnostic>,
     panic_mode: bool,
+    /// Line comments pending to be attached to the next statement
+    pending_comments: Vec<String>,
 }
 
 impl Parser {
@@ -26,6 +28,7 @@ impl Parser {
             current: 0,
             errors: Vec::new(),
             panic_mode: false,
+            pending_comments: Vec::new(),
         }
     }
 
@@ -39,6 +42,7 @@ impl Parser {
             current: 0,
             errors: Vec::new(),
             panic_mode: false,
+            pending_comments: Vec::new(),
         }
     }
 
@@ -145,6 +149,19 @@ impl Parser {
         }
     }
 
+    /// Collects all line comments before the next non-comment token
+    fn collect_line_comments(&mut self) {
+        while let TokenKind::LineComment(content) = &self.peek().kind {
+            self.pending_comments.push(content.clone());
+            self.advance();
+        }
+    }
+
+    /// Takes pending comments and clears the buffer
+    fn take_pending_comments(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.pending_comments)
+    }
+
     pub fn parse(&mut self) -> Result<Ast, Diagnostic> {
         let bismillah_span = if self.check(&TokenKind::Bismillah) {
             let span = self.current_span();
@@ -214,28 +231,36 @@ impl Parser {
     }
 
     fn parse_declaration(&mut self) -> Result<Stmt, Diagnostic> {
+        // Collect any line comments before the declaration
+        self.collect_line_comments();
+        let leading_comments = self.take_pending_comments();
+
         let doc_comment = self.consume_doc_comment();
 
-        if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
-            self.parse_var_declaration(doc_comment)
+        let mut stmt = if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
+            self.parse_var_declaration(doc_comment)?
         } else if self.check(&TokenKind::Function) {
-            self.parse_function_declaration(false, doc_comment)
+            self.parse_function_declaration(false, doc_comment)?
         } else if self.check(&TokenKind::Async) {
             self.advance();
-            self.parse_function_declaration(true, doc_comment)
+            self.parse_function_declaration(true, doc_comment)?
         } else if self.check(&TokenKind::Class) {
-            self.parse_class_declaration(doc_comment)
+            self.parse_class_declaration(doc_comment)?
         } else if self.check(&TokenKind::Interface) {
-            self.parse_interface_declaration(doc_comment)
+            self.parse_interface_declaration(doc_comment)?
         } else if self.check(&TokenKind::Enum) {
-            self.parse_enum_declaration(doc_comment)
+            self.parse_enum_declaration(doc_comment)?
         } else if self.check(&TokenKind::Import) {
-            self.parse_import_statement()
+            self.parse_import_statement()?
         } else if self.check(&TokenKind::Export) {
-            self.parse_export_statement()
+            self.parse_export_statement()?
         } else {
-            self.parse_statement()
-        }
+            self.parse_statement()?
+        };
+
+        // Attach leading comments to the statement
+        stmt.leading_comments = leading_comments;
+        Ok(stmt)
     }
 
     fn parse_var_declaration(&mut self, doc_comment: Option<String>) -> Result<Stmt, Diagnostic> {

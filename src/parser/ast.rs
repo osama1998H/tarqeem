@@ -39,11 +39,25 @@ impl Ast {
 pub struct Stmt {
     pub kind: StmtKind,
     pub span: Span,
+    /// Line comments that appear before this statement
+    pub leading_comments: Vec<String>,
 }
 
 impl Stmt {
     pub fn new(kind: StmtKind, span: Span) -> Self {
-        Self { kind, span }
+        Self {
+            kind,
+            span,
+            leading_comments: Vec::new(),
+        }
+    }
+
+    pub fn with_comments(kind: StmtKind, span: Span, comments: Vec<String>) -> Self {
+        Self {
+            kind,
+            span,
+            leading_comments: comments,
+        }
     }
 }
 

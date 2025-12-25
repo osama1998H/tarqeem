@@ -286,11 +286,8 @@ impl<'a> Lexer<'a> {
                     {
                         return Some(self.scan_doc_comment());
                     }
-                    self.advance(); // consume first /
-                    self.advance(); // consume second /
-                    while !self.is_at_end() && self.peek() != '\n' {
-                        self.advance();
-                    }
+                    // Emit line comment token for formatter preservation
+                    return Some(self.scan_line_comment());
                 }
                 '/' if self.peek_next() == '*' => {
                     if self.position + 2 < self.source.len()
@@ -321,6 +318,22 @@ impl<'a> Lexer<'a> {
             }
         }
         None
+    }
+
+    fn scan_line_comment(&mut self) -> Token {
+        self.token_start = self.position;
+        self.token_start_line = self.line;
+        self.token_start_column = self.column;
+
+        self.advance(); // first /
+        self.advance(); // second /
+
+        let mut content = String::new();
+        while !self.is_at_end() && self.peek() != '\n' {
+            content.push(self.advance());
+        }
+
+        self.make_token(TokenKind::LineComment(content))
     }
 
     fn scan_doc_comment(&mut self) -> Token {
@@ -846,14 +859,16 @@ mod tests {
     }
 
     #[test]
-    fn test_regular_comment_skipped() {
+    fn test_regular_comment_preserved() {
         let source = r#"// هذا تعليق عادي
 متغير س = 5"#;
         let mut lexer = Lexer::new(source);
         let tokens: Vec<_> = lexer.tokenize();
 
-        assert_eq!(tokens[0].kind, TokenKind::Newline);
-        assert_eq!(tokens[1].kind, TokenKind::Let);
+        // Line comments are now preserved as tokens for formatter
+        assert!(matches!(&tokens[0].kind, TokenKind::LineComment(s) if s == " هذا تعليق عادي"));
+        assert_eq!(tokens[1].kind, TokenKind::Newline);
+        assert_eq!(tokens[2].kind, TokenKind::Let);
     }
 
     #[test]

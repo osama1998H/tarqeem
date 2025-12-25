@@ -140,6 +140,8 @@ pub enum TokenKind {
     ArabicComma,
     ArabicSemicolon,
 
+    /// Line comment (// ...)
+    LineComment(String),
     DocComment(String),
     BlockDocComment(String),
 
@@ -234,6 +236,17 @@ impl TokenKind {
         matches!(
             self,
             TokenKind::DocComment(_) | TokenKind::BlockDocComment(_)
+        )
+    }
+
+    pub fn is_line_comment(&self) -> bool {
+        matches!(self, TokenKind::LineComment(_))
+    }
+
+    pub fn is_comment(&self) -> bool {
+        matches!(
+            self,
+            TokenKind::LineComment(_) | TokenKind::DocComment(_) | TokenKind::BlockDocComment(_)
         )
     }
 
