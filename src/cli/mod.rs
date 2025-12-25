@@ -50,6 +50,22 @@ pub enum Commands {
         #[arg(long, short = 'c')]
         emit_obj: bool,
 
+        /// Emit WebAssembly binary (.wasm)
+        #[arg(long, aliases = ["wasm"])]
+        emit_wasm: bool,
+
+        /// Generate JavaScript bindings for WASM (use with --emit-wasm)
+        #[arg(long, aliases = ["wasm-js", "روابط_js"])]
+        wasm_js_bindings: bool,
+
+        /// Export all public functions to WASM (use with --emit-wasm)
+        #[arg(long, aliases = ["صدر_الكل"])]
+        wasm_export_all: bool,
+
+        /// Initial WASM memory pages (64KB each, default: 16 = 1MB)
+        #[arg(long, default_value = "16")]
+        wasm_memory_pages: u32,
+
         #[arg(long)]
         target: Option<String>,
 
