@@ -157,6 +157,13 @@ impl Parser {
         }
     }
 
+    /// Skips all line comments before the next non-comment token (without storing)
+    fn skip_line_comments(&mut self) {
+        while matches!(&self.peek().kind, TokenKind::LineComment(_)) {
+            self.advance();
+        }
+    }
+
     /// Takes pending comments and clears the buffer
     fn take_pending_comments(&mut self) -> Vec<String> {
         std::mem::take(&mut self.pending_comments)
@@ -178,6 +185,15 @@ impl Parser {
         let mut statements = Vec::new();
 
         while !self.is_at_end() && !self.check(&TokenKind::Alhamdulillah) {
+            // Collect any line comments before checking for more statements
+            // This preserves comments for the formatter while also handling
+            // the case where there are only comments before الحمد_لله
+            self.collect_line_comments();
+            if self.is_at_end() || self.check(&TokenKind::Alhamdulillah) {
+                // Discard collected comments since there's no statement to attach them to
+                self.take_pending_comments();
+                break;
+            }
             match self.parse_declaration() {
                 Ok(stmt) => {
                     statements.push(stmt);
@@ -435,6 +451,8 @@ impl Parser {
     }
 
     fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
+        // Skip any line comments before the member
+        self.skip_line_comments();
         let member_doc = self.consume_doc_comment();
 
         let visibility = self.parse_visibility();
@@ -534,6 +552,11 @@ impl Parser {
         let mut accessors = Vec::new();
 
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // Skip any line comments before the accessor
+            self.skip_line_comments();
+            if self.check(&TokenKind::RightBrace) {
+                break;
+            }
             let accessor_visibility = self.parse_visibility();
 
             if self.match_token(&TokenKind::Get) {
@@ -604,6 +627,11 @@ impl Parser {
 
         let mut methods = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // Skip any line comments before the method
+            self.skip_line_comments();
+            if self.check(&TokenKind::RightBrace) {
+                break;
+            }
             let method_doc = self.consume_doc_comment();
 
             self.expect(&TokenKind::Function, "Expected 'function'", "متوقع 'دالة'")?;
@@ -652,6 +680,11 @@ impl Parser {
 
         let mut variants = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // Skip any line comments before the variant
+            self.skip_line_comments();
+            if self.check(&TokenKind::RightBrace) {
+                break;
+            }
             let variant = self.parse_enum_variant()?;
             variants.push(variant);
 
@@ -989,6 +1022,11 @@ impl Parser {
 
         let mut arms = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // Skip any line comments before the arm
+            self.skip_line_comments();
+            if self.check(&TokenKind::RightBrace) {
+                break;
+            }
             match self.parse_match_arm() {
                 Ok(arm) => arms.push(arm),
                 Err(diagnostic) => {

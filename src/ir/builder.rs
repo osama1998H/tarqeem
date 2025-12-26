@@ -51,6 +51,8 @@ pub struct IrBuilder {
     scope_stack: Vec<HashMap<String, VarId>>,
     loop_stack: Vec<(BlockId, BlockId)>, // (continue_block, break_block)
     class_fields: HashMap<String, Vec<(String, IrType)>>,
+    /// Maps (class_name, property_name) -> (has_getter, has_setter, property_type)
+    class_properties: HashMap<(String, String), (bool, bool, IrType)>,
     method_return_types: HashMap<String, IrType>,
     function_names: HashSet<String>,
     function_return_types: HashMap<String, IrType>,
@@ -73,6 +75,7 @@ impl IrBuilder {
             scope_stack: Vec::new(),
             loop_stack: Vec::new(),
             class_fields: HashMap::new(),
+            class_properties: HashMap::new(),
             method_return_types: HashMap::new(),
             function_names: HashSet::new(),
             function_return_types: HashMap::new(),
@@ -203,6 +206,43 @@ impl IrBuilder {
                         .unwrap_or(IrType::Void);
                     let full_name = format!("{}::{}", name, method_name);
                     self.method_return_types.insert(full_name, ret_ty);
+                }
+                ClassMember::Property {
+                    name: prop_name,
+                    ty,
+                    accessors,
+                    ..
+                } => {
+                    let prop_type = self.convert_type(ty);
+
+                    // Check if this property has a getter and/or setter
+                    let has_getter = accessors
+                        .iter()
+                        .any(|a| matches!(a, crate::parser::PropertyAccessor::Get { .. }))
+                        || accessors.is_empty();
+                    let has_setter = accessors
+                        .iter()
+                        .any(|a| matches!(a, crate::parser::PropertyAccessor::Set { .. }))
+                        || accessors.is_empty();
+
+                    // Store property info for later use in build_member
+                    self.class_properties.insert(
+                        (name.to_string(), prop_name.clone()),
+                        (has_getter, has_setter, prop_type.clone()),
+                    );
+
+                    // For auto-properties (no explicit accessors), add a backing field
+                    if accessors.is_empty() {
+                        let backing_field = format!("_{}", prop_name);
+                        fields.push((backing_field, prop_type));
+                    }
+
+                    // Register the getter and setter return types
+                    if has_getter {
+                        let getter_name = format!("{}::__احصل_{}", name, prop_name);
+                        self.method_return_types
+                            .insert(getter_name, self.convert_type(ty));
+                    }
                 }
                 _ => {}
             }
@@ -2126,6 +2166,26 @@ impl IrBuilder {
             _ => None,
         };
 
+        // Check if this is a property access that needs to call a getter
+        if let Some(ref class_id) = class_id_opt {
+            let key = (class_id.0.clone(), property.to_string());
+            if let Some((has_getter, _, prop_type)) = self.class_properties.get(&key).cloned() {
+                if has_getter {
+                    // Call the getter method
+                    let getter_name = format!("{}::__احصل_{}", class_id.0, property);
+                    self.emit(Instruction::Call {
+                        dest: Some(dest),
+                        func: FuncId(getter_name),
+                        args: vec![obj_var],
+                        ret_ty: prop_type.clone(),
+                    });
+                    self.var_types.insert(dest.0, prop_type);
+                    return Ok(dest);
+                }
+            }
+        }
+
+        // Regular field access
         let (field_ty, field_index, class_id) = if let Some(class_id) = class_id_opt {
             if let Some((idx, ty)) = self.get_field_info(&class_id.0, property) {
                 (ty, idx, class_id)
@@ -2238,6 +2298,25 @@ impl IrBuilder {
                     _ => None,
                 };
 
+                // Check if this is a property assignment that needs to call a setter
+                if let Some(ref class_id) = class_id_opt {
+                    let key = (class_id.0.clone(), property.clone());
+                    if let Some((_, has_setter, _)) = self.class_properties.get(&key).cloned() {
+                        if has_setter {
+                            // Call the setter method
+                            let setter_name = format!("{}::__عيّن_{}", class_id.0, property);
+                            self.emit(Instruction::Call {
+                                dest: None,
+                                func: FuncId(setter_name),
+                                args: vec![obj_var, value_var],
+                                ret_ty: IrType::Void,
+                            });
+                            return Ok(value_var);
+                        }
+                    }
+                }
+
+                // Regular field assignment
                 let (class_id, field_index) = if let Some(class_id) = class_id_opt {
                     let index = self
                         .get_field_info(&class_id.0, property)
