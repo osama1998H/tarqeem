@@ -71,6 +71,10 @@ fn format_type_info(ty: &Type, kind: &SymbolKind, language: Language) -> (String
         (SymbolKind::Method, Language::English) => "Method",
         (SymbolKind::Property, Language::Arabic) => "خاصية",
         (SymbolKind::Property, Language::English) => "Property",
+        (SymbolKind::Enum, Language::Arabic) => "تعداد",
+        (SymbolKind::Enum, Language::English) => "Enum",
+        (SymbolKind::EnumVariant, Language::Arabic) => "حالة تعداد",
+        (SymbolKind::EnumVariant, Language::English) => "Enum Variant",
     };
 
     (type_str, kind_label.to_string())

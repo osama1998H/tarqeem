@@ -1171,6 +1171,58 @@ impl DebugInterpreter {
             }
 
             Instruction::Nop => Ok(InstructionResult::Continue),
+
+            // Enum instructions
+            Instruction::NewEnumVariant { dest, variant, fields } => {
+                let mut field_values = Vec::new();
+                for f in fields {
+                    field_values.push(self.get_local(*f)?.clone());
+                }
+                let enum_value = Value::Enum {
+                    enum_name: variant.enum_id.0.clone(),
+                    variant_name: variant.name.clone(),
+                    discriminant: variant.discriminant as i64,
+                    fields: field_values,
+                };
+                self.set_local(*dest, enum_value);
+                Ok(InstructionResult::Continue)
+            }
+            Instruction::GetDiscriminant { dest, value } => {
+                let val = self.get_local(*value)?;
+                if let Value::Enum { discriminant, .. } = val {
+                    self.set_local(*dest, Value::Int(discriminant));
+                    Ok(InstructionResult::Continue)
+                } else {
+                    Err(RuntimeError::type_error(
+                        "enum",
+                        val.type_name(),
+                    ))
+                }
+            }
+            Instruction::GetVariantField {
+                dest,
+                value,
+                field_index,
+                ..
+            } => {
+                let val = self.get_local(*value)?;
+                if let Value::Enum { fields, .. } = val {
+                    if let Some(field_val) = fields.get(*field_index as usize) {
+                        self.set_local(*dest, field_val.clone());
+                        Ok(InstructionResult::Continue)
+                    } else {
+                        Err(RuntimeError::index_out_of_bounds(
+                            *field_index as i64,
+                            fields.len(),
+                        ))
+                    }
+                } else {
+                    Err(RuntimeError::type_error(
+                        "enum",
+                        val.type_name(),
+                    ))
+                }
+            }
         }
     }
 

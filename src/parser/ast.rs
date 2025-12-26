@@ -246,6 +246,18 @@ pub enum ExprKind {
     This,
 
     Super,
+
+    /// Enum variant instantiation: `لون::أحمر` or `نتيجة::نجاح(42)`
+    EnumVariant {
+        /// The enum type name (e.g., "لون", "نتيجة")
+        enum_name: String,
+        /// Optional type arguments for generic enums (e.g., `اختياري<عدد>`)
+        type_args: Vec<TypeAnnotation>,
+        /// The variant name (e.g., "أحمر", "نجاح")
+        variant_name: String,
+        /// Associated data arguments (empty for unit variants)
+        args: Vec<Expr>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -370,9 +382,57 @@ pub enum LambdaBody {
 
 #[derive(Debug, Clone)]
 pub struct MatchArm {
-    pub patterns: Vec<Expr>,
+    pub patterns: Vec<Pattern>,
     pub body: Block,
     pub span: Span,
+}
+
+/// Pattern for match expressions
+/// نمط للمطابقة في تعبيرات تطابق
+#[derive(Debug, Clone)]
+pub struct Pattern {
+    pub kind: PatternKind,
+    pub span: Span,
+}
+
+impl Pattern {
+    pub fn new(kind: PatternKind, span: Span) -> Self {
+        Self { kind, span }
+    }
+
+    /// Check if this pattern is a wildcard/default
+    pub fn is_wildcard(&self) -> bool {
+        matches!(self.kind, PatternKind::Wildcard)
+    }
+
+    /// Check if this pattern is an enum variant
+    pub fn is_enum_variant(&self) -> bool {
+        matches!(self.kind, PatternKind::EnumVariant { .. })
+    }
+}
+
+/// Pattern kinds for match expressions
+#[derive(Debug, Clone)]
+pub enum PatternKind {
+    /// Literal value pattern (numbers, strings, booleans)
+    /// نمط القيمة الحرفية (أرقام، نصوص، قيم منطقية)
+    Literal(Expr),
+
+    /// Identifier pattern - binds value to a name
+    /// نمط المعرّف - يربط القيمة باسم
+    Identifier(String),
+
+    /// Wildcard pattern - matches anything (غير_ذلك / default)
+    /// نمط البديل - يطابق أي شيء
+    Wildcard,
+
+    /// Enum variant pattern with optional bindings
+    /// نمط حالة التعداد مع ربط اختياري
+    EnumVariant {
+        enum_name: String,
+        variant_name: String,
+        bindings: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone)]

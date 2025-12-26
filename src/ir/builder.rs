@@ -5,12 +5,13 @@
 
 use crate::parser::{
     Ast, BinaryOp as AstBinaryOp, Block, CatchClause, ClassMember, Expr, ExprKind, LambdaBody,
-    Literal, MatchArm, Param, Stmt, StmtKind, TypeAnnotation, TypeKind, UnaryOp as AstUnaryOp,
+    Literal, MatchArm, Param, Pattern, PatternKind, Stmt, StmtKind, TypeAnnotation, TypeKind,
+    UnaryOp as AstUnaryOp,
 };
 
 use super::{
-    BasicBlock, BinaryOp, BlockId, Class, ClassId, Constant, FieldId, FuncId, Function,
-    Instruction, IrType, MethodId, Module, Parameter, UnaryOp, VarId,
+    BasicBlock, BinaryOp, BlockId, Class, ClassId, Constant, EnumId, FieldId, FuncId, Function,
+    Instruction, IrType, MethodId, Module, Parameter, UnaryOp, VarId, VariantId,
 };
 
 use std::collections::{HashMap, HashSet};
@@ -1474,16 +1475,6 @@ impl IrBuilder {
             let patterns = &arm.patterns;
 
             for (p_idx, pattern) in patterns.iter().enumerate() {
-                let pattern_val = self.build_expr(pattern)?;
-                let cmp = self.new_var();
-                self.emit(Instruction::Binary {
-                    dest: cmp,
-                    op: BinaryOp::Eq,
-                    left: match_val,
-                    right: pattern_val,
-                    ty: IrType::Bool,
-                });
-
                 let else_block = if p_idx + 1 < patterns.len() {
                     self.new_block(Some(format!("match.arm{}.pat{}", i, p_idx + 1)))
                 } else if i + 1 < arms.len() {
@@ -1492,12 +1483,8 @@ impl IrBuilder {
                     exit_block
                 };
 
-                self.emit(Instruction::Branch {
-                    cond: cmp,
-                    then_block: arm_blocks[i],
-                    else_block,
-                });
-
+                // Build pattern comparison based on pattern kind
+                self.build_pattern_check(pattern, match_val, arm_blocks[i], else_block)?;
                 self.switch_to_block(else_block);
             }
         }
@@ -1505,6 +1492,12 @@ impl IrBuilder {
         for (i, arm) in arms.iter().enumerate() {
             self.switch_to_block(arm_blocks[i]);
             self.push_scope();
+
+            // Add pattern bindings to scope before building arm body
+            for pattern in &arm.patterns {
+                self.add_pattern_bindings(pattern, match_val)?;
+            }
+
             for stmt in &arm.body.statements {
                 self.build_stmt(stmt)?;
             }
@@ -1520,6 +1513,113 @@ impl IrBuilder {
         }
 
         self.switch_to_block(exit_block);
+        Ok(())
+    }
+
+    /// Build pattern check and branch
+    fn build_pattern_check(
+        &mut self,
+        pattern: &Pattern,
+        match_val: VarId,
+        then_block: BlockId,
+        else_block: BlockId,
+    ) -> Result<()> {
+        match &pattern.kind {
+            PatternKind::Literal(expr) => {
+                // Compare with literal value
+                let pattern_val = self.build_expr(expr)?;
+                let cmp = self.new_var();
+                self.emit(Instruction::Binary {
+                    dest: cmp,
+                    op: BinaryOp::Eq,
+                    left: match_val,
+                    right: pattern_val,
+                    ty: IrType::Bool,
+                });
+                self.emit(Instruction::Branch {
+                    cond: cmp,
+                    then_block,
+                    else_block,
+                });
+            }
+            PatternKind::Identifier(_) | PatternKind::Wildcard => {
+                // Always matches - unconditional jump
+                self.emit(Instruction::Jump { target: then_block });
+            }
+            PatternKind::EnumVariant {
+                variant_name, ..
+            } => {
+                // Check discriminant for enum variant match
+                // Get discriminant from match value
+                let disc = self.new_var();
+                self.emit(Instruction::GetDiscriminant {
+                    dest: disc,
+                    value: match_val,
+                });
+
+                // Compare with expected discriminant (use hash of variant name for now)
+                // TODO: Use proper enum registry for discriminant lookup
+                let expected = self.new_var();
+                let disc_val = variant_name.chars().map(|c| c as i64).sum::<i64>() % 256;
+                self.emit(Instruction::Const {
+                    dest: expected,
+                    value: Constant::Int(disc_val),
+                    ty: IrType::Int,
+                });
+
+                let cmp = self.new_var();
+                self.emit(Instruction::Binary {
+                    dest: cmp,
+                    op: BinaryOp::Eq,
+                    left: disc,
+                    right: expected,
+                    ty: IrType::Bool,
+                });
+
+                self.emit(Instruction::Branch {
+                    cond: cmp,
+                    then_block,
+                    else_block,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Add pattern bindings to scope
+    fn add_pattern_bindings(&mut self, pattern: &Pattern, match_val: VarId) -> Result<()> {
+        match &pattern.kind {
+            PatternKind::Identifier(name) => {
+                // Bind the identifier to the match value
+                self.variables.insert(name.clone(), match_val);
+            }
+            PatternKind::EnumVariant {
+                enum_name,
+                variant_name,
+                bindings,
+            } => {
+                // Extract variant fields and bind them
+                // TODO: Full implementation when enum registry is available
+                for (i, binding) in bindings.iter().enumerate() {
+                    let field_val = self.new_var();
+                    self.emit(Instruction::GetVariantField {
+                        dest: field_val,
+                        value: match_val,
+                        variant: VariantId {
+                            enum_id: EnumId(enum_name.clone()),
+                            name: variant_name.clone(),
+                            discriminant: i as u32,
+                        },
+                        field_index: i as u32,
+                        ty: IrType::Int, // Default to Int for now
+                    });
+                    self.variables.insert(binding.clone(), field_val);
+                }
+            }
+            PatternKind::Literal(_) | PatternKind::Wildcard => {
+                // No bindings for literals or wildcards
+            }
+        }
         Ok(())
     }
 
@@ -1664,7 +1764,45 @@ impl IrBuilder {
             ExprKind::Grouping(inner) => self.build_expr(inner),
             ExprKind::This => self.build_this(),
             ExprKind::Super => self.build_super(),
+            ExprKind::EnumVariant {
+                enum_name,
+                variant_name,
+                args,
+                ..
+            } => self.build_enum_variant(enum_name, variant_name, args),
         }
+    }
+
+    fn build_enum_variant(
+        &mut self,
+        enum_name: &str,
+        variant_name: &str,
+        args: &[Expr],
+    ) -> Result<VarId> {
+        // Build all field values first
+        let mut field_vars = Vec::new();
+        for arg in args {
+            let var_id = self.build_expr(arg)?;
+            field_vars.push(var_id);
+        }
+
+        // Create the variant ID
+        // For now, use 0 as discriminant - will be computed properly when we have enum info
+        let variant_id = VariantId {
+            enum_id: EnumId(enum_name.to_string()),
+            name: variant_name.to_string(),
+            discriminant: 0, // TODO: Look up actual discriminant from enum registry
+        };
+
+        // Create the enum value
+        let dest = self.new_var();
+        self.emit(Instruction::NewEnumVariant {
+            dest,
+            variant: variant_id,
+            fields: field_vars,
+        });
+
+        Ok(dest)
     }
 
     fn build_literal(&mut self, lit: &Literal) -> Result<VarId> {

@@ -11,6 +11,22 @@ use crate::parser::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// Information about an enum variant for semantic analysis
+#[derive(Debug, Clone)]
+pub struct EnumVariantInfo {
+    pub name: String,
+    pub discriminant: Option<i64>,
+    pub fields: Vec<Type>,
+}
+
+/// Information about an enum type for semantic analysis
+#[derive(Debug, Clone)]
+pub struct EnumInfo {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub variants: Vec<EnumVariantInfo>,
+}
+
 pub struct Analyzer {
     scope: Scope,
     class_resolver: ClassResolver,
@@ -22,6 +38,8 @@ pub struct Analyzer {
     language: Language,
     current_class: Option<String>,
     expected_type: Option<Type>,
+    /// Registry of enum types with their variants
+    enums: HashMap<String, EnumInfo>,
 }
 
 impl Analyzer {
@@ -37,6 +55,7 @@ impl Analyzer {
             language: Language::Arabic,
             current_class: None,
             expected_type: None,
+            enums: HashMap::new(),
         }
     }
 
@@ -628,10 +647,11 @@ impl Analyzer {
     fn analyze_enum_decl(
         &mut self,
         name: &str,
-        _type_params: &[String],
-        _variants: &[EnumVariant],
+        type_params: &[String],
+        variants: &[EnumVariant],
         span: Span,
     ) {
+        // Define the enum as a symbol
         let symbol = Symbol {
             name: name.to_string(),
             kind: SymbolKind::Enum,
@@ -646,7 +666,33 @@ impl Analyzer {
                 &format!("التعداد '{}' معرّف مسبقاً", name),
                 span,
             );
+            return;
         }
+
+        // Store enum info with variants for later lookup
+        let variant_infos: Vec<EnumVariantInfo> = variants
+            .iter()
+            .map(|v| {
+                let fields = v
+                    .fields
+                    .iter()
+                    .map(|f| self.resolve_type(&f.ty))
+                    .collect();
+                EnumVariantInfo {
+                    name: v.name.clone(),
+                    discriminant: v.discriminant,
+                    fields,
+                }
+            })
+            .collect();
+
+        let enum_info = EnumInfo {
+            name: name.to_string(),
+            type_params: type_params.to_vec(),
+            variants: variant_infos,
+        };
+
+        self.enums.insert(name.to_string(), enum_info);
     }
 
     fn analyze_if(&mut self, condition: &Expr, then_branch: &Block, else_branch: Option<&Block>) {
@@ -759,8 +805,11 @@ impl Analyzer {
         let match_type = self.infer_type(expr);
 
         for arm in arms {
+            // Create a new scope for each arm to handle pattern bindings
+            self.push_scope(ScopeKind::Block);
+
             for pattern in &arm.patterns {
-                let pattern_type = self.infer_type(pattern);
+                let pattern_type = self.infer_pattern_type(pattern, &match_type);
                 if !pattern_type.is_compatible_with(&match_type) {
                     self.error(
                         &format!(
@@ -775,9 +824,84 @@ impl Analyzer {
                         pattern.span,
                     );
                 }
+
+                // Add pattern bindings to scope
+                self.add_pattern_bindings(pattern, &match_type);
             }
 
-            self.analyze_block(&arm.body, ScopeKind::Block);
+            // Analyze the arm body with bindings in scope
+            for stmt in &arm.body.statements {
+                self.analyze_stmt(stmt);
+            }
+
+            self.pop_scope();
+        }
+    }
+
+    /// Infer the type of a pattern
+    fn infer_pattern_type(&mut self, pattern: &Pattern, match_type: &Type) -> Type {
+        match &pattern.kind {
+            PatternKind::Literal(expr) => self.infer_type(expr),
+            PatternKind::Identifier(_) => match_type.clone(),
+            PatternKind::Wildcard => match_type.clone(),
+            PatternKind::EnumVariant {
+                enum_name,
+                variant_name,
+                ..
+            } => {
+                // Look up the enum and verify the variant exists
+                if let Some(enum_info) = self.enums.get(enum_name) {
+                    if enum_info.variants.iter().any(|v| &v.name == variant_name) {
+                        Type::Enum(enum_name.clone())
+                    } else {
+                        self.error(
+                            &format!("Variant '{}' not found in enum '{}'", variant_name, enum_name),
+                            &format!("الحالة '{}' غير موجودة في التعداد '{}'", variant_name, enum_name),
+                            pattern.span,
+                        );
+                        Type::Unknown
+                    }
+                } else {
+                    self.error(
+                        &format!("Enum '{}' not found", enum_name),
+                        &format!("التعداد '{}' غير موجود", enum_name),
+                        pattern.span,
+                    );
+                    Type::Unknown
+                }
+            }
+        }
+    }
+
+    /// Add pattern bindings to the current scope
+    fn add_pattern_bindings(&mut self, pattern: &Pattern, match_type: &Type) {
+        match &pattern.kind {
+            PatternKind::Identifier(name) => {
+                // Bind the identifier to the match type
+                self.scope.define(Symbol::variable(name, match_type.clone(), false));
+            }
+            PatternKind::EnumVariant {
+                enum_name,
+                variant_name,
+                bindings,
+            } => {
+                // Look up the variant's field types and bind them
+                if let Some(enum_info) = self.enums.get(enum_name) {
+                    if let Some(variant) = enum_info.variants.iter().find(|v| &v.name == variant_name) {
+                        for (i, binding) in bindings.iter().enumerate() {
+                            let field_type = if i < variant.fields.len() {
+                                variant.fields[i].clone()
+                            } else {
+                                Type::Unknown
+                            };
+                            self.scope.define(Symbol::variable(binding, field_type, false));
+                        }
+                    }
+                }
+            }
+            PatternKind::Literal(_) | PatternKind::Wildcard => {
+                // No bindings for literals or wildcards
+            }
         }
     }
 
@@ -1671,6 +1795,93 @@ impl Analyzer {
                     Type::Any
                 }
             }
+
+            ExprKind::EnumVariant {
+                enum_name,
+                variant_name,
+                args,
+                ..
+            } => {
+                // Analyze all arguments first
+                let arg_types: Vec<Type> = args.iter().map(|a| self.analyze_expr(a)).collect();
+
+                // Look up the enum in our registry
+                if let Some(enum_info) = self.enums.get(enum_name).cloned() {
+                    // Find the variant
+                    if let Some(variant) = enum_info
+                        .variants
+                        .iter()
+                        .find(|v| &v.name == variant_name)
+                    {
+                        // Check argument count matches
+                        if args.len() != variant.fields.len() {
+                            self.error(
+                                &format!(
+                                    "Variant '{}::{}' expects {} argument(s), got {}",
+                                    enum_name,
+                                    variant_name,
+                                    variant.fields.len(),
+                                    args.len()
+                                ),
+                                &format!(
+                                    "الحالة '{}::{}' تتوقع {} معامل(ات)، وُجد {}",
+                                    enum_name,
+                                    variant_name,
+                                    variant.fields.len(),
+                                    args.len()
+                                ),
+                                expr.span,
+                            );
+                        } else {
+                            // Check argument types match
+                            for (i, (arg_ty, expected_ty)) in
+                                arg_types.iter().zip(&variant.fields).enumerate()
+                            {
+                                if !arg_ty.is_compatible_with(expected_ty) {
+                                    self.error(
+                                        &format!(
+                                            "Type mismatch in variant '{}::{}' argument {}: expected {}, got {}",
+                                            enum_name,
+                                            variant_name,
+                                            i + 1,
+                                            expected_ty,
+                                            arg_ty
+                                        ),
+                                        &format!(
+                                            "عدم تطابق النوع في معامل {} للحالة '{}::{}': متوقع {}، وُجد {}",
+                                            i + 1,
+                                            enum_name,
+                                            variant_name,
+                                            expected_ty.arabic_name(),
+                                            arg_ty.arabic_name()
+                                        ),
+                                        args[i].span,
+                                    );
+                                }
+                            }
+                        }
+                        Type::Enum(enum_name.clone())
+                    } else {
+                        // Variant not found
+                        self.error(
+                            &format!(
+                                "Variant '{}' not found in enum '{}'",
+                                variant_name, enum_name
+                            ),
+                            &format!(
+                                "الحالة '{}' غير موجودة في التعداد '{}'",
+                                variant_name, enum_name
+                            ),
+                            expr.span,
+                        );
+                        Type::Error
+                    }
+                } else {
+                    // Enum not found - might be defined later or doesn't exist
+                    // For now, just return the type and let it be resolved later
+                    Type::Enum(enum_name.clone())
+                }
+            }
         }
     }
 
@@ -1707,7 +1918,14 @@ impl Analyzer {
 
     fn resolve_type(&self, type_ann: &TypeAnnotation) -> Type {
         match &type_ann.kind {
-            TypeKind::Simple(name) => parse_type_name(name),
+            TypeKind::Simple(name) => {
+                // Check if it's an enum type first
+                if self.enums.contains_key(name) {
+                    Type::Enum(name.clone())
+                } else {
+                    parse_type_name(name)
+                }
+            }
             TypeKind::Array(inner) => Type::Array(Box::new(self.resolve_type(inner))),
             TypeKind::Map(k, v) => Type::Map(
                 Box::new(self.resolve_type(k)),

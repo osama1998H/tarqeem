@@ -4,8 +4,9 @@
 
 use super::comment::DocCommentParser;
 use super::model::{
-    ClassDoc, ConstructorDoc, DocItem, Documentation, FieldDoc, FunctionDoc, InterfaceDoc,
-    MethodDoc, MethodSignatureDoc, ParamDoc, ReturnDoc, VariableDoc,
+    ClassDoc, ConstructorDoc, DocItem, Documentation, EnumDoc, EnumFieldDoc, EnumVariantDoc,
+    FieldDoc, FunctionDoc, InterfaceDoc, MethodDoc, MethodSignatureDoc, ParamDoc, ReturnDoc,
+    VariableDoc,
 };
 use crate::parser::{Ast, ClassMember, Stmt, StmtKind, TypeAnnotation, TypeKind, Visibility};
 
@@ -341,6 +342,43 @@ impl DocExtractor {
                 }
 
                 Some(DocItem::Interface(iface_doc))
+            }
+
+            StmtKind::EnumDecl {
+                name,
+                type_params,
+                variants,
+                doc_comment,
+            } => {
+                let mut enum_doc = EnumDoc::new(name.clone());
+                enum_doc.type_params = type_params.clone();
+                enum_doc.is_exported = is_exported;
+                enum_doc.line = stmt.span.line;
+
+                if let Some(comment) = doc_comment {
+                    let parsed = DocCommentParser::parse(comment);
+                    enum_doc.description = parsed.description;
+                }
+
+                for variant in variants {
+                    let variant_doc = EnumVariantDoc {
+                        name: variant.name.clone(),
+                        description: None,
+                        fields: variant
+                            .fields
+                            .iter()
+                            .map(|f| EnumFieldDoc {
+                                name: f.name.clone(),
+                                ty: self.type_to_string(&f.ty),
+                                description: None,
+                            })
+                            .collect(),
+                        discriminant: variant.discriminant,
+                    };
+                    enum_doc.variants.push(variant_doc);
+                }
+
+                Some(DocItem::Enum(enum_doc))
             }
 
             StmtKind::Export(inner) => self.extract_stmt(inner, true),

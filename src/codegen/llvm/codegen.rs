@@ -200,6 +200,7 @@ impl LlvmCodegen {
             IrType::Ptr(_) => "null".to_string(),
             IrType::Array(_, _) => "zeroinitializer".to_string(),
             IrType::Struct(_) => "zeroinitializer".to_string(),
+            IrType::Enum(_) => "zeroinitializer".to_string(),
             IrType::Void => "zeroinitializer".to_string(),
             IrType::Function { .. } => "null".to_string(),
         }
@@ -1281,6 +1282,127 @@ impl LlvmCodegen {
                 }
             }
 
+            Instruction::NewEnumVariant {
+                dest,
+                variant,
+                fields,
+            } => {
+                // Enum layout: { i64 discriminant, field1, field2, ... }
+                // Calculate total size: discriminant (8 bytes) + all field sizes
+                let mut total_size = 8u64; // discriminant
+                for field_var in fields.iter() {
+                    if let Some(field_ty) = self.var_types.get(&field_var.0) {
+                        total_size += self.type_mapper.type_size(field_ty);
+                    } else {
+                        total_size += 8; // default pointer size
+                    }
+                }
+                let total_size = if total_size == 8 { 16 } else { total_size }; // Minimum 16 bytes
+
+                // Allocate memory for enum
+                let enum_ptr = self.new_temp();
+                emit!(
+                    self,
+                    "  {} = call ptr @trq_alloc(i64 {})",
+                    enum_ptr,
+                    total_size
+                );
+
+                // Store discriminant at offset 0
+                emit!(
+                    self,
+                    "  store i64 {}, ptr {}",
+                    variant.discriminant,
+                    enum_ptr
+                );
+
+                // Store field values at subsequent offsets
+                let mut offset = 8u64; // Start after discriminant
+                for field_var in fields.iter() {
+                    let field_name = self.get_var(*field_var)?;
+                    let field_ty = self
+                        .var_types
+                        .get(&field_var.0)
+                        .cloned()
+                        .unwrap_or(IrType::Int);
+                    let llvm_ty = self.type_mapper.map_type(&field_ty);
+
+                    // GEP to field offset
+                    let field_ptr = self.new_temp();
+                    emit!(
+                        self,
+                        "  {} = getelementptr i8, ptr {}, i64 {}",
+                        field_ptr,
+                        enum_ptr,
+                        offset
+                    );
+
+                    // Store field value
+                    emit!(self, "  store {} {}, ptr {}", llvm_ty, field_name, field_ptr);
+
+                    offset += self.type_mapper.type_size(&field_ty);
+                }
+
+                // Result is the pointer to the enum
+                self.var_map.insert(dest.0, enum_ptr.clone());
+                self.var_types.insert(
+                    dest.0,
+                    IrType::Enum(crate::ir::EnumId(variant.enum_id.0.clone())),
+                );
+            }
+
+            Instruction::GetDiscriminant { dest, value } => {
+                let dest_name = self.get_or_create_var(*dest);
+                let value_name = self.get_var(*value)?;
+
+                // Load discriminant from offset 0 of enum pointer
+                emit!(
+                    self,
+                    "  {} = load i64, ptr {}",
+                    dest_name,
+                    value_name
+                );
+
+                self.var_types.insert(dest.0, IrType::Int);
+            }
+
+            Instruction::GetVariantField {
+                dest,
+                value,
+                variant: _,
+                field_index,
+                ty,
+            } => {
+                let dest_name = self.get_or_create_var(*dest);
+                let value_name = self.get_var(*value)?;
+                let llvm_ty = self.type_mapper.map_type(ty);
+
+                // Calculate field offset: 8 (discriminant) + sum of previous field sizes
+                // For simplicity, assume all fields are 8 bytes (pointer-sized)
+                let offset = 8 + (*field_index as u64) * 8;
+
+                // GEP to field offset
+                let field_ptr = self.new_temp();
+                emit!(
+                    self,
+                    "  {} = getelementptr i8, ptr {}, i64 {}",
+                    field_ptr,
+                    value_name,
+                    offset
+                );
+
+                // Load field value
+                emit!(
+                    self,
+                    "  {} = load {}, ptr {}",
+                    dest_name,
+                    llvm_ty,
+                    field_ptr
+                );
+
+                self.var_types.insert(dest.0, ty.clone());
+            }
+
             Instruction::Nop => {}
         }
 
@@ -1478,6 +1600,12 @@ impl LlvmCodegen {
             self.var_map.insert(var.0, name.clone());
             name
         }
+    }
+
+    /// Create a new unique temporary variable name
+    fn new_temp(&mut self) -> String {
+        self.name_counter += 1;
+        format!("%t{}", self.name_counter)
     }
 
     fn get_var(&self, var: VarId) -> Result<String, CodegenError> {

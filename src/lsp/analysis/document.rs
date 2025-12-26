@@ -87,6 +87,8 @@ pub enum SymbolKind {
     Field,
     Method,
     Property,
+    Enum,
+    EnumVariant,
 }
 
 #[derive(Debug)]
@@ -365,6 +367,40 @@ impl DocumentState {
                             doc: doc_comment.clone(),
                         },
                     );
+                }
+
+                StmtKind::EnumDecl {
+                    name,
+                    variants,
+                    doc_comment,
+                    ..
+                } => {
+                    // Register the enum itself
+                    symbols.insert(
+                        name.clone(),
+                        SymbolInfo {
+                            ty: Type::Enum(name.clone()),
+                            definition_span: stmt.span,
+                            kind: SymbolKind::Enum,
+                            mutable: false,
+                            doc: doc_comment.clone(),
+                        },
+                    );
+
+                    // Register each variant
+                    for variant in variants {
+                        let variant_key = format!("{}::{}", name, variant.name);
+                        symbols.insert(
+                            variant_key,
+                            SymbolInfo {
+                                ty: Type::Enum(name.clone()),
+                                definition_span: variant.span,
+                                kind: SymbolKind::EnumVariant,
+                                mutable: false,
+                                doc: None,
+                            },
+                        );
+                    }
                 }
 
                 _ => {}

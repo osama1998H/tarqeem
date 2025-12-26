@@ -26,6 +26,14 @@ pub enum Value {
     Function(String),
 
     Ptr(Rc<RefCell<Value>>),
+
+    /// Enum variant value with discriminant and fields
+    Enum {
+        enum_name: String,
+        variant_name: String,
+        discriminant: i64,
+        fields: Vec<Value>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +107,7 @@ impl Value {
             Value::Object(_) => true,
             Value::Function(_) => true,
             Value::Ptr(_) => true,
+            Value::Enum { .. } => true,
         }
     }
 
@@ -113,6 +122,7 @@ impl Value {
             Value::Object(_) => "object",
             Value::Function(_) => "function",
             Value::Ptr(_) => "ptr",
+            Value::Enum { .. } => "enum",
         }
     }
 
@@ -127,6 +137,7 @@ impl Value {
             Value::Object(_) => "كائن",
             Value::Function(_) => "دالة",
             Value::Ptr(_) => "مؤشر",
+            Value::Enum { .. } => "تعداد",
         }
     }
 
@@ -184,6 +195,20 @@ impl Value {
             }
             Value::Function(name) => format!("<دالة {}>", name),
             Value::Ptr(_) => "<مؤشر>".to_string(),
+            Value::Enum {
+                enum_name,
+                variant_name,
+                fields,
+                ..
+            } => {
+                if fields.is_empty() {
+                    format!("{}::{}", enum_name, variant_name)
+                } else {
+                    let field_strs: Vec<String> =
+                        fields.iter().map(|v| v.to_display_string()).collect();
+                    format!("{}::{}({})", enum_name, variant_name, field_strs.join("، "))
+                }
+            }
         }
     }
 }
@@ -200,6 +225,16 @@ impl fmt::Debug for Value {
             Value::Object(obj) => write!(f, "Object({:?})", obj.borrow()),
             Value::Function(name) => write!(f, "Function({})", name),
             Value::Ptr(_) => write!(f, "Ptr(...)"),
+            Value::Enum {
+                enum_name,
+                variant_name,
+                discriminant,
+                fields,
+            } => write!(
+                f,
+                "Enum({}::{}, disc={}, fields={:?})",
+                enum_name, variant_name, discriminant, fields
+            ),
         }
     }
 }
@@ -223,6 +258,20 @@ impl PartialEq for Value {
             (Value::Array(a), Value::Array(b)) => Rc::ptr_eq(a, b),
             (Value::Object(a), Value::Object(b)) => Rc::ptr_eq(a, b),
             (Value::Function(a), Value::Function(b)) => a == b,
+            (
+                Value::Enum {
+                    enum_name: n1,
+                    variant_name: v1,
+                    discriminant: d1,
+                    fields: f1,
+                },
+                Value::Enum {
+                    enum_name: n2,
+                    variant_name: v2,
+                    discriminant: d2,
+                    fields: f2,
+                },
+            ) => n1 == n2 && v1 == v2 && d1 == d2 && f1 == f2,
             _ => false,
         }
     }

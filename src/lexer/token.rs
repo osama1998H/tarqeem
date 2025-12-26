@@ -132,6 +132,7 @@ pub enum TokenKind {
     Comma,
     Dot,
     Colon,
+    ColonColon,
     Semicolon,
     Arrow,
     FatArrow,

@@ -5,6 +5,7 @@
 use crate::error::Language;
 use crate::lsp::analysis::{DocumentState, SymbolKind};
 use crate::lsp::utils::position_to_offset;
+use crate::parser::{StmtKind, TypeAnnotation, TypeKind};
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, CompletionResponse, Documentation, InsertTextFormat,
     MarkupContent, MarkupKind, Position,
@@ -38,6 +39,9 @@ pub fn handle_completion(
         CompletionContext::AfterColon => {
             items.extend(get_type_completions(language));
         }
+        CompletionContext::AfterColonColon(enum_name) => {
+            items.extend(get_enum_variant_completions(doc, &enum_name, language));
+        }
         CompletionContext::InImport => {
             items.extend(get_module_completions(language));
         }
@@ -55,11 +59,22 @@ enum CompletionContext {
     InFunction,
     AfterDot(String),
     AfterColon,
+    AfterColonColon(String), // For enum variant access: EnumName::
     InImport,
 }
 
 fn get_completion_context(content: &str, offset: usize) -> CompletionContext {
     let before = &content[..offset.min(content.len())];
+
+    // Check for :: (enum variant access) first, before single :
+    if before.ends_with("::") {
+        let prefix_start = before[..before.len() - 2]
+            .rfind(|c: char| !c.is_alphanumeric() && c != '_' && !is_arabic_letter(c))
+            .map(|p| p + 1)
+            .unwrap_or(0);
+        let prefix = before[prefix_start..before.len() - 2].to_string();
+        return CompletionContext::AfterColonColon(prefix);
+    }
 
     if let Some(dot_pos) = before.rfind('.') {
         let prefix_start = before[..dot_pos]
@@ -70,7 +85,7 @@ fn get_completion_context(content: &str, offset: usize) -> CompletionContext {
         return CompletionContext::AfterDot(prefix);
     }
 
-    if before.trim_end().ends_with(':') {
+    if before.trim_end().ends_with(':') && !before.trim_end().ends_with("::") {
         return CompletionContext::AfterColon;
     }
 
@@ -279,6 +294,8 @@ fn get_symbol_completions(doc: &mut DocumentState, language: Language) -> Vec<Co
                 SymbolKind::Field => CompletionItemKind::FIELD,
                 SymbolKind::Method => CompletionItemKind::METHOD,
                 SymbolKind::Property => CompletionItemKind::PROPERTY,
+                SymbolKind::Enum => CompletionItemKind::ENUM,
+                SymbolKind::EnumVariant => CompletionItemKind::ENUM_MEMBER,
             };
 
             let type_str = match language {
@@ -375,6 +392,77 @@ fn get_module_completions(language: Language) -> Vec<CompletionItem> {
             ..Default::default()
         })
         .collect()
+}
+
+/// Get enum variant completions for a given enum type
+fn get_enum_variant_completions(
+    doc: &mut DocumentState,
+    enum_name: &str,
+    language: Language,
+) -> Vec<CompletionItem> {
+    let analysis = doc.get_analysis(language);
+
+    // Look for enum declarations in the AST
+    let mut items = Vec::new();
+
+    // Check for enums in the current document's AST
+    if let Some(ast) = &analysis.ast {
+        for stmt in &ast.statements {
+            if let StmtKind::EnumDecl { name, variants, .. } = &stmt.kind {
+                if name == enum_name {
+                    for variant in variants {
+                        let detail = if variant.fields.is_empty() {
+                            match language {
+                                Language::Arabic => "حالة بسيطة".to_string(),
+                                Language::English => "Simple variant".to_string(),
+                            }
+                        } else {
+                            let field_types: Vec<String> = variant
+                                .fields
+                                .iter()
+                                .map(|f| format_type(&f.ty))
+                                .collect();
+                            format!("({})", field_types.join("، "))
+                        };
+
+                        let insert_text = if variant.fields.is_empty() {
+                            variant.name.clone()
+                        } else {
+                            format!("{}(${{1}})", variant.name)
+                        };
+
+                        items.push(CompletionItem {
+                            label: variant.name.clone(),
+                            kind: Some(CompletionItemKind::ENUM_MEMBER),
+                            detail: Some(detail),
+                            insert_text: Some(insert_text),
+                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    items
+}
+
+fn format_type(ty: &TypeAnnotation) -> String {
+    match &ty.kind {
+        TypeKind::Simple(name) => name.clone(),
+        TypeKind::Array(inner) => format!("مصفوفة<{}>", format_type(inner)),
+        TypeKind::Map(key, value) => format!("قاموس<{}، {}>", format_type(key), format_type(value)),
+        TypeKind::Optional(inner) => format!("{}?", format_type(inner)),
+        TypeKind::Function { params, return_type } => {
+            let params_str: Vec<String> = params.iter().map(format_type).collect();
+            format!("({}) -> {}", params_str.join("، "), format_type(return_type))
+        }
+        TypeKind::Generic { base, args } => {
+            let args_str: Vec<String> = args.iter().map(format_type).collect();
+            format!("{}<{}>", base, args_str.join("، "))
+        }
+    }
 }
 
 #[cfg(test)]

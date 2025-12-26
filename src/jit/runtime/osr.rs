@@ -286,6 +286,10 @@ fn value_to_bytes(value: &Value) -> Vec<u8> {
             // Pointer values
             0i64.to_le_bytes().to_vec()
         }
+        Value::Enum { discriminant, .. } => {
+            // Enums - store discriminant as i64
+            discriminant.to_le_bytes().to_vec()
+        }
     }
 }
 
