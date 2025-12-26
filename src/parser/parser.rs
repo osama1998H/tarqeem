@@ -606,6 +606,12 @@ impl Parser {
 
         let mut methods = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // Skip any line comments before the method
+            self.collect_line_comments();
+            if self.check(&TokenKind::RightBrace) {
+                self.take_pending_comments();
+                break;
+            }
             let method_doc = self.consume_doc_comment();
 
             self.expect(&TokenKind::Function, "Expected 'function'", "متوقع 'دالة'")?;
@@ -654,6 +660,12 @@ impl Parser {
 
         let mut variants = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // Skip any line comments before the variant
+            self.collect_line_comments();
+            if self.check(&TokenKind::RightBrace) {
+                self.take_pending_comments();
+                break;
+            }
             let variant = self.parse_enum_variant()?;
             variants.push(variant);
 
@@ -991,6 +1003,12 @@ impl Parser {
 
         let mut arms = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // Skip any line comments before the arm
+            self.collect_line_comments();
+            if self.check(&TokenKind::RightBrace) {
+                self.take_pending_comments();
+                break;
+            }
             match self.parse_match_arm() {
                 Ok(arm) => arms.push(arm),
                 Err(diagnostic) => {
