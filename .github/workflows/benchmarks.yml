@@ -32,11 +32,18 @@ jobs:
         run: cargo install critcmp
 
       - name: Run benchmarks on PR branch
+        id: bench_pr
         run: |
-          cargo bench -- --save-baseline pr || echo "Benchmark run completed with some issues"
+          echo "Running benchmarks on PR branch..."
           mkdir -p benchmark-results
-          if [ -d "target/criterion" ]; then
-            cp -r target/criterion benchmark-results/pr
+          if cargo bench -- --save-baseline pr 2>&1 | tee benchmark-pr.log; then
+            echo "pr_success=true" >> $GITHUB_OUTPUT
+            if [ -d "target/criterion" ]; then
+              cp -r target/criterion benchmark-results/pr
+            fi
+          else
+            echo "pr_success=false" >> $GITHUB_OUTPUT
+            echo "::warning::PR branch benchmarks failed. Check benchmark-pr.log for details."
           fi
 
       - name: Checkout base branch
@@ -46,11 +53,27 @@ jobs:
           clean: false
 
       - name: Run benchmarks on base branch
+        id: bench_base
         continue-on-error: true  # Base branch may not have benchmarks or may have different structure
         run: |
-          cargo bench -- --save-baseline base || echo "Base branch benchmarks completed with issues"
-          if [ -d "target/criterion" ]; then
-            cp -r target/criterion benchmark-results/base
+          echo "Running benchmarks on base branch (${{ github.base_ref }})..."
+          # Check if benchmarks exist in base branch
+          if [ ! -f "Cargo.toml" ] || ! grep -q '\[\[bench\]\]' Cargo.toml 2>/dev/null; then
+            echo "base_success=false" >> $GITHUB_OUTPUT
+            echo "base_reason=no_benchmarks" >> $GITHUB_OUTPUT
+            echo "::notice::Base branch does not have benchmark configuration"
+            exit 0
+          fi
+
+          if cargo bench -- --save-baseline base 2>&1 | tee benchmark-base.log; then
+            echo "base_success=true" >> $GITHUB_OUTPUT
+            if [ -d "target/criterion" ]; then
+              cp -r target/criterion benchmark-results/base
+            fi
+          else
+            echo "base_success=false" >> $GITHUB_OUTPUT
+            echo "base_reason=failed" >> $GITHUB_OUTPUT
+            echo "::warning::Base branch benchmarks failed. Check benchmark-base.log for details."
           fi
 
       - name: Checkout PR branch again
@@ -66,12 +89,52 @@ jobs:
           echo "Comparing **${{ github.head_ref }}** against **${{ github.base_ref }}**" >> benchmark-report.md
           echo "" >> benchmark-report.md
 
-          # Check if we have both baselines
-          if [ -d "benchmark-results/base" ] && [ -d "benchmark-results/pr" ]; then
-            # Run critcmp and capture output
-            critcmp base pr --color never > critcmp-output.txt 2>&1 || echo "No comparison data available" > critcmp-output.txt
+          # Debug: Show what exists in target/criterion
+          echo "### Debug Info" >> benchmark-report.md
+          echo "" >> benchmark-report.md
+          if [ -d "target/criterion" ]; then
+            echo "Criterion directory contents:" >> benchmark-report.md
+            echo "\`\`\`" >> benchmark-report.md
+            ls -la target/criterion/ 2>&1 | head -20 >> benchmark-report.md
+            echo "\`\`\`" >> benchmark-report.md
           else
-            echo "Baseline comparison not available (first run or base branch has no benchmarks)" > critcmp-output.txt
+            echo "⚠️ target/criterion directory does not exist" >> benchmark-report.md
+          fi
+          echo "" >> benchmark-report.md
+
+          # Check if we have both baselines by looking in target/criterion (where critcmp reads from)
+          PR_BASELINE_EXISTS=false
+          BASE_BASELINE_EXISTS=false
+
+          # Look for any benchmark group with pr/base subdirectories
+          if [ -d "target/criterion" ]; then
+            for dir in target/criterion/*/; do
+              if [ -d "${dir}pr" ]; then
+                PR_BASELINE_EXISTS=true
+              fi
+              if [ -d "${dir}base" ]; then
+                BASE_BASELINE_EXISTS=true
+              fi
+            done
+          fi
+
+          if [ "$PR_BASELINE_EXISTS" = "true" ] && [ "$BASE_BASELINE_EXISTS" = "true" ]; then
+            # Run critcmp and capture output
+            echo "Running critcmp comparison..." >> benchmark-report.md
+            if critcmp base pr --color never > critcmp-output.txt 2>&1; then
+              echo "Comparison successful" >> benchmark-report.md
+            else
+              echo "critcmp comparison had issues, output may be incomplete" >> benchmark-report.md
+            fi
+          elif [ "$PR_BASELINE_EXISTS" = "true" ]; then
+            echo "Baseline comparison not available (base branch '${{ github.base_ref }}' has no benchmarks or they failed)" > critcmp-output.txt
+          elif [ "$BASE_BASELINE_EXISTS" = "true" ]; then
+            echo "PR benchmarks failed - cannot compare" > critcmp-output.txt
+          else
+            echo "No benchmark baselines found. Both PR and base branch benchmarks may have failed." > critcmp-output.txt
+            echo "" >> critcmp-output.txt
+            echo "PR benchmark status: ${{ steps.bench_pr.outputs.pr_success || 'unknown' }}" >> critcmp-output.txt
+            echo "Base benchmark status: ${{ steps.bench_base.outputs.base_success || 'unknown' }}" >> critcmp-output.txt
           fi
 
           # Parse and format results
@@ -117,7 +180,21 @@ jobs:
             echo "" >> benchmark-report.md
             echo "See critcmp output above for detailed comparison results." >> benchmark-report.md
           else
-            echo "No benchmark groups found. This may be expected on first run or if benchmarks failed." >> benchmark-report.md
+            echo "No benchmark groups found." >> benchmark-report.md
+            echo "" >> benchmark-report.md
+            # Add helpful debugging information
+            if [ -f "benchmark-pr.log" ]; then
+              echo "**PR Benchmark Log (last 20 lines):**" >> benchmark-report.md
+              echo "\`\`\`" >> benchmark-report.md
+              tail -20 benchmark-pr.log >> benchmark-report.md
+              echo "\`\`\`" >> benchmark-report.md
+            fi
+            if [ -f "benchmark-base.log" ]; then
+              echo "**Base Benchmark Log (last 20 lines):**" >> benchmark-report.md
+              echo "\`\`\`" >> benchmark-report.md
+              tail -20 benchmark-base.log >> benchmark-report.md
+              echo "\`\`\`" >> benchmark-report.md
+            fi
           fi
 
       - name: Post benchmark results as PR comment
@@ -159,12 +236,16 @@ jobs:
 
       - name: Upload benchmark artifacts
         uses: actions/upload-artifact@v6
+        if: always()
         with:
           name: benchmark-results
           path: |
             benchmark-results/
             benchmark-report.md
+            benchmark-pr.log
+            benchmark-base.log
             critcmp-output.txt
+          if-no-files-found: ignore
 
   # ============================================
   # Individual Benchmark Jobs (Detailed)
