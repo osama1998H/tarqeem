@@ -474,7 +474,7 @@ fn test_dap_breakpoints_response_structure() {
     let _ = client.read_event();
 
     let bp_response = client
-        .set_breakpoints("/test/file.trq", &[5, 10, 15])
+        .set_breakpoints("/test/file.ترقيم", &[5, 10, 15])
         .expect("SetBreakpoints failed");
 
     assert!(bp_response.success, "SetBreakpoints should succeed");
@@ -600,12 +600,12 @@ fn test_dap_multiple_sequential_requests() {
     assert!(config.success);
 
     let bp1 = client
-        .set_breakpoints("/test/a.trq", &[1, 2, 3])
+        .set_breakpoints("/test/a.ترقيم", &[1, 2, 3])
         .expect("SetBreakpoints failed");
     assert!(bp1.success);
 
     let bp2 = client
-        .set_breakpoints("/test/b.trq", &[10, 20])
+        .set_breakpoints("/test/b.ترقيم", &[10, 20])
         .expect("SetBreakpoints failed");
     assert!(bp2.success);
 

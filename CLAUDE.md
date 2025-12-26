@@ -10,6 +10,78 @@ See @LANGUAGE_SPEC.md for the complete language specification.
 
 ---
 
+# The Linguistic Philosophy of Tarqeem
+
+This document outlines the intellectual and linguistic foundation of Tarqeem. It serves as the compass for language design, ensuring that every syntactic decision respects the structure, logic, and eloquence of the Arabic language.
+
+---
+
+## I. The Core Axiom: Authenticity over Translation
+
+**Tarqeem is not an English programming language wearing an Arabic mask; it is an authentic Arabic computational system.**
+
+The ultimate goal is **Cognitive Immediacy**: An Arabic speaker should be able to read, understand, and reason about the code directly in their native tongue, without performing a mental translation step into English. The code is not "translated"; it is "conceptualized" in Arabic.
+
+---
+
+## II. The Four Pillars of Design
+
+### 1. Functional Description vs. Literal Translation
+
+In Tarqeem, we do not translate words; we translate **meanings**.
+
+* **The Principle:** If a programming term relies on an English metaphor that doesn't exist in Arabic, we discard the metaphor and describe the *function*.
+* **The Logic:** Literal translation (e.g., translating "Interface" as "Face") creates confusion. Instead, we look at what the construct *does*. If it enforces a set of behaviors, it is a "Contract" or "Pact," not a "Face." If a construct refers to a resource, it is an "Identifier," not a "Handle."
+* **Outcome:** The keyword must describe the runtime behavior or the architectural role of the element in the Arabic context.
+
+### 2. Syntactic Integrity (Code as Literature)
+
+Code in Tarqeem must adhere to the rules of Arabic Grammar (Nahw).
+
+* **The Principle:** A line of code should be readable as a grammatically correct Arabic sentence.
+* **The Logic:** Arabic has specific rules for descriptor placement (Adjectives follow Nouns). Therefore, type modifiers and attributes must follow the noun they modify, not precede it.
+* **Outcome:** Reading the code aloud should sound natural to the ear, avoiding "broken" phrasing that mimics English word order.
+
+### 3. Cognitive Alignment
+
+The syntax must follow the logical flow of Arabic thought.
+
+* **The Principle:** Syntactic structures that are redundant or alien to Arabic rhetoric are removed or reordered.
+* **The Logic:** If a function returns nothing, Arabic logic dictates silence (absence of a return type) rather than explicitly stating "Void" or "Null." Absence implies non-existence; stating "Empty" is a redundancy.
+* **Outcome:** A cleaner, more intuitive syntax that respects the economy of the language.
+
+### 4. Epistemological Clarity (Self-Completeness)
+
+Tarqeem rejects ambiguity in favor of explicit meaning.
+
+* **The Principle:** No obscure abbreviations. Scientific and mathematical terms must use their full, historical Arabic names.
+* **The Logic:** Abbreviations (like `sin`, `tan`) are barriers to entry. Arabic has a rich history in mathematics (e.g., Al-Khwarizmi, Al-Battani). We honor this by using the full, descriptive terms for mathematical functions rather than transliterating Western abbreviations.
+* **Outcome:** Code that is self-documenting and pedagogically sound.
+
+---
+
+## III. Semantic Standards for the Standard Library
+
+To ensure consistency across the ecosystem, naming follows a strict semantic structure based on parts of speech:
+
+1. **Imperative Verbs for Actions:** Functions that perform a task or change a state must be named using the imperative form (Command).
+2. **Nouns for Values:** Functions that purely return a value (without side effects) must use the noun describing that value.
+3. **Interrogatives for States:** Boolean checks must be phrased as questions, mimicking natural human inquiry.
+4. **Scientific Rooting:** Mathematical constants and functions return to their Arabic origins, using the terminology established during the Golden Age of Islamic Science, rather than modern transliterations.
+
+---
+
+## IV. The Verification Criterion: "The Native Reader Test"
+
+Before any keyword or syntax rule is added to Tarqeem, it must pass the **Native Reader Test**. We ask four fundamental questions:
+
+1. **Intuitiveness:** Can an Arabic speaker understand the concept without knowing the English equivalent?
+2. **Fluency:** Does it read naturally in a sentence, or does it sound like a "translated text"?
+3. **Accuracy:** Does the word describe what the code *actually does*, or is it just a literal translation of the English label?
+4. **Grammar:** Is the syntactic order (Noun-Adjective, Verb-Subject) grammatically sound?
+
+**Conclusion:** Tarqeem strives to prove that Arabic is not just a language of poetry and religion, but a fully capable, logical, and elegant medium for modern computation and software engineering.
+
 ## Project Map (READ FIRST)
 
 **Architecture**: Compiled Arabic programming language with LLVM backend
@@ -134,13 +206,13 @@ cargo fmt
 cargo bench
 
 # CLI commands
-cargo run -- compile file.trq    # Compile to binary
-cargo run -- run file.trq        # Compile and execute
-cargo run -- check file.trq      # Type check only
+cargo run -- compile file.ترقيم    # Compile to binary
+cargo run -- run file.ترقيم        # Compile and execute
+cargo run -- check file.ترقيم      # Type check only
 cargo run -- repl                # Interactive REPL
-cargo run -- fmt file.trq        # Format code
-cargo run -- debug file.trq      # Debug with DAP
-cargo run -- doc file.trq        # Generate documentation
+cargo run -- fmt file.ترقيم        # Format code
+cargo run -- debug file.ترقيم      # Debug with DAP
+cargo run -- doc file.ترقيم        # Generate documentation
 cargo run -- pkg init            # Initialize package
 ```
 
@@ -250,7 +322,7 @@ fn test_arabic_identifiers() {
 ## File Naming Conventions
 
 - Rust source files: `snake_case.rs`
-- Tarqeem source files: Arabic names with `.ترقيم` extension (or `.trq`)
+- Tarqeem source files: Arabic names with `.ترقيم` extension (or `.ترقيم`)
 - Package manifest: `ترقيم.حزمة` (Arabic format)
 - Lock file: `ترقيم.قفل`
 - Test files: `*_tests.rs` or `test_*.rs`
@@ -344,22 +416,22 @@ This project uses **Gitflow** as the branching strategy. Claude must follow thes
 
 ```bash
 # Verbose output
-RUST_LOG=debug cargo run -- compile test.trq
+RUST_LOG=debug cargo run -- compile test.ترقيم
 
 # Dump tokens
-cargo run -- compile test.trq --dump-tokens
+cargo run -- compile test.ترقيم --dump-tokens
 
 # Dump AST
-cargo run -- compile test.trq --dump-ast
+cargo run -- compile test.ترقيم --dump-ast
 
 # Dump IR
-cargo run -- compile test.trq --dump-ir
+cargo run -- compile test.ترقيم --dump-ir
 
 # Dump LLVM IR
-cargo run -- compile test.trq --emit-llvm
+cargo run -- compile test.ترقيم --emit-llvm
 
 # Run with interpreter (for debugging)
-cargo run -- run test.trq --interpret
+cargo run -- run test.ترقيم --interpret
 ```
 
 ## Architecture Decisions
@@ -491,10 +563,10 @@ cargo bench
 cargo run -- repl
 
 # Compile a Tarqeem file
-cargo run -- compile examples/مرحبا.trq
+cargo run -- compile examples/مرحبا.ترقيم
 
 # Run a Tarqeem file
-cargo run -- run examples/مرحبا.trq
+cargo run -- run examples/مرحبا.ترقيم
 ```
 
 ## Resources

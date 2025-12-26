@@ -477,7 +477,7 @@ mod tests {
     #[test]
     fn test_breakpoint_creation() {
         let mut ctx = DebugContext::new();
-        let file = PathBuf::from("test.trq");
+        let file = PathBuf::from("test.ترقيم");
 
         let id = ctx.add_breakpoint(file.clone(), 10).unwrap();
         assert!(ctx.has_breakpoint_at(&file, 10));
@@ -490,7 +490,7 @@ mod tests {
     #[test]
     fn test_breakpoint_removal() {
         let mut ctx = DebugContext::new();
-        let file = PathBuf::from("test.trq");
+        let file = PathBuf::from("test.ترقيم");
 
         let id = ctx.add_breakpoint(file.clone(), 10).unwrap();
         assert!(ctx.has_breakpoint_at(&file, 10));
@@ -502,7 +502,7 @@ mod tests {
     #[test]
     fn test_breakpoint_toggle() {
         let mut ctx = DebugContext::new();
-        let file = PathBuf::from("test.trq");
+        let file = PathBuf::from("test.ترقيم");
 
         let id = ctx.add_breakpoint(file, 10).unwrap();
 
@@ -516,7 +516,7 @@ mod tests {
     #[test]
     fn test_conditional_breakpoint() {
         let mut ctx = DebugContext::new();
-        let file = PathBuf::from("test.trq");
+        let file = PathBuf::from("test.ترقيم");
 
         let id = ctx
             .add_conditional_breakpoint(file, 10, "x > 5".to_string())

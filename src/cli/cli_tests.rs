@@ -9,13 +9,13 @@ use std::path::PathBuf;
 
 #[test]
 fn test_cli_parse_compile_basic() {
-    let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "compile", "test.ترقيم"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
     match cli.command {
         Commands::Compile { file, .. } => {
-            assert_eq!(file, PathBuf::from("test.trq"));
+            assert_eq!(file, PathBuf::from("test.ترقيم"));
         }
         _ => panic!("Expected Compile command"),
     }
@@ -23,13 +23,13 @@ fn test_cli_parse_compile_basic() {
 
 #[test]
 fn test_cli_parse_compile_with_output() {
-    let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq", "-o", "output"]);
+    let args = Cli::try_parse_from(["tarqeem", "compile", "test.ترقيم", "-o", "output"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
     match cli.command {
         Commands::Compile { file, output, .. } => {
-            assert_eq!(file, PathBuf::from("test.trq"));
+            assert_eq!(file, PathBuf::from("test.ترقيم"));
             assert_eq!(output, Some(PathBuf::from("output")));
         }
         _ => panic!("Expected Compile command"),
@@ -38,7 +38,7 @@ fn test_cli_parse_compile_with_output() {
 
 #[test]
 fn test_cli_parse_compile_emit_llvm() {
-    let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq", "--emit-llvm"]);
+    let args = Cli::try_parse_from(["tarqeem", "compile", "test.ترقيم", "--emit-llvm"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
@@ -52,7 +52,7 @@ fn test_cli_parse_compile_emit_llvm() {
 
 #[test]
 fn test_cli_parse_compile_emit_asm() {
-    let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq", "--emit-asm"]);
+    let args = Cli::try_parse_from(["tarqeem", "compile", "test.ترقيم", "--emit-asm"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
@@ -66,7 +66,7 @@ fn test_cli_parse_compile_emit_asm() {
 
 #[test]
 fn test_cli_parse_compile_emit_obj() {
-    let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq", "-c"]);
+    let args = Cli::try_parse_from(["tarqeem", "compile", "test.ترقيم", "-c"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
@@ -80,28 +80,28 @@ fn test_cli_parse_compile_emit_obj() {
 
 #[test]
 fn test_cli_parse_compile_optimization_levels() {
-    let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq", "-O", "0"]);
+    let args = Cli::try_parse_from(["tarqeem", "compile", "test.ترقيم", "-O", "0"]);
     assert!(args.is_ok());
     match args.unwrap().command {
         Commands::Compile { opt_level, .. } => assert_eq!(opt_level, 0),
         _ => panic!("Expected Compile command"),
     }
 
-    let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq", "-O", "1"]);
+    let args = Cli::try_parse_from(["tarqeem", "compile", "test.ترقيم", "-O", "1"]);
     assert!(args.is_ok());
     match args.unwrap().command {
         Commands::Compile { opt_level, .. } => assert_eq!(opt_level, 1),
         _ => panic!("Expected Compile command"),
     }
 
-    let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq", "-O", "2"]);
+    let args = Cli::try_parse_from(["tarqeem", "compile", "test.ترقيم", "-O", "2"]);
     assert!(args.is_ok());
     match args.unwrap().command {
         Commands::Compile { opt_level, .. } => assert_eq!(opt_level, 2),
         _ => panic!("Expected Compile command"),
     }
 
-    let args = Cli::try_parse_from(["tarqeem", "compile", "test.trq", "-O", "3"]);
+    let args = Cli::try_parse_from(["tarqeem", "compile", "test.ترقيم", "-O", "3"]);
     assert!(args.is_ok());
     match args.unwrap().command {
         Commands::Compile { opt_level, .. } => assert_eq!(opt_level, 3),
@@ -114,7 +114,7 @@ fn test_cli_parse_compile_dump_flags() {
     let args = Cli::try_parse_from([
         "tarqeem",
         "compile",
-        "test.trq",
+        "test.ترقيم",
         "--dump-tokens",
         "--dump-ast",
         "--dump-ir",
@@ -142,7 +142,7 @@ fn test_cli_parse_compile_target() {
     let args = Cli::try_parse_from([
         "tarqeem",
         "compile",
-        "test.trq",
+        "test.ترقيم",
         "--target",
         "x86_64-unknown-linux-gnu",
     ]);
@@ -159,13 +159,13 @@ fn test_cli_parse_compile_target() {
 
 #[test]
 fn test_cli_parse_run_basic() {
-    let args = Cli::try_parse_from(["tarqeem", "run", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "run", "test.ترقيم"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
     match cli.command {
         Commands::Run { file, .. } => {
-            assert_eq!(file, PathBuf::from("test.trq"));
+            assert_eq!(file, PathBuf::from("test.ترقيم"));
         }
         _ => panic!("Expected Run command"),
     }
@@ -173,12 +173,12 @@ fn test_cli_parse_run_basic() {
 
 #[test]
 fn test_cli_parse_run_arabic_alias() {
-    let args = Cli::try_parse_from(["tarqeem", "شغل", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "شغل", "test.ترقيم"]);
     assert!(args.is_ok());
 
     match args.unwrap().command {
         Commands::Run { file, .. } => {
-            assert_eq!(file, PathBuf::from("test.trq"));
+            assert_eq!(file, PathBuf::from("test.ترقيم"));
         }
         _ => panic!("Expected Run command"),
     }
@@ -186,13 +186,13 @@ fn test_cli_parse_run_arabic_alias() {
 
 #[test]
 fn test_cli_parse_check_basic() {
-    let args = Cli::try_parse_from(["tarqeem", "check", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "check", "test.ترقيم"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
     match cli.command {
         Commands::Check { file } => {
-            assert_eq!(file, PathBuf::from("test.trq"));
+            assert_eq!(file, PathBuf::from("test.ترقيم"));
         }
         _ => panic!("Expected Check command"),
     }
@@ -200,12 +200,12 @@ fn test_cli_parse_check_basic() {
 
 #[test]
 fn test_cli_parse_check_arabic_alias() {
-    let args = Cli::try_parse_from(["tarqeem", "افحص", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "افحص", "test.ترقيم"]);
     assert!(args.is_ok());
 
     match args.unwrap().command {
         Commands::Check { file } => {
-            assert_eq!(file, PathBuf::from("test.trq"));
+            assert_eq!(file, PathBuf::from("test.ترقيم"));
         }
         _ => panic!("Expected Check command"),
     }
@@ -230,13 +230,13 @@ fn test_cli_parse_repl_arabic_alias() {
 
 #[test]
 fn test_cli_parse_fmt_basic() {
-    let args = Cli::try_parse_from(["tarqeem", "fmt", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "fmt", "test.ترقيم"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
     match cli.command {
         Commands::Fmt { path, .. } => {
-            assert_eq!(path, Some(PathBuf::from("test.trq")));
+            assert_eq!(path, Some(PathBuf::from("test.ترقيم")));
         }
         _ => panic!("Expected Fmt command"),
     }
@@ -244,7 +244,7 @@ fn test_cli_parse_fmt_basic() {
 
 #[test]
 fn test_cli_parse_fmt_write() {
-    let args = Cli::try_parse_from(["tarqeem", "fmt", "test.trq", "-w"]);
+    let args = Cli::try_parse_from(["tarqeem", "fmt", "test.ترقيم", "-w"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
@@ -258,7 +258,7 @@ fn test_cli_parse_fmt_write() {
 
 #[test]
 fn test_cli_parse_fmt_check() {
-    let args = Cli::try_parse_from(["tarqeem", "fmt", "test.trq", "--check"]);
+    let args = Cli::try_parse_from(["tarqeem", "fmt", "test.ترقيم", "--check"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
@@ -272,7 +272,7 @@ fn test_cli_parse_fmt_check() {
 
 #[test]
 fn test_cli_parse_fmt_diff() {
-    let args = Cli::try_parse_from(["tarqeem", "fmt", "test.trq", "--diff"]);
+    let args = Cli::try_parse_from(["tarqeem", "fmt", "test.ترقيم", "--diff"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
@@ -286,7 +286,7 @@ fn test_cli_parse_fmt_diff() {
 
 #[test]
 fn test_cli_parse_fmt_config() {
-    let args = Cli::try_parse_from(["tarqeem", "fmt", "test.trq", "-c", "config.toml"]);
+    let args = Cli::try_parse_from(["tarqeem", "fmt", "test.ترقيم", "-c", "config.toml"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
@@ -314,13 +314,13 @@ fn test_cli_parse_fmt_sample_config() {
 
 #[test]
 fn test_cli_parse_lex() {
-    let args = Cli::try_parse_from(["tarqeem", "lex", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "lex", "test.ترقيم"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
     match cli.command {
         Commands::Lex { file } => {
-            assert_eq!(file, PathBuf::from("test.trq"));
+            assert_eq!(file, PathBuf::from("test.ترقيم"));
         }
         _ => panic!("Expected Lex command"),
     }
@@ -328,13 +328,13 @@ fn test_cli_parse_lex() {
 
 #[test]
 fn test_cli_parse_parse() {
-    let args = Cli::try_parse_from(["tarqeem", "parse", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "parse", "test.ترقيم"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
     match cli.command {
         Commands::Parse { file } => {
-            assert_eq!(file, PathBuf::from("test.trq"));
+            assert_eq!(file, PathBuf::from("test.ترقيم"));
         }
         _ => panic!("Expected Parse command"),
     }
@@ -732,7 +732,7 @@ fn test_cli_parse_doc_single_file() {
 
 #[test]
 fn test_cli_english_flag() {
-    let args = Cli::try_parse_from(["tarqeem", "-e", "compile", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "-e", "compile", "test.ترقيم"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
@@ -741,7 +741,7 @@ fn test_cli_english_flag() {
 
 #[test]
 fn test_cli_english_flag_long() {
-    let args = Cli::try_parse_from(["tarqeem", "--english", "compile", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "--english", "compile", "test.ترقيم"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
@@ -750,7 +750,7 @@ fn test_cli_english_flag_long() {
 
 #[test]
 fn test_cli_verbose_flag() {
-    let args = Cli::try_parse_from(["tarqeem", "-v", "compile", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "-v", "compile", "test.ترقيم"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
@@ -759,7 +759,7 @@ fn test_cli_verbose_flag() {
 
 #[test]
 fn test_cli_verbose_flag_long() {
-    let args = Cli::try_parse_from(["tarqeem", "--verbose", "compile", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "--verbose", "compile", "test.ترقيم"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
@@ -768,7 +768,7 @@ fn test_cli_verbose_flag_long() {
 
 #[test]
 fn test_cli_multiple_global_flags() {
-    let args = Cli::try_parse_from(["tarqeem", "-e", "-v", "compile", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "-e", "-v", "compile", "test.ترقيم"]);
     assert!(args.is_ok());
 
     let cli = args.unwrap();
@@ -778,12 +778,12 @@ fn test_cli_multiple_global_flags() {
 
 #[test]
 fn test_cli_compile_alias_c() {
-    let args = Cli::try_parse_from(["tarqeem", "c", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "c", "test.ترقيم"]);
     assert!(args.is_ok());
 
     match args.unwrap().command {
         Commands::Compile { file, .. } => {
-            assert_eq!(file, PathBuf::from("test.trq"));
+            assert_eq!(file, PathBuf::from("test.ترقيم"));
         }
         _ => panic!("Expected Compile command"),
     }
@@ -791,12 +791,12 @@ fn test_cli_compile_alias_c() {
 
 #[test]
 fn test_cli_compile_alias_arabic() {
-    let args = Cli::try_parse_from(["tarqeem", "ترجم", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "ترجم", "test.ترقيم"]);
     assert!(args.is_ok());
 
     match args.unwrap().command {
         Commands::Compile { file, .. } => {
-            assert_eq!(file, PathBuf::from("test.trq"));
+            assert_eq!(file, PathBuf::from("test.ترقيم"));
         }
         _ => panic!("Expected Compile command"),
     }
@@ -804,12 +804,12 @@ fn test_cli_compile_alias_arabic() {
 
 #[test]
 fn test_cli_run_alias_r() {
-    let args = Cli::try_parse_from(["tarqeem", "r", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "r", "test.ترقيم"]);
     assert!(args.is_ok());
 
     match args.unwrap().command {
         Commands::Run { file, .. } => {
-            assert_eq!(file, PathBuf::from("test.trq"));
+            assert_eq!(file, PathBuf::from("test.ترقيم"));
         }
         _ => panic!("Expected Run command"),
     }
@@ -817,12 +817,12 @@ fn test_cli_run_alias_r() {
 
 #[test]
 fn test_cli_check_alias_ch() {
-    let args = Cli::try_parse_from(["tarqeem", "ch", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "ch", "test.ترقيم"]);
     assert!(args.is_ok());
 
     match args.unwrap().command {
         Commands::Check { file } => {
-            assert_eq!(file, PathBuf::from("test.trq"));
+            assert_eq!(file, PathBuf::from("test.ترقيم"));
         }
         _ => panic!("Expected Check command"),
     }
@@ -830,12 +830,12 @@ fn test_cli_check_alias_ch() {
 
 #[test]
 fn test_cli_fmt_alias_f() {
-    let args = Cli::try_parse_from(["tarqeem", "f", "test.trq"]);
+    let args = Cli::try_parse_from(["tarqeem", "f", "test.ترقيم"]);
     assert!(args.is_ok());
 
     match args.unwrap().command {
         Commands::Fmt { path, .. } => {
-            assert_eq!(path, Some(PathBuf::from("test.trq")));
+            assert_eq!(path, Some(PathBuf::from("test.ترقيم")));
         }
         _ => panic!("Expected Fmt command"),
     }
@@ -937,7 +937,7 @@ fn test_cli_compile_full_options() {
         "--verbose",
         "--english",
         "compile",
-        "program.trq",
+        "program.ترقيم",
         "-o",
         "output",
         "-O",
@@ -961,7 +961,7 @@ fn test_cli_compile_full_options() {
             dump_ir,
             ..
         } => {
-            assert_eq!(file, PathBuf::from("program.trq"));
+            assert_eq!(file, PathBuf::from("program.ترقيم"));
             assert_eq!(output, Some(PathBuf::from("output")));
             assert_eq!(opt_level, 2);
             assert_eq!(target, Some("aarch64-apple-darwin".to_string()));

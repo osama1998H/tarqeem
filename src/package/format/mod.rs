@@ -60,13 +60,10 @@ pub const DEFAULT_LOCK_NAME: &str = "ترقيم.قفل";
 
 pub const MANIFEST_NAMES: &[&str] = &[
     "ترقيم.حزمة", // الصيغة العربية الجديدة (أولوية قصوى)
-    "حزمة.toml",  // TOML بالعربية (للتوافق)
-    "trq.toml",   // TOML بالإنجليزية (للتوافق)
 ];
 
 pub const LOCK_NAMES: &[&str] = &[
     "ترقيم.قفل", // الصيغة العربية الجديدة (أولوية قصوى)
-    ".trqlock",  // الصيغة القديمة (للتوافق)
 ];
 
 #[cfg(test)]
@@ -89,7 +86,5 @@ mod tests {
     #[test]
     fn test_manifest_names_priority() {
         assert_eq!(MANIFEST_NAMES[0], "ترقيم.حزمة");
-        assert_eq!(MANIFEST_NAMES[1], "حزمة.toml");
-        assert_eq!(MANIFEST_NAMES[2], "trq.toml");
     }
 }

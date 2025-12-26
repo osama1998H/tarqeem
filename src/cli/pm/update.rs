@@ -33,7 +33,7 @@ pub fn run(package: Option<String>) -> PackageResult<()> {
             return Ok(());
         }
 
-        let lockfile_path = project_root.join(LockFile::FILENAME);
+        let lockfile_path = project_root.join(LockFile::DEFAULT_LOCK_NAME);
         if lockfile_path.exists() {
             let mut lockfile = LockFile::parse(&lockfile_path)?;
             lockfile.remove_package(&pkg_name);
@@ -45,7 +45,7 @@ pub fn run(package: Option<String>) -> PackageResult<()> {
             "→ Updating all dependencies / جاري تحديث جميع الاعتماديات...".cyan()
         );
 
-        let lockfile_path = project_root.join(LockFile::FILENAME);
+        let lockfile_path = project_root.join(LockFile::DEFAULT_LOCK_NAME);
         if lockfile_path.exists() {
             std::fs::remove_file(&lockfile_path)?;
         }

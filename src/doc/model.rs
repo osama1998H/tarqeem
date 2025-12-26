@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_documentation_new() {
-        let doc = Documentation::new("test".to_string(), "test.trq".to_string());
+        let doc = Documentation::new("test".to_string(), "test.ترقيم".to_string());
         assert_eq!(doc.name, "test");
         assert!(doc.items.is_empty());
     }

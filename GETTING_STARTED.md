@@ -27,7 +27,7 @@ cargo run -- --version
 
 ## Hello World | مرحباً بالعالم
 
-Create a file named `مرحبا.ترقيم` (or `hello.trq`):
+Create a file named `مرحبا.ترقيم`:
 
 ```tarqeem
 اطبع("مرحباً بالعالم!");
@@ -80,9 +80,9 @@ cargo run -- compile مرحبا.ترقيم -o مرحبا
 
 | Command | Description |
 |---------|-------------|
-| `cargo run -- run file.trq` | Run a program |
-| `cargo run -- compile file.trq` | Compile to binary |
-| `cargo run -- check file.trq` | Check for errors |
+| `cargo run -- run file.ترقيم` | Run a program |
+| `cargo run -- compile file.ترقيم` | Compile to binary |
+| `cargo run -- check file.ترقيم` | Check for errors |
 | `cargo run -- repl` | Start interactive mode |
 
 ## Next Steps | الخطوات التالية

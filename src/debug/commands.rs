@@ -373,9 +373,9 @@ mod tests {
         );
 
         assert_eq!(
-            DebugCommandParser::parse("break test.trq:20"),
+            DebugCommandParser::parse("break test.ترقيم:20"),
             DebugCommand::Break {
-                file: Some(PathBuf::from("test.trq")),
+                file: Some(PathBuf::from("test.ترقيم")),
                 line: 20
             }
         );

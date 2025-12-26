@@ -3,7 +3,7 @@
 //
 // ترجم هذا الملف إلى WebAssembly:
 // Compile this file to WebAssembly:
-//   tarqeem compile حاسبة.trq --emit-wasm --wasm-js-bindings --wasm-export-all -o حاسبة
+//   tarqeem compile حاسبة.ترقيم --emit-wasm --wasm-js-bindings --wasm-export-all -o حاسبة
 
 // دالة الجمع - تُصدّر لاستخدامها في JavaScript
 // Addition function - exported for JavaScript use

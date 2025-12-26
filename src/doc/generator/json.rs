@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn test_generate_json() {
-        let mut doc = Documentation::new("test".to_string(), "test.trq".to_string());
+        let mut doc = Documentation::new("test".to_string(), "test.ترقيم".to_string());
 
         let mut func = FunctionDoc::new("جمع".to_string());
         func.description = Some("جمع عددين".to_string());
@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn test_generate_minified_json() {
-        let doc = Documentation::new("test".to_string(), "test.trq".to_string());
+        let doc = Documentation::new("test".to_string(), "test.ترقيم".to_string());
 
         let generator = JsonGenerator::minified();
         let mut output = Vec::new();

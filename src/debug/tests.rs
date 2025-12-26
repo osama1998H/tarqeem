@@ -169,7 +169,7 @@ fn test_debug_interpreter_with_stop_on_entry() {
 #[test]
 fn test_debug_context_breakpoints() {
     let mut context = DebugContext::new();
-    let file = PathBuf::from("test.trq");
+    let file = PathBuf::from("test.ترقيم");
 
     let id = context.add_breakpoint(file.clone(), 10).unwrap();
 
@@ -183,7 +183,7 @@ fn test_debug_context_breakpoints() {
 #[test]
 fn test_debug_context_conditional_breakpoint() {
     let mut context = DebugContext::new();
-    let file = PathBuf::from("test.trq");
+    let file = PathBuf::from("test.ترقيم");
 
     let id = context
         .add_conditional_breakpoint(file.clone(), 10, "x > 5".to_string())
@@ -207,7 +207,7 @@ fn test_debug_context_watch_expressions() {
 #[test]
 fn test_source_map() {
     let mut map = SourceMap::new();
-    let file = PathBuf::from("test.trq");
+    let file = PathBuf::from("test.ترقيم");
     let func_id = FuncId("main".to_string());
 
     map.add_source(
@@ -248,9 +248,9 @@ fn test_debug_command_parsing() {
         }
     );
     assert_eq!(
-        DebugCommandParser::parse("break test.trq:20"),
+        DebugCommandParser::parse("break test.ترقيم:20"),
         DebugCommand::Break {
-            file: Some(PathBuf::from("test.trq")),
+            file: Some(PathBuf::from("test.ترقيم")),
             line: 20
         }
     );
@@ -338,7 +338,7 @@ fn test_debug_state_transitions() {
 
 #[test]
 fn test_breakpoint_hit_count() {
-    let mut bp = Breakpoint::new(BreakpointId(1), PathBuf::from("test.trq"), 10);
+    let mut bp = Breakpoint::new(BreakpointId(1), PathBuf::from("test.ترقيم"), 10);
     bp.hit_count = Some(3);
 
     assert!(!bp.should_trigger());
@@ -354,7 +354,7 @@ fn test_breakpoint_hit_count() {
 
 #[test]
 fn test_breakpoint_disabled() {
-    let mut bp = Breakpoint::new(BreakpointId(1), PathBuf::from("test.trq"), 10);
+    let mut bp = Breakpoint::new(BreakpointId(1), PathBuf::from("test.ترقيم"), 10);
 
     assert!(bp.should_trigger());
 
@@ -394,7 +394,7 @@ fn test_stack_frame() {
     assert_eq!(frame.name, "main");
     assert!(frame.location.is_none());
 
-    let loc = SourceLocation::from_position(PathBuf::from("test.trq"), 10, 1);
+    let loc = SourceLocation::from_position(PathBuf::from("test.ترقيم"), 10, 1);
     let frame = frame.with_location(loc);
     assert!(frame.location.is_some());
     assert_eq!(frame.location.as_ref().unwrap().line, 10);

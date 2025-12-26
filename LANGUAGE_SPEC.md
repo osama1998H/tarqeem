@@ -117,7 +117,7 @@ Tarqeem draws inspiration from:
 
 - Source files MUST be encoded in UTF-8
 - Identifiers undergo NFC (Canonical Decomposition, followed by Canonical Composition) normalization before comparison
-- File extensions: `.trq` or `.ترقيم`
+- File extension: `.ترقيم`
 
 ### 4.2 Identifiers
 

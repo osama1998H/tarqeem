@@ -1,10 +1,9 @@
-//! Lock file management (ترقيم.قفل / .trqlock)
+//! Lock file management (ترقيم.قفل)
 //!
 //! Ensures reproducible builds by locking exact versions.
 //!
 //! # أسماء الملفات المدعومة
 //! - `ترقيم.قفل` (الصيغة العربية الجديدة)
-//! - `.trqlock` (للتوافق العكسي)
 
 use super::error::PackageResult;
 use super::format;
@@ -74,12 +73,9 @@ pub enum GitReference {
 impl LockFile {
     pub const LOCK_NAMES: &'static [&'static str] = &[
         "ترقيم.قفل", // الصيغة العربية الجديدة (أولوية قصوى)
-        ".trqlock",  // الصيغة القديمة (للتوافق)
     ];
 
     pub const DEFAULT_LOCK_NAME: &'static str = "ترقيم.قفل";
-
-    pub const FILENAME: &'static str = ".trqlock";
 
     pub fn new() -> Self {
         Self {
@@ -549,33 +545,5 @@ mod tests {
         assert!(toml_str.contains("version = 1"));
         assert!(toml_str.contains("name = \"json\""));
         assert!(toml_str.contains("version = \"2.0.0\""));
-    }
-
-    #[test]
-    fn test_parse_lockfile() {
-        let toml = r#"
-version = 1
-
-[root]
-name = "my-app"
-version = "0.1.0"
-
-[[packages]]
-name = "json"
-version = "2.0.0"
-checksum = "sha256:abc123"
-
-[packages.source]
-type = "registry"
-url = "https://registry.tarqeem.dev"
-
-[packages.dependencies]
-utils = "1.0.0"
-"#;
-        let lockfile: LockFile = toml::from_str(toml).unwrap();
-        assert_eq!(lockfile.version, 1);
-        assert!(lockfile.root.is_some());
-        assert_eq!(lockfile.packages.len(), 1);
-        assert_eq!(lockfile.packages[0].name, "json");
     }
 }

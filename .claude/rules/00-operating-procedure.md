@@ -66,7 +66,7 @@ After implementation:
 2. **Run lints** - `cargo clippy`
 3. **Check types** - `cargo check`
 4. **Format code** - `cargo fmt`
-5. **Manual test** - If possible, test with a `.trq` file
+5. **Manual test** - If possible, test with a `.ترقيم` file
 
 ### Phase 5: DOCUMENT
 

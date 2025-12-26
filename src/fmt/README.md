@@ -16,23 +16,23 @@ The `fmt` module provides an AST-based code formatter for Tarqeem source files. 
 
 ```bash
 # Format file and print to stdout / تنسيق ملف وطباعته
-tarqeem fmt file.trq
+tarqeem fmt file.ترقيم
 
 # Format file in-place / تنسيق ملف في مكانه
-tarqeem fmt -w file.trq
-tarqeem fmt --write file.trq
+tarqeem fmt -w file.ترقيم
+tarqeem fmt --write file.ترقيم
 
 # Check if files are formatted (for CI) / فحص التنسيق
-tarqeem fmt --check file.trq
+tarqeem fmt --check file.ترقيم
 
 # Show diff of formatting changes / عرض الفرق
-tarqeem fmt --diff file.trq
+tarqeem fmt --diff file.ترقيم
 
 # Format entire directory / تنسيق مجلد كامل
 tarqeem fmt src/
 
 # Use custom config file / استخدام ملف إعدادات مخصص
-tarqeem fmt --config .trqfmt.toml file.trq
+tarqeem fmt --config .trqfmt.toml file.ترقيم
 
 # Generate sample config / توليد نموذج إعدادات
 tarqeem fmt --sample-config

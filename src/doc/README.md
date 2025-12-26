@@ -24,19 +24,19 @@ The official documentation generator for the Tarqeem programming language. Extra
 
 ```bash
 # Generate HTML documentation for a single file
-tarqeem doc source.trq
+tarqeem doc source.ترقيم
 
 # Arabic alias
-tarqeem توثيق source.trq
+tarqeem توثيق source.ترقيم
 
 # Specify output directory
-tarqeem doc source.trq -o ./docs
+tarqeem doc source.ترقيم -o ./docs
 
 # Generate Markdown format
-tarqeem doc source.trq -f markdown
+tarqeem doc source.ترقيم -f markdown
 
 # Generate JSON format
-tarqeem doc source.trq -f json
+tarqeem doc source.ترقيم -f json
 
 # Generate single combined file
 tarqeem doc ./src -o docs.html --single-file
@@ -218,7 +218,7 @@ let mut parser = Parser::new(source);
 let ast = parser.parse().unwrap();
 
 // Extract documentation
-let extractor = DocExtractor::new("module".to_string(), "source.trq".to_string());
+let extractor = DocExtractor::new("module".to_string(), "source.ترقيم".to_string());
 let doc = extractor.extract(&ast);
 
 // Generate HTML output

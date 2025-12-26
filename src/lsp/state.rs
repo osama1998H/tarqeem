@@ -93,7 +93,7 @@ mod tests {
     use tower_lsp::lsp_types::Url;
 
     fn test_uri() -> Url {
-        Url::parse("file:///test.trq").unwrap()
+        Url::parse("file:///test.ترقيم").unwrap()
     }
 
     #[test]

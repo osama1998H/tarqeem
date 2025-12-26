@@ -44,7 +44,7 @@
 //! ### CLI Debugging
 //!
 //! ```bash
-//! tarqeem debug program.trq
+//! tarqeem debug program.ترقيم
 //! ```
 //!
 //! ### Interactive Commands

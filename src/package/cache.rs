@@ -528,7 +528,7 @@ mod tests {
 
         let pkg_path = temp.path().join("my-pkg");
         fs::create_dir_all(&pkg_path).unwrap();
-        fs::write(pkg_path.join("lib.trq"), "// package").unwrap();
+        fs::write(pkg_path.join("lib.ترقيم"), "// package").unwrap();
 
         cache.register_local_package("my-pkg", "0.1.0", &pkg_path);
 

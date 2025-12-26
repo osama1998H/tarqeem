@@ -905,7 +905,7 @@ mod tests {
 
     #[test]
     fn test_generate_empty_doc() {
-        let doc = Documentation::new("test".to_string(), "test.trq".to_string());
+        let doc = Documentation::new("test".to_string(), "test.ترقيم".to_string());
         let generator = HtmlGenerator::new();
         let mut output = Vec::new();
         generator.generate(&doc, &mut output).unwrap();

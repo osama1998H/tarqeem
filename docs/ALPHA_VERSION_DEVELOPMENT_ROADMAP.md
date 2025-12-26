@@ -28,7 +28,7 @@
 ## Compiler Architecture
 
 ```
-Source (.trq/.ترقيم) → Lexer → Parser → Semantic → IR → Optimizer → LLVM → Executable
+Source (.ترقيم) → Lexer → Parser → Semantic → IR → Optimizer → LLVM → Executable
 ```
 
 ### Layer Boundaries (CRITICAL)
@@ -162,9 +162,8 @@ Each layer can ONLY depend on layers before it:
 
 | Type | ASCII | Arabic |
 |------|-------|--------|
-| Source | `.trq` | `.ترقيم` |
-| Header | `.trqh` | `.ترقيم-ر` |
-| Package Manifest | `حزمة.toml` | - |
+| Source | `.ترقيم` | `.ترقيم` |
+| Package Manifest | `حزمة.حزمه` | - |
 
 ---
 
@@ -178,13 +177,13 @@ cargo build --release
 cargo test
 
 # Compile Tarqeem file
-cargo run -- compile examples/مرحبا.trq
+cargo run -- compile examples/مرحبا.ترقيم
 
 # Run Tarqeem file
-cargo run -- run examples/مرحبا.trq
+cargo run -- run examples/مرحبا.ترقيم
 
 # Check syntax
-cargo run -- check examples/مرحبا.trq
+cargo run -- check examples/مرحبا.ترقيم
 
 # Interactive REPL
 cargo run -- repl

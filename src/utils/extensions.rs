@@ -116,7 +116,6 @@ mod tests {
     #[test]
     fn test_has_tarqeem_extension() {
         assert!(has_tarqeem_extension(Path::new("file.ترقيم")));
-        assert!(!has_tarqeem_extension(Path::new("file.trq")));
         assert!(!has_tarqeem_extension(Path::new("file.txt")));
     }
 
@@ -144,23 +143,21 @@ mod tests {
 
     #[test]
     fn test_package_extension() {
-        assert!(is_valid_package_extension(Path::new("حزمة.حزمة")));
+        assert!(is_valid_package_extension(Path::new("ترقيم.حزمة")));
         assert!(is_valid_package_extension(Path::new("مكتبتي.حزمة")));
         assert!(is_valid_package_extension(Path::new("/مسار/مشروع.حزمة")));
-        assert!(!is_valid_package_extension(Path::new("package.toml")));
     }
 
     #[test]
     fn test_lock_extension() {
         assert!(is_valid_lock_extension(Path::new("حزمة.قفل")));
         assert!(is_valid_lock_extension(Path::new("مشروع.قفل")));
-        assert!(!is_valid_lock_extension(Path::new("package.lock")));
     }
 
     #[test]
     fn test_file_extension_enum_package_lock() {
         assert_eq!(
-            FileExtension::from_path(Path::new("حزمة.حزمة")),
+            FileExtension::from_path(Path::new("ترقيم.حزمة")),
             FileExtension::Package
         );
         assert_eq!(

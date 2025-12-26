@@ -595,7 +595,7 @@ mod tests {
             msg_type: "request".to_string(),
             command: "setBreakpoints".to_string(),
             arguments: serde_json::json!({
-                "source": {"path": "/test/file.trq"},
+                "source": {"path": "/test/file.ترقيم"},
                 "breakpoints": [{"line": 10}]
             }),
         };

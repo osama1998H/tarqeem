@@ -371,16 +371,16 @@ tarqeem --version
 
 ```bash
 # ترجمة ملف ترقيم
-tarqeem compile برنامج.trq -o برنامج
+tarqeem compile برنامج.ترقيم -o برنامج
 
 # التشغيل مباشرة (ترجمة وتنفيذ)
-tarqeem run برنامج.trq
+tarqeem run برنامج.ترقيم
 
 # فحص الصياغة بدون ترجمة
-tarqeem check برنامج.trq
+tarqeem check برنامج.ترقيم
 
 # تنسيق الكود
-tarqeem fmt برنامج.trq
+tarqeem fmt برنامج.ترقيم
 
 # بدء الوضع التفاعلي
 tarqeem repl

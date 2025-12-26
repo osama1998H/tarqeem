@@ -164,9 +164,9 @@ Use this section to summarize what was accomplished in each session.
 **Goal**: Stress test the Tarqeem compiler with a non-trivial program (Conway's Game of Life)
 
 **Test Files Created**:
-1. `examples/لعبة_الحياة.trq` - Full implementation (33 errors, exposed type system gaps)
-2. `examples/لعبة_الحياة_بسيط.trq` - Simplified without arrays (global constant issues)
-3. `examples/اختبار_بسيط.trq` - Minimal test (LLVM codegen bugs)
+1. `examples/لعبة_الحياة.ترقيم` - Full implementation (33 errors, exposed type system gaps)
+2. `examples/لعبة_الحياة_بسيط.ترقيم` - Simplified without arrays (global constant issues)
+3. `examples/اختبار_بسيط.ترقيم` - Minimal test (LLVM codegen bugs)
 
 **Findings**:
 | Component | Status |
@@ -231,11 +231,11 @@ Use this section to summarize what was accomplished in each session.
 **Test Results**:
 - All 84 unit tests pass
 - 5/8 example files compile and run correctly:
-  - ✅ اختبار_بسيط.trq - arithmetic, factorial, recursion
-  - ✅ دوال.trq - function calls
-  - ✅ لعبة_الحياة_بسيط.trq - Game of Life (simplified)
-  - ✅ متغيرات.trq - variables and arrays
-  - ✅ مرحبا.trq - hello world
+  - ✅ اختبار_بسيط.ترقيم - arithmetic, factorial, recursion
+  - ✅ دوال.ترقيم - function calls
+  - ✅ لعبة_الحياة_بسيط.ترقيم - Game of Life (simplified)
+  - ✅ متغيرات.ترقيم - variables and arrays
+  - ✅ مرحبا.ترقيم - hello world
 - 3/8 examples need P1 features (array indexing, for-in, empty array inference)
 
 **Remaining P1 Work**:
@@ -271,8 +271,8 @@ Use this section to summarize what was accomplished in each session.
    - `LoadedModule`: Parsed module with AST and exports
    - `ExportedSymbol`: Tracks exported functions, classes, interfaces, variables
    - Path resolution supports: relative (`./`), absolute, search paths
-   - File extensions: `.trq` and `.ترقيم`
-   - Index files: `index.trq` and `فهرس.ترقيم`
+   - File extension:`.ترقيم`
+   - Index file:`فهرس.ترقيم`
 
 2. **Export Tracking (M2)** (`src/semantic/modules.rs`)
    - `collect_exports()` scans AST for exported declarations
@@ -348,9 +348,9 @@ Use this section to summarize what was accomplished in each session.
 
 Created `stdlib_trq/مجموعات/` directory with:
 
-1. **mod.trq** - Module index that re-exports all collection types
+1. **فهرس.ترقيم** - Module index that re-exports all collection types
 
-2. **قائمة.trq** (List<T>) - 270 lines
+2. **قائمة.ترقيم** (List<T>) - 270 lines
    - Adding: أضف(), أضف_في(), أضف_كل()
    - Removing: احذف(), احذف_اول(), احذف_اخير(), امسح()
    - Access: احصل(), عيّن(), اول(), اخير()
@@ -360,14 +360,14 @@ Created `stdlib_trq/مجموعات/` directory with:
    - Higher-order: لكل(), خريطة(), رشح(), اختزل(), اي(), كل(), جد()
    - Sorting: اعكس()
 
-3. **مجموعة.trq** (Set<T>) - 200 lines
+3. **مجموعة.ترقيم** (Set<T>) - 200 lines
    - Add/Remove: أضف(), احذف(), امسح()
    - Query: يحتوي(), طول(), فارغة()
    - Set operations: اتحاد(), تقاطع(), فرق(), فرق_متماثل()
    - Subset/superset: مجموعة_جزئية(), مجموعة_شاملة(), منفصلة()
    - Conversion: الى_مصفوفة(), الى_قائمة(), نسخة()
 
-4. **قاموس.trq** (Map<K,V>) - 180 lines
+4. **قاموس.ترقيم** (Map<K,V>) - 180 lines
    - Add/Modify: عيّن(), احصل(), احصل_او()
    - Remove: احذف(), امسح()
    - Query: يحتوي(), يحتوي_قيمة(), طول(), فارغ()
@@ -375,17 +375,17 @@ Created `stdlib_trq/مجموعات/` directory with:
    - Merge: ادمج(), نسخة()
    - Also includes زوج<أ، ب> (Pair) type
 
-5. **طابور.trq** (Queue<T>) - 80 lines
+5. **طابور.ترقيم** (Queue<T>) - 80 lines
    - Operations: ادخل(), اخرج(), انظر()
    - Query: طول(), فارغ(), امسح(), يحتوي()
    - Conversion: الى_مصفوفة(), الى_قائمة()
 
-6. **مكدس.trq** (Stack<T>) - 90 lines
+6. **مكدس.ترقيم** (Stack<T>) - 90 lines
    - Operations: ادفع(), انزع(), قمة()
    - Query: طول(), فارغ(), امسح(), يحتوي()
    - Conversion: الى_مصفوفة(), الى_قائمة(), اعكس()
 
-7. **متكرر.trq** (Iterator interface) - 80 lines
+7. **متكرر.ترقيم** (Iterator interface) - 80 lines
    - متكرر<ن> interface: التالي(), يوجد_تالي()
    - قابل_للتكرار<ن> interface: متكرر()
    - متكرر_مصفوفة<ن> - Array iterator implementation
@@ -406,14 +406,14 @@ Added string utility functions to C runtime (`runtime/tarqeem_rt.h`, `runtime/st
 - trq_string_split()
 
 **Files Changed**:
-- Created: `stdlib_trq/مجموعات/mod.trq`
-- Created: `stdlib_trq/مجموعات/قائمة.trq`
-- Created: `stdlib_trq/مجموعات/مجموعة.trq`
-- Created: `stdlib_trq/مجموعات/قاموس.trq`
-- Created: `stdlib_trq/مجموعات/طابور.trq`
-- Created: `stdlib_trq/مجموعات/مكدس.trq`
-- Created: `stdlib_trq/مجموعات/متكرر.trq`
-- Removed: `stdlib_trq/مجموعات.trq` (replaced by directory)
+- Created: `stdlib_trq/مجموعات/فهرس.ترقيم`
+- Created: `stdlib_trq/مجموعات/قائمة.ترقيم`
+- Created: `stdlib_trq/مجموعات/مجموعة.ترقيم`
+- Created: `stdlib_trq/مجموعات/قاموس.ترقيم`
+- Created: `stdlib_trq/مجموعات/طابور.ترقيم`
+- Created: `stdlib_trq/مجموعات/مكدس.ترقيم`
+- Created: `stdlib_trq/مجموعات/متكرر.ترقيم`
+- Removed: `stdlib_trq/مجموعات.ترقيم` (replaced by directory)
 - Modified: `runtime/tarqeem_rt.h` (added string functions)
 - Modified: `runtime/string.c` (added string implementations)
 
