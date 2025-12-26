@@ -34,6 +34,7 @@ jobs:
       - name: Run benchmarks on PR branch
         id: bench_pr
         run: |
+          set -o pipefail  # Make pipeline fail if any command fails
           echo "Running benchmarks on PR branch..."
           mkdir -p benchmark-results
           if cargo bench -- --save-baseline pr 2>&1 | tee benchmark-pr.log; then
@@ -56,6 +57,7 @@ jobs:
         id: bench_base
         continue-on-error: true  # Base branch may not have benchmarks or may have different structure
         run: |
+          set -o pipefail  # Make pipeline fail if any command fails
           echo "Running benchmarks on base branch (${{ github.base_ref }})..."
           # Check if benchmarks exist in base branch
           if [ ! -f "Cargo.toml" ] || ! grep -q '\[\[bench\]\]' Cargo.toml 2>/dev/null; then
