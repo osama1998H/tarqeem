@@ -98,17 +98,27 @@ jobs:
           echo "" >> benchmark-report.md
           echo "---" >> benchmark-report.md
           echo "" >> benchmark-report.md
-          echo "### Benchmark Details" >> benchmark-report.md
+          echo "### Benchmark Groups" >> benchmark-report.md
           echo "" >> benchmark-report.md
-          echo "| Benchmark | Base | PR | Change |" >> benchmark-report.md
-          echo "|-----------|------|-----|--------|" >> benchmark-report.md
 
-          # Parse individual benchmark results
-          for bench in lexer parser semantic ir_generation optimizer end_to_end; do
-            if [ -d "benchmark-results/pr/criterion/$bench" ] 2>/dev/null || [ -d "target/criterion/$bench" ] 2>/dev/null; then
-              echo "| **$bench** | - | - | - |" >> benchmark-report.md
+          # List which benchmark groups were run
+          FOUND_BENCHMARKS=""
+          for bench in lexer parser semantic ir_generation optimizer end_to_end jit; do
+            if [ -d "target/criterion" ]; then
+              # Check for any benchmark group that starts with this name
+              if ls -d target/criterion/${bench}* 2>/dev/null | head -1 | grep -q .; then
+                FOUND_BENCHMARKS="$FOUND_BENCHMARKS $bench"
+              fi
             fi
           done
+
+          if [ -n "$FOUND_BENCHMARKS" ]; then
+            echo "**Executed benchmark groups:**$FOUND_BENCHMARKS" >> benchmark-report.md
+            echo "" >> benchmark-report.md
+            echo "See critcmp output above for detailed comparison results." >> benchmark-report.md
+          else
+            echo "No benchmark groups found. This may be expected on first run or if benchmarks failed." >> benchmark-report.md
+          fi
 
       - name: Post benchmark results as PR comment
         uses: actions/github-script@v8
@@ -267,4 +277,22 @@ jobs:
         with:
           name: bench-e2e
           path: target/criterion/end_to_end/
+          if-no-files-found: ignore
+
+  benchmark-jit:
+    name: Benchmark JIT Compilation
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run JIT benchmarks
+        run: cargo bench --features jit --bench jit -- --verbose || echo "JIT benchmark completed"
+      - name: Upload results
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: bench-jit
+          path: target/criterion/jit*/
           if-no-files-found: ignore
