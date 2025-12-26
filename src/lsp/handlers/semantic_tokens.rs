@@ -169,8 +169,8 @@ fn classify_token(
                     SymbolKind::Field => Some((9, modifiers)),    // PROPERTY
                     SymbolKind::Method => Some((13, modifiers)),  // METHOD
                     SymbolKind::Property => Some((9, modifiers)), // PROPERTY (same as Field)
-                    SymbolKind::Enum => Some((5, modifiers)),     // ENUM
-                    SymbolKind::EnumVariant => Some((6, modifiers)), // ENUM_MEMBER
+                    SymbolKind::Enum => Some((3, modifiers)),     // ENUM (index 3 in TOKEN_TYPES)
+                    SymbolKind::EnumVariant => Some((10, modifiers)), // ENUM_MEMBER (index 10 in TOKEN_TYPES)
                 }
             } else if is_builtin_function(name) {
                 Some((12, 1 << 9)) // FUNCTION with DEFAULT_LIBRARY modifier

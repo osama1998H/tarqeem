@@ -15,6 +15,7 @@ use super::{
 };
 
 use std::collections::{HashMap, HashSet};
+use unicode_normalization::UnicodeNormalization;
 
 #[derive(Debug, Clone)]
 pub struct IrError {
@@ -61,6 +62,8 @@ pub struct IrBuilder {
     global_constants: HashMap<String, (Constant, IrType)>,
     global_variables: HashSet<String>,
     global_var_types: HashMap<String, IrType>,
+    // Maps (enum_name, variant_name) -> Vec<IrType> for field types
+    enum_variant_fields: HashMap<(String, String), Vec<IrType>>,
 }
 
 impl IrBuilder {
@@ -85,6 +88,7 @@ impl IrBuilder {
             global_constants: HashMap::new(),
             global_variables: HashSet::new(),
             global_var_types: HashMap::new(),
+            enum_variant_fields: HashMap::new(),
         }
     }
 
@@ -169,7 +173,10 @@ impl IrBuilder {
 
         if has_top_level_code {
             if let Some(ref func) = self.current_function {
-                if let Some(block) = func.blocks.last() {
+                // Use current_block, not blocks.last(), because after control flow
+                // statements (like match), current_block may be different from the
+                // last block in the blocks vector
+                if let Some(block) = func.get_block(self.current_block) {
                     if !block.has_terminator() {
                         self.emit(Instruction::Return { value: None });
                     }
@@ -523,7 +530,24 @@ impl IrBuilder {
                 ..
             } => self.build_class_decl(name, extends.as_ref(), implements, members),
             StmtKind::InterfaceDecl { .. } => Ok(()),
-            StmtKind::EnumDecl { .. } => Ok(()),
+            StmtKind::EnumDecl { name, variants, .. } => {
+                // Store variant field types for pattern matching
+                // Use NFC-normalized names for consistent lookup with Arabic identifiers
+                let normalized_enum_name = Self::normalize_name(name);
+                for variant in variants {
+                    let normalized_variant_name = Self::normalize_name(&variant.name);
+                    let field_types: Vec<IrType> = variant
+                        .fields
+                        .iter()
+                        .map(|f| self.convert_type(&f.ty))
+                        .collect();
+                    self.enum_variant_fields.insert(
+                        (normalized_enum_name.clone(), normalized_variant_name),
+                        field_types,
+                    );
+                }
+                Ok(())
+            }
             StmtKind::If {
                 condition,
                 then_branch,
@@ -1555,10 +1579,10 @@ impl IrBuilder {
                     value: match_val,
                 });
 
-                // Compare with expected discriminant (use hash of variant name)
+                // Compare with expected discriminant (use FNV-1a hash of variant name)
                 // Must match the calculation in build_enum_variant
                 let expected = self.new_var();
-                let disc_val = (variant_name.chars().map(|c| c as u32).sum::<u32>() % 256) as i64;
+                let disc_val = Self::calculate_discriminant(variant_name) as i64;
                 self.emit(Instruction::Const {
                     dest: expected,
                     value: Constant::Int(disc_val),
@@ -1598,20 +1622,33 @@ impl IrBuilder {
                 variant_name,
                 bindings,
             } => {
+                // NFC-normalize names for consistent Arabic identifier handling
+                let normalized_enum = Self::normalize_name(enum_name);
+                let normalized_variant = Self::normalize_name(variant_name);
+
+                // Look up field types from enum declaration
+                let field_types = self
+                    .enum_variant_fields
+                    .get(&(normalized_enum.clone(), normalized_variant.clone()))
+                    .cloned()
+                    .unwrap_or_default();
+
                 // Extract variant fields and bind them
                 for (i, binding) in bindings.iter().enumerate() {
+                    // Get the actual field type, defaulting to Int if not found
+                    let field_ty = field_types.get(i).cloned().unwrap_or(IrType::Int);
+
                     let field_val = self.new_var();
                     self.emit(Instruction::GetVariantField {
                         dest: field_val,
                         value: match_val,
                         variant: VariantId {
-                            enum_id: EnumId(enum_name.clone()),
-                            name: variant_name.clone(),
-                            discriminant: (variant_name.chars().map(|c| c as u32).sum::<u32>()
-                                % 256),
+                            enum_id: EnumId(normalized_enum.clone()),
+                            name: normalized_variant.clone(),
+                            discriminant: Self::calculate_discriminant(&normalized_variant),
                         },
                         field_index: i as u32,
-                        ty: IrType::Int, // Default to Int for now
+                        ty: field_ty,
                     });
                     // Mark as parameter so it's treated as a direct value, not a pointer
                     self.variables.insert(binding.clone(), field_val);
@@ -1788,13 +1825,14 @@ impl IrBuilder {
             field_vars.push(var_id);
         }
 
-        // Create the variant ID
-        // Use hash of variant name as discriminant for consistent matching
-        let disc_val = (variant_name.chars().map(|c| c as u32).sum::<u32>()) % 256;
+        // Create the variant ID with NFC-normalized names for Arabic consistency
+        // Use FNV-1a hash of variant name as discriminant for consistent matching
+        let normalized_enum = Self::normalize_name(enum_name);
+        let normalized_variant = Self::normalize_name(variant_name);
         let variant_id = VariantId {
-            enum_id: EnumId(enum_name.to_string()),
-            name: variant_name.to_string(),
-            discriminant: disc_val,
+            enum_id: EnumId(normalized_enum),
+            name: normalized_variant.clone(),
+            discriminant: Self::calculate_discriminant(&normalized_variant),
         };
 
         // Create the enum value
@@ -2884,6 +2922,30 @@ impl IrBuilder {
         self.var_types.insert(dest.0, IrType::Void);
 
         Ok(dest)
+    }
+
+    /// NFC-normalize a string for consistent comparison of Arabic identifiers.
+    fn normalize_name(name: &str) -> String {
+        name.nfc().collect()
+    }
+
+    /// Calculate a discriminant hash for an enum variant name.
+    /// Uses FNV-1a hash for better distribution and collision resistance.
+    /// The name is NFC-normalized first to handle Arabic identifier variations.
+    fn calculate_discriminant(variant_name: &str) -> u32 {
+        // NFC normalize to handle Arabic identifier variations
+        let normalized: String = variant_name.nfc().collect();
+
+        // FNV-1a hash constants for 32-bit
+        const FNV_OFFSET: u32 = 2166136261;
+        const FNV_PRIME: u32 = 16777619;
+
+        let mut hash = FNV_OFFSET;
+        for byte in normalized.bytes() {
+            hash ^= byte as u32;
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+        hash
     }
 }
 

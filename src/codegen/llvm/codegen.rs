@@ -1317,6 +1317,7 @@ impl LlvmCodegen {
                 );
 
                 // Store field values at subsequent offsets
+                // Use consistent 8-byte alignment for all fields to match GetVariantField
                 let mut offset = 8u64; // Start after discriminant
                 for field_var in fields.iter() {
                     let field_name = self.get_var(*field_var)?;
@@ -1346,7 +1347,8 @@ impl LlvmCodegen {
                         field_ptr
                     );
 
-                    offset += self.type_mapper.type_size(&field_ty);
+                    // Use 8-byte alignment for all fields for consistency with GetVariantField
+                    offset += 8;
                 }
 
                 // Result is the pointer to the enum
@@ -1378,8 +1380,8 @@ impl LlvmCodegen {
                 let value_name = self.get_var(*value)?;
                 let llvm_ty = self.type_mapper.map_type(ty);
 
-                // Calculate field offset: 8 (discriminant) + sum of previous field sizes
-                // For simplicity, assume all fields are 8 bytes (pointer-sized)
+                // Calculate field offset: 8 (discriminant) + field_index * 8
+                // All fields use 8-byte alignment for consistency with NewEnumVariant
                 let offset = 8 + (*field_index as u64) * 8;
 
                 // GEP to field offset
