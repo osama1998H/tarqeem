@@ -185,8 +185,11 @@ impl BackgroundCompiler {
     }
 
     /// The main compilation thread loop
-    fn compiler_thread<F>(state: Arc<Mutex<CompilerState>>, shutdown: Arc<AtomicBool>, compile_fn: F)
-    where
+    fn compiler_thread<F>(
+        state: Arc<Mutex<CompilerState>>,
+        shutdown: Arc<AtomicBool>,
+        compile_fn: F,
+    ) where
         F: Fn(CompileRequest) -> CompileResult,
     {
         loop {
@@ -341,19 +344,25 @@ pub struct BackgroundCompilerStats {
 
 impl std::fmt::Display for BackgroundCompilerStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Background Compiler Statistics / إحصائيات الترجمة في الخلفية")?;
-        writeln!(f, "==============================================================")?;
+        writeln!(
+            f,
+            "Background Compiler Statistics / إحصائيات الترجمة في الخلفية"
+        )?;
+        writeln!(
+            f,
+            "=============================================================="
+        )?;
         writeln!(
             f,
             "Enabled / مُفعَّل: {}",
-            if self.enabled { "yes / نعم" } else { "no / لا" }
+            if self.enabled {
+                "yes / نعم"
+            } else {
+                "no / لا"
+            }
         )?;
         writeln!(f, "Queue size / حجم الطابور: {}", self.queue_size)?;
-        writeln!(
-            f,
-            "Pending results / نتائج معلقة: {}",
-            self.pending_results
-        )?;
+        writeln!(f, "Pending results / نتائج معلقة: {}", self.pending_results)?;
         writeln!(
             f,
             "Requests submitted / الطلبات المُقدمة: {}",
@@ -392,11 +401,8 @@ mod tests {
 
     #[test]
     fn test_compile_result() {
-        let success = CompileResult::success(
-            FuncId("test".to_string()),
-            CompilationTier::Optimized,
-            100,
-        );
+        let success =
+            CompileResult::success(FuncId("test".to_string()), CompilationTier::Optimized, 100);
         assert!(success.success);
         assert!(success.error.is_none());
         assert_eq!(success.compile_time_ms, 100);
@@ -421,10 +427,8 @@ mod tests {
         assert!(compiler.submit(request));
 
         // Duplicate should be rejected
-        let duplicate = CompileRequest::new(
-            FuncId("func1".to_string()),
-            CompilationTier::Optimized,
-        );
+        let duplicate =
+            CompileRequest::new(FuncId("func1".to_string()), CompilationTier::Optimized);
         assert!(!compiler.submit(duplicate));
 
         // Different function should be accepted
@@ -447,9 +451,11 @@ mod tests {
         compiler.submit(low);
 
         // Submit high priority second
-        let high =
-            CompileRequest::new(FuncId("high".to_string()), CompilationTier::BaselineCompiled)
-                .with_priority(10);
+        let high = CompileRequest::new(
+            FuncId("high".to_string()),
+            CompilationTier::BaselineCompiled,
+        )
+        .with_priority(10);
         compiler.submit(high);
 
         // High priority should be first in queue

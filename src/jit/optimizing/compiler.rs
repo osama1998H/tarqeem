@@ -71,10 +71,7 @@ impl OptimizingCompiler {
 
         // Use speed-optimized settings
         flag_builder.set("opt_level", "speed").map_err(|e| {
-            JitError::compilation(
-                e.to_string(),
-                format!("خطأ في إعداد مستوى التحسين: {}", e),
-            )
+            JitError::compilation(e.to_string(), format!("خطأ في إعداد مستوى التحسين: {}", e))
         })?;
 
         flag_builder
@@ -97,7 +94,9 @@ impl OptimizingCompiler {
 
         let isa = isa_builder
             .finish(settings::Flags::new(flag_builder))
-            .map_err(|e| JitError::compilation(e.to_string(), format!("فشل في إنشاء ISA: {}", e)))?;
+            .map_err(|e| {
+                JitError::compilation(e.to_string(), format!("فشل في إنشاء ISA: {}", e))
+            })?;
 
         // Create JIT module
         let jit_builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
@@ -149,17 +148,12 @@ impl OptimizingCompiler {
             .jit_module
             .declare_function(&func_to_compile.name, Linkage::Local, &sig)
             .map_err(|e| {
-                JitError::compilation(
-                    e.to_string(),
-                    format!("فشل في التصريح عن الدالة: {}", e),
-                )
+                JitError::compilation(e.to_string(), format!("فشل في التصريح عن الدالة: {}", e))
             })?;
 
         // Clear and set up context
-        self.ctx.func = CraneliftFunction::with_name_signature(
-            UserFuncName::user(0, func_id.as_u32()),
-            sig,
-        );
+        self.ctx.func =
+            CraneliftFunction::with_name_signature(UserFuncName::user(0, func_id.as_u32()), sig);
 
         // Build function body with profile-guided optimizations
         self.build_optimized_function_body(module, &func_to_compile, profile)?;
@@ -167,19 +161,14 @@ impl OptimizingCompiler {
         // Compile the function
         self.jit_module
             .define_function(func_id, &mut self.ctx)
-            .map_err(|e| {
-                JitError::codegen(e.to_string(), format!("فشل في تعريف الدالة: {}", e))
-            })?;
+            .map_err(|e| JitError::codegen(e.to_string(), format!("فشل في تعريف الدالة: {}", e)))?;
 
         // Clear context for reuse
         self.jit_module.clear_context(&mut self.ctx);
 
         // Finalize the function
         self.jit_module.finalize_definitions().map_err(|e| {
-            JitError::codegen(
-                e.to_string(),
-                format!("فشل في إنهاء التعريفات: {}", e),
-            )
+            JitError::codegen(e.to_string(), format!("فشل في إنهاء التعريفات: {}", e))
         })?;
 
         // Get code size (estimate)
@@ -279,8 +268,7 @@ impl OptimizingCompiler {
             }
 
             // Get branch profile for this block if available
-            let branch_profile = profile
-                .and_then(|p| p.branch_profiles.get(&bb.id.0));
+            let branch_profile = profile.and_then(|p| p.branch_profiles.get(&bb.id.0));
 
             // Compile each instruction with profile guidance
             for inst in &bb.instructions {
@@ -637,7 +625,10 @@ impl std::fmt::Display for OptimizingStats {
             f,
             "Optimizing Compiler Statistics / إحصائيات المترجم المُحسِّن"
         )?;
-        writeln!(f, "=========================================================")?;
+        writeln!(
+            f,
+            "========================================================="
+        )?;
         writeln!(
             f,
             "Functions compiled / الدوال المُترجَمة: {}",

@@ -348,7 +348,10 @@ impl JitExecutor {
                 }
                 Err(e) => {
                     if self.config.verbose {
-                        eprintln!("[JIT] Baseline compilation failed for '{}': {}", func_name, e);
+                        eprintln!(
+                            "[JIT] Baseline compilation failed for '{}': {}",
+                            func_name, e
+                        );
                     }
                 }
             }

@@ -36,10 +36,13 @@
 //! ```
 
 pub mod baseline;
+mod bench;
 mod cache;
 mod config;
+mod debug;
 mod error;
 mod executor;
+mod memory;
 pub mod optimizing;
 mod profile;
 pub mod runtime;
@@ -48,10 +51,18 @@ pub mod runtime;
 mod tests;
 
 pub use baseline::{is_baseline_jit_available, BaselineCompiler};
+pub use bench::{FunctionBenchmark, FunctionHints, JitBenchmark, PerformanceHint, Timer};
 pub use cache::{CacheStats, CodeCache, CompiledFunction, CompiledFunctionInfo};
 pub use config::JitConfig;
+pub use debug::{
+    CodeDumper, DebugVerbosity, DumpFormat, ExecutionTracer, FunctionDebugInfo, JitDebugInfo,
+    LineMapping, LocalVarInfo, TraceData, TraceEntry,
+};
 pub use error::{JitError, JitResult};
 pub use executor::JitExecutor;
+pub use memory::{
+    AllocationRecord, MemoryHint, MemoryPool, MemoryRegion, MemoryStats, MemoryTracker, PoolManager,
+};
 pub use optimizing::{is_optimizing_jit_available, OptimizingCompiler};
 pub use profile::{
     BranchProfile, CompilationTier, FunctionProfile, ObservedType, ProfileData, TierUpDecision,

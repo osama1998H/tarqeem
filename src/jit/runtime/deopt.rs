@@ -59,9 +59,7 @@ impl std::fmt::Display for DeoptReason {
             DeoptReason::StackOverflow => ("Stack overflow", "طفح المكدس"),
             DeoptReason::UncommonTrap => ("Uncommon trap", "مصيدة نادرة"),
             DeoptReason::InlineCacheMiss => ("Inline cache miss", "إخفاق التخزين المؤقت"),
-            DeoptReason::ClassHierarchyChanged => {
-                ("Class hierarchy changed", "تغير تسلسل الأصناف")
-            }
+            DeoptReason::ClassHierarchyChanged => ("Class hierarchy changed", "تغير تسلسل الأصناف"),
             DeoptReason::DebugBreakpoint => ("Debug breakpoint", "نقطة توقف تصحيح"),
             DeoptReason::Explicit => ("Explicit deoptimization", "إلغاء تحسين صريح"),
             DeoptReason::Unknown => ("Unknown reason", "سبب غير معروف"),
@@ -274,11 +272,7 @@ impl std::fmt::Display for DeoptStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Deoptimization Statistics / إحصائيات إلغاء التحسين")?;
         writeln!(f, "=====================================================")?;
-        writeln!(
-            f,
-            "Total deopts / إجمالي الإلغاءات: {}",
-            self.total_deopts
-        )?;
+        writeln!(f, "Total deopts / إجمالي الإلغاءات: {}", self.total_deopts)?;
         writeln!(
             f,
             "Functions affected / الدوال المتأثرة: {}",

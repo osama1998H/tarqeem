@@ -43,10 +43,7 @@ impl SpecializationKey {
 
     /// Create a key from observed types
     pub fn from_observed(func_name: String, observed: &[ObservedType]) -> Option<Self> {
-        let type_args: Vec<IrType> = observed
-            .iter()
-            .filter_map(|obs| obs.to_ir_type())
-            .collect();
+        let type_args: Vec<IrType> = observed.iter().filter_map(|obs| obs.to_ir_type()).collect();
 
         // Only specialize if all types are monomorphic
         if type_args.len() == observed.len() {
@@ -208,10 +205,7 @@ pub struct SpecializerStats {
 
 impl std::fmt::Display for SpecializerStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(
-            f,
-            "Type Specialization Statistics / إحصائيات التخصص النوعي"
-        )?;
+        writeln!(f, "Type Specialization Statistics / إحصائيات التخصص النوعي")?;
         writeln!(f, "=====================================================")?;
         writeln!(
             f,

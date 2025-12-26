@@ -242,11 +242,7 @@ impl std::fmt::Display for OsrStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "OSR Statistics / إحصائيات الاستبدال على المكدس")?;
         writeln!(f, "================================================")?;
-        writeln!(
-            f,
-            "Entry points / نقاط الدخول: {}",
-            self.entry_points
-        )?;
+        writeln!(f, "Entry points / نقاط الدخول: {}", self.entry_points)?;
         writeln!(f, "Triggers / التفعيلات: {}", self.triggers)?;
         writeln!(f, "Successes / النجاحات: {}", self.successes)?;
         writeln!(f, "Failures / الإخفاقات: {}", self.failures)?;
@@ -315,10 +311,7 @@ mod tests {
 
         // First iterations should continue
         for _ in 0..99 {
-            assert_eq!(
-                state.record_loop_iteration("test", 0),
-                OsrTrigger::Continue
-            );
+            assert_eq!(state.record_loop_iteration("test", 0), OsrTrigger::Continue);
         }
 
         // 100th iteration should trigger compilation
@@ -390,12 +383,21 @@ mod tests {
 
     #[test]
     fn test_value_to_bytes() {
-        assert_eq!(value_to_bytes(&Value::Int(42)), 42i64.to_le_bytes().to_vec());
+        assert_eq!(
+            value_to_bytes(&Value::Int(42)),
+            42i64.to_le_bytes().to_vec()
+        );
         assert_eq!(
             value_to_bytes(&Value::Float(3.14)),
             3.14f64.to_le_bytes().to_vec()
         );
-        assert_eq!(value_to_bytes(&Value::Bool(true)), 1i64.to_le_bytes().to_vec());
-        assert_eq!(value_to_bytes(&Value::Bool(false)), 0i64.to_le_bytes().to_vec());
+        assert_eq!(
+            value_to_bytes(&Value::Bool(true)),
+            1i64.to_le_bytes().to_vec()
+        );
+        assert_eq!(
+            value_to_bytes(&Value::Bool(false)),
+            0i64.to_le_bytes().to_vec()
+        );
     }
 }
