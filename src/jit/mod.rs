@@ -42,6 +42,7 @@ mod error;
 mod executor;
 pub mod optimizing;
 mod profile;
+pub mod runtime;
 
 #[cfg(test)]
 mod tests;
@@ -54,4 +55,8 @@ pub use executor::JitExecutor;
 pub use optimizing::{is_optimizing_jit_available, OptimizingCompiler};
 pub use profile::{
     BranchProfile, CompilationTier, FunctionProfile, ObservedType, ProfileData, TierUpDecision,
+};
+pub use runtime::{
+    BackgroundCompiler, CompileRequest, CompileResult, DeoptInfo, DeoptReason, Deoptimizer,
+    OsrEntry, OsrState, OsrTrigger,
 };

@@ -89,11 +89,14 @@ impl std::fmt::Debug for CompiledFunction {
     }
 }
 
-/// Cache for compiled functions
+/// Cache for compiled functions with LRU eviction
 #[derive(Debug, Default)]
 pub struct CodeCache {
     /// Map from function name to compiled function
     functions: HashMap<String, Arc<CompiledFunction>>,
+
+    /// Access order for LRU eviction (most recent last)
+    access_order: Vec<String>,
 
     /// Total size of cached code in bytes
     total_code_size: usize,
@@ -106,6 +109,9 @@ pub struct CodeCache {
 
     /// Number of cache misses
     misses: u64,
+
+    /// Number of evictions
+    evictions: u64,
 }
 
 impl CodeCache {
@@ -118,46 +124,76 @@ impl CodeCache {
     pub fn with_max_size(max_size: usize) -> Self {
         Self {
             functions: HashMap::new(),
+            access_order: Vec::new(),
             total_code_size: 0,
             max_size,
             hits: 0,
             misses: 0,
+            evictions: 0,
         }
     }
 
     /// Insert a compiled function into the cache
+    ///
+    /// If the cache is full, LRU entries are evicted to make room.
     pub fn insert(&mut self, func: CompiledFunction) -> bool {
         let name = func.info.name.clone();
         let code_size = func.info.code_size;
 
-        // Check if we have space
-        if self.total_code_size + code_size > self.max_size {
-            // For now, just reject if full
-            // In future: implement LRU eviction
+        // If the function is too large for the cache, reject it
+        if code_size > self.max_size {
             return false;
         }
 
         // Remove old version if exists
         if let Some(old) = self.functions.remove(&name) {
             self.total_code_size -= old.info.code_size;
+            self.access_order.retain(|n| n != &name);
         }
 
+        // Evict LRU entries until we have enough space
+        while self.total_code_size + code_size > self.max_size && !self.access_order.is_empty() {
+            self.evict_lru();
+        }
+
+        // Insert the new function
         self.total_code_size += code_size;
-        self.functions.insert(name, Arc::new(func));
+        self.functions.insert(name.clone(), Arc::new(func));
+        self.access_order.push(name);
         true
     }
 
+    /// Evict the least recently used entry
+    fn evict_lru(&mut self) {
+        if let Some(lru_name) = self.access_order.first().cloned() {
+            if let Some(func) = self.functions.remove(&lru_name) {
+                self.total_code_size -= func.info.code_size;
+                self.evictions += 1;
+            }
+            self.access_order.remove(0);
+        }
+    }
+
     /// Get a compiled function from the cache
+    ///
+    /// Updates the access order for LRU tracking.
     pub fn get(&mut self, name: &str) -> Option<Arc<CompiledFunction>> {
-        match self.functions.get(name) {
-            Some(func) => {
-                self.hits += 1;
-                Some(func.clone())
-            }
-            None => {
-                self.misses += 1;
-                None
-            }
+        if let Some(func) = self.functions.get(name).cloned() {
+            self.hits += 1;
+            // Move to end (most recently used)
+            self.touch(name);
+            Some(func)
+        } else {
+            self.misses += 1;
+            None
+        }
+    }
+
+    /// Update access order for a function (mark as recently used)
+    fn touch(&mut self, name: &str) {
+        if let Some(pos) = self.access_order.iter().position(|n| n == name) {
+            self.access_order.remove(pos);
+            self.access_order.push(name.to_string());
         }
     }
 
@@ -175,6 +211,7 @@ impl CodeCache {
     pub fn remove(&mut self, name: &str) -> Option<Arc<CompiledFunction>> {
         if let Some(func) = self.functions.remove(name) {
             self.total_code_size -= func.info.code_size;
+            self.access_order.retain(|n| n != name);
             Some(func)
         } else {
             None
@@ -184,6 +221,7 @@ impl CodeCache {
     /// Clear all cached functions
     pub fn clear(&mut self) {
         self.functions.clear();
+        self.access_order.clear();
         self.total_code_size = 0;
     }
 
@@ -195,6 +233,7 @@ impl CodeCache {
             max_size: self.max_size,
             hits: self.hits,
             misses: self.misses,
+            evictions: self.evictions,
             hit_rate: if self.hits + self.misses > 0 {
                 self.hits as f64 / (self.hits + self.misses) as f64
             } else {
@@ -237,6 +276,9 @@ pub struct CacheStats {
     /// Number of cache misses
     pub misses: u64,
 
+    /// Number of LRU evictions
+    pub evictions: u64,
+
     /// Hit rate (0.0 to 1.0)
     pub hit_rate: f64,
 }
@@ -260,6 +302,7 @@ impl std::fmt::Display for CacheStats {
         )?;
         writeln!(f, "Hits / الإصابات: {}", self.hits)?;
         writeln!(f, "Misses / الإخفاقات: {}", self.misses)?;
+        writeln!(f, "Evictions / الإخلاءات: {}", self.evictions)?;
         writeln!(f, "Hit rate / نسبة الإصابة: {:.2}%", self.hit_rate * 100.0)?;
         Ok(())
     }
@@ -339,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_size_limit() {
+    fn test_cache_lru_eviction() {
         let mut cache = CodeCache::with_max_size(2048);
 
         let func1 = CompiledFunction::new(
@@ -358,14 +401,36 @@ mod tests {
         );
         assert!(cache.insert(func2));
 
-        // This should fail - cache is full
+        // Cache is full, but LRU eviction should allow insert
         let func3 = CompiledFunction::new(
             "func3".to_string(),
             CompilationTier::BaselineCompiled,
             1024,
             5,
         );
-        assert!(!cache.insert(func3));
+        assert!(cache.insert(func3));
+
+        // func1 (LRU) should have been evicted
+        assert!(!cache.contains("func1"));
+        assert!(cache.contains("func2"));
+        assert!(cache.contains("func3"));
+
+        let stats = cache.stats();
+        assert_eq!(stats.evictions, 1);
+    }
+
+    #[test]
+    fn test_cache_too_large_function() {
+        let mut cache = CodeCache::with_max_size(1024);
+
+        // Function larger than cache should be rejected
+        let func = CompiledFunction::new(
+            "large_func".to_string(),
+            CompilationTier::BaselineCompiled,
+            2048,
+            5,
+        );
+        assert!(!cache.insert(func));
     }
 
     #[test]

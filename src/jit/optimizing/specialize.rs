@@ -253,7 +253,7 @@ impl ObservedType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{BasicBlock, BlockId, FuncId, Parameter, VarId};
+    use crate::ir::{FuncId, Parameter, VarId};
 
     fn create_test_function(name: &str) -> Function {
         Function::new(

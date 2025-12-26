@@ -122,6 +122,16 @@ impl JitError {
             format!("فشل الترقية من {} إلى {}: {}", from, to, reason),
         )
     }
+
+    /// Create a "feature not available" error
+    pub fn not_available(feature: impl Into<String>) -> Self {
+        let feature = feature.into();
+        Self::new(
+            JitErrorKind::NotAvailable,
+            format!("JIT feature not available: {}", feature),
+            format!("ميزة الترجمة الفورية غير متوفرة: {}", feature),
+        )
+    }
 }
 
 impl fmt::Display for JitError {
@@ -164,6 +174,9 @@ pub enum JitErrorKind {
 
     /// Tier-up failed
     TierUpFailed,
+
+    /// Feature not available
+    NotAvailable,
 }
 
 impl fmt::Display for JitErrorKind {
@@ -180,6 +193,7 @@ impl fmt::Display for JitErrorKind {
             JitErrorKind::Internal => write!(f, "Internal / داخلي"),
             JitErrorKind::LlvmError => write!(f, "LLVM Error / خطأ LLVM"),
             JitErrorKind::TierUpFailed => write!(f, "Tier-Up Failed / فشل الترقية"),
+            JitErrorKind::NotAvailable => write!(f, "Not Available / غير متوفر"),
         }
     }
 }
