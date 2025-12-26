@@ -1557,10 +1557,10 @@ impl IrBuilder {
                     value: match_val,
                 });
 
-                // Compare with expected discriminant (use hash of variant name for now)
-                // TODO: Use proper enum registry for discriminant lookup
+                // Compare with expected discriminant (use hash of variant name)
+                // Must match the calculation in build_enum_variant
                 let expected = self.new_var();
-                let disc_val = variant_name.chars().map(|c| c as i64).sum::<i64>() % 256;
+                let disc_val = (variant_name.chars().map(|c| c as u32).sum::<u32>() % 256) as i64;
                 self.emit(Instruction::Const {
                     dest: expected,
                     value: Constant::Int(disc_val),
@@ -1591,7 +1591,9 @@ impl IrBuilder {
         match &pattern.kind {
             PatternKind::Identifier(name) => {
                 // Bind the identifier to the match value
+                // Mark as parameter so it's treated as a direct value, not a pointer
                 self.variables.insert(name.clone(), match_val);
+                self.parameters.insert(match_val.0);
             }
             PatternKind::EnumVariant {
                 enum_name,
@@ -1599,7 +1601,6 @@ impl IrBuilder {
                 bindings,
             } => {
                 // Extract variant fields and bind them
-                // TODO: Full implementation when enum registry is available
                 for (i, binding) in bindings.iter().enumerate() {
                     let field_val = self.new_var();
                     self.emit(Instruction::GetVariantField {
@@ -1608,12 +1609,14 @@ impl IrBuilder {
                         variant: VariantId {
                             enum_id: EnumId(enum_name.clone()),
                             name: variant_name.clone(),
-                            discriminant: i as u32,
+                            discriminant: (variant_name.chars().map(|c| c as u32).sum::<u32>() % 256),
                         },
                         field_index: i as u32,
                         ty: IrType::Int, // Default to Int for now
                     });
+                    // Mark as parameter so it's treated as a direct value, not a pointer
                     self.variables.insert(binding.clone(), field_val);
+                    self.parameters.insert(field_val.0);
                 }
             }
             PatternKind::Literal(_) | PatternKind::Wildcard => {
@@ -1787,11 +1790,12 @@ impl IrBuilder {
         }
 
         // Create the variant ID
-        // For now, use 0 as discriminant - will be computed properly when we have enum info
+        // Use hash of variant name as discriminant for consistent matching
+        let disc_val = (variant_name.chars().map(|c| c as u32).sum::<u32>()) % 256;
         let variant_id = VariantId {
             enum_id: EnumId(enum_name.to_string()),
             name: variant_name.to_string(),
-            discriminant: 0, // TODO: Look up actual discriminant from enum registry
+            discriminant: disc_val,
         };
 
         // Create the enum value
