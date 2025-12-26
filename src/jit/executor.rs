@@ -12,6 +12,8 @@ use crate::ir::{FuncId, Module};
 use super::baseline::BaselineCompiler;
 use super::cache::CodeCache;
 use super::config::JitConfig;
+#[cfg(feature = "jit")]
+use super::optimizing::OptimizingCompiler;
 use super::profile::{
     CompilationTier, FunctionProfile, ProfileData, ProfileSummary, TierUpDecision,
 };
@@ -118,6 +120,10 @@ pub struct JitExecutor {
     /// Baseline JIT compiler (when feature enabled)
     #[cfg(feature = "jit")]
     baseline_compiler: Option<BaselineCompiler>,
+
+    /// Optimizing JIT compiler (when feature enabled)
+    #[cfg(feature = "jit")]
+    optimizing_compiler: Option<OptimizingCompiler>,
 }
 
 impl JitExecutor {
@@ -133,6 +139,14 @@ impl JitExecutor {
             None
         };
 
+        // Initialize optimizing compiler if JIT feature is enabled
+        #[cfg(feature = "jit")]
+        let optimizing_compiler = if config.enabled {
+            OptimizingCompiler::new().ok()
+        } else {
+            None
+        };
+
         Self {
             module,
             interpreter,
@@ -142,6 +156,8 @@ impl JitExecutor {
             code_cache: CodeCache::new(),
             #[cfg(feature = "jit")]
             baseline_compiler,
+            #[cfg(feature = "jit")]
+            optimizing_compiler,
         }
     }
 
@@ -274,8 +290,14 @@ impl JitExecutor {
 
                 // Compile the function if JIT is available
                 #[cfg(feature = "jit")]
-                if target_tier == CompilationTier::BaselineCompiled {
-                    self.compile_function(func_name);
+                match target_tier {
+                    CompilationTier::BaselineCompiled => {
+                        self.compile_function_baseline(func_name);
+                    }
+                    CompilationTier::Optimized => {
+                        self.compile_function_optimizing(func_name);
+                    }
+                    _ => {}
                 }
             }
             TierUpDecision::Deoptimize => {
@@ -290,10 +312,12 @@ impl JitExecutor {
 
     /// Compile a function using the baseline compiler
     #[cfg(feature = "jit")]
-    fn compile_function(&mut self, func_name: &str) {
-        // Check if already compiled
-        if self.code_cache.contains(func_name) {
-            return;
+    fn compile_function_baseline(&mut self, func_name: &str) {
+        // Check if already compiled at baseline or higher
+        if let Some(compiled) = self.code_cache.get(func_name) {
+            if compiled.info.tier >= CompilationTier::BaselineCompiled {
+                return;
+            }
         }
 
         // Get the function from the module
@@ -324,7 +348,56 @@ impl JitExecutor {
                 }
                 Err(e) => {
                     if self.config.verbose {
-                        eprintln!("[JIT] Compilation failed for '{}': {}", func_name, e);
+                        eprintln!("[JIT] Baseline compilation failed for '{}': {}", func_name, e);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Compile a function using the optimizing compiler
+    #[cfg(feature = "jit")]
+    fn compile_function_optimizing(&mut self, func_name: &str) {
+        // Get the function from the module
+        let func_id = FuncId(func_name.to_string());
+        let func = match self.module.get_function(&func_id) {
+            Some(f) => f,
+            None => return,
+        };
+
+        // Clone the function for compilation (to avoid borrow issues)
+        let func_clone = func.clone();
+
+        // Get profile for this function (for profile-guided optimization)
+        let profile = self.profile_data.get(func_name);
+
+        // Compile using optimizing compiler
+        if let Some(ref mut compiler) = self.optimizing_compiler {
+            let result = match profile {
+                Some(p) => compiler.compile_with_profile(&self.module, &func_clone, Some(&p)),
+                None => compiler.compile(&self.module, &func_clone),
+            };
+
+            match result {
+                Ok(compiled) => {
+                    let compile_time_ms = compiled.info.compile_time_ms;
+                    let tier = compiled.info.tier;
+
+                    self.emit_event(JitEvent::FunctionCompiled {
+                        name: func_name.to_string(),
+                        tier,
+                        compile_time_ms,
+                    });
+
+                    // Store in cache (will replace baseline version)
+                    self.code_cache.insert(compiled);
+                }
+                Err(e) => {
+                    if self.config.verbose {
+                        eprintln!(
+                            "[JIT] Optimizing compilation failed for '{}': {}",
+                            func_name, e
+                        );
                     }
                 }
             }

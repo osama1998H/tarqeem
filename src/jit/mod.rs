@@ -40,6 +40,7 @@ mod cache;
 mod config;
 mod error;
 mod executor;
+pub mod optimizing;
 mod profile;
 
 #[cfg(test)]
@@ -50,6 +51,7 @@ pub use cache::{CacheStats, CodeCache, CompiledFunction, CompiledFunctionInfo};
 pub use config::JitConfig;
 pub use error::{JitError, JitResult};
 pub use executor::JitExecutor;
+pub use optimizing::{is_optimizing_jit_available, OptimizingCompiler};
 pub use profile::{
     BranchProfile, CompilationTier, FunctionProfile, ObservedType, ProfileData, TierUpDecision,
 };
