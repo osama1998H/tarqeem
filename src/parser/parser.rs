@@ -1285,9 +1285,12 @@ impl Parser {
 
             TokenKind::LeftBracket => {
                 let mut elements = Vec::new();
+                self.skip_newlines();
                 if !self.check(&TokenKind::RightBracket) {
                     loop {
+                        self.skip_newlines();
                         elements.push(self.parse_expression()?);
+                        self.skip_newlines();
                         if !self.match_token(&TokenKind::Comma)
                             && !self.match_token(&TokenKind::ArabicComma)
                         {
@@ -1295,6 +1298,7 @@ impl Parser {
                         }
                     }
                 }
+                self.skip_newlines();
                 self.expect(&TokenKind::RightBracket, "Expected ']'", "متوقع ']'")?;
                 let end_span = self.previous_span();
                 Ok(Expr::new(ExprKind::Array(elements), span.merge(&end_span)))
@@ -1302,12 +1306,15 @@ impl Parser {
 
             TokenKind::LeftBrace => {
                 let mut pairs = Vec::new();
+                self.skip_newlines();
                 if !self.check(&TokenKind::RightBrace) {
                     loop {
+                        self.skip_newlines();
                         let key = self.expect_identifier("Expected key", "متوقع مفتاح")?;
                         self.expect(&TokenKind::Colon, "Expected ':'", "متوقع ':'")?;
                         let value = self.parse_expression()?;
                         pairs.push((key, value));
+                        self.skip_newlines();
                         if !self.match_token(&TokenKind::Comma)
                             && !self.match_token(&TokenKind::ArabicComma)
                         {
@@ -1315,6 +1322,7 @@ impl Parser {
                         }
                     }
                 }
+                self.skip_newlines();
                 self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
                 let end_span = self.previous_span();
                 Ok(Expr::new(ExprKind::Object(pairs), span.merge(&end_span)))
