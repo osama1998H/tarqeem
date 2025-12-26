@@ -30,7 +30,7 @@ pub fn run(force: bool) -> PackageResult<()> {
         return Ok(());
     }
 
-    let lockfile_path = project_root.join(LockFile::FILENAME);
+    let lockfile_path = project_root.join(LockFile::DEFAULT_LOCK_NAME);
     let mut lockfile = if lockfile_path.exists() && !force {
         LockFile::parse(&lockfile_path).unwrap_or_else(|_| {
             LockFile::with_root(&manifest.package.name, &manifest.package.version)

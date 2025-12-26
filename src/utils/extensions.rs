@@ -109,7 +109,7 @@ mod tests {
         assert!(!is_valid_source_extension(Path::new("file.txt")));
         assert!(!is_valid_source_extension(Path::new("file.rs")));
         assert!(!is_valid_source_extension(Path::new("file.py")));
-        assert!(!is_valid_source_extension(Path::new("file.ترقيم")));
+        assert!(!is_valid_source_extension(Path::new("file.trq")));
         assert!(!is_valid_source_extension(Path::new("noextension")));
     }
 
@@ -126,7 +126,7 @@ mod tests {
             FileExtension::Source
         );
         assert_eq!(
-            FileExtension::from_path(Path::new("file.ترقيم")),
+            FileExtension::from_path(Path::new("file.trq")),
             FileExtension::Unknown
         );
         assert_eq!(
