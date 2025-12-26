@@ -301,17 +301,17 @@ mod tests {
     #[test]
     fn test_source_location() {
         let span = Span::new(0, 10, 5, 1);
-        let loc = SourceLocation::new(PathBuf::from("test.trq"), span);
+        let loc = SourceLocation::new(PathBuf::from("test.ترقيم"), span);
 
         assert_eq!(loc.line, 5);
         assert_eq!(loc.column, 1);
-        assert_eq!(format!("{}", loc), "test.trq:5:1");
+        assert_eq!(format!("{}", loc), "test.ترقيم:5:1");
     }
 
     #[test]
     fn test_source_map() {
         let mut map = SourceMap::new();
-        let file = PathBuf::from("test.trq");
+        let file = PathBuf::from("test.ترقيم");
         let func_id = FuncId("main".to_string());
 
         map.add_source(
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn test_valid_breakpoint_lines() {
         let mut map = SourceMap::new();
-        let file = PathBuf::from("test.trq");
+        let file = PathBuf::from("test.ترقيم");
         let func_id = FuncId("main".to_string());
 
         for (line, idx) in [(2, 0), (5, 1), (5, 2), (10, 3)] {
@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn test_nearest_breakpoint_line() {
         let mut map = SourceMap::new();
-        let file = PathBuf::from("test.trq");
+        let file = PathBuf::from("test.ترقيم");
         let func_id = FuncId("main".to_string());
 
         for (line, idx) in [(5, 0), (10, 1), (15, 2)] {

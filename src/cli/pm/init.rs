@@ -117,8 +117,6 @@ pub fn run(name: Option<String>, lib: bool) -> PackageResult<()> {
 # ملف القفل (اختياري: البعض يفضل تضمينه)
 # Lock file (optional: some prefer to commit this)
 # ترقيم.قفل
-# .trqlock
-
 # مجلد الحزم
 # Packages directory
 /packages/

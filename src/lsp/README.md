@@ -325,7 +325,7 @@ tarqeem lsp -v 2>&1 | head -5
 
 ### Diagnostics Not Appearing
 
-1. Ensure the file has a `.trq` or `.ترقيم` extension
+1. Ensure the file has a `.ترقيم` extension
 2. Check that document sync is working (look for `didOpen` events)
 3. Verify the analyzer is running without panics
 

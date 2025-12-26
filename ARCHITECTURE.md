@@ -90,11 +90,11 @@ tarqeem/
 │       └── formatter.rs      # Code formatter
 │
 ├── stdlib_trq/               # Standard library (Tarqeem source)
-│   ├── مجموعات.trq          # Collections (قائمة، قاموس، مجموعة)
-│   ├── رياضيات.trq          # Math functions
-│   ├── نص.trq               # String utilities
-│   ├── ملفات.trq            # File operations
-│   └── شبكة.trq             # Networking
+│   ├── مجموعات.ترقيم          # Collections (قائمة، قاموس، مجموعة)
+│   ├── رياضيات.ترقيم          # Math functions
+│   ├── نص.ترقيم               # String utilities
+│   ├── ملفات.ترقيم            # File operations
+│   └── شبكة.ترقيم             # Networking
 │
 ├── tests/                    # Test suites
 │   ├── lexer_tests.rs
@@ -102,13 +102,13 @@ tarqeem/
 │   ├── type_tests.rs
 │   ├── codegen_tests.rs
 │   └── integration/          # Integration tests
-│       └── *.trq
+│       └── *.ترقيم
 │
 ├── examples/                 # Example programs
-│   ├── مرحبا.trq             # Hello world
-│   ├── حاسبة.trq             # Calculator
-│   ├── لعبة.trq              # Simple game
-│   └── خادم.trq              # HTTP server
+│   ├── مرحبا.ترقيم             # Hello world
+│   ├── حاسبة.ترقيم             # Calculator
+│   ├── لعبة.ترقيم              # Simple game
+│   └── خادم.ترقيم              # HTTP server
 │
 └── docs/                     # Documentation
     ├── language_spec.md      # Language specification
@@ -123,7 +123,7 @@ tarqeem/
 │                          TARQEEM COMPILER PIPELINE                       │
 └─────────────────────────────────────────────────────────────────────────┘
 
-Source Code (.trq)
+Source Code (.ترقيم)
       │
       ▼
 ┌─────────────┐
@@ -575,7 +575,7 @@ indexmap = "2.0"
 ## Testing Strategy
 
 1. **Unit Tests**: Each module has inline tests
-2. **Integration Tests**: Full compilation of `.trq` files
+2. **Integration Tests**: Full compilation of `.ترقيم` files
 3. **Snapshot Tests**: AST/IR output comparison
 4. **Fuzzing**: Property-based testing with `proptest`
 

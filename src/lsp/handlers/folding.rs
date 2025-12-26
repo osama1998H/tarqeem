@@ -362,7 +362,7 @@ mod tests {
     }
 
     fn test_uri() -> Url {
-        Url::parse("file:///test.trq").unwrap()
+        Url::parse("file:///test.ترقيم").unwrap()
     }
 
     #[test]

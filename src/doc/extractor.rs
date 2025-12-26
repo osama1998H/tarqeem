@@ -408,7 +408,7 @@ mod tests {
         let wrapped = wrap_with_markers(source);
         let mut parser = Parser::new(&wrapped);
         let ast = parser.parse().unwrap();
-        let extractor = DocExtractor::new("test".to_string(), "test.trq".to_string());
+        let extractor = DocExtractor::new("test".to_string(), "test.ترقيم".to_string());
         let doc = extractor.extract(&ast);
 
         assert_eq!(doc.items.len(), 1);
@@ -442,7 +442,7 @@ mod tests {
         let wrapped = wrap_with_markers(source);
         let mut parser = Parser::new(&wrapped);
         let ast = parser.parse().unwrap();
-        let extractor = DocExtractor::new("test".to_string(), "test.trq".to_string());
+        let extractor = DocExtractor::new("test".to_string(), "test.ترقيم".to_string());
         let doc = extractor.extract(&ast);
 
         assert_eq!(doc.items.len(), 1);
@@ -467,7 +467,7 @@ mod tests {
         let wrapped = wrap_with_markers(source);
         let mut parser = Parser::new(&wrapped);
         let ast = parser.parse().unwrap();
-        let extractor = DocExtractor::new("test".to_string(), "test.trq".to_string());
+        let extractor = DocExtractor::new("test".to_string(), "test.ترقيم".to_string());
         let doc = extractor.extract(&ast);
 
         assert_eq!(doc.items.len(), 1);

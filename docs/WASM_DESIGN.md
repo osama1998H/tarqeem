@@ -9,7 +9,7 @@ This document describes the comprehensive design for adding WebAssembly (WASM) c
 ### Compilation Pipeline for WASM
 
 ```
-Source (.trq)
+Source (.ترقيم)
      │
      ▼
 ┌──────────────────┐
@@ -303,23 +303,23 @@ export default TarqeemRuntime;
 
 ```bash
 # Compile to WASM (browser-ready)
-tarqeem compile برنامج.trq --emit-wasm -o برنامج.wasm
+tarqeem compile برنامج.ترقيم --emit-wasm -o برنامج.wasm
 
 # Compile with JS bindings
-tarqeem compile برنامج.trq --emit-wasm --wasm-js-bindings -o برنامج
+tarqeem compile برنامج.ترقيم --emit-wasm --wasm-js-bindings -o برنامج
 
 # This produces:
 #   برنامج.wasm     - WebAssembly binary
 #   برنامج.js       - JavaScript loader/bindings
 
 # Compile for WASI (standalone)
-tarqeem compile برنامج.trq --target wasm32-wasip1 -o برنامج.wasm
+tarqeem compile برنامج.ترقيم --target wasm32-wasip1 -o برنامج.wasm
 ```
 
 ### Export Functions for JavaScript
 
 ```tarqeem
-// حاسبة.trq
+// حاسبة.ترقيم
 
 // Use صدّر to export functions to WASM
 صدّر دالة جمع(أ: عدد، ب: عدد) -> عدد {
@@ -342,7 +342,7 @@ tarqeem compile برنامج.trq --target wasm32-wasip1 -o برنامج.wasm
 Compile and use:
 
 ```bash
-tarqeem compile حاسبة.trq --emit-wasm --wasm-export-all -o حاسبة
+tarqeem compile حاسبة.ترقيم --emit-wasm --wasm-export-all -o حاسبة
 ```
 
 ```html
@@ -387,7 +387,7 @@ tarqeem compile حاسبة.trq --emit-wasm --wasm-export-all -o حاسبة
 ### Interactive Program with I/O
 
 ```tarqeem
-// تحية.trq
+// تحية.ترقيم
 
 صدّر دالة __main__() {
     اطبع("مرحباً بك في برنامج ترقيم!")
@@ -399,7 +399,7 @@ tarqeem compile حاسبة.trq --emit-wasm --wasm-export-all -o حاسبة
 ```
 
 ```bash
-tarqeem compile تحية.trq --emit-wasm --wasm-js-bindings -o تحية
+tarqeem compile تحية.ترقيم --emit-wasm --wasm-js-bindings -o تحية
 ```
 
 ```html
@@ -452,7 +452,7 @@ tarqeem compile تحية.trq --emit-wasm --wasm-js-bindings -o تحية
 ### WASI for Command-Line Usage
 
 ```tarqeem
-// سطر_أوامر.trq
+// سطر_أوامر.ترقيم
 
 صدّر دالة __main__() {
     اطبع("برنامج يعمل بـ WASI!")
@@ -465,7 +465,7 @@ tarqeem compile تحية.trq --emit-wasm --wasm-js-bindings -o تحية
 
 ```bash
 # Compile for WASI
-tarqeem compile سطر_أوامر.trq --target wasm32-wasip1 -o برنامج.wasm
+tarqeem compile سطر_أوامر.ترقيم --target wasm32-wasip1 -o برنامج.wasm
 
 # Run with wasmtime
 wasmtime برنامج.wasm
@@ -507,7 +507,7 @@ bool grow_memory(int32_t pages) {
 Default stack size is 64KB. Can be configured:
 
 ```bash
-tarqeem compile برنامج.trq --emit-wasm --wasm-stack-size 128
+tarqeem compile برنامج.ترقيم --emit-wasm --wasm-stack-size 128
 ```
 
 ### 4. String Encoding
@@ -575,25 +575,25 @@ wasm-ld --version
 
 ```bash
 # Basic WASM compilation
-tarqeem compile <file>.trq --emit-wasm -o <output>.wasm
+tarqeem compile <file>.ترقيم --emit-wasm -o <output>.wasm
 
 # With optimizations
-tarqeem compile <file>.trq --emit-wasm -O2 -o <output>.wasm
+tarqeem compile <file>.ترقيم --emit-wasm -O2 -o <output>.wasm
 
 # With JS bindings
-tarqeem compile <file>.trq --emit-wasm --wasm-js-bindings -o <output>
+tarqeem compile <file>.ترقيم --emit-wasm --wasm-js-bindings -o <output>
 
 # For WASI
-tarqeem compile <file>.trq --target wasm32-wasip1 -o <output>.wasm
+tarqeem compile <file>.ترقيم --target wasm32-wasip1 -o <output>.wasm
 
 # Export all public functions
-tarqeem compile <file>.trq --emit-wasm --wasm-export-all -o <output>.wasm
+tarqeem compile <file>.ترقيم --emit-wasm --wasm-export-all -o <output>.wasm
 
 # Custom memory size (in 64KB pages)
-tarqeem compile <file>.trq --emit-wasm --wasm-memory-pages 32 -o <output>.wasm
+tarqeem compile <file>.ترقيم --emit-wasm --wasm-memory-pages 32 -o <output>.wasm
 
 # Generate source map (for debugging)
-tarqeem compile <file>.trq --emit-wasm -g --wasm-source-map -o <output>.wasm
+tarqeem compile <file>.ترقيم --emit-wasm -g --wasm-source-map -o <output>.wasm
 ```
 
 ## Error Messages

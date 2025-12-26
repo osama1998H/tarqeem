@@ -18,7 +18,7 @@ Tarqeem provides two layers of functionality:
 ### Architecture Diagram
 
 ```
-User Code (.trq)
+User Code (.ترقيم)
       ↓
 Standard Library (stdlib_trq/*.ترقيم)
       ↓ uses

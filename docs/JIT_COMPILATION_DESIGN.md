@@ -879,19 +879,19 @@ Commands::Run { file, jit_opts } => {
 
 ```bash
 # Run with default JIT settings
-tarqeem run program.trq
+tarqeem run program.ترقيم
 
 # Run with custom thresholds
-tarqeem run program.trq --baseline-threshold=50 --optimize-threshold=5000
+tarqeem run program.ترقيم --baseline-threshold=50 --optimize-threshold=5000
 
 # Disable JIT (pure interpretation)
-tarqeem run program.trq --jit=false
+tarqeem run program.ترقيم --jit=false
 
 # Debug JIT behavior
-tarqeem run program.trq --jit-verbose
+tarqeem run program.ترقيم --jit-verbose
 
 # Dump generated native code
-tarqeem run program.trq --dump-jit-code > jit_output.asm
+tarqeem run program.ترقيم --dump-jit-code > jit_output.asm
 ```
 
 ---

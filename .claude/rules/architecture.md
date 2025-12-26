@@ -7,7 +7,7 @@ This file defines the architectural boundaries that MUST be respected. Violation
 The Tarqeem compiler follows a strict pipeline:
 
 ```
-Source (.trq) → Lexer → Parser → Semantic → IR → Codegen → Binary
+Source (.ترقيم) → Lexer → Parser → Semantic → IR → Codegen → Binary
 ```
 
 ### Layer Dependencies (ENFORCED)

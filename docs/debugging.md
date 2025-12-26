@@ -22,13 +22,13 @@ The Tarqeem debugger provides:
 
 ```bash
 # Start debugging a program
-tarqeem debug program.trq
+tarqeem debug program.ترقيم
 
 # With Arabic interface
-tarqeem debug program.trq --arabic
+tarqeem debug program.ترقيم --arabic
 
 # Stop at first line
-tarqeem debug program.trq --stop-on-entry
+tarqeem debug program.ترقيم --stop-on-entry
 ```
 
 ### Interactive Commands
@@ -56,7 +56,7 @@ The debugger supports both English and Arabic commands:
 ### Example Session
 
 ```
-$ tarqeem debug examples/حاسبة.trq
+$ tarqeem debug examples/حاسبة.ترقيم
 trqdbg> break 15
 Breakpoint 1 set at line 15
 نقطة توقف 1 عند السطر 15
@@ -89,10 +89,10 @@ The Tarqeem debugger implements the [Debug Adapter Protocol](https://microsoft.g
 
 ```bash
 # TCP mode (for remote debugging)
-tarqeem debug program.trq --dap-port 4711
+tarqeem debug program.ترقيم --dap-port 4711
 
 # Stdio mode (for VS Code integration)
-tarqeem debug program.trq --dap-stdio
+tarqeem debug program.ترقيم --dap-stdio
 ```
 
 ### Supported DAP Features
@@ -150,7 +150,7 @@ You can test the DAP server manually with netcat:
 
 ```bash
 # Terminal 1: Start DAP server
-tarqeem debug test.trq --dap-port 4711
+tarqeem debug test.ترقيم --dap-port 4711
 
 # Terminal 2: Connect and send DAP messages
 nc localhost 4711
@@ -256,9 +256,9 @@ trqdbg> print اسم + " عمره " + عمر
 
 ```
 trqdbg> stack
-#0  احسب_الضريبة (راتب=5000) at حاسبة.trq:25
-#1  اطبع_التقرير () at تقرير.trq:15
-#2  رئيسية () at برنامج.trq:5
+#0  احسب_الضريبة (راتب=5000) at حاسبة.ترقيم:25
+#1  اطبع_التقرير () at تقرير.ترقيم:15
+#2  رئيسية () at برنامج.ترقيم:5
 ```
 
 ## Troubleshooting
@@ -282,7 +282,7 @@ trqdbg> stack
 Enable verbose output:
 
 ```bash
-RUST_LOG=debug tarqeem debug program.trq
+RUST_LOG=debug tarqeem debug program.ترقيم
 ```
 
 ### DAP Message Tracing
@@ -291,7 +291,7 @@ For DAP debugging, monitor the wire protocol:
 
 ```bash
 # On Linux
-tarqeem debug program.trq --dap-port 4711 2>&1 | tee debug.log
+tarqeem debug program.ترقيم --dap-port 4711 2>&1 | tee debug.log
 ```
 
 ## Architecture

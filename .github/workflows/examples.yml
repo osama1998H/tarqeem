@@ -62,7 +62,7 @@ jobs:
           FAIL=0
 
           # Only check examples in the main examples/ directory (not planned/)
-          for file in examples/*.ترقيم examples/*.trq; do
+          for file in examples/*.ترقيم; do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
               echo "Checking: $filename"
@@ -133,8 +133,6 @@ jobs:
           # Try both extensions
           if [ -f "examples/${{ matrix.example }}.ترقيم" ]; then
             FILE="examples/${{ matrix.example }}.ترقيم"
-          elif [ -f "examples/${{ matrix.example }}.trq" ]; then
-            FILE="examples/${{ matrix.example }}.trq"
           else
             echo "::error::Example file not found: ${{ matrix.example }}"
             exit 1
@@ -185,8 +183,6 @@ jobs:
           # Try both extensions
           if [ -f "examples/${{ matrix.example }}.ترقيم" ]; then
             FILE="examples/${{ matrix.example }}.ترقيم"
-          elif [ -f "examples/${{ matrix.example }}.trq" ]; then
-            FILE="examples/${{ matrix.example }}.trq"
           else
             echo "::error::Example file not found: ${{ matrix.example }}"
             exit 1

@@ -38,7 +38,7 @@ tests/                     # Integration tests
 ├── type_tests.rs
 ├── codegen_tests.rs
 └── integration/
-    └── *.trq             # End-to-end tests
+    └── *.ترقيم             # End-to-end tests
 ```
 
 ## Test Patterns
@@ -150,12 +150,12 @@ fn test_type_checker_mismatched_types_fails() { }
 
 ## Integration Test Pattern
 
-For `.trq` files in `tests/integration/`:
+For `.ترقيم` files in `tests/integration/`:
 
 ```rust
 #[test]
 fn test_integration_hello_world() {
-    let result = compile_and_run("tests/integration/مرحبا.trq");
+    let result = compile_and_run("tests/integration/مرحبا.ترقيم");
     assert_eq!(result.stdout, "مرحباً بالعالم!\n");
     assert_eq!(result.exit_code, 0);
 }

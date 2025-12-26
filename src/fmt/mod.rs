@@ -6,13 +6,13 @@
 //!
 //! ```bash
 //! # Format a file to stdout
-//! tarqeem fmt file.trq
+//! tarqeem fmt file.ترقيم
 //!
 //! # Format and write back to file
-//! tarqeem fmt -w file.trq
+//! tarqeem fmt -w file.ترقيم
 //!
 //! # Check if file is formatted (without changing)
-//! tarqeem fmt --check file.trq
+//! tarqeem fmt --check file.ترقيم
 //! ```
 
 mod config;

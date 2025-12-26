@@ -1,8 +1,8 @@
 //! Package management for Tarqeem
 //!
 //! This module provides package management functionality including:
-//! - Manifest parsing (ترقيم.حزمة / حزمة.toml / trq.toml)
-//! - Lock file management (ترقيم.قفل / .trqlock)
+//! - Manifest parsing (ترقيم.حزمة)
+//! - Lock file management (ترقيم.قفل)
 //! - Dependency resolution
 //! - Package caching
 //!

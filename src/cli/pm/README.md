@@ -56,8 +56,8 @@ tarqeem pkg init [name] --lib
 
 **Creates:**
 - `حزمة.toml` - Package manifest
-- `مصدر/رئيسي.trq` - Main entry point (binary) or `مصدر/lib.trq` (library)
-- `اختبارات/test.trq` - Test file
+- `مصدر/رئيسي.ترقيم` - Main entry point (binary) or `مصدر/lib.ترقيم` (library)
+- `اختبارات/test.ترقيم` - Test file
 - `.gitignore` - Git ignore patterns
 - `README.md` - Project readme
 
@@ -189,7 +189,7 @@ The package manifest (`حزمة.toml` or `trq.toml`) supports bilingual keys:
 "وصف" = "وصف المشروع"
 "مؤلفون" = ["أحمد"]
 "رخصة" = "MIT"
-"مدخل" = "مصدر/رئيسي.trq"
+"مدخل" = "مصدر/رئيسي.ترقيم"
 
 ["اعتماديات"]
 json = "1.0"
@@ -207,7 +207,7 @@ version = "0.1.0"
 description = "Project description"
 authors = ["Ahmed"]
 license = "MIT"
-entry = "src/main.trq"
+entry = "src/main.ترقيم"
 
 [dependencies]
 json = "1.0"
@@ -259,7 +259,7 @@ branch = "main"  # or tag, rev
 
 ## Lock File / ملف القفل
 
-The `.trqlock` file ensures reproducible builds by locking exact versions:
+The `.قفل` file ensures reproducible builds by locking exact versions:
 
 ```toml
 version = 1
@@ -298,16 +298,16 @@ Recommended project layout:
 
 ```
 my-project/
-├── حزمة.toml          # Package manifest
-├── .trqlock           # Lock file (auto-generated)
+├── حزمة.حزمة          # Package manifest
+├── .قفل           # Lock file (auto-generated)
 ├── .gitignore
 ├── README.md
 ├── مصدر/              # Source code
-│   └── رئيسي.trq      # Main entry point
+│   └── رئيسي.ترقيم      # Main entry point
 ├── اختبارات/          # Tests
-│   └── test.trq
+│   └── test.ترقيم
 ├── أمثلة/             # Examples (libraries)
-│   └── example.trq
+│   └── example.ترقيم
 ├── توثيق/             # Documentation
 │   └── guide.md
 ├── packages/          # Installed dependencies
