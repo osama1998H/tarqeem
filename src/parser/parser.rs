@@ -435,6 +435,7 @@ impl Parser {
     }
 
     fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
+        self.collect_line_comments();
         let member_doc = self.consume_doc_comment();
 
         let visibility = self.parse_visibility();
@@ -534,6 +535,7 @@ impl Parser {
         let mut accessors = Vec::new();
 
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            self.collect_line_comments();
             let accessor_visibility = self.parse_visibility();
 
             if self.match_token(&TokenKind::Get) {

@@ -52,6 +52,8 @@ pub struct IrBuilder {
     loop_stack: Vec<(BlockId, BlockId)>, // (continue_block, break_block)
     class_fields: HashMap<String, Vec<(String, IrType)>>,
     method_return_types: HashMap<String, IrType>,
+    property_getters: HashMap<String, (String, IrType)>, // "class::property" -> (getter_name, type)
+    property_setters: HashMap<String, String>,           // "class::property" -> setter_name
     function_names: HashSet<String>,
     function_return_types: HashMap<String, IrType>,
     parameters: HashSet<u32>,
@@ -74,6 +76,8 @@ impl IrBuilder {
             loop_stack: Vec::new(),
             class_fields: HashMap::new(),
             method_return_types: HashMap::new(),
+            property_getters: HashMap::new(),
+            property_setters: HashMap::new(),
             function_names: HashSet::new(),
             function_return_types: HashMap::new(),
             parameters: HashSet::new(),
@@ -203,6 +207,46 @@ impl IrBuilder {
                         .unwrap_or(IrType::Void);
                     let full_name = format!("{}::{}", name, method_name);
                     self.method_return_types.insert(full_name, ret_ty);
+                }
+                ClassMember::Property {
+                    name: prop_name,
+                    ty,
+                    accessors,
+                    default_value,
+                    ..
+                } => {
+                    let prop_type = self.convert_type(ty);
+                    let prop_key = format!("{}::{}", name, prop_name);
+
+                    // For automatic properties (no custom accessors), add a backing field
+                    if accessors.is_empty() {
+                        let backing_field = format!("_{}", prop_name);
+                        fields.push((backing_field, prop_type.clone()));
+                    }
+
+                    // Also add the property itself as a field for properties with default values
+                    if default_value.is_some() && accessors.is_empty() {
+                        // Already added as backing field above
+                    }
+
+                    // Register getter
+                    let has_getter = accessors
+                        .iter()
+                        .any(|a| matches!(a, crate::parser::PropertyAccessor::Get { .. }));
+                    if has_getter || accessors.is_empty() {
+                        let getter_name = format!("{}::__احصل_{}", name, prop_name);
+                        self.property_getters
+                            .insert(prop_key.clone(), (getter_name, prop_type.clone()));
+                    }
+
+                    // Register setter
+                    let has_setter = accessors
+                        .iter()
+                        .any(|a| matches!(a, crate::parser::PropertyAccessor::Set { .. }));
+                    if has_setter || accessors.is_empty() {
+                        let setter_name = format!("{}::__عيّن_{}", name, prop_name);
+                        self.property_setters.insert(prop_key, setter_name);
+                    }
                 }
                 _ => {}
             }
@@ -2126,6 +2170,32 @@ impl IrBuilder {
             _ => None,
         };
 
+        // Check if this is a property with a getter
+        if let Some(ref class_id) = class_id_opt {
+            let prop_key = format!("{}::{}", class_id.0, property);
+            if let Some((getter_name, prop_type)) = self.property_getters.get(&prop_key).cloned() {
+                // Extract just the method name part (e.g., "__احصل_اسم" from "شخص::__احصل_اسم")
+                let method_name_only = getter_name
+                    .split("::")
+                    .last()
+                    .unwrap_or(&getter_name)
+                    .to_string();
+                // Emit a method call to the getter instead of GetField
+                self.emit(Instruction::CallMethod {
+                    dest: Some(dest),
+                    object: obj_var,
+                    method: MethodId {
+                        class: class_id.clone(),
+                        name: method_name_only,
+                    },
+                    args: vec![],
+                    ret_ty: prop_type.clone(),
+                });
+                self.var_types.insert(dest.0, prop_type);
+                return Ok(dest);
+            }
+        }
+
         let (field_ty, field_index, class_id) = if let Some(class_id) = class_id_opt {
             if let Some((idx, ty)) = self.get_field_info(&class_id.0, property) {
                 (ty, idx, class_id)
@@ -2237,6 +2307,31 @@ impl IrBuilder {
                     }
                     _ => None,
                 };
+
+                // Check if this is a property with a setter
+                if let Some(ref class_id) = class_id_opt {
+                    let prop_key = format!("{}::{}", class_id.0, property);
+                    if let Some(setter_name) = self.property_setters.get(&prop_key).cloned() {
+                        // Extract just the method name part (e.g., "__عيّن_اسم" from "شخص::__عيّن_اسم")
+                        let method_name_only = setter_name
+                            .split("::")
+                            .last()
+                            .unwrap_or(&setter_name)
+                            .to_string();
+                        // Emit a method call to the setter instead of SetField
+                        self.emit(Instruction::CallMethod {
+                            dest: None,
+                            object: obj_var,
+                            method: MethodId {
+                                class: class_id.clone(),
+                                name: method_name_only,
+                            },
+                            args: vec![value_var],
+                            ret_ty: IrType::Void,
+                        });
+                        return Ok(value_var);
+                    }
+                }
 
                 let (class_id, field_index) = if let Some(class_id) = class_id_opt {
                     let index = self
