@@ -1338,7 +1338,13 @@ impl LlvmCodegen {
                     );
 
                     // Store field value
-                    emit!(self, "  store {} {}, ptr {}", llvm_ty, field_name, field_ptr);
+                    emit!(
+                        self,
+                        "  store {} {}, ptr {}",
+                        llvm_ty,
+                        field_name,
+                        field_ptr
+                    );
 
                     offset += self.type_mapper.type_size(&field_ty);
                 }
@@ -1356,12 +1362,7 @@ impl LlvmCodegen {
                 let value_name = self.get_var(*value)?;
 
                 // Load discriminant from offset 0 of enum pointer
-                emit!(
-                    self,
-                    "  {} = load i64, ptr {}",
-                    dest_name,
-                    value_name
-                );
+                emit!(self, "  {} = load i64, ptr {}", dest_name, value_name);
 
                 self.var_types.insert(dest.0, IrType::Int);
             }

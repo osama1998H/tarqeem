@@ -1546,9 +1546,7 @@ impl IrBuilder {
                 // Always matches - unconditional jump
                 self.emit(Instruction::Jump { target: then_block });
             }
-            PatternKind::EnumVariant {
-                variant_name, ..
-            } => {
+            PatternKind::EnumVariant { variant_name, .. } => {
                 // Check discriminant for enum variant match
                 // Get discriminant from match value
                 let disc = self.new_var();
@@ -1609,7 +1607,8 @@ impl IrBuilder {
                         variant: VariantId {
                             enum_id: EnumId(enum_name.clone()),
                             name: variant_name.clone(),
-                            discriminant: (variant_name.chars().map(|c| c as u32).sum::<u32>() % 256),
+                            discriminant: (variant_name.chars().map(|c| c as u32).sum::<u32>()
+                                % 256),
                         },
                         field_index: i as u32,
                         ty: IrType::Int, // Default to Int for now

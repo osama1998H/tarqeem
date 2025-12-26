@@ -673,11 +673,7 @@ impl Analyzer {
         let variant_infos: Vec<EnumVariantInfo> = variants
             .iter()
             .map(|v| {
-                let fields = v
-                    .fields
-                    .iter()
-                    .map(|f| self.resolve_type(&f.ty))
-                    .collect();
+                let fields = v.fields.iter().map(|f| self.resolve_type(&f.ty)).collect();
                 EnumVariantInfo {
                     name: v.name.clone(),
                     discriminant: v.discriminant,
@@ -855,8 +851,14 @@ impl Analyzer {
                         Type::Enum(enum_name.clone())
                     } else {
                         self.error(
-                            &format!("Variant '{}' not found in enum '{}'", variant_name, enum_name),
-                            &format!("الحالة '{}' غير موجودة في التعداد '{}'", variant_name, enum_name),
+                            &format!(
+                                "Variant '{}' not found in enum '{}'",
+                                variant_name, enum_name
+                            ),
+                            &format!(
+                                "الحالة '{}' غير موجودة في التعداد '{}'",
+                                variant_name, enum_name
+                            ),
                             pattern.span,
                         );
                         Type::Unknown
@@ -878,7 +880,8 @@ impl Analyzer {
         match &pattern.kind {
             PatternKind::Identifier(name) => {
                 // Bind the identifier to the match type
-                self.scope.define(Symbol::variable(name, match_type.clone(), false));
+                self.scope
+                    .define(Symbol::variable(name, match_type.clone(), false));
             }
             PatternKind::EnumVariant {
                 enum_name,
@@ -887,14 +890,17 @@ impl Analyzer {
             } => {
                 // Look up the variant's field types and bind them
                 if let Some(enum_info) = self.enums.get(enum_name) {
-                    if let Some(variant) = enum_info.variants.iter().find(|v| &v.name == variant_name) {
+                    if let Some(variant) =
+                        enum_info.variants.iter().find(|v| &v.name == variant_name)
+                    {
                         for (i, binding) in bindings.iter().enumerate() {
                             let field_type = if i < variant.fields.len() {
                                 variant.fields[i].clone()
                             } else {
                                 Type::Unknown
                             };
-                            self.scope.define(Symbol::variable(binding, field_type, false));
+                            self.scope
+                                .define(Symbol::variable(binding, field_type, false));
                         }
                     }
                 }
@@ -1808,10 +1814,8 @@ impl Analyzer {
                 // Look up the enum in our registry
                 if let Some(enum_info) = self.enums.get(enum_name).cloned() {
                     // Find the variant
-                    if let Some(variant) = enum_info
-                        .variants
-                        .iter()
-                        .find(|v| &v.name == variant_name)
+                    if let Some(variant) =
+                        enum_info.variants.iter().find(|v| &v.name == variant_name)
                     {
                         // Check argument count matches
                         if args.len() != variant.fields.len() {

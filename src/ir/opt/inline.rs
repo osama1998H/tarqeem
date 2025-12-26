@@ -614,7 +614,11 @@ impl FunctionInliner {
             Instruction::Nop => Instruction::Nop,
 
             // Enum instructions
-            Instruction::NewEnumVariant { dest, variant, fields } => Instruction::NewEnumVariant {
+            Instruction::NewEnumVariant {
+                dest,
+                variant,
+                fields,
+            } => Instruction::NewEnumVariant {
                 dest: map_var(dest),
                 variant: variant.clone(),
                 fields: fields.iter().map(|f| map_var(f)).collect(),

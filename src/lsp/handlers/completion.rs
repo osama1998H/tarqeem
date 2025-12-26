@@ -417,11 +417,8 @@ fn get_enum_variant_completions(
                                 Language::English => "Simple variant".to_string(),
                             }
                         } else {
-                            let field_types: Vec<String> = variant
-                                .fields
-                                .iter()
-                                .map(|f| format_type(&f.ty))
-                                .collect();
+                            let field_types: Vec<String> =
+                                variant.fields.iter().map(|f| format_type(&f.ty)).collect();
                             format!("({})", field_types.join("، "))
                         };
 
@@ -454,9 +451,16 @@ fn format_type(ty: &TypeAnnotation) -> String {
         TypeKind::Array(inner) => format!("مصفوفة<{}>", format_type(inner)),
         TypeKind::Map(key, value) => format!("قاموس<{}، {}>", format_type(key), format_type(value)),
         TypeKind::Optional(inner) => format!("{}?", format_type(inner)),
-        TypeKind::Function { params, return_type } => {
+        TypeKind::Function {
+            params,
+            return_type,
+        } => {
             let params_str: Vec<String> = params.iter().map(format_type).collect();
-            format!("({}) -> {}", params_str.join("، "), format_type(return_type))
+            format!(
+                "({}) -> {}",
+                params_str.join("، "),
+                format_type(return_type)
+            )
         }
         TypeKind::Generic { base, args } => {
             let args_str: Vec<String> = args.iter().map(format_type).collect();

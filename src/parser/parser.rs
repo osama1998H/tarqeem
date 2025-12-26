@@ -1094,10 +1094,8 @@ impl Parser {
                     let mut bindings = Vec::new();
                     if !self.check(&TokenKind::RightParen) {
                         loop {
-                            let binding = self.expect_identifier(
-                                "Expected binding name",
-                                "متوقع اسم الربط",
-                            )?;
+                            let binding =
+                                self.expect_identifier("Expected binding name", "متوقع اسم الربط")?;
                             bindings.push(binding);
                             if !self.match_token(&TokenKind::Comma)
                                 && !self.match_token(&TokenKind::ArabicComma)
@@ -1295,7 +1293,7 @@ impl Parser {
                     self.advance(); // consume '::'
                     let variant_name = self.expect_identifier(
                         "Expected variant name after '::'",
-                        "متوقع اسم الحالة بعد '::'"
+                        "متوقع اسم الحالة بعد '::'",
                     )?;
 
                     // Check for variant arguments: Variant(args)
@@ -1736,9 +1734,7 @@ impl Parser {
                     return Ok(None);
                 }
             }
-            if !self.match_token(&TokenKind::Comma)
-                && !self.match_token(&TokenKind::ArabicComma)
-            {
+            if !self.match_token(&TokenKind::Comma) && !self.match_token(&TokenKind::ArabicComma) {
                 break;
             }
         }

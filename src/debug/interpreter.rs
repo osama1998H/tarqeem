@@ -1173,7 +1173,11 @@ impl DebugInterpreter {
             Instruction::Nop => Ok(InstructionResult::Continue),
 
             // Enum instructions
-            Instruction::NewEnumVariant { dest, variant, fields } => {
+            Instruction::NewEnumVariant {
+                dest,
+                variant,
+                fields,
+            } => {
                 let mut field_values = Vec::new();
                 for f in fields {
                     field_values.push(self.get_local(*f)?.clone());
@@ -1193,10 +1197,7 @@ impl DebugInterpreter {
                     self.set_local(*dest, Value::Int(discriminant));
                     Ok(InstructionResult::Continue)
                 } else {
-                    Err(RuntimeError::type_error(
-                        "enum",
-                        val.type_name(),
-                    ))
+                    Err(RuntimeError::type_error("enum", val.type_name()))
                 }
             }
             Instruction::GetVariantField {
@@ -1217,10 +1218,7 @@ impl DebugInterpreter {
                         ))
                     }
                 } else {
-                    Err(RuntimeError::type_error(
-                        "enum",
-                        val.type_name(),
-                    ))
+                    Err(RuntimeError::type_error("enum", val.type_name()))
                 }
             }
         }
