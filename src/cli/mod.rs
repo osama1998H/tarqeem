@@ -85,6 +85,10 @@ pub enum Commands {
     #[command(aliases = ["شغل", "r"])]
     Run {
         file: PathBuf,
+
+        /// Use JIT compilation instead of interpreter (experimental)
+        #[arg(long, aliases = ["ترجمة_فورية"])]
+        jit: bool,
     },
 
     #[command(aliases = ["صحح", "dbg"])]

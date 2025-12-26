@@ -67,6 +67,7 @@ jobs:
           - ir
           - codegen
           - wasm
+          - jit
           - interpreter
           - cli
           - error
@@ -97,6 +98,10 @@ jobs:
             wasm)
               # Run all WASM-specific tests including codegen, target, and linker
               cargo test wasm --lib --verbose -- --nocapture
+              ;;
+            jit)
+              # Run all JIT-specific tests including baseline, optimizing, runtime, bench, debug, memory
+              cargo test jit --lib --verbose -- --nocapture
               ;;
             *)
               cargo test ${{ matrix.module }} --verbose -- --nocapture

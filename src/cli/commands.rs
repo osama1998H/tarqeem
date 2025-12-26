@@ -10,6 +10,7 @@ use crate::doc::{DocExtractor, HtmlGenerator, JsonGenerator, MarkdownGenerator, 
 use crate::error::Language;
 use crate::interpreter::Interpreter;
 use crate::ir::{IrBuilder, OptLevel, Optimizer};
+use crate::jit::{JitConfig, JitExecutor};
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::semantic::Analyzer;
@@ -477,7 +478,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             Ok(())
         }
 
-        Commands::Run { file } => {
+        Commands::Run { file, jit } => {
             warn_invalid_extension(&file);
 
             let source = fs::read_to_string(&file)
@@ -515,19 +516,57 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 )
             })?;
 
-            let mut interpreter = Interpreter::new(ir_module);
-            match interpreter.run() {
-                Ok(_result) => {
-                    if cli.verbose {
-                        println!(
-                            "{}",
-                            "Program completed successfully / اكتمل تنفيذ البرنامج بنجاح".green()
+            if jit {
+                // Use JIT compilation
+                if cli.verbose {
+                    println!(
+                        "{}",
+                        "Using JIT compilation / استخدام الترجمة الفورية".cyan()
+                    );
+                }
+
+                let config = JitConfig::default().with_verbose(cli.verbose);
+                let mut executor = JitExecutor::new(ir_module, config);
+
+                match executor.run() {
+                    Ok(_result) => {
+                        if cli.verbose {
+                            println!(
+                                "{}",
+                                "Program completed successfully (JIT) / اكتمل تنفيذ البرنامج بنجاح (ترجمة فورية)".green()
+                            );
+                            // Print JIT statistics
+                            println!("\n{}", executor.profile_summary());
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "{} {}",
+                            "JIT runtime error / خطأ وقت التشغيل (ترجمة فورية):"
+                                .red()
+                                .bold(),
+                            e
                         );
+                        return Err("JIT runtime error / خطأ وقت التشغيل (ترجمة فورية)".to_string());
                     }
                 }
-                Err(e) => {
-                    eprintln!("{} {}", "Runtime error / خطأ وقت التشغيل:".red().bold(), e);
-                    return Err("Runtime error / خطأ وقت التشغيل".to_string());
+            } else {
+                // Use interpreter
+                let mut interpreter = Interpreter::new(ir_module);
+                match interpreter.run() {
+                    Ok(_result) => {
+                        if cli.verbose {
+                            println!(
+                                "{}",
+                                "Program completed successfully / اكتمل تنفيذ البرنامج بنجاح"
+                                    .green()
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{} {}", "Runtime error / خطأ وقت التشغيل:".red().bold(), e);
+                        return Err("Runtime error / خطأ وقت التشغيل".to_string());
+                    }
                 }
             }
 

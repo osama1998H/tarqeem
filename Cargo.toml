@@ -46,6 +46,14 @@ tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 dashmap = "6.0"    # Concurrent hashmap for document state
 
+# JIT Compilation (optional)
+cranelift-codegen = { version = "0.113", optional = true }
+cranelift-frontend = { version = "0.113", optional = true }
+cranelift-jit = { version = "0.113", optional = true }
+cranelift-module = { version = "0.113", optional = true }
+cranelift-native = { version = "0.113", optional = true }
+target-lexicon = { version = "0.12", optional = true }
+
 [dev-dependencies]
 pretty_assertions = "1.4"
 tempfile = "3.14"
@@ -54,6 +62,14 @@ criterion = { version = "0.5", features = ["html_reports"] }
 [features]
 profiling = []   # Enable profiling instrumentation
 concurrent = []  # Enable concurrent string interner
+jit = [          # Enable JIT compilation support
+    "cranelift-codegen",
+    "cranelift-frontend",
+    "cranelift-jit",
+    "cranelift-module",
+    "cranelift-native",
+    "target-lexicon",
+]
 
 [[bin]]
 name = "tarqeem"
@@ -90,4 +106,8 @@ harness = false
 
 [[bench]]
 name = "end_to_end"
+harness = false
+
+[[bench]]
+name = "jit"
 harness = false
