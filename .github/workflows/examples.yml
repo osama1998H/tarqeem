@@ -147,6 +147,58 @@ jobs:
           timeout 30s ./bin/tarqeem run "$FILE"
 
   # ============================================
+  # Run Examples with JIT Compilation
+  # ============================================
+  run-examples-jit:
+    name: Run Examples (JIT)
+    runs-on: ubuntu-latest
+    needs: build-compiler
+    strategy:
+      fail-fast: false
+      matrix:
+        example:
+          # Only include working examples (those not in planned/)
+          - مرحبا
+          - متغيرات
+          - دوال
+          - تحكم
+          - أهلا
+          - صنف
+          - اختبار_بسيط
+          - اختبار_مجموعات
+          - لعبة_الحياة_بسيط
+          - لعبة_الحياة
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download compiler
+        uses: actions/download-artifact@v7
+        with:
+          name: tarqeem-compiler
+          path: ./bin
+
+      - name: Make compiler executable
+        run: chmod +x ./bin/tarqeem
+
+      - name: Run example with JIT - ${{ matrix.example }}
+        run: |
+          # Try both extensions
+          if [ -f "examples/${{ matrix.example }}.ترقيم" ]; then
+            FILE="examples/${{ matrix.example }}.ترقيم"
+          elif [ -f "examples/${{ matrix.example }}.trq" ]; then
+            FILE="examples/${{ matrix.example }}.trq"
+          else
+            echo "::error::Example file not found: ${{ matrix.example }}"
+            exit 1
+          fi
+
+          echo "Running with JIT: $FILE"
+          echo "================================"
+
+          # Run with JIT compilation and timeout (30 seconds max)
+          timeout 30s ./bin/tarqeem run --jit "$FILE"
+
+  # ============================================
   # Run Standard Library Tests
   # ============================================
   run-stdlib:
@@ -194,7 +246,7 @@ jobs:
   summary:
     name: Examples Summary
     runs-on: ubuntu-latest
-    needs: [check-examples, run-examples, run-stdlib]
+    needs: [check-examples, run-examples, run-examples-jit, run-stdlib]
     if: always()
     steps:
       - name: Download all artifacts

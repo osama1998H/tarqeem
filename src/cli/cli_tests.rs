@@ -164,7 +164,7 @@ fn test_cli_parse_run_basic() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Run { file } => {
+        Commands::Run { file, .. } => {
             assert_eq!(file, PathBuf::from("test.trq"));
         }
         _ => panic!("Expected Run command"),
@@ -177,7 +177,7 @@ fn test_cli_parse_run_arabic_alias() {
     assert!(args.is_ok());
 
     match args.unwrap().command {
-        Commands::Run { file } => {
+        Commands::Run { file, .. } => {
             assert_eq!(file, PathBuf::from("test.trq"));
         }
         _ => panic!("Expected Run command"),
@@ -808,7 +808,7 @@ fn test_cli_run_alias_r() {
     assert!(args.is_ok());
 
     match args.unwrap().command {
-        Commands::Run { file } => {
+        Commands::Run { file, .. } => {
             assert_eq!(file, PathBuf::from("test.trq"));
         }
         _ => panic!("Expected Run command"),
@@ -923,7 +923,7 @@ fn test_cli_run_arabic_file() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Run { file } => {
+        Commands::Run { file, .. } => {
             assert_eq!(file, PathBuf::from("مرحبا.ترقيم"));
         }
         _ => panic!("Expected Run command"),
