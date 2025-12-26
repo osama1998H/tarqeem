@@ -350,6 +350,7 @@ fn get_or_create_var(
 }
 
 /// Compile a single instruction with profile-guided optimizations
+#[allow(clippy::too_many_arguments)]
 fn compile_optimized_instruction(
     builder: &mut FunctionBuilder,
     _module: &Module,
@@ -578,18 +579,20 @@ fn compile_optimized_instruction(
         }
 
         Instruction::Call {
-            dest,
+            dest: Some(d),
             func: _,
             args: _,
             ret_ty,
         } => {
             // TODO: Implement optimized function calls with inline caching
-            if let Some(d) = dest {
-                let cranelift_ty = ir_type_to_cranelift(ret_ty)?;
-                let dest_var = get_or_create_var(builder, d.0, cranelift_ty, var_map, var_counter);
-                let zero = builder.ins().iconst(types::I64, 0);
-                builder.def_var(dest_var, zero);
-            }
+            let cranelift_ty = ir_type_to_cranelift(ret_ty)?;
+            let dest_var = get_or_create_var(builder, d.0, cranelift_ty, var_map, var_counter);
+            let zero = builder.ins().iconst(types::I64, 0);
+            builder.def_var(dest_var, zero);
+        }
+
+        Instruction::Call { dest: None, .. } => {
+            // Function call with no destination - nothing to do
         }
 
         _ => {

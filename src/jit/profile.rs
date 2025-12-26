@@ -101,7 +101,7 @@ impl BranchProfile {
     /// Returns true if this branch is biased (>90% one way)
     pub fn is_biased(&self) -> bool {
         let prob = self.taken_probability();
-        prob > 0.9 || prob < 0.1
+        !(0.1..=0.9).contains(&prob)
     }
 }
 
@@ -115,7 +115,7 @@ impl Clone for BranchProfile {
 }
 
 /// Observed type information for type specialization
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum ObservedType {
     /// Always observed as integer
     AlwaysInt,
@@ -142,6 +142,7 @@ pub enum ObservedType {
     Mixed,
 
     /// No observations yet
+    #[default]
     Unknown,
 }
 
@@ -162,12 +163,6 @@ impl ObservedType {
     /// Returns true if this type can be specialized
     pub fn can_specialize(&self) -> bool {
         !matches!(self, ObservedType::Mixed | ObservedType::Unknown)
-    }
-}
-
-impl Default for ObservedType {
-    fn default() -> Self {
-        ObservedType::Unknown
     }
 }
 
@@ -248,9 +243,7 @@ impl FunctionProfile {
 
     /// Get or create a branch profile for the given block ID
     pub fn get_branch_profile(&mut self, block_id: u32) -> &BranchProfile {
-        self.branch_profiles
-            .entry(block_id)
-            .or_insert_with(BranchProfile::new)
+        self.branch_profiles.entry(block_id).or_default()
     }
 
     /// Reset all profiling data (useful for deoptimization)

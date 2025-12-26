@@ -138,7 +138,7 @@ impl BaselineCompiler {
         })?;
 
         // Get code size (estimate)
-        let code_size = self.estimate_code_size(&func);
+        let code_size = self.estimate_code_size(func);
 
         // Calculate compile time
         let compile_time_ms = start_time.elapsed().as_millis() as u64;
@@ -497,19 +497,21 @@ fn compile_instruction(
         // For now, emit a return for unsupported instructions
         // In a complete implementation, these would be handled properly
         Instruction::Call {
-            dest,
+            dest: Some(d),
             func: _,
             args: _,
             ret_ty,
         } => {
             // TODO: Implement function calls
             // For now, just define a zero value for the destination
-            if let Some(d) = dest {
-                let cranelift_ty = ir_type_to_cranelift(ret_ty)?;
-                let dest_var = get_or_create_var(builder, d.0, cranelift_ty, var_map, var_counter);
-                let zero = builder.ins().iconst(types::I64, 0);
-                builder.def_var(dest_var, zero);
-            }
+            let cranelift_ty = ir_type_to_cranelift(ret_ty)?;
+            let dest_var = get_or_create_var(builder, d.0, cranelift_ty, var_map, var_counter);
+            let zero = builder.ins().iconst(types::I64, 0);
+            builder.def_var(dest_var, zero);
+        }
+
+        Instruction::Call { dest: None, .. } => {
+            // Function call with no destination - nothing to do
         }
 
         _ => {

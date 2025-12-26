@@ -388,8 +388,8 @@ mod tests {
             42i64.to_le_bytes().to_vec()
         );
         assert_eq!(
-            value_to_bytes(&Value::Float(3.14)),
-            3.14f64.to_le_bytes().to_vec()
+            value_to_bytes(&Value::Float(2.5)),
+            2.5f64.to_le_bytes().to_vec()
         );
         assert_eq!(
             value_to_bytes(&Value::Bool(true)),
