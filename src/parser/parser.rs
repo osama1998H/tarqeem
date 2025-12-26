@@ -17,11 +17,7 @@ pub struct Parser {
 impl Parser {
     pub fn new(source: &str) -> Self {
         let mut lexer = Lexer::new(source);
-        let tokens: Vec<Token> = lexer
-            .tokenize()
-            .into_iter()
-            .filter(|t| !matches!(t.kind, TokenKind::Newline))
-            .collect();
+        let tokens: Vec<Token> = lexer.tokenize();
 
         Self {
             tokens,
@@ -33,16 +29,19 @@ impl Parser {
     }
 
     pub fn from_tokens(tokens: Vec<Token>) -> Self {
-        let tokens: Vec<Token> = tokens
-            .into_iter()
-            .filter(|t| !matches!(t.kind, TokenKind::Newline))
-            .collect();
         Self {
             tokens,
             current: 0,
             errors: Vec::new(),
             panic_mode: false,
             pending_comments: Vec::new(),
+        }
+    }
+
+    /// Skips all newline tokens
+    fn skip_newlines(&mut self) {
+        while self.check(&TokenKind::Newline) {
+            self.advance();
         }
     }
 
@@ -151,9 +150,14 @@ impl Parser {
 
     /// Collects all line comments before the next non-comment token
     fn collect_line_comments(&mut self) {
+        // Skip leading newlines first
+        self.skip_newlines();
+
         while let TokenKind::LineComment(content) = &self.peek().kind {
             self.pending_comments.push(content.clone());
             self.advance();
+            // Skip newlines after each comment
+            self.skip_newlines();
         }
     }
 
@@ -162,7 +166,22 @@ impl Parser {
         std::mem::take(&mut self.pending_comments)
     }
 
+    /// Captures a trailing comment (comment on same line after statement)
+    /// Returns the comment content if present, without advancing past any newline
+    fn capture_trailing_comment(&mut self) -> Option<String> {
+        if let TokenKind::LineComment(content) = &self.peek().kind {
+            let comment = content.clone();
+            self.advance();
+            Some(comment)
+        } else {
+            None
+        }
+    }
+
     pub fn parse(&mut self) -> Result<Ast, Diagnostic> {
+        // Skip any leading newlines before بسم_الله
+        self.skip_newlines();
+
         let bismillah_span = if self.check(&TokenKind::Bismillah) {
             let span = self.current_span();
             self.advance();
@@ -177,6 +196,9 @@ impl Parser {
 
         let mut statements = Vec::new();
 
+        // Skip newlines before first statement or الحمد_لله
+        self.skip_newlines();
+
         while !self.is_at_end() && !self.check(&TokenKind::Alhamdulillah) {
             match self.parse_declaration() {
                 Ok(stmt) => {
@@ -187,6 +209,8 @@ impl Parser {
                     self.synchronize();
                 }
             }
+            // Skip newlines after each statement before checking loop condition
+            self.skip_newlines();
         }
 
         let alhamdulillah_span = if self.check(&TokenKind::Alhamdulillah) {
@@ -205,6 +229,9 @@ impl Parser {
             }
             return Err(err);
         };
+
+        // Skip trailing newlines after الحمد_لله
+        self.skip_newlines();
 
         if !self.is_at_end() {
             let err = Diagnostic::error(
@@ -237,6 +264,9 @@ impl Parser {
 
         let doc_comment = self.consume_doc_comment();
 
+        // Skip newlines after doc comment before the actual declaration
+        self.skip_newlines();
+
         let mut stmt = if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
             self.parse_var_declaration(doc_comment)?
         } else if self.check(&TokenKind::Function) {
@@ -257,6 +287,9 @@ impl Parser {
         } else {
             self.parse_statement()?
         };
+
+        // Capture trailing comment (on same line after statement)
+        stmt.trailing_comment = self.capture_trailing_comment();
 
         // Attach leading comments to the statement
         stmt.leading_comments = leading_comments;
@@ -421,6 +454,9 @@ impl Parser {
     fn parse_class_members(&mut self) -> Result<Vec<ClassMember>, Diagnostic> {
         let mut members = Vec::new();
 
+        // Skip initial newlines
+        self.skip_newlines();
+
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
             match self.parse_class_member() {
                 Ok(member) => members.push(member),
@@ -429,6 +465,8 @@ impl Parser {
                     self.synchronize_to_member();
                 }
             }
+            // Skip newlines after each member
+            self.skip_newlines();
         }
 
         Ok(members)
@@ -534,6 +572,9 @@ impl Parser {
     fn parse_property_accessors(&mut self) -> Result<Vec<PropertyAccessor>, Diagnostic> {
         let mut accessors = Vec::new();
 
+        // Skip initial newlines
+        self.skip_newlines();
+
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
             self.collect_line_comments();
             let accessor_visibility = self.parse_visibility();
@@ -574,6 +615,8 @@ impl Parser {
                     self.current_span(),
                 ));
             }
+            // Skip newlines after each accessor
+            self.skip_newlines();
         }
 
         Ok(accessors)
@@ -604,6 +647,9 @@ impl Parser {
 
         self.expect(&TokenKind::LeftBrace, "Expected '{'", "متوقع '{'")?;
 
+        // Skip initial newlines
+        self.skip_newlines();
+
         let mut methods = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
             let method_doc = self.consume_doc_comment();
@@ -626,6 +672,8 @@ impl Parser {
                 return_type,
                 doc_comment: method_doc,
             });
+            // Skip newlines after each method
+            self.skip_newlines();
         }
 
         self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
@@ -652,6 +700,9 @@ impl Parser {
 
         self.expect(&TokenKind::LeftBrace, "Expected '{'", "متوقع '{'")?;
 
+        // Skip initial newlines
+        self.skip_newlines();
+
         let mut variants = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
             let variant = self.parse_enum_variant()?;
@@ -659,6 +710,8 @@ impl Parser {
 
             let _ =
                 self.match_token(&TokenKind::Comma) || self.match_token(&TokenKind::ArabicComma);
+            // Skip newlines after each variant
+            self.skip_newlines();
         }
 
         self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
@@ -989,6 +1042,9 @@ impl Parser {
 
         self.expect(&TokenKind::LeftBrace, "Expected '{'", "متوقع '{'")?;
 
+        // Skip initial newlines
+        self.skip_newlines();
+
         let mut arms = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
             match self.parse_match_arm() {
@@ -998,6 +1054,8 @@ impl Parser {
                     self.synchronize_to_arm();
                 }
             }
+            // Skip newlines after each arm
+            self.skip_newlines();
         }
 
         self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
@@ -1141,6 +1199,9 @@ impl Parser {
         let start = self.current_span();
         self.expect(&TokenKind::LeftBrace, "Expected '{'", "متوقع '{'")?;
 
+        // Skip newlines after opening brace
+        self.skip_newlines();
+
         let mut statements = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
             match self.parse_declaration() {
@@ -1150,6 +1211,8 @@ impl Parser {
                     self.synchronize();
                 }
             }
+            // Skip newlines after each statement
+            self.skip_newlines();
         }
 
         self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
@@ -1840,6 +1903,15 @@ impl Parser {
             Ok(())
         } else {
             if self.check(&TokenKind::RightBrace) || self.is_at_end() {
+                return Ok(());
+            }
+
+            // Allow omission if current token is a line comment (trailing comment)
+            // or a newline (next statement is on next line)
+            if matches!(
+                self.peek().kind,
+                TokenKind::LineComment(_) | TokenKind::Newline
+            ) {
                 return Ok(());
             }
 
