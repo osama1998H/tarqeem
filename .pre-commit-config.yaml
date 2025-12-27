@@ -1,0 +1,48 @@
+# Pre-commit hooks for Tarqeem
+# Install with: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  # Rust formatting
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        language: system
+        types: [rust]
+        entry: cargo fmt --
+        pass_filenames: true
+
+      - id: cargo-check
+        name: cargo check
+        language: system
+        types: [rust]
+        entry: cargo check --all-targets
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        language: system
+        types: [rust]
+        entry: cargo clippy --all-targets -- -D warnings
+        pass_filenames: false
+
+      - id: cargo-test
+        name: cargo test (quick)
+        language: system
+        types: [rust]
+        entry: cargo test --lib
+        pass_filenames: false
+
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.ترقيم$'  # Arabic source files may have intentional trailing
+      - id: end-of-file-fixer
+        exclude: '\.ترقيم$'
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ['--maxkb=500']

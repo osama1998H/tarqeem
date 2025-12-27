@@ -83,6 +83,32 @@ path = "src/lib.rs"
 lto = true
 codegen-units = 1
 
+# Linting configuration
+[lints.rust]
+# Deny these for correctness
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+# Code quality lints
+needless_pass_by_value = "warn"
+needless_borrow = "warn"
+redundant_closure = "warn"
+redundant_clone = "warn"
+manual_string_new = "warn"
+single_match = "warn"
+match_like_matches_macro = "warn"
+map_unwrap_or = "warn"
+
+# Complexity warnings
+cognitive_complexity = "warn"
+too_many_arguments = "warn"
+
+# These are allowed (intentional patterns in this codebase)
+# result_large_err - would require Box<Diagnostic> refactoring
+# only_used_in_recursion - intentional API design
+# module_inception - intentional directory structure
+
 # Benchmark configuration
 [[bench]]
 name = "lexer"
