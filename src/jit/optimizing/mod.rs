@@ -31,4 +31,15 @@ impl OptimizingCompiler {
             "Optimizing JIT requires 'jit' feature",
         ))
     }
+
+    /// Stub compile method when JIT is disabled
+    pub fn compile(
+        &mut self,
+        _module: &crate::ir::Module,
+        _func: &crate::ir::Function,
+    ) -> Result<crate::jit::cache::CompiledFunction, crate::jit::error::JitError> {
+        Err(crate::jit::error::JitError::not_available(
+            "Optimizing JIT requires 'jit' feature",
+        ))
+    }
 }
