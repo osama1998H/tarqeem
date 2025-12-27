@@ -154,7 +154,7 @@ impl Interpreter {
 
     pub(crate) fn call_builtin(&mut self, name: &str, args: Vec<Value>) -> RuntimeResult<Value> {
         match name {
-            "print" | "اطبع" | "println" => {
+            "print" | "اطبع" | "println" | "طباعة" | "اطبع_سطر" => {
                 let output = args
                     .iter()
                     .map(|v| v.to_display_string())
@@ -184,7 +184,7 @@ impl Interpreter {
                 Ok(Value::string(input.trim_end()))
             }
 
-            "len" | "طول" => {
+            "len" | "طول" | "length" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "len() requires 1 argument",
@@ -199,7 +199,7 @@ impl Interpreter {
                 }
             }
 
-            "type" | "نوع" => {
+            "type" | "نوع" | "typeof" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "type() requires 1 argument",
@@ -254,7 +254,7 @@ impl Interpreter {
                 }
             }
 
-            "str" | "نص" => {
+            "str" | "نص" | "string" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "str() requires 1 argument",

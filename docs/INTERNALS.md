@@ -193,9 +193,9 @@ pub enum TokenKind {
     StringLiteral,
 
     // Keywords (Arabic primary)
-    Mutaغayir,  // متغير
-    Thabit,     // ثابت
-    Dalah,      // دالة
+    Let,        // متغير (mutaghayir)
+    Const,      // ثابت (thabit)
+    Function,   // دالة (dalah)
     // ...
 
     // Operators

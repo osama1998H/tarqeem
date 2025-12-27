@@ -10,8 +10,8 @@ repos:
         name: cargo fmt
         language: system
         types: [rust]
-        entry: cargo fmt --
-        pass_filenames: true
+        entry: cargo fmt -- --check
+        pass_filenames: false
 
       - id: cargo-check
         name: cargo check

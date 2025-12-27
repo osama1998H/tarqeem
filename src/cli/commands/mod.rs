@@ -559,7 +559,10 @@ fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
 
     loop {
         print!("{}", "ترقيم> ".green().bold());
-        stdout.flush().unwrap();
+        if stdout.flush().is_err() {
+            eprintln!("I/O error / خطأ في الإدخال والإخراج");
+            break;
+        }
 
         let mut line = String::new();
         match stdin.lock().read_line(&mut line) {
