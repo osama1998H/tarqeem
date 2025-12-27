@@ -257,7 +257,11 @@ impl Parser {
             return Err(self.errors[0].clone());
         }
 
-        Ok(Ast::with_markers(statements, bismillah_span, alhamdulillah_span))
+        Ok(Ast::with_markers(
+            statements,
+            bismillah_span,
+            alhamdulillah_span,
+        ))
     }
 
     // Token helper methods

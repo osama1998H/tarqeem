@@ -586,10 +586,7 @@ impl Analyzer {
         if !cond_type.is_compatible_with(&Type::Bool) {
             self.error(
                 &format!("Condition must be boolean, got {}", cond_type),
-                &format!(
-                    "الشرط يجب أن يكون منطقياً، وُجد {}",
-                    cond_type.arabic_name()
-                ),
+                &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
                 condition.span,
             );
         }
@@ -607,10 +604,7 @@ impl Analyzer {
         if !cond_type.is_compatible_with(&Type::Bool) {
             self.error(
                 &format!("Condition must be boolean, got {}", cond_type),
-                &format!(
-                    "الشرط يجب أن يكون منطقياً، وُجد {}",
-                    cond_type.arabic_name()
-                ),
+                &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
                 condition.span,
             );
         }
@@ -626,10 +620,7 @@ impl Analyzer {
         if !cond_type.is_compatible_with(&Type::Bool) {
             self.error(
                 &format!("Condition must be boolean, got {}", cond_type),
-                &format!(
-                    "الشرط يجب أن يكون منطقياً، وُجد {}",
-                    cond_type.arabic_name()
-                ),
+                &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
                 condition.span,
             );
         }
@@ -654,10 +645,7 @@ impl Analyzer {
             if !cond_type.is_compatible_with(&Type::Bool) {
                 self.error(
                     &format!("Condition must be boolean, got {}", cond_type),
-                    &format!(
-                        "الشرط يجب أن يكون منطقياً، وُجد {}",
-                        cond_type.arabic_name()
-                    ),
+                    &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
                     cond_expr.span,
                 );
             }
@@ -923,10 +911,7 @@ impl Analyzer {
                     } else {
                         self.error(
                             &format!("Module '{}' has no export named '{}'", from, import.name),
-                            &format!(
-                                "الوحدة '{}' لا تحتوي على تصدير باسم '{}'",
-                                from, import.name
-                            ),
+                            &format!("الوحدة '{}' لا تحتوي على تصدير باسم '{}'", from, import.name),
                             span,
                         );
                         self.scope.define(Symbol::variable(name, Type::Any, false));

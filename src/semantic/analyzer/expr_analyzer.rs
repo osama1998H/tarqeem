@@ -114,13 +114,7 @@ impl Analyzer {
     }
 
     /// Infer binary expression type.
-    fn infer_binary_expr(
-        &mut self,
-        left: &Expr,
-        op: &BinaryOp,
-        right: &Expr,
-        span: Span,
-    ) -> Type {
+    fn infer_binary_expr(&mut self, left: &Expr, op: &BinaryOp, right: &Expr, span: Span) -> Type {
         let left_type = self.infer_type(left);
         let right_type = self.infer_type(right);
 
@@ -241,10 +235,7 @@ impl Analyzer {
             _ => {
                 self.error(
                     &format!("Cannot call non-function type {}", callee_type),
-                    &format!(
-                        "لا يمكن استدعاء نوع غير دالة {}",
-                        callee_type.arabic_name()
-                    ),
+                    &format!("لا يمكن استدعاء نوع غير دالة {}", callee_type.arabic_name()),
                     callee.span,
                 );
                 Type::Error
@@ -271,10 +262,7 @@ impl Analyzer {
             Type::Map(k, v) => {
                 if !index_type.is_compatible_with(&k) {
                     self.error(
-                        &format!(
-                            "Map key has wrong type: expected {}, got {}",
-                            k, index_type
-                        ),
+                        &format!("Map key has wrong type: expected {}, got {}", k, index_type),
                         &format!(
                             "مفتاح القاموس نوعه خاطئ: متوقع {}، وُجد {}",
                             k.arabic_name(),
@@ -535,10 +523,7 @@ impl Analyzer {
                         "Class '{}' is not generic but type arguments were provided",
                         class_name
                     ),
-                    &format!(
-                        "الصنف '{}' ليس معمماً لكن تم تقديم معاملات نوع",
-                        class_name
-                    ),
+                    &format!("الصنف '{}' ليس معمماً لكن تم تقديم معاملات نوع", class_name),
                     span,
                 );
             }

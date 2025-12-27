@@ -559,7 +559,9 @@ impl Parser {
     }
 
     /// Parse enum variant fields.
-    pub(crate) fn parse_enum_variant_fields(&mut self) -> Result<Vec<EnumVariantField>, Diagnostic> {
+    pub(crate) fn parse_enum_variant_fields(
+        &mut self,
+    ) -> Result<Vec<EnumVariantField>, Diagnostic> {
         self.advance(); // consume '('
 
         let mut fields = Vec::new();

@@ -603,11 +603,7 @@ fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
                                             }
                                         }
                                         Err(e) => {
-                                            eprintln!(
-                                                "{} {}",
-                                                "Runtime error:".red().bold(),
-                                                e
-                                            );
+                                            eprintln!("{} {}", "Runtime error:".red().bold(), e);
                                         }
                                     }
                                 }
@@ -1043,12 +1039,8 @@ fn generate_single_doc_file(
             })?;
         }
 
-        fs::write(&output_file, output_buffer).map_err(|e| {
-            format!(
-                "Could not write output: {} / لا يمكن كتابة الإخراج: {}",
-                e, e
-            )
-        })?;
+        fs::write(&output_file, output_buffer)
+            .map_err(|e| format!("Could not write output: {} / لا يمكن كتابة الإخراج: {}", e, e))?;
 
         println!(
             "{}",
@@ -1102,23 +1094,15 @@ fn generate_multi_doc_files(
             )
         })?;
 
-        fs::write(&output_file, output_buffer).map_err(|e| {
-            format!(
-                "Could not write output: {} / لا يمكن كتابة الإخراج: {}",
-                e, e
-            )
-        })?;
+        fs::write(&output_file, output_buffer)
+            .map_err(|e| format!("Could not write output: {} / لا يمكن كتابة الإخراج: {}", e, e))?;
     }
 
     if output_format == OutputFormat::Html && all_docs.len() > 1 {
         let index_content = generate_html_index(all_docs);
         let index_file = output_dir.join("index.html");
-        fs::write(&index_file, index_content).map_err(|e| {
-            format!(
-                "Could not write index: {} / لا يمكن كتابة الفهرس: {}",
-                e, e
-            )
-        })?;
+        fs::write(&index_file, index_content)
+            .map_err(|e| format!("Could not write index: {} / لا يمكن كتابة الفهرس: {}", e, e))?;
     }
 
     println!(

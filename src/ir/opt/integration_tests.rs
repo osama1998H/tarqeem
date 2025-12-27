@@ -5,11 +5,11 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::ir::opt::{OptLevel, OptStats, Optimizer};
     use crate::ir::{
         BasicBlock, BinaryOp, BlockId, Constant, FuncId, Function, Instruction, IrType, Module,
         Parameter, UnaryOp, VarId,
     };
-    use crate::ir::opt::{OptLevel, OptStats, Optimizer};
 
     /// Helper function to create a simple function with a given name
     fn create_function(name: &str) -> Function {
@@ -89,7 +89,9 @@ mod tests {
         add_const(&mut block, 1, 3);
         add_binary(&mut block, 2, BinaryOp::Add, 0, 1);
         // Return the result so DCE doesn't remove it
-        block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+        block.instructions.push(Instruction::Return {
+            value: Some(VarId(2)),
+        });
 
         func.blocks.push(block);
 
@@ -106,9 +108,19 @@ mod tests {
         // After DCE, intermediate constants may be removed, so search for the result
         let block = &module.functions[0].blocks[0];
         let has_folded_const = block.instructions.iter().any(|inst| {
-            matches!(inst, Instruction::Const { dest: VarId(2), value: Constant::Int(5), .. })
+            matches!(
+                inst,
+                Instruction::Const {
+                    dest: VarId(2),
+                    value: Constant::Int(5),
+                    ..
+                }
+            )
         });
-        assert!(has_folded_const, "Expected constant 5 at %2 after folding 2 + 3");
+        assert!(
+            has_folded_const,
+            "Expected constant 5 at %2 after folding 2 + 3"
+        );
     }
 
     #[test]
@@ -145,7 +157,7 @@ mod tests {
         add_const(&mut block, 3, 4);
         add_binary(&mut block, 4, BinaryOp::Mul, 2, 3); // %4 = 20
         block.instructions.push(Instruction::Return {
-            value: Some(VarId(4))
+            value: Some(VarId(4)),
         });
 
         func.blocks.push(block);
@@ -166,16 +178,22 @@ mod tests {
 
         // Entry block with unconditional jump
         let mut entry = BasicBlock::new(BlockId(0));
-        entry.instructions.push(Instruction::Jump { target: BlockId(2) });
+        entry
+            .instructions
+            .push(Instruction::Jump { target: BlockId(2) });
 
         // Unreachable block
         let mut unreachable = BasicBlock::new(BlockId(1));
         add_const(&mut unreachable, 0, 42);
-        unreachable.instructions.push(Instruction::Return { value: None });
+        unreachable
+            .instructions
+            .push(Instruction::Return { value: None });
 
         // Target block
         let mut target = BasicBlock::new(BlockId(2));
-        target.instructions.push(Instruction::Return { value: None });
+        target
+            .instructions
+            .push(Instruction::Return { value: None });
 
         func.blocks.push(entry);
         func.blocks.push(unreachable);
@@ -198,8 +216,16 @@ mod tests {
     fn test_o2_common_subexpression_elimination() {
         let mut func = create_function("test");
         func.params = vec![
-            Parameter { id: VarId(0), name: "a".to_string(), ty: IrType::Int },
-            Parameter { id: VarId(1), name: "b".to_string(), ty: IrType::Int },
+            Parameter {
+                id: VarId(0),
+                name: "a".to_string(),
+                ty: IrType::Int,
+            },
+            Parameter {
+                id: VarId(1),
+                name: "b".to_string(),
+                ty: IrType::Int,
+            },
         ];
 
         let mut block = BasicBlock::new(BlockId(0));
@@ -213,7 +239,7 @@ mod tests {
         add_binary(&mut block, 4, BinaryOp::Add, 2, 3);
 
         block.instructions.push(Instruction::Return {
-            value: Some(VarId(4))
+            value: Some(VarId(4)),
         });
 
         func.blocks.push(block);
@@ -225,7 +251,10 @@ mod tests {
         optimizer.optimize(&mut module);
 
         // CSE should detect duplicate expressions
-        assert!(optimizer.stats().cse_hits > 0, "CSE should detect that %2 and %3 are the same expression");
+        assert!(
+            optimizer.stats().cse_hits > 0,
+            "CSE should detect that %2 and %3 are the same expression"
+        );
     }
 
     #[test]
@@ -335,7 +364,9 @@ mod tests {
             ty: IrType::Bool,
         });
         // Return the result so DCE doesn't remove it
-        block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+        block.instructions.push(Instruction::Return {
+            value: Some(VarId(2)),
+        });
 
         func.blocks.push(block);
 
@@ -350,9 +381,19 @@ mod tests {
         // Should fold to false - search for the result
         let block = &module.functions[0].blocks[0];
         let has_folded_const = block.instructions.iter().any(|inst| {
-            matches!(inst, Instruction::Const { dest: VarId(2), value: Constant::Bool(false), .. })
+            matches!(
+                inst,
+                Instruction::Const {
+                    dest: VarId(2),
+                    value: Constant::Bool(false),
+                    ..
+                }
+            )
         });
-        assert!(has_folded_const, "Expected Const(false) at %2 after folding true && false");
+        assert!(
+            has_folded_const,
+            "Expected Const(false) at %2 after folding true && false"
+        );
     }
 
     #[test]
@@ -380,7 +421,9 @@ mod tests {
             ty: IrType::Float,
         });
         // Return the result so DCE doesn't remove it
-        block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+        block.instructions.push(Instruction::Return {
+            value: Some(VarId(2)),
+        });
 
         func.blocks.push(block);
 
@@ -394,15 +437,18 @@ mod tests {
 
         // Should fold to 10.0 - search for the result
         let block = &module.functions[0].blocks[0];
-        let has_folded_const = block.instructions.iter().any(|inst| {
-            match inst {
-                Instruction::Const { dest: VarId(2), value: Constant::Float(f), .. } => {
-                    (f - 10.0).abs() < 0.0001
-                }
-                _ => false,
-            }
+        let has_folded_const = block.instructions.iter().any(|inst| match inst {
+            Instruction::Const {
+                dest: VarId(2),
+                value: Constant::Float(f),
+                ..
+            } => (f - 10.0).abs() < 0.0001,
+            _ => false,
         });
-        assert!(has_folded_const, "Expected Const(10.0) at %2 after folding 2.5 * 4.0");
+        assert!(
+            has_folded_const,
+            "Expected Const(10.0) at %2 after folding 2.5 * 4.0"
+        );
     }
 
     #[test]
@@ -424,7 +470,9 @@ mod tests {
             ty: IrType::Int,
         });
         // Return the result so DCE doesn't remove it
-        block.instructions.push(Instruction::Return { value: Some(VarId(1)) });
+        block.instructions.push(Instruction::Return {
+            value: Some(VarId(1)),
+        });
 
         func.blocks.push(block);
 
@@ -439,9 +487,19 @@ mod tests {
         // Should fold to -42 - search for the result
         let block = &module.functions[0].blocks[0];
         let has_folded_const = block.instructions.iter().any(|inst| {
-            matches!(inst, Instruction::Const { dest: VarId(1), value: Constant::Int(-42), .. })
+            matches!(
+                inst,
+                Instruction::Const {
+                    dest: VarId(1),
+                    value: Constant::Int(-42),
+                    ..
+                }
+            )
         });
-        assert!(has_folded_const, "Expected Const(-42) at %1 after folding -42");
+        assert!(
+            has_folded_const,
+            "Expected Const(-42) at %1 after folding -42"
+        );
     }
 
     // =========================================================================
@@ -485,7 +543,9 @@ mod tests {
         add_const(&mut block1, 0, 5);
         add_const(&mut block1, 1, 10);
         add_binary(&mut block1, 2, BinaryOp::Add, 0, 1);
-        block1.instructions.push(Instruction::Return { value: None });
+        block1
+            .instructions
+            .push(Instruction::Return { value: None });
         func1.blocks.push(block1);
 
         // Second function with constant folding opportunity
@@ -494,7 +554,9 @@ mod tests {
         add_const(&mut block2, 0, 20);
         add_const(&mut block2, 1, 4);
         add_binary(&mut block2, 2, BinaryOp::Mul, 0, 1);
-        block2.instructions.push(Instruction::Return { value: None });
+        block2
+            .instructions
+            .push(Instruction::Return { value: None });
         func2.blocks.push(block2);
 
         module.functions.push(func1);
@@ -518,7 +580,9 @@ mod tests {
         add_const(&mut block, 1, 0);
         add_binary(&mut block, 2, BinaryOp::Div, 0, 1);
         // Return the result so DCE doesn't remove it
-        block.instructions.push(Instruction::Return { value: Some(VarId(2)) });
+        block.instructions.push(Instruction::Return {
+            value: Some(VarId(2)),
+        });
 
         func.blocks.push(block);
 
@@ -531,8 +595,17 @@ mod tests {
         // Division by zero should NOT be folded - search for Binary instruction
         let block = &module.functions[0].blocks[0];
         let has_div_instruction = block.instructions.iter().any(|inst| {
-            matches!(inst, Instruction::Binary { op: BinaryOp::Div, .. })
+            matches!(
+                inst,
+                Instruction::Binary {
+                    op: BinaryOp::Div,
+                    ..
+                }
+            )
         });
-        assert!(has_div_instruction, "Division by zero should not be folded, expected Binary Div instruction");
+        assert!(
+            has_div_instruction,
+            "Division by zero should not be folded, expected Binary Div instruction"
+        );
     }
 }

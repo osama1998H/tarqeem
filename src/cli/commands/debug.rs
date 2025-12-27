@@ -237,27 +237,27 @@ fn handle_debug_command(
         DebugCommand::Help => {
             println!("{}", DebugCommandParser::help_text());
         }
-        DebugCommand::Continue => {
-            match debug_interpreter.continue_execution() {
-                Ok(StepResult::Completed(val)) => {
-                    debug_interpreter.context_mut().set_state(DebugState::Terminated {
+        DebugCommand::Continue => match debug_interpreter.continue_execution() {
+            Ok(StepResult::Completed(val)) => {
+                debug_interpreter
+                    .context_mut()
+                    .set_state(DebugState::Terminated {
                         exit_value: Some(val.to_display_string()),
                     });
-                }
-                Ok(StepResult::Paused(reason)) => {
-                    debug_interpreter
-                        .context_mut()
-                        .set_state(DebugState::Paused { reason });
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    println!(
-                        "{}",
-                        format!("Error: {} / {}", e.message, e.message_ar).red()
-                    );
-                }
             }
-        }
+            Ok(StepResult::Paused(reason)) => {
+                debug_interpreter
+                    .context_mut()
+                    .set_state(DebugState::Paused { reason });
+            }
+            Ok(_) => {}
+            Err(e) => {
+                println!(
+                    "{}",
+                    format!("Error: {} / {}", e.message, e.message_ar).red()
+                );
+            }
+        },
         DebugCommand::StepOver
         | DebugCommand::StepInto
         | DebugCommand::StepOut
@@ -265,9 +265,11 @@ fn handle_debug_command(
             if let Some(mode) = cmd.as_step_mode() {
                 match debug_interpreter.step(mode) {
                     Ok(StepResult::Completed(val)) => {
-                        debug_interpreter.context_mut().set_state(DebugState::Terminated {
-                            exit_value: Some(val.to_display_string()),
-                        });
+                        debug_interpreter
+                            .context_mut()
+                            .set_state(DebugState::Terminated {
+                                exit_value: Some(val.to_display_string()),
+                            });
                     }
                     Ok(StepResult::Paused(reason)) => {
                         debug_interpreter
@@ -297,24 +299,14 @@ fn handle_debug_command(
                     if arabic {
                         println!(
                             "{}",
-                            format!(
-                                "نقطة توقف {} عند {}:{}",
-                                id.0,
-                                bp_path.display(),
-                                line
-                            )
-                            .green()
+                            format!("نقطة توقف {} عند {}:{}", id.0, bp_path.display(), line)
+                                .green()
                         );
                     } else {
                         println!(
                             "{}",
-                            format!(
-                                "Breakpoint {} at {}:{}",
-                                id.0,
-                                bp_path.display(),
-                                line
-                            )
-                            .green()
+                            format!("Breakpoint {} at {}:{}", id.0, bp_path.display(), line)
+                                .green()
                         );
                     }
                 }
@@ -380,7 +372,11 @@ fn handle_debug_command(
                 for var in locals {
                     println!(
                         "  {} {} = {} : {}",
-                        if var.is_mutable { "متغير" } else { "ثابت" },
+                        if var.is_mutable {
+                            "متغير"
+                        } else {
+                            "ثابت"
+                        },
                         var.name,
                         var.value.yellow(),
                         var.type_name.dimmed()
@@ -388,19 +384,17 @@ fn handle_debug_command(
                 }
             }
         }
-        DebugCommand::Print { expression } => {
-            match debug_interpreter.evaluate(&expression) {
-                Ok(value) => {
-                    println!("{} = {}", expression, value.to_display_string().yellow());
-                }
-                Err(e) => {
-                    println!(
-                        "{}",
-                        format!("Error: {} / {}", e.message, e.message_ar).red()
-                    );
-                }
+        DebugCommand::Print { expression } => match debug_interpreter.evaluate(&expression) {
+            Ok(value) => {
+                println!("{} = {}", expression, value.to_display_string().yellow());
             }
-        }
+            Err(e) => {
+                println!(
+                    "{}",
+                    format!("Error: {} / {}", e.message, e.message_ar).red()
+                );
+            }
+        },
         DebugCommand::Backtrace => {
             let frames = debug_interpreter.get_stack_trace();
             if frames.is_empty() {
@@ -456,24 +450,21 @@ fn handle_debug_command(
                             } else {
                                 " ".normal()
                             };
-                            println!(
-                                "{} {:>4} │ {}",
-                                marker,
-                                line_num.to_string().dimmed(),
-                                line
-                            );
+                            println!("{} {:>4} │ {}", marker, line_num.to_string().dimmed(), line);
                         }
                     }
                 }
             }
         }
         DebugCommand::Run => {
-            debug_interpreter.start().map_err(|e| {
-                format!("Error: {} / {}", e.message, e.message_ar)
-            })?;
+            debug_interpreter
+                .start()
+                .map_err(|e| format!("Error: {} / {}", e.message, e.message_ar))?;
         }
         DebugCommand::Watch { expression } => {
-            let id = debug_interpreter.context_mut().add_watch(expression.clone());
+            let id = debug_interpreter
+                .context_mut()
+                .add_watch(expression.clone());
             if arabic {
                 println!("مراقبة {} تمت إضافتها (معرف: {})", expression, id);
             } else {
@@ -542,20 +533,12 @@ fn handle_debug_command(
             if arabic {
                 println!(
                     "{}",
-                    format!(
-                        "أمر غير معروف: {}. اكتب 'مساعدة' للمساعدة.",
-                        command
-                    )
-                    .yellow()
+                    format!("أمر غير معروف: {}. اكتب 'مساعدة' للمساعدة.", command).yellow()
                 );
             } else {
                 println!(
                     "{}",
-                    format!(
-                        "Unknown command: {}. Type 'help' for help.",
-                        command
-                    )
-                    .yellow()
+                    format!("Unknown command: {}. Type 'help' for help.", command).yellow()
                 );
             }
         }

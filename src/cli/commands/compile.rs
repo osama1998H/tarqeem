@@ -164,9 +164,8 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     });
 
     if args.emit_llvm {
-        fs::write(&output_path, &llvm_ir).map_err(|e| {
-            format!("Could not write output: {} / لا يمكن كتابة الملف: {}", e, e)
-        })?;
+        fs::write(&output_path, &llvm_ir)
+            .map_err(|e| format!("Could not write output: {} / لا يمكن كتابة الملف: {}", e, e))?;
         println!(
             "{}",
             format!(
