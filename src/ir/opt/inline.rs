@@ -621,7 +621,7 @@ impl FunctionInliner {
             } => Instruction::NewEnumVariant {
                 dest: map_var(dest),
                 variant: variant.clone(),
-                fields: fields.iter().map(|f| map_var(f)).collect(),
+                fields: fields.iter().map(&map_var).collect(),
             },
             Instruction::GetDiscriminant { dest, value } => Instruction::GetDiscriminant {
                 dest: map_var(dest),

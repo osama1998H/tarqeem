@@ -13,6 +13,7 @@ use std::path::PathBuf;
 
 /// Information about an enum variant for semantic analysis
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct EnumVariantInfo {
     pub name: String,
     pub discriminant: Option<i64>,
@@ -21,6 +22,7 @@ pub struct EnumVariantInfo {
 
 /// Information about an enum type for semantic analysis
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct EnumInfo {
     pub name: String,
     pub type_params: Vec<String>,

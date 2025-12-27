@@ -1279,11 +1279,7 @@ impl Parser {
                 let type_args = if self.check(&TokenKind::Less) {
                     // Try to parse type args - this is speculative
                     // We need to check if this is actually a generic type or a comparison
-                    if let Some(args) = self.try_parse_type_args()? {
-                        args
-                    } else {
-                        Vec::new()
-                    }
+                    self.try_parse_type_args()?.unwrap_or_default()
                 } else {
                     Vec::new()
                 };

@@ -67,12 +67,12 @@ fn get_completion_context(content: &str, offset: usize) -> CompletionContext {
     let before = &content[..offset.min(content.len())];
 
     // Check for :: (enum variant access) first, before single :
-    if before.ends_with("::") {
-        let prefix_start = before[..before.len() - 2]
+    if let Some(stripped) = before.strip_suffix("::") {
+        let prefix_start = stripped
             .rfind(|c: char| !c.is_alphanumeric() && c != '_' && !is_arabic_letter(c))
             .map(|p| p + 1)
             .unwrap_or(0);
-        let prefix = before[prefix_start..before.len() - 2].to_string();
+        let prefix = stripped[prefix_start..].to_string();
         return CompletionContext::AfterColonColon(prefix);
     }
 
