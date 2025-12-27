@@ -30,6 +30,8 @@ pub fn handle_document_symbol(
             TrqSymbolKind::Field => SymbolKind::FIELD,
             TrqSymbolKind::Method => SymbolKind::METHOD,
             TrqSymbolKind::Property => SymbolKind::PROPERTY,
+            TrqSymbolKind::Enum => SymbolKind::ENUM,
+            TrqSymbolKind::EnumVariant => SymbolKind::ENUM_MEMBER,
         };
 
         let range = span_to_range(&content, &info.definition_span);

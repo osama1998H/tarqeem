@@ -584,7 +584,13 @@ impl<'a> Lexer<'a> {
             '[' => self.make_token(TokenKind::LeftBracket),
             ']' => self.make_token(TokenKind::RightBracket),
             '.' => self.make_token(TokenKind::Dot),
-            ':' => self.make_token(TokenKind::Colon),
+            ':' => {
+                if self.match_char(':') {
+                    self.make_token(TokenKind::ColonColon)
+                } else {
+                    self.make_token(TokenKind::Colon)
+                }
+            }
             '?' => self.make_token(TokenKind::Question),
             ',' => self.make_token(TokenKind::Comma),
             '،' => self.make_token(TokenKind::ArabicComma), // Arabic comma
@@ -915,5 +921,45 @@ mod tests {
         assert_eq!(interner.len(), 2);
         assert!(interner.contains("س"));
         assert!(interner.contains("ص"));
+    }
+
+    #[test]
+    fn test_colon_colon_token() {
+        let source = "لون::أحمر";
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        assert!(matches!(&tokens[0].kind, TokenKind::Identifier(s) if s == "لون"));
+        assert_eq!(tokens[1].kind, TokenKind::ColonColon);
+        assert!(matches!(&tokens[2].kind, TokenKind::Identifier(s) if s == "أحمر"));
+    }
+
+    #[test]
+    fn test_colon_colon_with_data() {
+        let source = "نتيجة::نجاح(42)";
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        assert!(matches!(&tokens[0].kind, TokenKind::Identifier(s) if s == "نتيجة"));
+        assert_eq!(tokens[1].kind, TokenKind::ColonColon);
+        assert!(matches!(&tokens[2].kind, TokenKind::Identifier(s) if s == "نجاح"));
+        assert_eq!(tokens[3].kind, TokenKind::LeftParen);
+        assert_eq!(tokens[4].kind, TokenKind::IntLiteral(42));
+        assert_eq!(tokens[5].kind, TokenKind::RightParen);
+    }
+
+    #[test]
+    fn test_colon_vs_colon_colon() {
+        let source = "س: عدد = لون::أحمر";
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        assert!(matches!(&tokens[0].kind, TokenKind::Identifier(s) if s == "س"));
+        assert_eq!(tokens[1].kind, TokenKind::Colon);
+        assert_eq!(tokens[2].kind, TokenKind::TypeInt);
+        assert_eq!(tokens[3].kind, TokenKind::Equal);
+        assert!(matches!(&tokens[4].kind, TokenKind::Identifier(s) if s == "لون"));
+        assert_eq!(tokens[5].kind, TokenKind::ColonColon);
+        assert!(matches!(&tokens[6].kind, TokenKind::Identifier(s) if s == "أحمر"));
     }
 }

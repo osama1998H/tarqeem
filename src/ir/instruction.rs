@@ -43,6 +43,15 @@ impl fmt::Display for ClassId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EnumId(pub String);
+
+impl fmt::Display for EnumId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "%enum.{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FieldId {
     pub class: ClassId,
     pub name: String,
@@ -67,6 +76,19 @@ impl fmt::Display for MethodId {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VariantId {
+    pub enum_id: EnumId,
+    pub name: String,
+    pub discriminant: u32,
+}
+
+impl fmt::Display for VariantId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}::{}", self.enum_id, self.name)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IrType {
     Void,
@@ -81,6 +103,7 @@ pub enum IrType {
         ret: Box<IrType>,
     },
     Struct(ClassId),
+    Enum(EnumId),
 }
 
 impl fmt::Display for IrType {
@@ -104,6 +127,7 @@ impl fmt::Display for IrType {
                 write!(f, ") -> {}", ret)
             }
             IrType::Struct(class) => write!(f, "{}", class),
+            IrType::Enum(enum_id) => write!(f, "{}", enum_id),
         }
     }
 }
@@ -392,6 +416,28 @@ pub enum Instruction {
         ty: IrType,
     },
 
+    /// Create a new enum variant value
+    NewEnumVariant {
+        dest: VarId,
+        variant: VariantId,
+        fields: Vec<VarId>,
+    },
+
+    /// Get the discriminant (tag) of an enum value
+    GetDiscriminant {
+        dest: VarId,
+        value: VarId,
+    },
+
+    /// Get a field from an enum variant
+    GetVariantField {
+        dest: VarId,
+        value: VarId,
+        variant: VariantId,
+        field_index: u32,
+        ty: IrType,
+    },
+
     Nop,
 }
 
@@ -628,6 +674,40 @@ impl fmt::Display for Instruction {
             }
             Instruction::Copy { dest, src, ty } => {
                 write!(f, "{}: {} = copy {}", dest, ty, src)
+            }
+            Instruction::NewEnumVariant {
+                dest,
+                variant,
+                fields,
+            } => {
+                write!(f, "{} = new_enum_variant {}", dest, variant)?;
+                if !fields.is_empty() {
+                    write!(f, "(")?;
+                    for (i, field) in fields.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", field)?;
+                    }
+                    write!(f, ")")?;
+                }
+                Ok(())
+            }
+            Instruction::GetDiscriminant { dest, value } => {
+                write!(f, "{} = get_discriminant {}", dest, value)
+            }
+            Instruction::GetVariantField {
+                dest,
+                value,
+                variant,
+                field_index,
+                ty,
+            } => {
+                write!(
+                    f,
+                    "{}: {} = get_variant_field {} {} [{}]",
+                    dest, ty, value, variant, field_index
+                )
             }
             Instruction::Nop => {
                 write!(f, "nop")

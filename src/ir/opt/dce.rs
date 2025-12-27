@@ -273,6 +273,19 @@ impl DeadCodeEliminator {
             | Instruction::TryEnd
             | Instruction::GetException { .. }
             | Instruction::Nop => {}
+
+            // Enum instructions
+            Instruction::NewEnumVariant { fields, .. } => {
+                for field in fields {
+                    used.insert(*field);
+                }
+            }
+            Instruction::GetDiscriminant { value, .. } => {
+                used.insert(*value);
+            }
+            Instruction::GetVariantField { value, .. } => {
+                used.insert(*value);
+            }
         }
     }
 
@@ -297,7 +310,10 @@ impl DeadCodeEliminator {
             | Instruction::GetException { dest }
             | Instruction::Phi { dest, .. }
             | Instruction::GlobalLoad { dest, .. }
-            | Instruction::Copy { dest, .. } => Some(*dest),
+            | Instruction::Copy { dest, .. }
+            | Instruction::NewEnumVariant { dest, .. }
+            | Instruction::GetDiscriminant { dest, .. }
+            | Instruction::GetVariantField { dest, .. } => Some(*dest),
 
             Instruction::Call { dest, .. }
             | Instruction::CallIndirect { dest, .. }

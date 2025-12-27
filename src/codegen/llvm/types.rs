@@ -36,6 +36,10 @@ impl TypeMapper {
             IrType::Struct(class_id) => {
                 format!("%class.{}", mangle_name(&class_id.0))
             }
+            IrType::Enum(enum_id) => {
+                // Enums are represented as tagged unions (discriminant + max data)
+                format!("%enum.{}", mangle_name(&enum_id.0))
+            }
         }
     }
 
@@ -78,6 +82,11 @@ impl TypeMapper {
                     self.pointer_bits as u64 / 8
                 }
             }
+            IrType::Enum(_) => {
+                // Enum size: discriminant (8 bytes) + max variant data
+                // For now, use a conservative estimate (pointer + 8 bytes for discriminant)
+                8 + self.pointer_bits as u64 / 8
+            }
         }
     }
 
@@ -92,6 +101,7 @@ impl TypeMapper {
             IrType::Array(elem, _) => self.type_align(elem),
             IrType::Function { .. } => self.pointer_bits as u64 / 8,
             IrType::Struct(_) => self.pointer_bits as u64 / 8,
+            IrType::Enum(_) => 8, // Alignment of discriminant (i64)
         }
     }
 
@@ -134,6 +144,7 @@ impl TypeMapper {
             IrType::Array(_, _) => "zeroinitializer".to_string(),
             IrType::Function { .. } => "null".to_string(),
             IrType::Struct(_) => "zeroinitializer".to_string(),
+            IrType::Enum(_) => "zeroinitializer".to_string(),
         }
     }
 }

@@ -1031,10 +1031,11 @@ impl Parser {
         let mut patterns = Vec::new();
 
         if is_default {
+            patterns.push(Pattern::new(PatternKind::Wildcard, arm_start));
         } else {
             self.expect(&TokenKind::Case, "Expected 'case'", "متوقع 'حالة'")?;
             loop {
-                patterns.push(self.parse_expression()?);
+                patterns.push(self.parse_pattern()?);
                 if !self.match_token(&TokenKind::Comma)
                     && !self.match_token(&TokenKind::ArabicComma)
                 {
@@ -1066,6 +1067,65 @@ impl Parser {
             body,
             span: arm_start.merge(&self.previous_span()),
         })
+    }
+
+    /// Parse a pattern for match expressions
+    /// Patterns can be:
+    /// - Literals: 1, "hello", صحيح
+    /// - Enum variants: EnumName::VariantName or EnumName::VariantName(x, y)
+    fn parse_pattern(&mut self) -> Result<Pattern, Diagnostic> {
+        let start_span = self.current_span();
+
+        // Check for enum variant pattern: identifier::identifier
+        if let TokenKind::Identifier(name) = self.peek().kind.clone() {
+            // Look ahead for ::
+            if self.peek_next().map(|t| &t.kind) == Some(&TokenKind::ColonColon) {
+                self.advance(); // consume enum name
+                self.advance(); // consume ::
+
+                // Get variant name
+                let variant_name = self.expect_identifier(
+                    "Expected variant name after '::'",
+                    "متوقع اسم الحالة بعد '::'",
+                )?;
+
+                // Check for bindings
+                let bindings = if self.match_token(&TokenKind::LeftParen) {
+                    let mut bindings = Vec::new();
+                    if !self.check(&TokenKind::RightParen) {
+                        loop {
+                            let binding =
+                                self.expect_identifier("Expected binding name", "متوقع اسم الربط")?;
+                            bindings.push(binding);
+                            if !self.match_token(&TokenKind::Comma)
+                                && !self.match_token(&TokenKind::ArabicComma)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+                    bindings
+                } else {
+                    Vec::new()
+                };
+
+                let end_span = self.previous_span();
+                return Ok(Pattern::new(
+                    PatternKind::EnumVariant {
+                        enum_name: name,
+                        variant_name,
+                        bindings,
+                    },
+                    start_span.merge(&end_span),
+                ));
+            }
+        }
+
+        // Otherwise, parse as a literal/expression pattern
+        let expr = self.parse_expression()?;
+        let expr_span = expr.span;
+        Ok(Pattern::new(PatternKind::Literal(expr), expr_span))
     }
 
     fn parse_return_statement(&mut self) -> Result<Stmt, Diagnostic> {
@@ -1212,7 +1272,58 @@ impl Parser {
             TokenKind::False => Ok(Expr::new(ExprKind::Literal(Literal::Bool(false)), span)),
             TokenKind::Null => Ok(Expr::new(ExprKind::Literal(Literal::Null), span)),
 
-            TokenKind::Identifier(name) => Ok(Expr::new(ExprKind::Identifier(name.clone()), span)),
+            TokenKind::Identifier(name) => {
+                let name = name.clone();
+
+                // Check for generic type args: Identifier<T>
+                let type_args = if self.check(&TokenKind::Less) {
+                    // Try to parse type args - this is speculative
+                    // We need to check if this is actually a generic type or a comparison
+                    self.try_parse_type_args()?.unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+
+                // Check for enum variant access: Identifier::Variant or Identifier<T>::Variant
+                if self.check(&TokenKind::ColonColon) {
+                    self.advance(); // consume '::'
+                    let variant_name = self.expect_identifier(
+                        "Expected variant name after '::'",
+                        "متوقع اسم الحالة بعد '::'",
+                    )?;
+
+                    // Check for variant arguments: Variant(args)
+                    let args = if self.match_token(&TokenKind::LeftParen) {
+                        let args = self.parse_arguments()?;
+                        self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+                        args
+                    } else {
+                        Vec::new()
+                    };
+
+                    let end_span = self.previous_span();
+                    Ok(Expr::new(
+                        ExprKind::EnumVariant {
+                            enum_name: name,
+                            type_args,
+                            variant_name,
+                            args,
+                        },
+                        span.merge(&end_span),
+                    ))
+                } else if !type_args.is_empty() {
+                    // We parsed type args but no ::, this might be an error
+                    // For now, return as identifier and let semantic analysis handle it
+                    // This can happen in cases like: let x: SomeType<T> = ...
+                    // But this is problematic - we consumed the type args
+                    // We need to rollback or handle this differently
+                    // For simplicity, let's just return an identifier for now
+                    // The type args were consumed for the enum case
+                    Ok(Expr::new(ExprKind::Identifier(name), span))
+                } else {
+                    Ok(Expr::new(ExprKind::Identifier(name), span))
+                }
+            }
 
             TokenKind::TypeInt => Ok(Expr::new(ExprKind::Identifier("عدد".to_string()), span)),
             TokenKind::TypeFloat => Ok(Expr::new(
@@ -1576,6 +1687,72 @@ impl Parser {
         Ok(args)
     }
 
+    /// Try to parse type arguments for generic enum variants: `اختياري<عدد>::بعض`
+    /// Returns None if it doesn't look like type args (e.g., comparison expression)
+    fn try_parse_type_args(&mut self) -> Result<Option<Vec<TypeAnnotation>>, Diagnostic> {
+        // We're at '<' - check if what follows looks like a type
+        // If the next token is an identifier or type keyword, try to parse as type args
+        // This is speculative - we commit only if we see '>' followed by '::'
+
+        let saved_pos = self.current;
+
+        if !self.match_token(&TokenKind::Less) {
+            return Ok(None);
+        }
+
+        // Check if this looks like type args (identifier or type keyword after '<')
+        let looks_like_type = matches!(
+            &self.peek().kind,
+            TokenKind::Identifier(_)
+                | TokenKind::TypeInt
+                | TokenKind::TypeFloat
+                | TokenKind::TypeString
+                | TokenKind::TypeBool
+                | TokenKind::TypeArray
+                | TokenKind::TypeMap
+                | TokenKind::TypeAny
+        );
+
+        if !looks_like_type {
+            // Not type args, rollback
+            self.current = saved_pos;
+            return Ok(None);
+        }
+
+        // Try to parse type annotations
+        let mut args = Vec::new();
+        loop {
+            match self.parse_type_annotation() {
+                Ok(ty) => args.push(ty),
+                Err(_) => {
+                    // Failed to parse type, rollback
+                    self.current = saved_pos;
+                    return Ok(None);
+                }
+            }
+            if !self.match_token(&TokenKind::Comma) && !self.match_token(&TokenKind::ArabicComma) {
+                break;
+            }
+        }
+
+        // Expect '>'
+        if !self.match_token(&TokenKind::Greater) {
+            // Not type args, rollback
+            self.current = saved_pos;
+            return Ok(None);
+        }
+
+        // Check if followed by '::' - if not, it might be a comparison
+        // For enum variants, we need '::'
+        if !self.check(&TokenKind::ColonColon) {
+            // Not followed by ::, rollback (it's a comparison like x < y > z)
+            self.current = saved_pos;
+            return Ok(None);
+        }
+
+        Ok(Some(args))
+    }
+
     fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, Diagnostic> {
         let start = self.current_span();
 
@@ -1746,6 +1923,15 @@ impl Parser {
 
     fn peek(&self) -> &Token {
         &self.tokens[self.current]
+    }
+
+    /// Look ahead one token (for lookahead parsing)
+    fn peek_next(&self) -> Option<&Token> {
+        if self.current + 1 < self.tokens.len() {
+            Some(&self.tokens[self.current + 1])
+        } else {
+            None
+        }
     }
 
     fn previous(&self) -> &Token {
@@ -2267,6 +2453,146 @@ mod tests {
                 assert_eq!(variants.len(), 2);
             }
             _ => panic!("Expected EnumDecl"),
+        }
+    }
+
+    #[test]
+    fn test_simple_enum_variant_expression() {
+        // Simple variant without data: لون::أحمر
+        let source = r#"بسم_الله
+متغير اللون = لون::أحمر;
+الحمد_لله"#;
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(ast.statements.len(), 1);
+        match &ast.statements[0].kind {
+            StmtKind::VarDecl { name, init, .. } => {
+                assert_eq!(name, "اللون");
+                let init = init.as_ref().unwrap();
+                match &init.kind {
+                    ExprKind::EnumVariant {
+                        enum_name,
+                        variant_name,
+                        args,
+                        type_args,
+                    } => {
+                        assert_eq!(enum_name, "لون");
+                        assert_eq!(variant_name, "أحمر");
+                        assert!(args.is_empty());
+                        assert!(type_args.is_empty());
+                    }
+                    _ => panic!("Expected EnumVariant, got {:?}", init.kind),
+                }
+            }
+            _ => panic!("Expected VarDecl"),
+        }
+    }
+
+    #[test]
+    fn test_enum_variant_with_data() {
+        // Variant with data: نتيجة::نجاح(42)
+        let source = r#"بسم_الله
+متغير النتيجة = نتيجة::نجاح(42);
+الحمد_لله"#;
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(ast.statements.len(), 1);
+        match &ast.statements[0].kind {
+            StmtKind::VarDecl { name, init, .. } => {
+                assert_eq!(name, "النتيجة");
+                let init = init.as_ref().unwrap();
+                match &init.kind {
+                    ExprKind::EnumVariant {
+                        enum_name,
+                        variant_name,
+                        args,
+                        type_args,
+                    } => {
+                        assert_eq!(enum_name, "نتيجة");
+                        assert_eq!(variant_name, "نجاح");
+                        assert_eq!(args.len(), 1);
+                        assert!(type_args.is_empty());
+                        // Check the argument is a literal 42
+                        match &args[0].kind {
+                            ExprKind::Literal(Literal::Int(42)) => {}
+                            _ => panic!("Expected Int literal 42"),
+                        }
+                    }
+                    _ => panic!("Expected EnumVariant, got {:?}", init.kind),
+                }
+            }
+            _ => panic!("Expected VarDecl"),
+        }
+    }
+
+    #[test]
+    fn test_generic_enum_variant() {
+        // Generic enum variant: اختياري<عدد>::بعض(100)
+        let source = r#"بسم_الله
+متغير قيمة = اختياري<عدد>::بعض(100);
+الحمد_لله"#;
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(ast.statements.len(), 1);
+        match &ast.statements[0].kind {
+            StmtKind::VarDecl { name, init, .. } => {
+                assert_eq!(name, "قيمة");
+                let init = init.as_ref().unwrap();
+                match &init.kind {
+                    ExprKind::EnumVariant {
+                        enum_name,
+                        variant_name,
+                        args,
+                        type_args,
+                    } => {
+                        assert_eq!(enum_name, "اختياري");
+                        assert_eq!(variant_name, "بعض");
+                        assert_eq!(args.len(), 1);
+                        assert_eq!(type_args.len(), 1);
+                        // Check type arg is عدد
+                        match &type_args[0].kind {
+                            TypeKind::Simple(name) => assert_eq!(name, "عدد"),
+                            _ => panic!("Expected Simple type 'عدد'"),
+                        }
+                    }
+                    _ => panic!("Expected EnumVariant, got {:?}", init.kind),
+                }
+            }
+            _ => panic!("Expected VarDecl"),
+        }
+    }
+
+    #[test]
+    fn test_enum_variant_multiple_args() {
+        // Variant with multiple data args: موقع::نقطة(10, 20)
+        let source = r#"بسم_الله
+متغير م = موقع::نقطة(10، 20);
+الحمد_لله"#;
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(ast.statements.len(), 1);
+        match &ast.statements[0].kind {
+            StmtKind::VarDecl { init, .. } => {
+                let init = init.as_ref().unwrap();
+                match &init.kind {
+                    ExprKind::EnumVariant {
+                        enum_name,
+                        variant_name,
+                        args,
+                        ..
+                    } => {
+                        assert_eq!(enum_name, "موقع");
+                        assert_eq!(variant_name, "نقطة");
+                        assert_eq!(args.len(), 2);
+                    }
+                    _ => panic!("Expected EnumVariant"),
+                }
+            }
+            _ => panic!("Expected VarDecl"),
         }
     }
 }

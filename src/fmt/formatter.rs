@@ -5,8 +5,8 @@
 use super::{FormatConfig, Printer};
 use crate::parser::{
     Ast, BinaryOp, Block, ClassMember, EnumVariant, Expr, ExprKind, ImportItems, LambdaBody,
-    Literal, MatchArm, MethodSignature, Param, Stmt, StmtKind, TypeAnnotation, TypeKind, UnaryOp,
-    Visibility,
+    Literal, MatchArm, MethodSignature, Param, Pattern, PatternKind, Stmt, StmtKind,
+    TypeAnnotation, TypeKind, UnaryOp, Visibility,
 };
 
 pub struct Formatter {
@@ -675,6 +675,38 @@ impl Formatter {
             ExprKind::Super => {
                 p.write("الأصل");
             }
+
+            ExprKind::EnumVariant {
+                enum_name,
+                type_args,
+                variant_name,
+                args,
+            } => {
+                // Format: EnumName::VariantName or EnumName<T>::VariantName(args)
+                p.write(enum_name);
+                if !type_args.is_empty() {
+                    p.write_char('<');
+                    for (i, ta) in type_args.iter().enumerate() {
+                        if i > 0 {
+                            p.write("، ");
+                        }
+                        self.format_type(ta, p);
+                    }
+                    p.write_char('>');
+                }
+                p.write("::");
+                p.write(variant_name);
+                if !args.is_empty() {
+                    p.write_parens(|p| {
+                        for (i, arg) in args.iter().enumerate() {
+                            if i > 0 {
+                                p.write_comma();
+                            }
+                            self.format_expr(arg, p);
+                        }
+                    });
+                }
+            }
         }
     }
 
@@ -1023,7 +1055,7 @@ impl Formatter {
             if i > 0 {
                 p.write_comma();
             }
-            self.format_expr(pattern, p);
+            self.format_pattern(pattern, p);
         }
 
         p.write_fat_arrow();
@@ -1031,6 +1063,39 @@ impl Formatter {
             self.format_block(&arm.body, p);
         });
         p.newline();
+    }
+
+    fn format_pattern(&self, pattern: &Pattern, p: &mut Printer) {
+        match &pattern.kind {
+            PatternKind::Literal(expr) => {
+                self.format_expr(expr, p);
+            }
+            PatternKind::Identifier(name) => {
+                p.write(name);
+            }
+            PatternKind::Wildcard => {
+                p.write("غير_ذلك");
+            }
+            PatternKind::EnumVariant {
+                enum_name,
+                variant_name,
+                bindings,
+            } => {
+                p.write(enum_name);
+                p.write("::");
+                p.write(variant_name);
+                if !bindings.is_empty() {
+                    p.write_char('(');
+                    for (i, binding) in bindings.iter().enumerate() {
+                        if i > 0 {
+                            p.write_comma();
+                        }
+                        p.write(binding);
+                    }
+                    p.write_char(')');
+                }
+            }
+        }
     }
 
     fn format_import_items(&self, items: &ImportItems, p: &mut Printer) {

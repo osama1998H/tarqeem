@@ -61,6 +61,16 @@ impl Documentation {
             }
         })
     }
+
+    pub fn enums(&self) -> impl Iterator<Item = &EnumDoc> {
+        self.items.iter().filter_map(|item| {
+            if let DocItem::Enum(e) = item {
+                Some(e)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +80,7 @@ pub enum DocItem {
     Class(ClassDoc),
     Interface(InterfaceDoc),
     Variable(VariableDoc),
+    Enum(EnumDoc),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -242,6 +253,47 @@ impl VariableDoc {
             line: 0,
         }
     }
+}
+
+/// Documentation for an enum type / توثيق لنوع التعداد
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnumDoc {
+    pub name: String,
+    pub description: Option<String>,
+    pub type_params: Vec<String>,
+    pub variants: Vec<EnumVariantDoc>,
+    pub is_exported: bool,
+    pub line: usize,
+}
+
+impl EnumDoc {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            description: None,
+            type_params: Vec::new(),
+            variants: Vec::new(),
+            is_exported: false,
+            line: 0,
+        }
+    }
+}
+
+/// Documentation for an enum variant / توثيق لحالة التعداد
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnumVariantDoc {
+    pub name: String,
+    pub description: Option<String>,
+    pub fields: Vec<EnumFieldDoc>,
+    pub discriminant: Option<i64>,
+}
+
+/// Documentation for an enum variant field / توثيق لحقل حالة التعداد
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnumFieldDoc {
+    pub name: Option<String>,
+    pub ty: String,
+    pub description: Option<String>,
 }
 
 #[cfg(test)]

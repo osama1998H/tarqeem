@@ -612,6 +612,34 @@ impl FunctionInliner {
             },
 
             Instruction::Nop => Instruction::Nop,
+
+            // Enum instructions
+            Instruction::NewEnumVariant {
+                dest,
+                variant,
+                fields,
+            } => Instruction::NewEnumVariant {
+                dest: map_var(dest),
+                variant: variant.clone(),
+                fields: fields.iter().map(&map_var).collect(),
+            },
+            Instruction::GetDiscriminant { dest, value } => Instruction::GetDiscriminant {
+                dest: map_var(dest),
+                value: map_var(value),
+            },
+            Instruction::GetVariantField {
+                dest,
+                value,
+                variant,
+                field_index,
+                ty,
+            } => Instruction::GetVariantField {
+                dest: map_var(dest),
+                value: map_var(value),
+                variant: variant.clone(),
+                field_index: *field_index,
+                ty: ty.clone(),
+            },
         }
     }
 
@@ -636,7 +664,10 @@ impl FunctionInliner {
             | Instruction::GetException { dest }
             | Instruction::Phi { dest, .. }
             | Instruction::GlobalLoad { dest, .. }
-            | Instruction::Copy { dest, .. } => Some(*dest),
+            | Instruction::Copy { dest, .. }
+            | Instruction::NewEnumVariant { dest, .. }
+            | Instruction::GetDiscriminant { dest, .. }
+            | Instruction::GetVariantField { dest, .. } => Some(*dest),
 
             Instruction::Call { dest, .. }
             | Instruction::CallIndirect { dest, .. }
@@ -693,6 +724,10 @@ impl FunctionInliner {
             Instruction::Throw { exception } => vec![*exception],
             Instruction::Phi { incoming, .. } => incoming.iter().map(|(v, _)| *v).collect(),
             Instruction::GlobalStore { value, .. } => vec![*value],
+            // Enum instructions
+            Instruction::NewEnumVariant { fields, .. } => fields.clone(),
+            Instruction::GetDiscriminant { value, .. } => vec![*value],
+            Instruction::GetVariantField { value, .. } => vec![*value],
             _ => vec![],
         }
     }

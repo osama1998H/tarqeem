@@ -33,6 +33,7 @@ fn ir_type_to_cranelift(ty: &IrType) -> JitResult<types::Type> {
         IrType::Array(_, _) => Ok(types::I64), // Pointer to array
         IrType::Struct(_) => Ok(types::I64), // Pointer to struct
         IrType::Function { .. } => Ok(types::I64), // Function pointer
+        IrType::Enum(_) => Ok(types::I64), // Pointer to enum (tagged union)
     }
 }
 
