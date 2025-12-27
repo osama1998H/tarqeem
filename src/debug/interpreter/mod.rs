@@ -3,15 +3,15 @@
 //! This module extends the standard interpreter with debugging capabilities
 //! including breakpoints, stepping, and variable inspection.
 
+mod builtins;
+mod operations;
+
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
 use crate::interpreter::{RuntimeError, RuntimeResult, Value};
-use crate::ir::{
-    BasicBlock, BinaryOp, BlockId, Constant, FuncId, Function, Instruction, IrType, Module,
-    UnaryOp, VarId,
-};
+use crate::ir::{BasicBlock, BlockId, Constant, FuncId, Function, Instruction, Module, VarId};
 
 use super::context::{BreakpointId, DebugContext};
 use super::source_map::SourceLocation;
@@ -60,7 +60,7 @@ pub struct DebugInterpreter {
     call_stack: Vec<DebugCallFrame>,
     globals: HashMap<String, Value>,
     current_exception: Option<Value>,
-    context: DebugContext,
+    pub(super) context: DebugContext,
     event_callback: Option<Box<dyn FnMut(DebugEvent)>>,
     current_file: PathBuf,
     frame_id_counter: u32,
@@ -1164,7 +1164,6 @@ impl DebugInterpreter {
             }
 
             Instruction::Copy { dest, src, ty: _ } => {
-                // Copy the value from src to dest
                 let value = self.get_local(*src)?.clone();
                 self.set_local(*dest, value);
                 Ok(InstructionResult::Continue)
@@ -1172,7 +1171,6 @@ impl DebugInterpreter {
 
             Instruction::Nop => Ok(InstructionResult::Continue),
 
-            // Enum instructions
             Instruction::NewEnumVariant {
                 dest,
                 variant,
@@ -1224,162 +1222,6 @@ impl DebugInterpreter {
         }
     }
 
-    fn execute_binary_op(
-        &self,
-        op: BinaryOp,
-        left: Value,
-        right: Value,
-        _ty: &IrType,
-    ) -> RuntimeResult<Value> {
-        match op {
-            BinaryOp::Add => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.wrapping_add(*b))),
-                (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
-                (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 + b)),
-                (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + *b as f64)),
-                (Value::String(a), Value::String(b)) => Ok(Value::string(format!("{}{}", a, b))),
-                _ => Err(RuntimeError::type_error(
-                    "numeric or string",
-                    &format!("{} and {}", left.type_name(), right.type_name()),
-                )),
-            },
-            BinaryOp::Sub => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.wrapping_sub(*b))),
-                (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
-                (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 - b)),
-                (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a - *b as f64)),
-                _ => Err(RuntimeError::type_error("numeric", left.type_name())),
-            },
-            BinaryOp::Mul => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.wrapping_mul(*b))),
-                (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
-                (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 * b)),
-                (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a * *b as f64)),
-                _ => Err(RuntimeError::type_error("numeric", left.type_name())),
-            },
-            BinaryOp::Div => match (&left, &right) {
-                (Value::Int(_), Value::Int(0)) => Err(RuntimeError::division_by_zero()),
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a / b)),
-                (Value::Float(_), Value::Float(b)) if *b == 0.0 => {
-                    Err(RuntimeError::division_by_zero())
-                }
-                (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a / b)),
-                (Value::Int(_), Value::Float(b)) if *b == 0.0 => {
-                    Err(RuntimeError::division_by_zero())
-                }
-                (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 / b)),
-                (Value::Float(_), Value::Int(0)) => Err(RuntimeError::division_by_zero()),
-                (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a / *b as f64)),
-                _ => Err(RuntimeError::type_error("numeric", left.type_name())),
-            },
-            BinaryOp::Mod => match (&left, &right) {
-                (Value::Int(_), Value::Int(0)) => Err(RuntimeError::division_by_zero()),
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a % b)),
-                (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a % b)),
-                _ => Err(RuntimeError::type_error("numeric", left.type_name())),
-            },
-            BinaryOp::Pow => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) if *b >= 0 => Ok(Value::Int(a.pow(*b as u32))),
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Float((*a as f64).powf(*b as f64))),
-                (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a.powf(*b))),
-                (Value::Int(a), Value::Float(b)) => Ok(Value::Float((*a as f64).powf(*b))),
-                (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a.powf(*b as f64))),
-                _ => Err(RuntimeError::type_error("numeric", left.type_name())),
-            },
-            BinaryOp::Eq => Ok(Value::Bool(left == right)),
-            BinaryOp::Ne => Ok(Value::Bool(left != right)),
-            BinaryOp::Lt => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(a < b)),
-                (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a < b)),
-                (Value::Int(a), Value::Float(b)) => Ok(Value::Bool((*a as f64) < *b)),
-                (Value::Float(a), Value::Int(b)) => Ok(Value::Bool(*a < (*b as f64))),
-                (Value::String(a), Value::String(b)) => Ok(Value::Bool(a < b)),
-                _ => Err(RuntimeError::type_error("comparable", left.type_name())),
-            },
-            BinaryOp::Le => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(a <= b)),
-                (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a <= b)),
-                (Value::Int(a), Value::Float(b)) => Ok(Value::Bool((*a as f64) <= *b)),
-                (Value::Float(a), Value::Int(b)) => Ok(Value::Bool(*a <= (*b as f64))),
-                (Value::String(a), Value::String(b)) => Ok(Value::Bool(a <= b)),
-                _ => Err(RuntimeError::type_error("comparable", left.type_name())),
-            },
-            BinaryOp::Gt => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(a > b)),
-                (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a > b)),
-                (Value::Int(a), Value::Float(b)) => Ok(Value::Bool((*a as f64) > *b)),
-                (Value::Float(a), Value::Int(b)) => Ok(Value::Bool(*a > (*b as f64))),
-                (Value::String(a), Value::String(b)) => Ok(Value::Bool(a > b)),
-                _ => Err(RuntimeError::type_error("comparable", left.type_name())),
-            },
-            BinaryOp::Ge => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(a >= b)),
-                (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a >= b)),
-                (Value::Int(a), Value::Float(b)) => Ok(Value::Bool((*a as f64) >= *b)),
-                (Value::Float(a), Value::Int(b)) => Ok(Value::Bool(*a >= (*b as f64))),
-                (Value::String(a), Value::String(b)) => Ok(Value::Bool(a >= b)),
-                _ => Err(RuntimeError::type_error("comparable", left.type_name())),
-            },
-            BinaryOp::And => Ok(Value::Bool(left.is_truthy() && right.is_truthy())),
-            BinaryOp::Or => Ok(Value::Bool(left.is_truthy() || right.is_truthy())),
-            BinaryOp::BitAnd => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a & b)),
-                (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(*a && *b)),
-                _ => Err(RuntimeError::type_error("int or bool", left.type_name())),
-            },
-            BinaryOp::BitOr => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a | b)),
-                (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(*a || *b)),
-                _ => Err(RuntimeError::type_error("int or bool", left.type_name())),
-            },
-            BinaryOp::BitXor => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a ^ b)),
-                (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(*a ^ *b)),
-                _ => Err(RuntimeError::type_error("int or bool", left.type_name())),
-            },
-            BinaryOp::Shl => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => {
-                    if *b < 0 || *b >= 64 {
-                        return Err(RuntimeError::invalid_operation(
-                            format!("Shift amount {} is out of range (0-63)", b),
-                            format!("مقدار الإزاحة {} خارج النطاق (0-63)", b),
-                        ));
-                    }
-                    Ok(Value::Int(*a << *b))
-                }
-                _ => Err(RuntimeError::type_error("int", left.type_name())),
-            },
-            BinaryOp::Shr => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => {
-                    if *b < 0 || *b >= 64 {
-                        return Err(RuntimeError::invalid_operation(
-                            format!("Shift amount {} is out of range (0-63)", b),
-                            format!("مقدار الإزاحة {} خارج النطاق (0-63)", b),
-                        ));
-                    }
-                    Ok(Value::Int(*a >> *b))
-                }
-                _ => Err(RuntimeError::type_error("int", left.type_name())),
-            },
-        }
-    }
-
-    fn execute_unary_op(&self, op: UnaryOp, operand: Value, _ty: &IrType) -> RuntimeResult<Value> {
-        match op {
-            UnaryOp::Neg => match operand {
-                Value::Int(i) => Ok(Value::Int(-i)),
-                Value::Float(f) => Ok(Value::Float(-f)),
-                _ => Err(RuntimeError::type_error("numeric", operand.type_name())),
-            },
-            UnaryOp::Not => Ok(Value::Bool(!operand.is_truthy())),
-            UnaryOp::BitNot => match operand {
-                Value::Int(i) => Ok(Value::Int(!i)),
-                Value::Bool(b) => Ok(Value::Bool(!b)),
-                _ => Err(RuntimeError::type_error("int or bool", operand.type_name())),
-            },
-        }
-    }
-
     fn constant_to_value(&self, constant: &Constant) -> Value {
         match constant {
             Constant::Null => Value::Null,
@@ -1411,268 +1253,6 @@ impl DebugInterpreter {
         self.call_stack
             .last_mut()
             .and_then(|frame| frame.try_stack.pop())
-    }
-
-    fn is_builtin(&self, name: &str) -> bool {
-        matches!(
-            name,
-            "print"
-                | "اطبع"
-                | "println"
-                | "input"
-                | "ادخل"
-                | "len"
-                | "طول"
-                | "type"
-                | "نوع"
-                | "int"
-                | "عدد"
-                | "float"
-                | "عدد_عشري"
-                | "str"
-                | "نص"
-                | "bool"
-                | "منطقي"
-                | "abs"
-                | "sqrt"
-                | "جذر"
-                | "sin"
-                | "cos"
-                | "tan"
-                | "floor"
-                | "ceil"
-                | "round"
-        )
-    }
-
-    fn call_builtin(&mut self, name: &str, args: Vec<Value>) -> RuntimeResult<Value> {
-        match name {
-            "print" | "اطبع" | "println" => {
-                let output = args
-                    .iter()
-                    .map(|v| v.to_display_string())
-                    .collect::<Vec<_>>()
-                    .join(" ");
-
-                self.context.add_output(output.clone());
-                println!("{}", output);
-                io::stdout().flush().ok();
-                Ok(Value::Null)
-            }
-
-            "input" | "ادخل" => {
-                if let Some(prompt) = args.first() {
-                    print!("{}", prompt.to_display_string());
-                    io::stdout().flush().ok();
-                }
-
-                let mut input = String::new();
-                io::stdin()
-                    .read_line(&mut input)
-                    .map_err(|e| RuntimeError::internal(format!("Input error: {}", e)))?;
-
-                Ok(Value::string(input.trim_end()))
-            }
-
-            "len" | "طول" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "len() requires 1 argument",
-                        "طول() تتطلب معامل واحد",
-                    )
-                })?;
-
-                match val {
-                    Value::Array(arr) => Ok(Value::Int(arr.borrow().len() as i64)),
-                    Value::String(s) => Ok(Value::Int(s.chars().count() as i64)),
-                    _ => Err(RuntimeError::type_error("array or string", val.type_name())),
-                }
-            }
-
-            "type" | "نوع" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "type() requires 1 argument",
-                        "نوع() تتطلب معامل واحد",
-                    )
-                })?;
-                Ok(Value::string(val.type_name_ar()))
-            }
-
-            "int" | "عدد" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "int() requires 1 argument",
-                        "عدد() تتطلب معامل واحد",
-                    )
-                })?;
-
-                match val {
-                    Value::Int(i) => Ok(Value::Int(*i)),
-                    Value::Float(f) => Ok(Value::Int(*f as i64)),
-                    Value::String(s) => s
-                        .parse::<i64>()
-                        .map(Value::Int)
-                        .map_err(|_| RuntimeError::type_error("numeric string", "invalid string")),
-                    Value::Bool(b) => Ok(Value::Int(if *b { 1 } else { 0 })),
-                    _ => Err(RuntimeError::type_error(
-                        "convertible to int",
-                        val.type_name(),
-                    )),
-                }
-            }
-
-            "float" | "عدد_عشري" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "float() requires 1 argument",
-                        "عدد_عشري() تتطلب معامل واحد",
-                    )
-                })?;
-
-                match val {
-                    Value::Int(i) => Ok(Value::Float(*i as f64)),
-                    Value::Float(f) => Ok(Value::Float(*f)),
-                    Value::String(s) => s
-                        .parse::<f64>()
-                        .map(Value::Float)
-                        .map_err(|_| RuntimeError::type_error("numeric string", "invalid string")),
-                    _ => Err(RuntimeError::type_error(
-                        "convertible to float",
-                        val.type_name(),
-                    )),
-                }
-            }
-
-            "str" | "نص" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "str() requires 1 argument",
-                        "نص() تتطلب معامل واحد",
-                    )
-                })?;
-                Ok(Value::string(val.to_display_string()))
-            }
-
-            "bool" | "منطقي" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "bool() requires 1 argument",
-                        "منطقي() تتطلب معامل واحد",
-                    )
-                })?;
-                Ok(Value::Bool(val.is_truthy()))
-            }
-
-            "abs" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "abs() requires 1 argument",
-                        "abs() تتطلب معامل واحد",
-                    )
-                })?;
-
-                match val {
-                    Value::Int(i) => Ok(Value::Int(i.abs())),
-                    Value::Float(f) => Ok(Value::Float(f.abs())),
-                    _ => Err(RuntimeError::type_error("numeric", val.type_name())),
-                }
-            }
-
-            "sqrt" | "جذر" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "sqrt() requires 1 argument",
-                        "جذر() تتطلب معامل واحد",
-                    )
-                })?;
-
-                let f = val
-                    .as_float()
-                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
-                Ok(Value::Float(f.sqrt()))
-            }
-
-            "sin" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "sin() requires 1 argument",
-                        "sin() تتطلب معامل واحد",
-                    )
-                })?;
-                let f = val
-                    .as_float()
-                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
-                Ok(Value::Float(f.sin()))
-            }
-
-            "cos" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "cos() requires 1 argument",
-                        "cos() تتطلب معامل واحد",
-                    )
-                })?;
-                let f = val
-                    .as_float()
-                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
-                Ok(Value::Float(f.cos()))
-            }
-
-            "tan" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "tan() requires 1 argument",
-                        "tan() تتطلب معامل واحد",
-                    )
-                })?;
-                let f = val
-                    .as_float()
-                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
-                Ok(Value::Float(f.tan()))
-            }
-
-            "floor" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "floor() requires 1 argument",
-                        "floor() تتطلب معامل واحد",
-                    )
-                })?;
-                let f = val
-                    .as_float()
-                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
-                Ok(Value::Float(f.floor()))
-            }
-
-            "ceil" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "ceil() requires 1 argument",
-                        "ceil() تتطلب معامل واحد",
-                    )
-                })?;
-                let f = val
-                    .as_float()
-                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
-                Ok(Value::Float(f.ceil()))
-            }
-
-            "round" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "round() requires 1 argument",
-                        "round() تتطلب معامل واحد",
-                    )
-                })?;
-                let f = val
-                    .as_float()
-                    .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
-                Ok(Value::Float(f.round()))
-            }
-
-            _ => Err(RuntimeError::undefined_function(name)),
-        }
     }
 }
 
