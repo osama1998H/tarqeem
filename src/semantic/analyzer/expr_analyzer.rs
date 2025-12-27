@@ -675,7 +675,7 @@ impl Analyzer {
         // Look up the enum in our registry
         if let Some(enum_info) = self.enums.get(enum_name).cloned() {
             // Find the variant
-            if let Some(variant) = enum_info.variants.iter().find(|v| &v.name == variant_name) {
+            if let Some(variant) = enum_info.variants.iter().find(|v| v.name == variant_name) {
                 // Check argument count matches
                 if args.len() != variant.fields.len() {
                     self.error(
