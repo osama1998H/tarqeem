@@ -99,8 +99,6 @@ impl Formatter {
                     p.write_operator("=");
                     self.format_expr(init, p);
                 }
-
-                p.newline();
             }
 
             StmtKind::FuncDecl {
@@ -131,7 +129,6 @@ impl Formatter {
                 p.write_block(|p| {
                     self.format_block(body, p);
                 });
-                p.newline();
             }
 
             StmtKind::ClassDecl {
@@ -181,7 +178,6 @@ impl Formatter {
                         self.format_class_member(member, p);
                     }
                 });
-                p.newline();
             }
 
             StmtKind::InterfaceDecl {
@@ -210,7 +206,6 @@ impl Formatter {
                         self.format_method_signature(method, p);
                     }
                 });
-                p.newline();
             }
 
             StmtKind::EnumDecl {
@@ -239,7 +234,6 @@ impl Formatter {
                         self.format_enum_variant(variant, p);
                     }
                 });
-                p.newline();
             }
 
             StmtKind::If {
@@ -264,7 +258,6 @@ impl Formatter {
                         self.format_block(else_block, p);
                     });
                 }
-                p.newline();
             }
 
             StmtKind::While { condition, body } => {
@@ -277,7 +270,6 @@ impl Formatter {
                 p.write_block(|p| {
                     self.format_block(body, p);
                 });
-                p.newline();
             }
 
             StmtKind::DoWhile { body, condition } => {
@@ -291,7 +283,6 @@ impl Formatter {
                 p.write_parens(|p| {
                     self.format_expr(condition, p);
                 });
-                p.newline();
             }
 
             StmtKind::For {
@@ -324,7 +315,6 @@ impl Formatter {
                 p.write_block(|p| {
                     self.format_block(body, p);
                 });
-                p.newline();
             }
 
             StmtKind::ForIn {
@@ -343,7 +333,6 @@ impl Formatter {
                 p.write_block(|p| {
                     self.format_block(body, p);
                 });
-                p.newline();
             }
 
             StmtKind::Match { expr, arms } => {
@@ -358,7 +347,6 @@ impl Formatter {
                         self.format_match_arm(arm, p);
                     }
                 });
-                p.newline();
             }
 
             StmtKind::Return(expr) => {
@@ -367,17 +355,14 @@ impl Formatter {
                     p.write_space();
                     self.format_expr(e, p);
                 }
-                p.newline();
             }
 
             StmtKind::Break => {
                 p.write("أوقف");
-                p.newline();
             }
 
             StmtKind::Continue => {
                 p.write("استمر");
-                p.newline();
             }
 
             StmtKind::Try {
@@ -409,14 +394,12 @@ impl Formatter {
                         self.format_block(finally_block, p);
                     });
                 }
-                p.newline();
             }
 
             StmtKind::Throw(expr) => {
                 p.write("ارمِ");
                 p.write_space();
                 self.format_expr(expr, p);
-                p.newline();
             }
 
             StmtKind::Import { items, from } => {
@@ -429,28 +412,32 @@ impl Formatter {
                 p.write_char('"');
                 p.write(from);
                 p.write_char('"');
-                p.newline();
             }
 
             StmtKind::Export(inner) => {
                 p.write("صدّر");
                 p.write_space();
                 self.format_stmt_inline(inner, p);
-                p.newline();
             }
 
             StmtKind::Expr(expr) => {
                 self.format_expr(expr, p);
-                p.newline();
             }
 
             StmtKind::Block(block) => {
                 p.write_block(|p| {
                     self.format_block(block, p);
                 });
-                p.newline();
             }
         }
+
+        // Output trailing comment if present
+        if let Some(trailing) = &stmt.trailing_comment {
+            p.write("  //");
+            p.write(trailing);
+        }
+
+        p.newline();
     }
 
     fn format_stmt_inline(&self, stmt: &Stmt, p: &mut Printer) {
@@ -1287,5 +1274,31 @@ mod tests {
         // Should contain "//" not "/ /"
         assert!(result.contains("//"));
         assert!(!result.contains("/ /"));
+    }
+
+    #[test]
+    fn test_format_trailing_comment() {
+        let result = format("متغير س = 5  // تعليق نهائي");
+        assert!(result.contains("متغير س = 5  // تعليق نهائي"));
+    }
+
+    #[test]
+    fn test_format_trailing_comment_on_multiple_statements() {
+        let result = format("متغير س = 5  // المتغير الأول\nمتغير ص = 10  // المتغير الثاني");
+        assert!(result.contains("متغير س = 5  // المتغير الأول"));
+        assert!(result.contains("متغير ص = 10  // المتغير الثاني"));
+    }
+
+    #[test]
+    fn test_format_mixed_leading_and_trailing_comments() {
+        let result = format("// تعليق قبلي\nمتغير س = 5  // تعليق بعدي");
+        assert!(result.contains("// تعليق قبلي"));
+        assert!(result.contains("متغير س = 5  // تعليق بعدي"));
+    }
+
+    #[test]
+    fn test_format_trailing_comment_in_function() {
+        let result = format("دالة اختبار() {\n    متغير س = 5  // داخل الدالة\n}");
+        assert!(result.contains("متغير س = 5  // داخل الدالة"));
     }
 }

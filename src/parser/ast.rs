@@ -41,6 +41,8 @@ pub struct Stmt {
     pub span: Span,
     /// Line comments that appear before this statement
     pub leading_comments: Vec<String>,
+    /// Line comment that appears after this statement on the same line
+    pub trailing_comment: Option<String>,
 }
 
 impl Stmt {
@@ -49,6 +51,7 @@ impl Stmt {
             kind,
             span,
             leading_comments: Vec::new(),
+            trailing_comment: None,
         }
     }
 
@@ -57,7 +60,13 @@ impl Stmt {
             kind,
             span,
             leading_comments: comments,
+            trailing_comment: None,
         }
+    }
+
+    pub fn with_trailing_comment(mut self, comment: Option<String>) -> Self {
+        self.trailing_comment = comment;
+        self
     }
 }
 
