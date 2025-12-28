@@ -159,7 +159,14 @@ impl LlvmCodegen {
             let init_val = match init {
                 Some(Constant::Int(n)) => n.to_string(),
                 Some(Constant::Float(f)) => {
-                    format!("{:e}", f)
+                    // LLVM requires a decimal point in float literals (1.0e4, not 1e4)
+                    let s = format!("{:e}", f);
+                    if !s.contains('.') {
+                        // Insert .0 before 'e' if no decimal point present
+                        s.replace("e", ".0e")
+                    } else {
+                        s
+                    }
                 }
                 Some(Constant::Bool(b)) => {
                     if *b {
@@ -837,18 +844,31 @@ impl LlvmCodegen {
                     })
                     .collect();
                 let ret_type = self.type_mapper.map_type(ret_ty);
+                let is_void = matches!(ret_ty, IrType::Void);
 
                 if let Some(d) = dest {
-                    let dest_name = self.get_or_create_var(*d);
-                    writeln!(
-                        self.output,
-                        "  {} = call {} {}({})",
-                        dest_name,
-                        ret_type,
-                        func_ptr_name,
-                        args_str.join(", ")
-                    )
-                    .unwrap();
+                    if is_void {
+                        writeln!(
+                            self.output,
+                            "  call {} {}({})",
+                            ret_type,
+                            func_ptr_name,
+                            args_str.join(", ")
+                        )
+                        .unwrap();
+                    } else {
+                        let dest_name = self.get_or_create_var(*d);
+                        writeln!(
+                            self.output,
+                            "  {} = call {} {}({})",
+                            dest_name,
+                            ret_type,
+                            func_ptr_name,
+                            args_str.join(", ")
+                        )
+                        .unwrap();
+                        self.var_types.insert(d.0, ret_ty.clone());
+                    }
                 } else {
                     writeln!(
                         self.output,
@@ -904,6 +924,8 @@ impl LlvmCodegen {
                     dest_name, llvm_ty, ptr_name
                 )
                 .unwrap();
+                // Register the destination variable's type for correct argument passing
+                self.var_types.insert(dest.0, ty.clone());
             }
 
             Instruction::SetField {
@@ -952,17 +974,32 @@ impl LlvmCodegen {
                 }
 
                 let ret_type = self.type_mapper.map_type(ret_ty);
+                let is_void = matches!(ret_ty, IrType::Void);
+
                 if let Some(d) = dest {
-                    let dest_name = self.get_or_create_var(*d);
-                    writeln!(
-                        self.output,
-                        "  {} = call {} @{}({})",
-                        dest_name,
-                        ret_type,
-                        method_name,
-                        all_args.join(", ")
-                    )
-                    .unwrap();
+                    if is_void {
+                        // Void calls cannot have a return value assigned
+                        writeln!(
+                            self.output,
+                            "  call {} @{}({})",
+                            ret_type,
+                            method_name,
+                            all_args.join(", ")
+                        )
+                        .unwrap();
+                    } else {
+                        let dest_name = self.get_or_create_var(*d);
+                        writeln!(
+                            self.output,
+                            "  {} = call {} @{}({})",
+                            dest_name,
+                            ret_type,
+                            method_name,
+                            all_args.join(", ")
+                        )
+                        .unwrap();
+                        self.var_types.insert(d.0, ret_ty.clone());
+                    }
                 } else {
                     writeln!(
                         self.output,
@@ -1008,16 +1045,29 @@ impl LlvmCodegen {
                 }
 
                 let ret_type = self.type_mapper.map_type(ret_ty);
+                let is_void = matches!(ret_ty, IrType::Void);
+
                 if let Some(d) = dest {
-                    let dest_name = self.get_or_create_var(*d);
-                    emit!(
-                        self,
-                        "  {} = call {} {}({})",
-                        dest_name,
-                        ret_type,
-                        method_ptr,
-                        all_args.join(", ")
-                    );
+                    if is_void {
+                        emit!(
+                            self,
+                            "  call {} {}({})",
+                            ret_type,
+                            method_ptr,
+                            all_args.join(", ")
+                        );
+                    } else {
+                        let dest_name = self.get_or_create_var(*d);
+                        emit!(
+                            self,
+                            "  {} = call {} {}({})",
+                            dest_name,
+                            ret_type,
+                            method_ptr,
+                            all_args.join(", ")
+                        );
+                        self.var_types.insert(d.0, ret_ty.clone());
+                    }
                 } else {
                     emit!(
                         self,
@@ -1083,6 +1133,8 @@ impl LlvmCodegen {
                     dest_name, array_name
                 )
                 .unwrap();
+                // ArrayLen returns i64 (Int type)
+                self.var_types.insert(dest.0, IrType::Int);
             }
 
             Instruction::ArrayGet {
@@ -1201,6 +1253,9 @@ impl LlvmCodegen {
             Instruction::GetException { dest } => {
                 let dest_name = self.get_or_create_var(*dest);
                 emit!(self, "  {} = call ptr @trq_get_exception()", dest_name);
+                // Exception is returned as a pointer
+                self.var_types
+                    .insert(dest.0, IrType::Ptr(Box::new(IrType::Void)));
             }
 
             Instruction::Phi { dest, ty, incoming } => {
@@ -1275,10 +1330,16 @@ impl LlvmCodegen {
                 .unwrap();
             }
 
-            Instruction::Copy { dest, src, ty: _ } => {
+            Instruction::Copy { dest, src, ty } => {
                 // Copy is a simple value transfer - just map the source variable name to the destination
                 if let Some(src_name) = self.var_map.get(&src.0).cloned() {
                     self.var_map.insert(dest.0, src_name);
+                }
+                // Also copy the type information - use provided type or try to get from source
+                if let Some(src_ty) = self.var_types.get(&src.0).cloned() {
+                    self.var_types.insert(dest.0, src_ty);
+                } else {
+                    self.var_types.insert(dest.0, ty.clone());
                 }
             }
 
@@ -1438,7 +1499,14 @@ impl LlvmCodegen {
                 emit!(self, "  {} = add i64 {}, 0", dest_name, i);
             }
             Constant::Float(f) => {
-                emit!(self, "  {} = fadd double {:e}, 0.0", dest_name, f);
+                // LLVM requires a decimal point in float literals (1.0e4, not 1e4)
+                let float_str = format!("{:e}", f);
+                let float_str = if !float_str.contains('.') {
+                    float_str.replace("e", ".0e")
+                } else {
+                    float_str
+                };
+                emit!(self, "  {} = fadd double {}, 0.0", dest_name, float_str);
             }
             Constant::String(idx) => {
                 if let Some((global, len)) = self.string_globals.get(idx) {
@@ -1481,6 +1549,120 @@ impl LlvmCodegen {
         let dest_name = self.get_or_create_var(dest);
         let left_name = self.get_var(left)?;
         let right_name = self.get_var(right)?;
+
+        // Check operand type from var_types - more reliable than ty parameter
+        // This handles cases where the IR builder passes incorrect type info
+        let operand_ty = self.var_types.get(&left.0).cloned().unwrap_or(ty.clone());
+
+        // For arithmetic operations, use the actual operand type
+        let is_arithmetic = matches!(
+            op,
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod
+        );
+
+        if is_arithmetic && operand_ty == IrType::Float {
+            let instruction = match op {
+                BinaryOp::Add => "fadd double",
+                BinaryOp::Sub => "fsub double",
+                BinaryOp::Mul => "fmul double",
+                BinaryOp::Div => "fdiv double",
+                BinaryOp::Mod => "frem double",
+                _ => unreachable!(),
+            };
+            writeln!(
+                self.output,
+                "  {} = {} {}, {}",
+                dest_name, instruction, left_name, right_name
+            )
+            .unwrap();
+            // Track the result type
+            self.var_types.insert(dest.0, IrType::Float);
+            return Ok(());
+        }
+
+        // For comparison operations, check operand type (not result type which is always Bool)
+        let is_comparison = matches!(
+            op,
+            BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
+        );
+
+        if is_comparison {
+            // Get the operand type from var_types
+            if let Some(operand_ty) = self.var_types.get(&left.0) {
+                match operand_ty {
+                    IrType::String => {
+                        // String comparison using runtime functions
+                        match op {
+                            BinaryOp::Eq => {
+                                writeln!(
+                                    self.output,
+                                    "  {} = call i1 @trq_string_equals(ptr {}, ptr {})",
+                                    dest_name, left_name, right_name
+                                )
+                                .unwrap();
+                                return Ok(());
+                            }
+                            BinaryOp::Ne => {
+                                let tmp = self.fresh_name("tmp.streq");
+                                writeln!(
+                                    self.output,
+                                    "  {} = call i1 @trq_string_equals(ptr {}, ptr {})",
+                                    tmp, left_name, right_name
+                                )
+                                .unwrap();
+                                writeln!(self.output, "  {} = xor i1 {}, true", dest_name, tmp)
+                                    .unwrap();
+                                return Ok(());
+                            }
+                            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+                                let cmp_result = self.fresh_name("tmp.strcmp");
+                                writeln!(
+                                    self.output,
+                                    "  {} = call i64 @trq_string_compare(ptr {}, ptr {})",
+                                    cmp_result, left_name, right_name
+                                )
+                                .unwrap();
+                                let cmp_op = match op {
+                                    BinaryOp::Lt => "icmp slt i64",
+                                    BinaryOp::Le => "icmp sle i64",
+                                    BinaryOp::Gt => "icmp sgt i64",
+                                    BinaryOp::Ge => "icmp sge i64",
+                                    _ => unreachable!(),
+                                };
+                                writeln!(
+                                    self.output,
+                                    "  {} = {} {}, 0",
+                                    dest_name, cmp_op, cmp_result
+                                )
+                                .unwrap();
+                                return Ok(());
+                            }
+                            _ => {}
+                        }
+                    }
+                    IrType::Float => {
+                        // Float comparison
+                        let cmp_op = match op {
+                            BinaryOp::Eq => "fcmp oeq double",
+                            BinaryOp::Ne => "fcmp one double",
+                            BinaryOp::Lt => "fcmp olt double",
+                            BinaryOp::Le => "fcmp ole double",
+                            BinaryOp::Gt => "fcmp ogt double",
+                            BinaryOp::Ge => "fcmp oge double",
+                            _ => unreachable!(),
+                        };
+                        writeln!(
+                            self.output,
+                            "  {} = {} {}, {}",
+                            dest_name, cmp_op, left_name, right_name
+                        )
+                        .unwrap();
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         let instruction = match (op, ty) {
             (BinaryOp::Add, IrType::Int) => "add i64",
@@ -1533,6 +1715,60 @@ impl LlvmCodegen {
             (BinaryOp::Le, IrType::Float) => "fcmp ole double",
             (BinaryOp::Gt, IrType::Float) => "fcmp ogt double",
             (BinaryOp::Ge, IrType::Float) => "fcmp oge double",
+
+            // String comparison using runtime functions
+            (BinaryOp::Eq, IrType::String) => {
+                writeln!(
+                    self.output,
+                    "  {} = call i1 @trq_string_equals(ptr {}, ptr {})",
+                    dest_name, left_name, right_name
+                )
+                .unwrap();
+                return Ok(());
+            }
+            (BinaryOp::Ne, IrType::String) => {
+                // Not equals: negate the result of equals
+                let tmp = self.fresh_name("tmp.streq");
+                writeln!(
+                    self.output,
+                    "  {} = call i1 @trq_string_equals(ptr {}, ptr {})",
+                    tmp, left_name, right_name
+                )
+                .unwrap();
+                writeln!(self.output, "  {} = xor i1 {}, true", dest_name, tmp).unwrap();
+                return Ok(());
+            }
+            (BinaryOp::Lt, IrType::String)
+            | (BinaryOp::Le, IrType::String)
+            | (BinaryOp::Gt, IrType::String)
+            | (BinaryOp::Ge, IrType::String) => {
+                // String comparison: compare < 0, <= 0, > 0, >= 0
+                let cmp_result = self.fresh_name("tmp.strcmp");
+                writeln!(
+                    self.output,
+                    "  {} = call i64 @trq_string_compare(ptr {}, ptr {})",
+                    cmp_result, left_name, right_name
+                )
+                .unwrap();
+                let cmp_op = match op {
+                    BinaryOp::Lt => "icmp slt i64",
+                    BinaryOp::Le => "icmp sle i64",
+                    BinaryOp::Gt => "icmp sgt i64",
+                    BinaryOp::Ge => "icmp sge i64",
+                    _ => unreachable!(),
+                };
+                writeln!(
+                    self.output,
+                    "  {} = {} {}, 0",
+                    dest_name, cmp_op, cmp_result
+                )
+                .unwrap();
+                return Ok(());
+            }
+
+            // Pointer comparison (for object identity)
+            (BinaryOp::Eq, IrType::Ptr(_)) => "icmp eq ptr",
+            (BinaryOp::Ne, IrType::Ptr(_)) => "icmp ne ptr",
 
             (BinaryOp::And, IrType::Bool) => "and i1",
             (BinaryOp::Or, IrType::Bool) => "or i1",
@@ -1847,6 +2083,7 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "الى_درجات" | "درجات" => Some("trq_to_degrees"),
 
         "توقف" => Some("trq_panic"),
+        "طول" => Some("trq_array_len"),  // Generic length function for arrays
         "طول_مصفوفة" => Some("trq_array_len"),
         "الحق" => Some("trq_array_push"),
 
