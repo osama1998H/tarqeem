@@ -104,19 +104,30 @@ impl ErrorCategory {
 /// رمز خطأ عربي - Arabic error code
 ///
 /// Represents an error code in the format: `<category><4-digit-number>`
+/// where number is in the range 0001-9999.
+///
 /// Example: د٠٣٠١ (category: Dalala, number: 301)
+///
+/// # Panics
+///
+/// `new()` panics if number is 0 or greater than 9999.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ErrorCode {
     /// فئة الخطأ - Error category
     pub category: ErrorCategory,
-    /// رقم الخطأ (0001-9999) - Error number
+    /// رقم الخطأ (0001-9999) - Error number (must be 1-9999)
     pub number: u16,
 }
 
 impl ErrorCode {
     /// إنشاء رمز خطأ جديد
-    /// Create a new error code
+    /// Create a new error code.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `number` is 0 or greater than 9999.
     pub const fn new(category: ErrorCategory, number: u16) -> Self {
+        assert!(number >= 1 && number <= 9999, "Error code number must be 1-9999");
         Self { category, number }
     }
 
@@ -131,7 +142,9 @@ impl ErrorCode {
     }
 
     /// تحليل نص عربي إلى رمز خطأ
-    /// Parse an Arabic string into an error code
+    /// Parse an Arabic string into an error code.
+    ///
+    /// Returns `None` if the string is invalid or the number is outside 1-9999.
     pub fn from_arabic_string(s: &str) -> Option<Self> {
         let mut chars = s.chars();
         let category_char = chars.next()?;
@@ -139,6 +152,11 @@ impl ErrorCode {
 
         let number_str: String = chars.collect();
         let number = from_arabic_numerals(&number_str)?;
+
+        // Validate number is in valid range (1-9999)
+        if number == 0 || number > 9999 {
+            return None;
+        }
 
         Some(Self { category, number })
     }
@@ -416,5 +434,41 @@ mod tests {
     fn test_warning_codes() {
         assert_eq!(WARN_UNUSED_VARIABLE.to_string(), "ح٠٠٠١");
         assert_eq!(WARN_DEPRECATED_KEYWORD.to_string(), "م٠٠٠١");
+    }
+
+    #[test]
+    fn test_error_code_boundary_values() {
+        // Valid boundary: 1 (minimum)
+        let code_min = ErrorCode::new(ErrorCategory::Dalala, 1);
+        assert_eq!(code_min.to_string(), "د٠٠٠١");
+
+        // Valid boundary: 9999 (maximum)
+        let code_max = ErrorCode::new(ErrorCategory::Dalala, 9999);
+        assert_eq!(code_max.to_string(), "د٩٩٩٩");
+    }
+
+    #[test]
+    #[should_panic(expected = "Error code number must be 1-9999")]
+    fn test_error_code_zero_panics() {
+        let _ = ErrorCode::new(ErrorCategory::Dalala, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error code number must be 1-9999")]
+    fn test_error_code_over_9999_panics() {
+        let _ = ErrorCode::new(ErrorCategory::Dalala, 10000);
+    }
+
+    #[test]
+    fn test_from_arabic_string_rejects_invalid_numbers() {
+        // Number 0 should be rejected
+        assert!(ErrorCode::from_arabic_string("د٠٠٠٠").is_none());
+
+        // Number > 9999 should be rejected
+        assert!(ErrorCode::from_arabic_string("د١٠٠٠٠").is_none());
+
+        // Valid numbers should work
+        assert!(ErrorCode::from_arabic_string("د٠٠٠١").is_some());
+        assert!(ErrorCode::from_arabic_string("د٩٩٩٩").is_some());
     }
 }
