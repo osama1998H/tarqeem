@@ -169,8 +169,7 @@ See `.claude/rules/00-operating-procedure.md` for complete workflow.
 | `architecture.md` | Layer boundaries and invariants |
 | `testing.md` | Testing requirements |
 | `rust-style.md` | Rust coding standards |
-| `arabic-support.md` | Arabic language handling |
-| `arabic-philosophy.md` | Arabic keyword philosophy (descriptive, not transliteration) |
+| `arabic-philosophy.md` | Arabic language philosophy, Unicode handling, and keyword design |
 | `comments.md` | Comment guidelines |
 
 ---
