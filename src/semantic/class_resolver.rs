@@ -291,6 +291,16 @@ impl ClassResolver {
         self.classes.contains_key(name) || self.interfaces.contains_key(name)
     }
 
+    /// Get all registered class names.
+    pub fn all_class_names(&self) -> Vec<String> {
+        self.classes.keys().cloned().collect()
+    }
+
+    /// Get all registered interface names.
+    pub fn all_interface_names(&self) -> Vec<String> {
+        self.interfaces.keys().cloned().collect()
+    }
+
     pub fn register_class(
         &mut self,
         name: &str,
