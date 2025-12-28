@@ -392,14 +392,46 @@ clone_on_ref_ptr = "warn"
 
 **Theme**: Improve developer experience and handle edge cases.
 
-### 1.4.1 Error Message Quality (Priority: HIGH)
+### 1.4.1 Error Message Quality (Priority: HIGH) ✅
+
+**Status**: Completed on 2025-12-28
 
 **Tasks**:
-- [ ] Audit all error messages for clarity
-- [ ] Ensure all errors have Arabic translations
-- [ ] Add source code context to errors
-- [ ] Add fix suggestions where possible
-- [ ] Improve type mismatch messages
+- [x] Audit all error messages for clarity (100% bilingual coverage confirmed)
+- [x] Ensure all errors have Arabic translations (already 100% implemented)
+- [x] Add source code context to errors (emit() method shows source context)
+- [x] Add fix suggestions where possible (new type_mismatch_error with suggestions)
+- [x] Improve type mismatch messages (conversion suggestions added)
+
+**Implementation Details**:
+
+1. **New helper methods added to Analyzer**:
+   - `type_mismatch_error()` - Bilingual type mismatch with conversion suggestions
+   - `undefined_error()` - Undefined identifier with similar name suggestions (Levenshtein)
+   - `already_defined_error()` - Already defined with original location note (E0428)
+   - `error_with_code()` - Simple error with error code
+   - `find_similar_names()` - Levenshtein distance for typo suggestions
+
+2. **Error codes added**:
+   - `E0308` - Type mismatch errors
+   - `E0425` - Undefined identifier/variable/class/function
+   - `E0428` - Already defined errors
+   - `E0268` - break/continue outside loop
+   - `E0572` - return outside function
+   - `E0424` - this/super outside class
+
+3. **Conversion suggestions for type mismatches**:
+   - String ← Int: "Use نص() to convert"
+   - String ← Float: "Use نص() to convert"
+   - String ← Bool: "Use نص() to convert"
+   - Int ← Float: "Use عدد() to truncate"
+   - Float ← Int: "Integer will be promoted"
+   - Bool ← Int: "Use comparison != 0"
+
+4. **Similar name suggestions**:
+   - Uses Levenshtein distance algorithm
+   - Suggests up to 3 similar names for typos
+   - Works for variables, functions, classes, interfaces
 
 **Example Improvement**:
 ```
@@ -407,16 +439,18 @@ clone_on_ref_ptr = "warn"
 خطأ: عدم تطابق الأنواع
 
 // After:
-خطأ: عدم تطابق الأنواع
+خطأ[E0308]: عدم تطابق الأنواع في تهيئة المتغير: متوقع نص، وُجد عدد
   --> ملف.ترقيم:10:15
    |
 10 |     متغير س: نص = 42
-   |               ^^ متوقع 'نص'، وجدت 'عدد'
+   |               ^^
    |
-   = تلميح: استخدم نص(42) لتحويل العدد إلى نص
+   = note: النوع المتوقع 'نص' لكن وُجد 'عدد'
+   = help: حوّل العدد إلى نص باستخدام نص()
+   = `نص(<value>)`
 ```
 
-**Success Criteria**: All errors have context and suggestions.
+**Success Criteria**: ✅ All errors have context and suggestions where applicable.
 
 ---
 
@@ -498,7 +532,7 @@ clone_on_ref_ptr = "warn"
 
 ### v1.4 Milestone Checklist
 
-- [ ] All error messages have context and suggestions
+- [x] All error messages have context and suggestions (v1.4.1 ✅)
 - [ ] Edge case test suite passes
 - [ ] REPL improvements complete
 - [ ] CLI polish complete

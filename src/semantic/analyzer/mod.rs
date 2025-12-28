@@ -293,6 +293,231 @@ impl Analyzer {
             .push(Diagnostic::warning(message, message_ar, span));
     }
 
+    /// Report an error with an error code.
+    pub(crate) fn error_with_code(
+        &mut self,
+        message: &str,
+        message_ar: &str,
+        span: Span,
+        code: &str,
+    ) {
+        self.diagnostics
+            .push(Diagnostic::error(message, message_ar, span).with_code(code));
+    }
+
+    /// Report a type mismatch error with a conversion suggestion.
+    pub(crate) fn type_mismatch_error(
+        &mut self,
+        expected: &Type,
+        found: &Type,
+        span: Span,
+        context: &str,
+        context_ar: &str,
+    ) {
+        use crate::error::{Note, Suggestion};
+
+        let message = format!(
+            "Type mismatch{}: expected {}, got {}",
+            if context.is_empty() {
+                String::new()
+            } else {
+                format!(" in {}", context)
+            },
+            expected,
+            found
+        );
+        let message_ar = format!(
+            "عدم تطابق الأنواع{}: متوقع {}، وُجد {}",
+            if context_ar.is_empty() {
+                String::new()
+            } else {
+                format!(" في {}", context_ar)
+            },
+            expected.arabic_name(),
+            found.arabic_name()
+        );
+
+        let mut diag = Diagnostic::error(&message, &message_ar, span).with_code("E0308");
+
+        // Add conversion suggestion based on types
+        if let Some((suggestion, suggestion_ar, replacement)) =
+            Self::get_conversion_suggestion(expected, found)
+        {
+            diag = diag.with_suggestion(Suggestion::new(suggestion, suggestion_ar, replacement, span));
+        }
+
+        // Add note about type compatibility
+        diag = diag.with_note(Note::new(
+            format!("Expected type '{}' but found '{}'", expected, found),
+            format!(
+                "النوع المتوقع '{}' لكن وُجد '{}'",
+                expected.arabic_name(),
+                found.arabic_name()
+            ),
+        ));
+
+        self.diagnostics.push(diag);
+    }
+
+    /// Get a conversion suggestion for common type mismatches.
+    fn get_conversion_suggestion(expected: &Type, found: &Type) -> Option<(String, String, String)> {
+        match (expected, found) {
+            (Type::String, Type::Int) => Some((
+                "Convert the integer to string using نص()".to_string(),
+                "حوّل العدد إلى نص باستخدام نص()".to_string(),
+                "نص(<value>)".to_string(),
+            )),
+            (Type::String, Type::Float) => Some((
+                "Convert the float to string using نص()".to_string(),
+                "حوّل العدد العشري إلى نص باستخدام نص()".to_string(),
+                "نص(<value>)".to_string(),
+            )),
+            (Type::String, Type::Bool) => Some((
+                "Convert the boolean to string using نص()".to_string(),
+                "حوّل القيمة المنطقية إلى نص باستخدام نص()".to_string(),
+                "نص(<value>)".to_string(),
+            )),
+            (Type::Int, Type::Float) => Some((
+                "Use عدد() to convert float to integer (truncates decimal)".to_string(),
+                "استخدم عدد() لتحويل العدد العشري إلى صحيح (يحذف الكسر)".to_string(),
+                "عدد(<value>)".to_string(),
+            )),
+            (Type::Float, Type::Int) => Some((
+                "Integer will be automatically promoted to float".to_string(),
+                "سيُرقّى العدد الصحيح تلقائياً إلى عشري".to_string(),
+                "<value>.0".to_string(),
+            )),
+            (Type::Bool, Type::Int) => Some((
+                "Use a comparison to get a boolean: <value> != 0".to_string(),
+                "استخدم مقارنة للحصول على قيمة منطقية: <value> != 0".to_string(),
+                "<value> != 0".to_string(),
+            )),
+            _ => None,
+        }
+    }
+
+    /// Report an undefined identifier error with similar name suggestions.
+    pub(crate) fn undefined_error(
+        &mut self,
+        kind: &str,
+        kind_ar: &str,
+        name: &str,
+        span: Span,
+        similar_names: &[String],
+    ) {
+        use crate::error::Suggestion;
+
+        let message = format!("Unknown {} '{}'", kind, name);
+        let message_ar = format!("{} غير معروف '{}'", kind_ar, name);
+
+        let mut diag = Diagnostic::error(&message, &message_ar, span).with_code("E0425");
+
+        // Add suggestions for similar names
+        if !similar_names.is_empty() {
+            let closest = &similar_names[0];
+            diag = diag.with_suggestion(Suggestion::new(
+                format!("Did you mean '{}'?", closest),
+                format!("هل تقصد '{}'؟", closest),
+                closest.clone(),
+                span,
+            ));
+        }
+
+        self.diagnostics.push(diag);
+    }
+
+    /// Report an "already defined" error with a note pointing to the original definition.
+    pub(crate) fn already_defined_error(
+        &mut self,
+        kind: &str,
+        kind_ar: &str,
+        name: &str,
+        span: Span,
+        original_span: Option<Span>,
+    ) {
+        use crate::error::Note;
+
+        let message = format!("{} '{}' is already defined", kind, name);
+        let message_ar = format!("{} '{}' معرّف مسبقاً", kind_ar, name);
+
+        let mut diag = Diagnostic::error(&message, &message_ar, span).with_code("E0428");
+
+        // Add note pointing to original definition
+        if let Some(orig_span) = original_span {
+            diag = diag.with_note(
+                Note::new(
+                    format!("'{}' was first defined here", name),
+                    format!("'{}' تم تعريفه هنا أولاً", name),
+                )
+                .with_span(orig_span),
+            );
+        }
+
+        self.diagnostics.push(diag);
+    }
+
+    /// Find similar names to the given name from a list of candidates.
+    pub(crate) fn find_similar_names(&self, name: &str, max_results: usize) -> Vec<String> {
+        let mut candidates: Vec<(String, usize)> = Vec::new();
+
+        // Collect all defined symbols in scope
+        for symbol in self.scope.all_symbols() {
+            let distance = Self::levenshtein_distance(name, &symbol.name);
+            // Only include if distance is reasonable (less than half the name length + 2)
+            if distance <= (name.chars().count() / 2 + 2) {
+                candidates.push((symbol.name.clone(), distance));
+            }
+        }
+
+        // Sort by distance and take top results
+        candidates.sort_by_key(|(_, d)| *d);
+        candidates
+            .into_iter()
+            .take(max_results)
+            .filter(|(_, d)| *d > 0) // Exclude exact matches
+            .map(|(n, _)| n)
+            .collect()
+    }
+
+    /// Calculate Levenshtein distance between two strings.
+    fn levenshtein_distance(a: &str, b: &str) -> usize {
+        let a_chars: Vec<char> = a.chars().collect();
+        let b_chars: Vec<char> = b.chars().collect();
+        let a_len = a_chars.len();
+        let b_len = b_chars.len();
+
+        if a_len == 0 {
+            return b_len;
+        }
+        if b_len == 0 {
+            return a_len;
+        }
+
+        let mut matrix = vec![vec![0usize; b_len + 1]; a_len + 1];
+
+        for (i, row) in matrix.iter_mut().enumerate().take(a_len + 1) {
+            row[0] = i;
+        }
+        for (j, cell) in matrix[0].iter_mut().enumerate().take(b_len + 1) {
+            *cell = j;
+        }
+
+        for i in 1..=a_len {
+            for j in 1..=b_len {
+                let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                    0
+                } else {
+                    1
+                };
+                matrix[i][j] = (matrix[i - 1][j] + 1)
+                    .min(matrix[i][j - 1] + 1)
+                    .min(matrix[i - 1][j - 1] + cost);
+            }
+        }
+
+        matrix[a_len][b_len]
+    }
+
     // Error type checking
 
     const ERROR_BASE_CLASSES: &'static [&'static str] = &["استثناء", "Exception", "Error"];

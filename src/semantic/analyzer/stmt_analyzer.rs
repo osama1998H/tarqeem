@@ -117,16 +117,22 @@ impl Analyzer {
 
             StmtKind::Break => {
                 if !self.scope.is_in_loop() {
-                    self.error("'break' outside of loop", "'أوقف' خارج الحلقة", stmt.span);
+                    self.error_with_code(
+                        "'break' can only be used inside a loop",
+                        "'أوقف' يمكن استخدامها فقط داخل حلقة",
+                        stmt.span,
+                        "E0268",
+                    );
                 }
             }
 
             StmtKind::Continue => {
                 if !self.scope.is_in_loop() {
-                    self.error(
-                        "'continue' outside of loop",
-                        "'استمر' خارج الحلقة",
+                    self.error_with_code(
+                        "'continue' can only be used inside a loop",
+                        "'استمر' يمكن استخدامها فقط داخل حلقة",
                         stmt.span,
+                        "E0268",
                     );
                 }
             }
@@ -191,25 +197,19 @@ impl Analyzer {
             self.expected_type = None;
 
             if !init_type.is_compatible_with(expected) {
-                self.error(
-                    &format!("Type mismatch: expected {}, got {}", expected, init_type),
-                    &format!(
-                        "عدم تطابق الأنواع: متوقع {}، وُجد {}",
-                        expected.arabic_name(),
-                        init_type.arabic_name()
-                    ),
+                self.type_mismatch_error(
+                    expected,
+                    &init_type,
                     init_expr.span,
+                    "variable initialization",
+                    "تهيئة المتغير",
                 );
             }
         }
 
         let symbol = Symbol::variable(name, var_type, mutable);
         if !self.scope.define(symbol) {
-            self.error(
-                &format!("Variable '{}' is already defined", name),
-                &format!("المتغير '{}' معرّف مسبقاً", name),
-                span,
-            );
+            self.already_defined_error("Variable", "المتغير", name, span, None);
         }
     }
 
@@ -238,11 +238,7 @@ impl Analyzer {
 
         let symbol = Symbol::function(name, param_types.clone(), ret_type.clone());
         if !self.scope.define(symbol) {
-            self.error(
-                &format!("Function '{}' is already defined", name),
-                &format!("الدالة '{}' معرّفة مسبقاً", name),
-                span,
-            );
+            self.already_defined_error("Function", "الدالة", name, span, None);
         }
 
         self.push_function_scope(ret_type);
@@ -284,10 +280,21 @@ impl Analyzer {
             if self.class_resolver.get_class(parent_name).is_none()
                 && self.scope.lookup(parent_name).is_none()
             {
-                self.error(
-                    &format!("Unknown superclass '{}'", parent_name),
-                    &format!("صنف أب غير معروف '{}'", parent_name),
+                // Try to find similar class names
+                let all_classes = self.class_resolver.all_class_names();
+                let similar: Vec<String> = all_classes
+                    .iter()
+                    .filter(|name| Self::levenshtein_distance(parent_name, name) <= (parent_name.chars().count() / 2 + 2))
+                    .filter(|name| *name != parent_name)
+                    .take(3)
+                    .cloned()
+                    .collect();
+                self.undefined_error(
+                    "superclass",
+                    "صنف أب",
+                    parent_name,
                     span,
+                    &similar,
                 );
             }
         }
@@ -296,21 +303,28 @@ impl Analyzer {
             if self.class_resolver.get_interface(iface).is_none()
                 && self.scope.lookup(iface).is_none()
             {
-                self.error(
-                    &format!("Unknown interface '{}'", iface),
-                    &format!("ميثاق غير معروف '{}'", iface),
+                // Try to find similar interface names
+                let all_interfaces = self.class_resolver.all_interface_names();
+                let similar: Vec<String> = all_interfaces
+                    .iter()
+                    .filter(|name| Self::levenshtein_distance(iface, name) <= (iface.chars().count() / 2 + 2))
+                    .filter(|name| *name != iface)
+                    .take(3)
+                    .cloned()
+                    .collect();
+                self.undefined_error(
+                    "interface",
+                    "ميثاق",
+                    iface,
                     span,
+                    &similar,
                 );
             }
         }
 
         let symbol = Symbol::class(name);
         if !self.scope.define(symbol) {
-            self.error(
-                &format!("Class '{}' is already defined", name),
-                &format!("الصنف '{}' معرّف مسبقاً", name),
-                span,
-            );
+            self.already_defined_error("Class", "الصنف", name, span, None);
         }
 
         let prev_class = self.current_class.take();
@@ -359,18 +373,12 @@ impl Analyzer {
                 if let Some(init_expr) = init {
                     let init_type = self.infer_type(init_expr);
                     if !init_type.is_compatible_with(&field_type) {
-                        self.error(
-                            &format!(
-                                "Type mismatch in field '{}': expected {}, got {}",
-                                field_name, field_type, init_type
-                            ),
-                            &format!(
-                                "عدم تطابق الأنواع في الحقل '{}': متوقع {}، وُجد {}",
-                                field_name,
-                                field_type.arabic_name(),
-                                init_type.arabic_name()
-                            ),
+                        self.type_mismatch_error(
+                            &field_type,
+                            &init_type,
                             init_expr.span,
+                            &format!("field '{}'", field_name),
+                            &format!("الحقل '{}'", field_name),
                         );
                     }
                 }
@@ -441,18 +449,12 @@ impl Analyzer {
         if let Some(init_expr) = default_value {
             let init_type = self.infer_type(init_expr);
             if !init_type.is_compatible_with(&prop_type) {
-                self.error(
-                    &format!(
-                        "Type mismatch in property '{}': expected {}, got {}",
-                        prop_name, prop_type, init_type
-                    ),
-                    &format!(
-                        "عدم تطابق الأنواع في الخاصية '{}': متوقع {}، وُجد {}",
-                        prop_name,
-                        prop_type.arabic_name(),
-                        init_type.arabic_name()
-                    ),
+                self.type_mismatch_error(
+                    &prop_type,
+                    &init_type,
                     init_expr.span,
+                    &format!("property '{}'", prop_name),
+                    &format!("الخاصية '{}'", prop_name),
                 );
             }
         }
@@ -470,17 +472,12 @@ impl Analyzer {
                         PropertyAccessorBody::Expr(expr) => {
                             let expr_type = self.infer_type(expr);
                             if !expr_type.is_compatible_with(&prop_type) {
-                                self.error(
-                                    &format!(
-                                        "Getter return type mismatch: expected {}, got {}",
-                                        prop_type, expr_type
-                                    ),
-                                    &format!(
-                                        "عدم تطابق نوع إرجاع القارئ: متوقع {}، وُجد {}",
-                                        prop_type.arabic_name(),
-                                        expr_type.arabic_name()
-                                    ),
+                                self.type_mismatch_error(
+                                    &prop_type,
+                                    &expr_type,
                                     expr.span,
+                                    "getter return type",
+                                    "نوع إرجاع القارئ",
                                 );
                             }
                         }
@@ -521,11 +518,7 @@ impl Analyzer {
         };
 
         if !self.scope.define(symbol) {
-            self.error(
-                &format!("Interface '{}' is already defined", name),
-                &format!("الميثاق '{}' معرّف مسبقاً", name),
-                span,
-            );
+            self.already_defined_error("Interface", "الميثاق", name, span, None);
         }
     }
 
@@ -546,11 +539,7 @@ impl Analyzer {
         };
 
         if !self.scope.define(symbol) {
-            self.error(
-                &format!("Enum '{}' is already defined", name),
-                &format!("التعداد '{}' معرّف مسبقاً", name),
-                span,
-            );
+            self.already_defined_error("Enum", "التعداد", name, span, None);
             return;
         }
 
@@ -807,7 +796,12 @@ impl Analyzer {
     /// Analyze a return statement.
     pub(crate) fn analyze_return(&mut self, value: Option<&Expr>, span: Span) {
         if !self.scope.is_in_function() {
-            self.error("'return' outside of function", "'أرجع' خارج الدالة", span);
+            self.error_with_code(
+                "'return' can only be used inside a function",
+                "'أرجع' يمكن استخدامها فقط داخل دالة",
+                span,
+                "E0572",
+            );
             return;
         }
 
@@ -1051,20 +1045,12 @@ impl Analyzer {
                 {
                     let arg_type = self.infer_type(arg);
                     if !arg_type.is_compatible_with(param_type) {
-                        self.error(
-                            &format!(
-                                "Argument {} to super() has wrong type: expected {}, got {}",
-                                i + 1,
-                                param_type,
-                                arg_type
-                            ),
-                            &format!(
-                                "المعامل {} لـ الأصل() نوعه خاطئ: متوقع {}، وُجد {}",
-                                i + 1,
-                                param_type.arabic_name(),
-                                arg_type.arabic_name()
-                            ),
+                        self.type_mismatch_error(
+                            param_type,
+                            &arg_type,
                             arg.span,
+                            &format!("super() argument {}", i + 1),
+                            &format!("معامل الأصل() {}", i + 1),
                         );
                     }
                 }

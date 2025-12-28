@@ -31,10 +31,13 @@ impl Analyzer {
                 if let Some(symbol) = self.scope.lookup(name) {
                     symbol.ty.clone()
                 } else {
-                    self.error(
-                        &format!("Unknown identifier '{}'", name),
-                        &format!("معرّف غير معروف '{}'", name),
+                    let similar_names = self.find_similar_names(name, 3);
+                    self.undefined_error(
+                        "identifier",
+                        "معرّف",
+                        name,
                         expr.span,
+                        &similar_names,
                     );
                     Type::Error
                 }
@@ -93,7 +96,12 @@ impl Analyzer {
 
             ExprKind::This => {
                 if !self.scope.is_in_class() {
-                    self.error("'this' outside of class", "'هذا' خارج الصنف", expr.span);
+                    self.error_with_code(
+                        "'this' can only be used inside a class",
+                        "'هذا' يمكن استخدامها فقط داخل صنف",
+                        expr.span,
+                        "E0424",
+                    );
                     Type::Error
                 } else if let Some(ref class_name) = self.current_class {
                     Type::Class(class_name.clone())
@@ -206,20 +214,12 @@ impl Analyzer {
                 for (i, (arg, param_type)) in args.iter().zip(params.iter()).enumerate() {
                     let arg_type = self.infer_type(arg);
                     if !arg_type.is_compatible_with(param_type) {
-                        self.error(
-                            &format!(
-                                "Argument {} has wrong type: expected {}, got {}",
-                                i + 1,
-                                param_type,
-                                arg_type
-                            ),
-                            &format!(
-                                "المعامل {} نوعه خاطئ: متوقع {}، وُجد {}",
-                                i + 1,
-                                param_type.arabic_name(),
-                                arg_type.arabic_name()
-                            ),
+                        self.type_mismatch_error(
+                            param_type,
+                            &arg_type,
                             arg.span,
+                            &format!("argument {}", i + 1),
+                            &format!("المعامل {}", i + 1),
                         );
                     }
                 }
@@ -261,14 +261,12 @@ impl Analyzer {
             }
             Type::Map(k, v) => {
                 if !index_type.is_compatible_with(&k) {
-                    self.error(
-                        &format!("Map key has wrong type: expected {}, got {}", k, index_type),
-                        &format!(
-                            "مفتاح القاموس نوعه خاطئ: متوقع {}، وُجد {}",
-                            k.arabic_name(),
-                            index_type.arabic_name()
-                        ),
+                    self.type_mismatch_error(
+                        &k,
+                        &index_type,
                         index.span,
+                        "map key",
+                        "مفتاح القاموس",
                     );
                 }
                 *v
@@ -311,21 +309,22 @@ impl Analyzer {
                         );
                     }
                     if !value_type.is_compatible_with(&ty) {
-                        self.error(
-                            &format!("Type mismatch: expected {}, got {}", ty, value_type),
-                            &format!(
-                                "عدم تطابق الأنواع: متوقع {}، وُجد {}",
-                                ty.arabic_name(),
-                                value_type.arabic_name()
-                            ),
+                        self.type_mismatch_error(
+                            &ty,
+                            &value_type,
                             value.span,
+                            "assignment",
+                            "التعيين",
                         );
                     }
                 } else {
-                    self.error(
-                        &format!("Unknown variable '{}'", name),
-                        &format!("متغير غير معروف '{}'", name),
+                    let similar_names = self.find_similar_names(name, 3);
+                    self.undefined_error(
+                        "variable",
+                        "متغير",
+                        name,
                         target.span,
+                        &similar_names,
                     );
                 }
             }
@@ -357,17 +356,12 @@ impl Analyzer {
             for elem in elements.iter().skip(1) {
                 let elem_type = self.infer_type(elem);
                 if !elem_type.is_compatible_with(&first_type) {
-                    self.error(
-                        &format!(
-                            "Array element has wrong type: expected {}, got {}",
-                            first_type, elem_type
-                        ),
-                        &format!(
-                            "عنصر المصفوفة نوعه خاطئ: متوقع {}، وُجد {}",
-                            first_type.arabic_name(),
-                            elem_type.arabic_name()
-                        ),
+                    self.type_mismatch_error(
+                        &first_type,
+                        &elem_type,
                         elem.span,
+                        "array element",
+                        "عنصر المصفوفة",
                     );
                 }
             }
@@ -546,20 +540,15 @@ impl Analyzer {
                     );
                 }
 
-                for (arg, (_, param_type)) in args.iter().zip(expected_params.iter()) {
+                for (i, (arg, (_, param_type))) in args.iter().zip(expected_params.iter()).enumerate() {
                     let arg_type = self.infer_type(arg);
                     if !arg_type.is_compatible_with(param_type) {
-                        self.error(
-                            &format!(
-                                "Wrong argument type: expected {}, got {}",
-                                param_type, arg_type
-                            ),
-                            &format!(
-                                "نوع المعامل خاطئ: متوقع {}، وُجد {}",
-                                param_type.arabic_name(),
-                                arg_type.arabic_name()
-                            ),
+                        self.type_mismatch_error(
+                            param_type,
+                            &arg_type,
                             arg.span,
+                            &format!("constructor argument {}", i + 1),
+                            &format!("معامل المنشئ {}", i + 1),
                         );
                     }
                 }
@@ -573,10 +562,21 @@ impl Analyzer {
 
             Type::Class(class_name)
         } else {
-            self.error(
-                &format!("Unknown class '{}'", class_name),
-                &format!("صنف غير معروف '{}'", class_name),
+            // Try to find similar class names
+            let all_classes = self.class_resolver.all_class_names();
+            let similar: Vec<String> = all_classes
+                .iter()
+                .filter(|name| Self::levenshtein_distance(&class_name, name) <= (class_name.chars().count() / 2 + 2))
+                .filter(|name| *name != &class_name)
+                .take(3)
+                .cloned()
+                .collect();
+            self.undefined_error(
+                "class",
+                "صنف",
+                &class_name,
                 class.span,
+                &similar,
             );
             Type::Error
         }
@@ -624,7 +624,12 @@ impl Analyzer {
     /// Infer super expression type.
     fn infer_super_expr(&mut self, span: Span) -> Type {
         if !self.scope.is_in_class() {
-            self.error("'super' outside of class", "'الأصل' خارج الصنف", span);
+            self.error_with_code(
+                "'super' can only be used inside a class",
+                "'الأصل' يمكن استخدامها فقط داخل صنف",
+                span,
+                "E0424",
+            );
             Type::Error
         } else if let Some(ref class_name) = self.current_class {
             if let Some(class) = self.class_resolver.get_class(class_name) {
@@ -686,24 +691,12 @@ impl Analyzer {
                         arg_types.iter().zip(&variant.fields).enumerate()
                     {
                         if !arg_ty.is_compatible_with(expected_ty) {
-                            self.error(
-                                &format!(
-                                    "Type mismatch in variant '{}::{}' argument {}: expected {}, got {}",
-                                    enum_name,
-                                    variant_name,
-                                    i + 1,
-                                    expected_ty,
-                                    arg_ty
-                                ),
-                                &format!(
-                                    "عدم تطابق النوع في معامل {} للحالة '{}::{}': متوقع {}، وُجد {}",
-                                    i + 1,
-                                    enum_name,
-                                    variant_name,
-                                    expected_ty.arabic_name(),
-                                    arg_ty.arabic_name()
-                                ),
+                            self.type_mismatch_error(
+                                expected_ty,
+                                arg_ty,
                                 args[i].span,
+                                &format!("enum variant '{}::{}' argument {}", enum_name, variant_name, i + 1),
+                                &format!("معامل {} للحالة '{}::{}'", i + 1, enum_name, variant_name),
                             );
                         }
                     }

@@ -745,6 +745,15 @@ impl Scope {
     pub fn symbols(&self) -> impl Iterator<Item = &Symbol> {
         self.symbols.values()
     }
+
+    /// Get all symbols from this scope and all parent scopes.
+    pub fn all_symbols(&self) -> Vec<&Symbol> {
+        let mut all: Vec<&Symbol> = self.symbols.values().collect();
+        if let Some(ref parent) = self.parent {
+            all.extend(parent.all_symbols());
+        }
+        all
+    }
 }
 
 #[cfg(test)]
