@@ -284,18 +284,15 @@ impl Analyzer {
                 let all_classes = self.class_resolver.all_class_names();
                 let similar: Vec<String> = all_classes
                     .iter()
-                    .filter(|name| Self::levenshtein_distance(parent_name, name) <= (parent_name.chars().count() / 2 + 2))
+                    .filter(|name| {
+                        Self::levenshtein_distance(parent_name, name)
+                            <= (parent_name.chars().count() / 2 + 2)
+                    })
                     .filter(|name| *name != parent_name)
                     .take(3)
                     .cloned()
                     .collect();
-                self.undefined_error(
-                    "superclass",
-                    "صنف أب",
-                    parent_name,
-                    span,
-                    &similar,
-                );
+                self.undefined_error("superclass", "صنف أب", parent_name, span, &similar);
             }
         }
 
@@ -307,18 +304,14 @@ impl Analyzer {
                 let all_interfaces = self.class_resolver.all_interface_names();
                 let similar: Vec<String> = all_interfaces
                     .iter()
-                    .filter(|name| Self::levenshtein_distance(iface, name) <= (iface.chars().count() / 2 + 2))
+                    .filter(|name| {
+                        Self::levenshtein_distance(iface, name) <= (iface.chars().count() / 2 + 2)
+                    })
                     .filter(|name| *name != iface)
                     .take(3)
                     .cloned()
                     .collect();
-                self.undefined_error(
-                    "interface",
-                    "ميثاق",
-                    iface,
-                    span,
-                    &similar,
-                );
+                self.undefined_error("interface", "ميثاق", iface, span, &similar);
             }
         }
 

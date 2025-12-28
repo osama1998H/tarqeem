@@ -32,13 +32,7 @@ impl Analyzer {
                     symbol.ty.clone()
                 } else {
                     let similar_names = self.find_similar_names(name, 3);
-                    self.undefined_error(
-                        "identifier",
-                        "معرّف",
-                        name,
-                        expr.span,
-                        &similar_names,
-                    );
+                    self.undefined_error("identifier", "معرّف", name, expr.span, &similar_names);
                     Type::Error
                 }
             }
@@ -319,13 +313,7 @@ impl Analyzer {
                     }
                 } else {
                     let similar_names = self.find_similar_names(name, 3);
-                    self.undefined_error(
-                        "variable",
-                        "متغير",
-                        name,
-                        target.span,
-                        &similar_names,
-                    );
+                    self.undefined_error("variable", "متغير", name, target.span, &similar_names);
                 }
             }
             ExprKind::Member { object, .. } | ExprKind::Index { object, .. } => {
@@ -540,7 +528,9 @@ impl Analyzer {
                     );
                 }
 
-                for (i, (arg, (_, param_type))) in args.iter().zip(expected_params.iter()).enumerate() {
+                for (i, (arg, (_, param_type))) in
+                    args.iter().zip(expected_params.iter()).enumerate()
+                {
                     let arg_type = self.infer_type(arg);
                     if !arg_type.is_compatible_with(param_type) {
                         self.type_mismatch_error(
@@ -566,18 +556,15 @@ impl Analyzer {
             let all_classes = self.class_resolver.all_class_names();
             let similar: Vec<String> = all_classes
                 .iter()
-                .filter(|name| Self::levenshtein_distance(&class_name, name) <= (class_name.chars().count() / 2 + 2))
+                .filter(|name| {
+                    Self::levenshtein_distance(&class_name, name)
+                        <= (class_name.chars().count() / 2 + 2)
+                })
                 .filter(|name| *name != &class_name)
                 .take(3)
                 .cloned()
                 .collect();
-            self.undefined_error(
-                "class",
-                "صنف",
-                &class_name,
-                class.span,
-                &similar,
-            );
+            self.undefined_error("class", "صنف", &class_name, class.span, &similar);
             Type::Error
         }
     }
@@ -695,8 +682,18 @@ impl Analyzer {
                                 expected_ty,
                                 arg_ty,
                                 args[i].span,
-                                &format!("enum variant '{}::{}' argument {}", enum_name, variant_name, i + 1),
-                                &format!("معامل {} للحالة '{}::{}'", i + 1, enum_name, variant_name),
+                                &format!(
+                                    "enum variant '{}::{}' argument {}",
+                                    enum_name,
+                                    variant_name,
+                                    i + 1
+                                ),
+                                &format!(
+                                    "معامل {} للحالة '{}::{}'",
+                                    i + 1,
+                                    enum_name,
+                                    variant_name
+                                ),
                             );
                         }
                     }

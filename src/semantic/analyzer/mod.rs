@@ -343,7 +343,12 @@ impl Analyzer {
         if let Some((suggestion, suggestion_ar, replacement)) =
             Self::get_conversion_suggestion(expected, found)
         {
-            diag = diag.with_suggestion(Suggestion::new(suggestion, suggestion_ar, replacement, span));
+            diag = diag.with_suggestion(Suggestion::new(
+                suggestion,
+                suggestion_ar,
+                replacement,
+                span,
+            ));
         }
 
         // Add note about type compatibility
@@ -360,7 +365,10 @@ impl Analyzer {
     }
 
     /// Get a conversion suggestion for common type mismatches.
-    fn get_conversion_suggestion(expected: &Type, found: &Type) -> Option<(String, String, String)> {
+    fn get_conversion_suggestion(
+        expected: &Type,
+        found: &Type,
+    ) -> Option<(String, String, String)> {
         match (expected, found) {
             (Type::String, Type::Int) => Some((
                 "Convert the integer to string using نص()".to_string(),
