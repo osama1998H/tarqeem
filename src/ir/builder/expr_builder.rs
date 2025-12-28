@@ -458,6 +458,19 @@ impl IrBuilder {
                 return Ok(dest);
             }
 
+            // Handle طول (length) as a function call - generates ArrayLen instruction
+            if name == "طول" || name == "length" || name == "len" {
+                if let Some(array_var) = arg_vars.first() {
+                    let dest = self.new_var();
+                    self.emit(Instruction::ArrayLen {
+                        dest,
+                        array: *array_var,
+                    });
+                    self.var_types.insert(dest.0, IrType::Int);
+                    return Ok(dest);
+                }
+            }
+
             let ret_ty = self.get_function_return_type(name);
 
             let dest = self.new_var();

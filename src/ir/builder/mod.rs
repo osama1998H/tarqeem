@@ -128,7 +128,27 @@ impl IrBuilder {
     ///
     /// This is the main entry point for converting a parsed AST to IR.
     pub fn build(mut self, ast: &Ast) -> Result<Module> {
-        // First pass: collect global variables
+        // First pass: collect function signatures (needed for global variable type inference)
+        for stmt in &ast.statements {
+            if let StmtKind::FuncDecl {
+                name,
+                params,
+                return_type,
+                ..
+            } = &stmt.kind
+            {
+                self.collect_function_signature(name, params, return_type)?;
+            }
+        }
+
+        // Second pass: collect class declarations
+        for stmt in &ast.statements {
+            if let StmtKind::ClassDecl { name, members, .. } = &stmt.kind {
+                self.collect_class(name, members)?;
+            }
+        }
+
+        // Third pass: collect global variables (after functions, so we can infer types from calls)
         for stmt in &ast.statements {
             if let StmtKind::VarDecl {
                 name,
@@ -165,26 +185,6 @@ impl IrBuilder {
                             .insert(name.clone(), (const_val, ir_type));
                     }
                 }
-            }
-        }
-
-        // Second pass: collect class declarations
-        for stmt in &ast.statements {
-            if let StmtKind::ClassDecl { name, members, .. } = &stmt.kind {
-                self.collect_class(name, members)?;
-            }
-        }
-
-        // Third pass: collect function signatures
-        for stmt in &ast.statements {
-            if let StmtKind::FuncDecl {
-                name,
-                params,
-                return_type,
-                ..
-            } = &stmt.kind
-            {
-                self.collect_function_signature(name, params, return_type)?;
             }
         }
 

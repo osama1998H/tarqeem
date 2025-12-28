@@ -40,6 +40,7 @@ pub struct LlvmCodegen {
     vtable_globals: HashMap<String, String>,
     current_return_type: IrType,
     global_vars: HashMap<String, String>,
+    inherited_field_count: HashMap<String, usize>,
 }
 
 impl LlvmCodegen {
@@ -59,6 +60,7 @@ impl LlvmCodegen {
             vtable_globals: HashMap::new(),
             current_return_type: IrType::Void,
             global_vars: HashMap::new(),
+            inherited_field_count: HashMap::new(),
         }
     }
 
@@ -73,8 +75,15 @@ impl LlvmCodegen {
 
         self.emit_global_variables(module)?;
 
+        // First, collect all class's own fields for inheritance lookup
         for class in &module.classes {
-            self.emit_class_definition(class)?;
+            self.class_defs
+                .insert(class.id.0.clone(), class.fields.clone());
+        }
+
+        // Then emit class definitions with inherited fields
+        for class in &module.classes {
+            self.emit_class_definition(class, &module.classes)?;
         }
 
         self.emit_runtime_declarations()?;
@@ -213,15 +222,28 @@ impl LlvmCodegen {
         }
     }
 
-    fn emit_class_definition(&mut self, class: &Class) -> Result<(), CodegenError> {
+    fn emit_class_definition(
+        &mut self,
+        class: &Class,
+        all_classes: &[Class],
+    ) -> Result<(), CodegenError> {
         emit!(self, "; Class: {}", class.name);
 
+        // Collect all fields including inherited ones (parent fields come first)
+        let all_fields = self.collect_class_fields(class, all_classes);
+
+        // Calculate inherited field count (fields before this class's own fields)
+        let inherited_count = all_fields.len() - class.fields.len();
+        self.inherited_field_count
+            .insert(class.id.0.clone(), inherited_count);
+
+        // Update class_defs with full field list for correct field access
         self.class_defs
-            .insert(class.id.0.clone(), class.fields.clone());
+            .insert(class.id.0.clone(), all_fields.clone());
 
         let type_def = self
             .type_mapper
-            .generate_struct_type(&class.id, &class.fields);
+            .generate_struct_type(&class.id, &all_fields);
         emit!(self, "{}", type_def);
 
         if !class.vtable.is_empty() {
@@ -230,6 +252,57 @@ impl LlvmCodegen {
 
         emit!(self);
         Ok(())
+    }
+
+    /// Recursively collect all fields for a class including inherited fields
+    fn collect_class_fields(&self, class: &Class, all_classes: &[Class]) -> Vec<(String, IrType)> {
+        let mut fields = Vec::new();
+
+        // First, add parent class fields (recursively)
+        if let Some(parent_id) = &class.parent {
+            if let Some(parent_class) = all_classes.iter().find(|c| c.id.0 == parent_id.0) {
+                fields.extend(self.collect_class_fields(parent_class, all_classes));
+            }
+        }
+
+        // Then add this class's own fields
+        fields.extend(class.fields.iter().cloned());
+
+        fields
+    }
+
+    /// Calculate field access information for correct struct indexing with inheritance.
+    ///
+    /// Returns (struct_type_name, actual_index) where:
+    /// - struct_type_name: The LLVM struct type name for the object's actual class
+    /// - actual_index: The field index adjusted for inherited fields
+    fn get_field_access_info(
+        &self,
+        field_class: &str,
+        field_index: u32,
+        obj_ty: &Option<IrType>,
+    ) -> (String, u32) {
+        // Get the actual object class for struct type
+        let actual_class = match obj_ty {
+            Some(IrType::Ptr(inner)) => match inner.as_ref() {
+                IrType::Struct(class_id) => class_id.0.clone(),
+                _ => field_class.to_string(),
+            },
+            Some(IrType::Struct(class_id)) => class_id.0.clone(),
+            _ => field_class.to_string(),
+        };
+
+        let struct_ty = format!("%class.{}", mangle_class_name(&actual_class));
+
+        // Calculate actual index: inherited fields + field index within defining class
+        let inherited_count = self
+            .inherited_field_count
+            .get(field_class)
+            .copied()
+            .unwrap_or(0) as u32;
+        let actual_index = inherited_count + field_index;
+
+        (struct_ty, actual_index)
     }
 
     fn emit_vtable(&mut self, class: &Class) -> Result<(), CodegenError> {
@@ -909,13 +982,18 @@ impl LlvmCodegen {
                 let dest_name = self.get_or_create_var(*dest);
                 let obj_name = self.get_var(*object)?;
                 let llvm_ty = self.type_mapper.map_type(ty);
-                let struct_ty = format!("%class.{}", mangle_class_name(&field.class.0));
+
+                // Get the object's actual class type and calculate field offset
+                // including inherited fields
+                let obj_ty = self.var_types.get(&object.0).cloned();
+                let (struct_ty, actual_index) =
+                    self.get_field_access_info(&field.class.0, field.index, &obj_ty);
 
                 let ptr_name = self.fresh_name("field.ptr");
                 writeln!(
                     self.output,
                     "  {} = getelementptr inbounds {}, ptr {}, i32 0, i32 {}",
-                    ptr_name, struct_ty, obj_name, field.index
+                    ptr_name, struct_ty, obj_name, actual_index
                 )
                 .unwrap();
                 writeln!(
@@ -935,13 +1013,18 @@ impl LlvmCodegen {
             } => {
                 let obj_name = self.get_var(*object)?;
                 let val_name = self.get_var(*value)?;
-                let struct_ty = format!("%class.{}", mangle_class_name(&field.class.0));
+
+                // Get the object's actual class type and calculate field offset
+                // including inherited fields
+                let obj_ty = self.var_types.get(&object.0).cloned();
+                let (struct_ty, actual_index) =
+                    self.get_field_access_info(&field.class.0, field.index, &obj_ty);
 
                 let ptr_name = self.fresh_name("field.ptr");
                 writeln!(
                     self.output,
                     "  {} = getelementptr inbounds {}, ptr {}, i32 0, i32 {}",
-                    ptr_name, struct_ty, obj_name, field.index
+                    ptr_name, struct_ty, obj_name, actual_index
                 )
                 .unwrap();
                 let val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
@@ -1331,9 +1414,13 @@ impl LlvmCodegen {
             }
 
             Instruction::Copy { dest, src, ty } => {
-                // Copy is a simple value transfer - just map the source variable name to the destination
+                // Copy is a simple value transfer - ensure dest is registered
+                // If source exists in var_map, alias it; otherwise create a new variable
                 if let Some(src_name) = self.var_map.get(&src.0).cloned() {
                     self.var_map.insert(dest.0, src_name);
+                } else {
+                    // Source not in var_map - create destination variable
+                    self.get_or_create_var(*dest);
                 }
                 // Also copy the type information - use provided type or try to get from source
                 if let Some(src_ty) = self.var_types.get(&src.0).cloned() {
