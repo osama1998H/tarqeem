@@ -196,9 +196,10 @@ fn collect_parameter_hints_from_expr(
                             kind: Some(InlayHintKind::PARAMETER),
                             text_edits: None,
                             // Arabic-only: ترقيم لغة برمجة عربية
-                            tooltip: Some(tower_lsp::lsp_types::InlayHintTooltip::String(
-                                format!("المعامل رقم {}", i + 1),
-                            )),
+                            tooltip: Some(tower_lsp::lsp_types::InlayHintTooltip::String(format!(
+                                "المعامل رقم {}",
+                                i + 1
+                            ))),
                             padding_left: Some(false),
                             padding_right: Some(true),
                             data: None,
