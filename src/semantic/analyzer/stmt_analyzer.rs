@@ -117,22 +117,24 @@ impl Analyzer {
 
             StmtKind::Break => {
                 if !self.scope.is_in_loop() {
+                    use crate::error::codes::ERR_BREAK_OUTSIDE_LOOP;
                     self.error_with_code(
                         "'break' can only be used inside a loop",
                         "'أوقف' يمكن استخدامها فقط داخل حلقة",
                         stmt.span,
-                        "E0268",
+                        &ERR_BREAK_OUTSIDE_LOOP.to_string(),
                     );
                 }
             }
 
             StmtKind::Continue => {
                 if !self.scope.is_in_loop() {
+                    use crate::error::codes::ERR_CONTINUE_OUTSIDE_LOOP;
                     self.error_with_code(
                         "'continue' can only be used inside a loop",
                         "'استمر' يمكن استخدامها فقط داخل حلقة",
                         stmt.span,
-                        "E0268",
+                        &ERR_CONTINUE_OUTSIDE_LOOP.to_string(),
                     );
                 }
             }
@@ -789,11 +791,12 @@ impl Analyzer {
     /// Analyze a return statement.
     pub(crate) fn analyze_return(&mut self, value: Option<&Expr>, span: Span) {
         if !self.scope.is_in_function() {
+            use crate::error::codes::ERR_RETURN_OUTSIDE_FUNCTION;
             self.error_with_code(
                 "'return' can only be used inside a function",
                 "'أرجع' يمكن استخدامها فقط داخل دالة",
                 span,
-                "E0572",
+                &ERR_RETURN_OUTSIDE_FUNCTION.to_string(),
             );
             return;
         }
