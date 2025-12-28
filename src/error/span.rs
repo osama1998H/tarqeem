@@ -1,8 +1,9 @@
 //! Source location spans for error reporting
 
+use serde::Serialize;
 use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 pub struct Span {
     pub start: usize,
     pub end: usize,

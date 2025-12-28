@@ -333,8 +333,24 @@ fn test_cli_parse_parse() {
 
     let cli = args.unwrap();
     match cli.command {
-        Commands::Parse { file } => {
+        Commands::Parse { file, format } => {
             assert_eq!(file, PathBuf::from("test.ترقيم"));
+            assert_eq!(format, "debug"); // Default format
+        }
+        _ => panic!("Expected Parse command"),
+    }
+}
+
+#[test]
+fn test_cli_parse_parse_json() {
+    let args = Cli::try_parse_from(["tarqeem", "parse", "test.ترقيم", "--format", "json"]);
+    assert!(args.is_ok());
+
+    let cli = args.unwrap();
+    match cli.command {
+        Commands::Parse { file, format } => {
+            assert_eq!(file, PathBuf::from("test.ترقيم"));
+            assert_eq!(format, "json");
         }
         _ => panic!("Expected Parse command"),
     }

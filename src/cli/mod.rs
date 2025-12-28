@@ -142,6 +142,9 @@ pub enum Commands {
 
     Parse {
         file: PathBuf,
+        /// Output format (debug, json)
+        #[arg(long, short = 'f', default_value = "debug")]
+        format: String,
     },
 
     #[command(aliases = ["حزم", "pm"])]
