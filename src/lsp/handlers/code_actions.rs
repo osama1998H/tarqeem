@@ -61,19 +61,13 @@ fn generate_quick_fixes(
     let mut actions = Vec::new();
     let message = &diagnostic.message;
 
+    // Arabic-only: ترقيم لغة برمجة عربية
     if message.contains("undefined") || message.contains("غير معرف") {
         let var_name = extract_identifier_from_message(message);
         if let Some(name) = var_name {
-            let (title, new_text) = match language {
-                Language::Arabic => (
-                    format!("إضافة تعريف لـ '{}'", name),
-                    format!("متغير {} = ", name),
-                ),
-                Language::English => (
-                    format!("Add declaration for '{}'", name),
-                    format!("let {} = ", name),
-                ),
-            };
+            let title = format!("إضافة تعريف لـ '{}'", name);
+            let new_text = format!("متغير {} = ", name);
+            let _ = language; // Mark as used
 
             let insert_position = tower_lsp::lsp_types::Position {
                 line: range.start.line,
@@ -108,12 +102,11 @@ fn generate_quick_fixes(
         }
     }
 
+    // Arabic-only: ترقيم لغة برمجة عربية
     if message.contains("immutable") || message.contains("ثابت") || message.contains("غير قابل")
     {
-        let (title, old_keyword, new_keyword) = match language {
-            Language::Arabic => ("تحويل إلى متغير قابل للتعديل", "ثابت", "متغير"),
-            Language::English => ("Convert to mutable variable", "const", "let"),
-        };
+        let title = "تحويل إلى متغير قابل للتعديل";
+        let new_keyword = "متغير";
 
         let mut changes = HashMap::new();
         changes.insert(
@@ -137,8 +130,6 @@ fn generate_quick_fixes(
             disabled: None,
             data: None,
         }));
-
-        let _ = old_keyword;
     }
 
     if actions.is_empty() {
@@ -153,25 +144,19 @@ fn generate_refactorings(
     content: &str,
     range: &Range,
     analysis: &crate::lsp::analysis::AnalysisResult,
-    language: Language,
+    _language: Language,
 ) -> Option<Vec<CodeActionOrCommand>> {
     use crate::semantic::Type;
     let mut actions = Vec::new();
 
+    // Arabic-only: ترقيم لغة برمجة عربية
     for (name, info) in &analysis.symbols {
         let symbol_range = span_to_range(content, &info.definition_span);
 
         if ranges_overlap(&symbol_range, range) {
             if !matches!(info.ty, Type::Unknown) {
-                let type_str = match language {
-                    Language::Arabic => info.ty.arabic_name(),
-                    Language::English => info.ty.to_string(),
-                };
-
-                let title = match language {
-                    Language::Arabic => format!("إضافة تحديد النوع: {}", type_str),
-                    Language::English => format!("Add type annotation: {}", type_str),
-                };
+                let type_str = info.ty.arabic_name();
+                let title = format!("إضافة تحديد النوع: {}", type_str);
 
                 actions.push(CodeActionOrCommand::CodeAction(CodeAction {
                     title,
@@ -181,10 +166,7 @@ fn generate_refactorings(
                     command: None,
                     is_preferred: Some(false),
                     disabled: Some(tower_lsp::lsp_types::CodeActionDisabled {
-                        reason: match language {
-                            Language::Arabic => "يتطلب تحليل موقع دقيق".to_string(),
-                            Language::English => "Requires precise position analysis".to_string(),
-                        },
+                        reason: "يتطلب تحليل موقع دقيق".to_string(),
                     }),
                     data: None,
                 }));
@@ -195,23 +177,15 @@ fn generate_refactorings(
     }
 
     if range.start != range.end {
-        let title = match language {
-            Language::Arabic => "استخراج إلى متغير",
-            Language::English => "Extract to variable",
-        };
-
         actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-            title: title.to_string(),
+            title: "استخراج إلى متغير".to_string(),
             kind: Some(CodeActionKind::REFACTOR_EXTRACT),
             diagnostics: None,
             edit: None, // Would need expression analysis
             command: None,
             is_preferred: Some(false),
             disabled: Some(tower_lsp::lsp_types::CodeActionDisabled {
-                reason: match language {
-                    Language::Arabic => "يتطلب تحليل التعبير".to_string(),
-                    Language::English => "Requires expression analysis".to_string(),
-                },
+                reason: "يتطلب تحليل التعبير".to_string(),
             }),
             data: None,
         }));

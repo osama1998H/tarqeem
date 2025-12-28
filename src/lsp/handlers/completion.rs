@@ -89,7 +89,8 @@ fn get_completion_context(content: &str, offset: usize) -> CompletionContext {
         return CompletionContext::AfterColon;
     }
 
-    if before.contains("استورد") || before.contains("import") {
+    // Arabic-only: ترقيم لغة برمجة عربية
+    if before.contains("استورد") {
         return CompletionContext::InImport;
     }
 
@@ -107,35 +108,17 @@ fn is_arabic_letter(c: char) -> bool {
     matches!(c, '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}' | '\u{08A0}'..='\u{08FF}')
 }
 
-fn get_keyword_completions(language: Language) -> Vec<CompletionItem> {
-    let keywords = match language {
-        Language::Arabic => vec![
-            ("متغير", "تعريف متغير قابل للتعديل", "متغير $1 = $2"),
-            ("ثابت", "تعريف ثابت", "ثابت $1 = $2"),
-            ("دالة", "تعريف دالة", "دالة $1($2) -> $3 {\n\t$0\n}"),
-            ("صنف", "تعريف صنف", "صنف $1 {\n\t$0\n}"),
-            ("ميثاق", "تعريف ميثاق", "ميثاق $1 {\n\t$0\n}"),
-            ("استورد", "استيراد وحدة", "استورد { $1 } من \"$2\""),
-            ("صدّر", "تصدير", "صدّر "),
-        ],
-        Language::English => vec![
-            ("let", "Define a mutable variable", "let $1 = $2"),
-            ("const", "Define a constant", "const $1 = $2"),
-            (
-                "function",
-                "Define a function",
-                "function $1($2) -> $3 {\n\t$0\n}",
-            ),
-            ("class", "Define a class", "class $1 {\n\t$0\n}"),
-            (
-                "interface",
-                "Define an interface",
-                "interface $1 {\n\t$0\n}",
-            ),
-            ("import", "Import a module", "import { $1 } from \"$2\""),
-            ("export", "Export", "export "),
-        ],
-    };
+fn get_keyword_completions(_language: Language) -> Vec<CompletionItem> {
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let keywords = vec![
+        ("متغير", "تعريف متغير قابل للتعديل", "متغير $1 = $2"),
+        ("ثابت", "تعريف ثابت", "ثابت $1 = $2"),
+        ("دالة", "تعريف دالة", "دالة $1($2) -> $3 {\n\t$0\n}"),
+        ("صنف", "تعريف صنف", "صنف $1 {\n\t$0\n}"),
+        ("ميثاق", "تعريف ميثاق", "ميثاق $1 {\n\t$0\n}"),
+        ("استورد", "استيراد وحدة", "استورد { $1 } من \"$2\""),
+        ("صدّر", "تصدير", "صدّر "),
+    ];
 
     keywords
         .into_iter()
@@ -150,45 +133,24 @@ fn get_keyword_completions(language: Language) -> Vec<CompletionItem> {
         .collect()
 }
 
-fn get_statement_keyword_completions(language: Language) -> Vec<CompletionItem> {
-    let keywords = match language {
-        Language::Arabic => vec![
-            ("إذا", "جملة شرطية", "إذا ($1) {\n\t$0\n}"),
-            ("وإلا", "فرع إذا فشل الشرط", "وإلا {\n\t$0\n}"),
-            ("طالما", "حلقة طالما", "طالما ($1) {\n\t$0\n}"),
-            ("لكل", "حلقة لكل", "لكل $1 في $2 {\n\t$0\n}"),
-            ("أرجع", "إرجاع قيمة", "أرجع $0"),
-            ("أوقف", "خروج من الحلقة", "أوقف"),
-            ("استمر", "متابعة للتكرار التالي", "استمر"),
-            (
-                "حاول",
-                "معالجة الأخطاء",
-                "حاول {\n\t$1\n} التقط ($2) {\n\t$0\n}",
-            ),
-            ("ارمِ", "رمي خطأ", "ارمِ $0"),
-            ("تطابق", "مطابقة الأنماط", "تطابق ($1) {\n\tحالة $2 => $0\n}"),
-        ],
-        Language::English => vec![
-            ("if", "Conditional statement", "if ($1) {\n\t$0\n}"),
-            ("else", "Else branch", "else {\n\t$0\n}"),
-            ("while", "While loop", "while ($1) {\n\t$0\n}"),
-            ("for", "For loop", "for $1 in $2 {\n\t$0\n}"),
-            ("return", "Return a value", "return $0"),
-            ("break", "Break from loop", "break"),
-            ("continue", "Continue to next iteration", "continue"),
-            (
-                "try",
-                "Error handling",
-                "try {\n\t$1\n} catch ($2) {\n\t$0\n}",
-            ),
-            ("throw", "Throw an error", "throw $0"),
-            (
-                "match",
-                "Pattern matching",
-                "match ($1) {\n\tcase $2 => $0\n}",
-            ),
-        ],
-    };
+fn get_statement_keyword_completions(_language: Language) -> Vec<CompletionItem> {
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let keywords = vec![
+        ("إذا", "جملة شرطية", "إذا ($1) {\n\t$0\n}"),
+        ("وإلا", "فرع إذا فشل الشرط", "وإلا {\n\t$0\n}"),
+        ("طالما", "حلقة طالما", "طالما ($1) {\n\t$0\n}"),
+        ("لكل", "حلقة لكل", "لكل $1 في $2 {\n\t$0\n}"),
+        ("أرجع", "إرجاع قيمة", "أرجع $0"),
+        ("أوقف", "خروج من الحلقة", "أوقف"),
+        ("استمر", "متابعة للتكرار التالي", "استمر"),
+        (
+            "حاول",
+            "معالجة الأخطاء",
+            "حاول {\n\t$1\n} التقط ($2) {\n\t$0\n}",
+        ),
+        ("ارمِ", "رمي خطأ", "ارمِ $0"),
+        ("تطابق", "مطابقة الأنماط", "تطابق ($1) {\n\tحالة $2 => $0\n}"),
+    ];
 
     keywords
         .into_iter()
@@ -203,33 +165,20 @@ fn get_statement_keyword_completions(language: Language) -> Vec<CompletionItem> 
         .collect()
 }
 
-fn get_builtin_completions(language: Language) -> Vec<CompletionItem> {
-    let builtins = match language {
-        Language::Arabic => vec![
-            ("اطبع", "طباعة قيمة", "اطبع($1)"),
-            ("ادخل", "قراءة مدخل", "ادخل()"),
-            ("طول", "طول المصفوفة أو النص", "طول($1)"),
-            ("نوع", "نوع القيمة", "نوع($1)"),
-            ("عدد", "تحويل إلى عدد صحيح", "عدد($1)"),
-            ("نص", "تحويل إلى نص", "نص($1)"),
-            ("جذر", "الجذر التربيعي", "جذر($1)"),
-            ("مطلق", "القيمة المطلقة", "مطلق($1)"),
-            ("اقرأ_ملف", "قراءة ملف", "اقرأ_ملف($1)"),
-            ("اكتب_ملف", "كتابة ملف", "اكتب_ملف($1, $2)"),
-        ],
-        Language::English => vec![
-            ("print", "Print a value", "print($1)"),
-            ("input", "Read input", "input()"),
-            ("len", "Length of array or string", "len($1)"),
-            ("type", "Type of value", "type($1)"),
-            ("int", "Convert to integer", "int($1)"),
-            ("str", "Convert to string", "str($1)"),
-            ("sqrt", "Square root", "sqrt($1)"),
-            ("abs", "Absolute value", "abs($1)"),
-            ("read_file", "Read a file", "read_file($1)"),
-            ("write_file", "Write a file", "write_file($1, $2)"),
-        ],
-    };
+fn get_builtin_completions(_language: Language) -> Vec<CompletionItem> {
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let builtins = vec![
+        ("اطبع", "طباعة قيمة", "اطبع($1)"),
+        ("ادخل", "قراءة مدخل", "ادخل()"),
+        ("طول", "طول المصفوفة أو النص", "طول($1)"),
+        ("نوع", "نوع القيمة", "نوع($1)"),
+        ("عدد", "تحويل إلى عدد صحيح", "عدد($1)"),
+        ("نص", "تحويل إلى نص", "نص($1)"),
+        ("جذر", "الجذر التربيعي", "جذر($1)"),
+        ("مطلق", "القيمة المطلقة", "مطلق($1)"),
+        ("اقرأ_ملف", "قراءة ملف", "اقرأ_ملف($1)"),
+        ("اكتب_ملف", "كتابة ملف", "اكتب_ملف($1, $2)"),
+    ];
 
     builtins
         .into_iter()
@@ -244,27 +193,17 @@ fn get_builtin_completions(language: Language) -> Vec<CompletionItem> {
         .collect()
 }
 
-fn get_type_completions(language: Language) -> Vec<CompletionItem> {
-    let types = match language {
-        Language::Arabic => vec![
-            ("عدد", "عدد صحيح"),
-            ("عدد_عشري", "عدد عشري"),
-            ("نص", "سلسلة نصية"),
-            ("منطقي", "قيمة منطقية"),
-            ("مصفوفة", "مصفوفة"),
-            ("قاموس", "قاموس"),
-            ("أي", "أي نوع"),
-        ],
-        Language::English => vec![
-            ("int", "Integer"),
-            ("float", "Floating point"),
-            ("string", "String"),
-            ("bool", "Boolean"),
-            ("array", "Array"),
-            ("map", "Map/Dictionary"),
-            ("any", "Any type"),
-        ],
-    };
+fn get_type_completions(_language: Language) -> Vec<CompletionItem> {
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let types = vec![
+        ("عدد", "عدد صحيح"),
+        ("عدد_عشري", "عدد عشري"),
+        ("نص", "سلسلة نصية"),
+        ("منطقي", "قيمة منطقية"),
+        ("مصفوفة", "مصفوفة"),
+        ("قاموس", "قاموس"),
+        ("أي", "أي نوع"),
+    ];
 
     types
         .into_iter()
@@ -322,34 +261,21 @@ fn get_symbol_completions(doc: &mut DocumentState, language: Language) -> Vec<Co
 fn get_member_completions(
     _doc: &mut DocumentState,
     _prefix: &str,
-    language: Language,
+    _language: Language,
 ) -> Vec<CompletionItem> {
-    let methods = match language {
-        Language::Arabic => vec![
-            ("طول", "طول المصفوفة"),
-            ("ألحق", "إضافة عنصر"),
-            ("احذف", "حذف عنصر"),
-            ("فارغة", "هل المصفوفة فارغة"),
-            ("قص", "قص جزء من النص"),
-            ("قسّم", "تقسيم النص"),
-            ("استبدل", "استبدال نص"),
-            ("يحتوي", "هل يحتوي على نص"),
-            ("أحرف_كبيرة", "تحويل لأحرف كبيرة"),
-            ("أحرف_صغيرة", "تحويل لأحرف صغيرة"),
-        ],
-        Language::English => vec![
-            ("length", "Array length"),
-            ("push", "Add an element"),
-            ("pop", "Remove last element"),
-            ("isEmpty", "Is array empty"),
-            ("slice", "Slice a portion"),
-            ("split", "Split string"),
-            ("replace", "Replace text"),
-            ("contains", "Contains text"),
-            ("toUpperCase", "Convert to uppercase"),
-            ("toLowerCase", "Convert to lowercase"),
-        ],
-    };
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let methods = vec![
+        ("طول", "طول المصفوفة"),
+        ("ألحق", "إضافة عنصر"),
+        ("احذف", "حذف عنصر"),
+        ("فارغة", "هل المصفوفة فارغة"),
+        ("قص", "قص جزء من النص"),
+        ("قسّم", "تقسيم النص"),
+        ("استبدل", "استبدال نص"),
+        ("يحتوي", "هل يحتوي على نص"),
+        ("أحرف_كبيرة", "تحويل لأحرف كبيرة"),
+        ("أحرف_صغيرة", "تحويل لأحرف صغيرة"),
+    ];
 
     methods
         .into_iter()
@@ -362,25 +288,16 @@ fn get_member_completions(
         .collect()
 }
 
-fn get_module_completions(language: Language) -> Vec<CompletionItem> {
-    let modules = match language {
-        Language::Arabic => vec![
-            ("مجموعات", "قائمة، مجموعة، خريطة"),
-            ("رياضيات", "دوال رياضية"),
-            ("نص", "أدوات النصوص"),
-            ("ملفات", "عمليات الملفات"),
-            ("شبكة", "عمليات الشبكة"),
-            ("وقت", "دوال الوقت والتاريخ"),
-        ],
-        Language::English => vec![
-            ("collections", "List, Set, Map"),
-            ("math", "Math functions"),
-            ("string", "String utilities"),
-            ("files", "File operations"),
-            ("network", "Network operations"),
-            ("time", "Date and time functions"),
-        ],
-    };
+fn get_module_completions(_language: Language) -> Vec<CompletionItem> {
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let modules = vec![
+        ("مجموعات", "قائمة، مجموعة، خريطة"),
+        ("رياضيات", "دوال رياضية"),
+        ("نص", "أدوات النصوص"),
+        ("ملفات", "عمليات الملفات"),
+        ("شبكة", "عمليات الشبكة"),
+        ("وقت", "دوال الوقت والتاريخ"),
+    ];
 
     modules
         .into_iter()
@@ -411,11 +328,9 @@ fn get_enum_variant_completions(
             if let StmtKind::EnumDecl { name, variants, .. } = &stmt.kind {
                 if name == enum_name {
                     for variant in variants {
+                        // Arabic-only: ترقيم لغة برمجة عربية
                         let detail = if variant.fields.is_empty() {
-                            match language {
-                                Language::Arabic => "حالة بسيطة".to_string(),
-                                Language::English => "Simple variant".to_string(),
-                            }
+                            "حالة بسيطة".to_string()
                         } else {
                             let field_types: Vec<String> =
                                 variant.fields.iter().map(|f| format_type(&f.ty)).collect();
