@@ -127,7 +127,10 @@ impl ErrorCode {
     ///
     /// Panics if `number` is 0 or greater than 9999.
     pub const fn new(category: ErrorCategory, number: u16) -> Self {
-        assert!(number >= 1 && number <= 9999, "Error code number must be 1-9999");
+        assert!(
+            number >= 1 && number <= 9999,
+            "Error code number must be 1-9999"
+        );
         Self { category, number }
     }
 
