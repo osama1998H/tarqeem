@@ -95,10 +95,37 @@ jobs:
           path: check-results.md
 
   # ============================================
-  # Run Examples (Individual Jobs)
+  # Build C Runtime Library
   # ============================================
-  run-examples:
-    name: Run Examples
+  build-runtime:
+    name: Build C Runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential zlib1g-dev
+
+      - name: Build runtime library
+        run: |
+          cd runtime
+          make clean
+          make
+          ls -la libtrq.a
+
+      - name: Upload runtime library
+        uses: actions/upload-artifact@v6
+        with:
+          name: tarqeem-runtime
+          path: runtime/libtrq.a
+
+  # ============================================
+  # Run Examples with Interpreter (Default Mode)
+  # ============================================
+  run-examples-interpreted:
+    name: Run Examples (Interpreter)
     runs-on: ubuntu-latest
     needs: build-compiler
     strategy:
@@ -130,7 +157,7 @@ jobs:
       - name: Make compiler executable
         run: chmod +x ./bin/tarqeem
 
-      - name: Run example - ${{ matrix.example }}
+      - name: Run example (Interpreter) - ${{ matrix.example }}
         run: |
           # Try both extensions
           if [ -f "examples/${{ matrix.example }}.ترقيم" ]; then
@@ -140,10 +167,10 @@ jobs:
             exit 1
           fi
 
-          echo "Running: $FILE"
+          echo "Running with Interpreter: $FILE"
           echo "================================"
 
-          # Run with timeout (30 seconds max)
+          # Run with timeout (30 seconds max) - uses interpreter by default
           timeout 30s ./bin/tarqeem run "$FILE"
 
   # ============================================
@@ -199,6 +226,81 @@ jobs:
           timeout 30s ./bin/tarqeem run --jit "$FILE"
 
   # ============================================
+  # Run Examples with Full Compilation (AOT)
+  # ============================================
+  run-examples-compiled:
+    name: Run Examples (Compiled)
+    runs-on: ubuntu-latest
+    needs: [build-compiler, build-runtime]
+    strategy:
+      fail-fast: false
+      matrix:
+        example:
+          # Only include working examples (those not in planned/)
+          - مرحبا
+          - متغيرات
+          - دوال
+          - تحكم
+          - أهلا
+          - صنف
+          - خواص
+          - تعداد
+          - اختبار_بسيط
+          - اختبار_مجموعات
+          - لعبة_الحياة_بسيط
+          - لعبة_الحياة
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install LLVM/Clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lld zlib1g-dev
+
+      - name: Download compiler
+        uses: actions/download-artifact@v7
+        with:
+          name: tarqeem-compiler
+          path: ./bin
+
+      - name: Download runtime library
+        uses: actions/download-artifact@v7
+        with:
+          name: tarqeem-runtime
+          path: ./runtime
+
+      - name: Make compiler executable
+        run: chmod +x ./bin/tarqeem
+
+      - name: Verify runtime library
+        run: |
+          ls -la ./runtime/
+          file ./runtime/libtrq.a
+
+      - name: Compile and run example - ${{ matrix.example }}
+        run: |
+          # Try both extensions
+          if [ -f "examples/${{ matrix.example }}.ترقيم" ]; then
+            FILE="examples/${{ matrix.example }}.ترقيم"
+          else
+            echo "::error::Example file not found: ${{ matrix.example }}"
+            exit 1
+          fi
+
+          echo "Compiling: $FILE"
+          echo "================================"
+
+          # Compile to native binary
+          ./bin/tarqeem compile "$FILE" -o "./output_${{ matrix.example }}"
+
+          echo ""
+          echo "Running compiled binary:"
+          echo "================================"
+
+          # Run the compiled binary with timeout (30 seconds max)
+          timeout 30s "./output_${{ matrix.example }}"
+
+  # ============================================
   # Run Standard Library Tests
   # ============================================
   run-stdlib:
@@ -246,7 +348,7 @@ jobs:
   summary:
     name: Examples Summary
     runs-on: ubuntu-latest
-    needs: [check-examples, run-examples, run-examples-jit, run-stdlib]
+    needs: [check-examples, run-examples-interpreted, run-examples-jit, run-examples-compiled, run-stdlib]
     if: always()
     steps:
       - name: Download all artifacts

@@ -33,12 +33,13 @@ impl TypeMapper {
                 let param_types: Vec<String> = params.iter().map(|p| self.map_type(p)).collect();
                 format!("{} ({})", self.map_type(ret), param_types.join(", "))
             }
-            IrType::Struct(class_id) => {
-                format!("%class.{}", mangle_name(&class_id.0))
+            IrType::Struct(_class_id) => {
+                // Structs are heap-allocated, so we use ptr (opaque pointer)
+                "ptr".to_string()
             }
-            IrType::Enum(enum_id) => {
-                // Enums are represented as tagged unions (discriminant + max data)
-                format!("%enum.{}", mangle_name(&enum_id.0))
+            IrType::Enum(_enum_id) => {
+                // Enums are heap-allocated tagged unions, so we use ptr
+                "ptr".to_string()
             }
         }
     }
@@ -179,7 +180,7 @@ mod tests {
         assert_eq!(mapper.map_type(&arr_ty), "ptr"); // Runtime uses pointer-based arrays
 
         let class_ty = IrType::Struct(ClassId("Person".to_string()));
-        assert_eq!(mapper.map_type(&class_ty), "%class.Person");
+        assert_eq!(mapper.map_type(&class_ty), "ptr"); // Structs are heap-allocated pointers
     }
 
     #[test]

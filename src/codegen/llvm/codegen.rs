@@ -40,6 +40,7 @@ pub struct LlvmCodegen {
     vtable_globals: HashMap<String, String>,
     current_return_type: IrType,
     global_vars: HashMap<String, String>,
+    inherited_field_count: HashMap<String, usize>,
 }
 
 impl LlvmCodegen {
@@ -59,6 +60,7 @@ impl LlvmCodegen {
             vtable_globals: HashMap::new(),
             current_return_type: IrType::Void,
             global_vars: HashMap::new(),
+            inherited_field_count: HashMap::new(),
         }
     }
 
@@ -73,8 +75,15 @@ impl LlvmCodegen {
 
         self.emit_global_variables(module)?;
 
+        // First, collect all class's own fields for inheritance lookup
         for class in &module.classes {
-            self.emit_class_definition(class)?;
+            self.class_defs
+                .insert(class.id.0.clone(), class.fields.clone());
+        }
+
+        // Then emit class definitions with inherited fields
+        for class in &module.classes {
+            self.emit_class_definition(class, &module.classes)?;
         }
 
         self.emit_runtime_declarations()?;
@@ -159,7 +168,14 @@ impl LlvmCodegen {
             let init_val = match init {
                 Some(Constant::Int(n)) => n.to_string(),
                 Some(Constant::Float(f)) => {
-                    format!("{:e}", f)
+                    // LLVM requires a decimal point in float literals (1.0e4, not 1e4)
+                    let s = format!("{:e}", f);
+                    if !s.contains('.') {
+                        // Insert .0 before 'e' if no decimal point present
+                        s.replace("e", ".0e")
+                    } else {
+                        s
+                    }
                 }
                 Some(Constant::Bool(b)) => {
                     if *b {
@@ -206,15 +222,28 @@ impl LlvmCodegen {
         }
     }
 
-    fn emit_class_definition(&mut self, class: &Class) -> Result<(), CodegenError> {
+    fn emit_class_definition(
+        &mut self,
+        class: &Class,
+        all_classes: &[Class],
+    ) -> Result<(), CodegenError> {
         emit!(self, "; Class: {}", class.name);
 
+        // Collect all fields including inherited ones (parent fields come first)
+        let all_fields = self.collect_class_fields(class, all_classes);
+
+        // Calculate inherited field count (fields before this class's own fields)
+        let inherited_count = all_fields.len() - class.fields.len();
+        self.inherited_field_count
+            .insert(class.id.0.clone(), inherited_count);
+
+        // Update class_defs with full field list for correct field access
         self.class_defs
-            .insert(class.id.0.clone(), class.fields.clone());
+            .insert(class.id.0.clone(), all_fields.clone());
 
         let type_def = self
             .type_mapper
-            .generate_struct_type(&class.id, &class.fields);
+            .generate_struct_type(&class.id, &all_fields);
         emit!(self, "{}", type_def);
 
         if !class.vtable.is_empty() {
@@ -223,6 +252,57 @@ impl LlvmCodegen {
 
         emit!(self);
         Ok(())
+    }
+
+    /// Recursively collect all fields for a class including inherited fields
+    fn collect_class_fields(&self, class: &Class, all_classes: &[Class]) -> Vec<(String, IrType)> {
+        let mut fields = Vec::new();
+
+        // First, add parent class fields (recursively)
+        if let Some(parent_id) = &class.parent {
+            if let Some(parent_class) = all_classes.iter().find(|c| c.id.0 == parent_id.0) {
+                fields.extend(self.collect_class_fields(parent_class, all_classes));
+            }
+        }
+
+        // Then add this class's own fields
+        fields.extend(class.fields.iter().cloned());
+
+        fields
+    }
+
+    /// Calculate field access information for correct struct indexing with inheritance.
+    ///
+    /// Returns (struct_type_name, actual_index) where:
+    /// - struct_type_name: The LLVM struct type name for the object's actual class
+    /// - actual_index: The field index adjusted for inherited fields
+    fn get_field_access_info(
+        &self,
+        field_class: &str,
+        field_index: u32,
+        obj_ty: &Option<IrType>,
+    ) -> (String, u32) {
+        // Get the actual object class for struct type
+        let actual_class = match obj_ty {
+            Some(IrType::Ptr(inner)) => match inner.as_ref() {
+                IrType::Struct(class_id) => class_id.0.clone(),
+                _ => field_class.to_string(),
+            },
+            Some(IrType::Struct(class_id)) => class_id.0.clone(),
+            _ => field_class.to_string(),
+        };
+
+        let struct_ty = format!("%class.{}", mangle_class_name(&actual_class));
+
+        // Calculate actual index: inherited fields + field index within defining class
+        let inherited_count = self
+            .inherited_field_count
+            .get(field_class)
+            .copied()
+            .unwrap_or(0) as u32;
+        let actual_index = inherited_count + field_index;
+
+        (struct_ty, actual_index)
     }
 
     fn emit_vtable(&mut self, class: &Class) -> Result<(), CodegenError> {
@@ -837,18 +917,31 @@ impl LlvmCodegen {
                     })
                     .collect();
                 let ret_type = self.type_mapper.map_type(ret_ty);
+                let is_void = matches!(ret_ty, IrType::Void);
 
                 if let Some(d) = dest {
-                    let dest_name = self.get_or_create_var(*d);
-                    writeln!(
-                        self.output,
-                        "  {} = call {} {}({})",
-                        dest_name,
-                        ret_type,
-                        func_ptr_name,
-                        args_str.join(", ")
-                    )
-                    .unwrap();
+                    if is_void {
+                        writeln!(
+                            self.output,
+                            "  call {} {}({})",
+                            ret_type,
+                            func_ptr_name,
+                            args_str.join(", ")
+                        )
+                        .unwrap();
+                    } else {
+                        let dest_name = self.get_or_create_var(*d);
+                        writeln!(
+                            self.output,
+                            "  {} = call {} {}({})",
+                            dest_name,
+                            ret_type,
+                            func_ptr_name,
+                            args_str.join(", ")
+                        )
+                        .unwrap();
+                        self.var_types.insert(d.0, ret_ty.clone());
+                    }
                 } else {
                     writeln!(
                         self.output,
@@ -889,13 +982,18 @@ impl LlvmCodegen {
                 let dest_name = self.get_or_create_var(*dest);
                 let obj_name = self.get_var(*object)?;
                 let llvm_ty = self.type_mapper.map_type(ty);
-                let struct_ty = format!("%class.{}", mangle_class_name(&field.class.0));
+
+                // Get the object's actual class type and calculate field offset
+                // including inherited fields
+                let obj_ty = self.var_types.get(&object.0).cloned();
+                let (struct_ty, actual_index) =
+                    self.get_field_access_info(&field.class.0, field.index, &obj_ty);
 
                 let ptr_name = self.fresh_name("field.ptr");
                 writeln!(
                     self.output,
                     "  {} = getelementptr inbounds {}, ptr {}, i32 0, i32 {}",
-                    ptr_name, struct_ty, obj_name, field.index
+                    ptr_name, struct_ty, obj_name, actual_index
                 )
                 .unwrap();
                 writeln!(
@@ -904,6 +1002,8 @@ impl LlvmCodegen {
                     dest_name, llvm_ty, ptr_name
                 )
                 .unwrap();
+                // Register the destination variable's type for correct argument passing
+                self.var_types.insert(dest.0, ty.clone());
             }
 
             Instruction::SetField {
@@ -913,13 +1013,18 @@ impl LlvmCodegen {
             } => {
                 let obj_name = self.get_var(*object)?;
                 let val_name = self.get_var(*value)?;
-                let struct_ty = format!("%class.{}", mangle_class_name(&field.class.0));
+
+                // Get the object's actual class type and calculate field offset
+                // including inherited fields
+                let obj_ty = self.var_types.get(&object.0).cloned();
+                let (struct_ty, actual_index) =
+                    self.get_field_access_info(&field.class.0, field.index, &obj_ty);
 
                 let ptr_name = self.fresh_name("field.ptr");
                 writeln!(
                     self.output,
                     "  {} = getelementptr inbounds {}, ptr {}, i32 0, i32 {}",
-                    ptr_name, struct_ty, obj_name, field.index
+                    ptr_name, struct_ty, obj_name, actual_index
                 )
                 .unwrap();
                 let val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
@@ -952,17 +1057,32 @@ impl LlvmCodegen {
                 }
 
                 let ret_type = self.type_mapper.map_type(ret_ty);
+                let is_void = matches!(ret_ty, IrType::Void);
+
                 if let Some(d) = dest {
-                    let dest_name = self.get_or_create_var(*d);
-                    writeln!(
-                        self.output,
-                        "  {} = call {} @{}({})",
-                        dest_name,
-                        ret_type,
-                        method_name,
-                        all_args.join(", ")
-                    )
-                    .unwrap();
+                    if is_void {
+                        // Void calls cannot have a return value assigned
+                        writeln!(
+                            self.output,
+                            "  call {} @{}({})",
+                            ret_type,
+                            method_name,
+                            all_args.join(", ")
+                        )
+                        .unwrap();
+                    } else {
+                        let dest_name = self.get_or_create_var(*d);
+                        writeln!(
+                            self.output,
+                            "  {} = call {} @{}({})",
+                            dest_name,
+                            ret_type,
+                            method_name,
+                            all_args.join(", ")
+                        )
+                        .unwrap();
+                        self.var_types.insert(d.0, ret_ty.clone());
+                    }
                 } else {
                     writeln!(
                         self.output,
@@ -1008,16 +1128,29 @@ impl LlvmCodegen {
                 }
 
                 let ret_type = self.type_mapper.map_type(ret_ty);
+                let is_void = matches!(ret_ty, IrType::Void);
+
                 if let Some(d) = dest {
-                    let dest_name = self.get_or_create_var(*d);
-                    emit!(
-                        self,
-                        "  {} = call {} {}({})",
-                        dest_name,
-                        ret_type,
-                        method_ptr,
-                        all_args.join(", ")
-                    );
+                    if is_void {
+                        emit!(
+                            self,
+                            "  call {} {}({})",
+                            ret_type,
+                            method_ptr,
+                            all_args.join(", ")
+                        );
+                    } else {
+                        let dest_name = self.get_or_create_var(*d);
+                        emit!(
+                            self,
+                            "  {} = call {} {}({})",
+                            dest_name,
+                            ret_type,
+                            method_ptr,
+                            all_args.join(", ")
+                        );
+                        self.var_types.insert(d.0, ret_ty.clone());
+                    }
                 } else {
                     emit!(
                         self,
@@ -1083,6 +1216,8 @@ impl LlvmCodegen {
                     dest_name, array_name
                 )
                 .unwrap();
+                // ArrayLen returns i64 (Int type)
+                self.var_types.insert(dest.0, IrType::Int);
             }
 
             Instruction::ArrayGet {
@@ -1201,6 +1336,9 @@ impl LlvmCodegen {
             Instruction::GetException { dest } => {
                 let dest_name = self.get_or_create_var(*dest);
                 emit!(self, "  {} = call ptr @trq_get_exception()", dest_name);
+                // Exception is returned as a pointer
+                self.var_types
+                    .insert(dest.0, IrType::Ptr(Box::new(IrType::Void)));
             }
 
             Instruction::Phi { dest, ty, incoming } => {
@@ -1275,10 +1413,20 @@ impl LlvmCodegen {
                 .unwrap();
             }
 
-            Instruction::Copy { dest, src, ty: _ } => {
-                // Copy is a simple value transfer - just map the source variable name to the destination
+            Instruction::Copy { dest, src, ty } => {
+                // Copy is a simple value transfer - ensure dest is registered
+                // If source exists in var_map, alias it; otherwise create a new variable
                 if let Some(src_name) = self.var_map.get(&src.0).cloned() {
                     self.var_map.insert(dest.0, src_name);
+                } else {
+                    // Source not in var_map - create destination variable
+                    self.get_or_create_var(*dest);
+                }
+                // Also copy the type information - use provided type or try to get from source
+                if let Some(src_ty) = self.var_types.get(&src.0).cloned() {
+                    self.var_types.insert(dest.0, src_ty);
+                } else {
+                    self.var_types.insert(dest.0, ty.clone());
                 }
             }
 
@@ -1438,7 +1586,14 @@ impl LlvmCodegen {
                 emit!(self, "  {} = add i64 {}, 0", dest_name, i);
             }
             Constant::Float(f) => {
-                emit!(self, "  {} = fadd double {:e}, 0.0", dest_name, f);
+                // LLVM requires a decimal point in float literals (1.0e4, not 1e4)
+                let float_str = format!("{:e}", f);
+                let float_str = if !float_str.contains('.') {
+                    float_str.replace("e", ".0e")
+                } else {
+                    float_str
+                };
+                emit!(self, "  {} = fadd double {}, 0.0", dest_name, float_str);
             }
             Constant::String(idx) => {
                 if let Some((global, len)) = self.string_globals.get(idx) {
@@ -1481,6 +1636,120 @@ impl LlvmCodegen {
         let dest_name = self.get_or_create_var(dest);
         let left_name = self.get_var(left)?;
         let right_name = self.get_var(right)?;
+
+        // Check operand type from var_types - more reliable than ty parameter
+        // This handles cases where the IR builder passes incorrect type info
+        let operand_ty = self.var_types.get(&left.0).cloned().unwrap_or(ty.clone());
+
+        // For arithmetic operations, use the actual operand type
+        let is_arithmetic = matches!(
+            op,
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod
+        );
+
+        if is_arithmetic && operand_ty == IrType::Float {
+            let instruction = match op {
+                BinaryOp::Add => "fadd double",
+                BinaryOp::Sub => "fsub double",
+                BinaryOp::Mul => "fmul double",
+                BinaryOp::Div => "fdiv double",
+                BinaryOp::Mod => "frem double",
+                _ => unreachable!(),
+            };
+            writeln!(
+                self.output,
+                "  {} = {} {}, {}",
+                dest_name, instruction, left_name, right_name
+            )
+            .unwrap();
+            // Track the result type
+            self.var_types.insert(dest.0, IrType::Float);
+            return Ok(());
+        }
+
+        // For comparison operations, check operand type (not result type which is always Bool)
+        let is_comparison = matches!(
+            op,
+            BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
+        );
+
+        if is_comparison {
+            // Get the operand type from var_types
+            if let Some(operand_ty) = self.var_types.get(&left.0) {
+                match operand_ty {
+                    IrType::String => {
+                        // String comparison using runtime functions
+                        match op {
+                            BinaryOp::Eq => {
+                                writeln!(
+                                    self.output,
+                                    "  {} = call i1 @trq_string_equals(ptr {}, ptr {})",
+                                    dest_name, left_name, right_name
+                                )
+                                .unwrap();
+                                return Ok(());
+                            }
+                            BinaryOp::Ne => {
+                                let tmp = self.fresh_name("tmp.streq");
+                                writeln!(
+                                    self.output,
+                                    "  {} = call i1 @trq_string_equals(ptr {}, ptr {})",
+                                    tmp, left_name, right_name
+                                )
+                                .unwrap();
+                                writeln!(self.output, "  {} = xor i1 {}, true", dest_name, tmp)
+                                    .unwrap();
+                                return Ok(());
+                            }
+                            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+                                let cmp_result = self.fresh_name("tmp.strcmp");
+                                writeln!(
+                                    self.output,
+                                    "  {} = call i64 @trq_string_compare(ptr {}, ptr {})",
+                                    cmp_result, left_name, right_name
+                                )
+                                .unwrap();
+                                let cmp_op = match op {
+                                    BinaryOp::Lt => "icmp slt i64",
+                                    BinaryOp::Le => "icmp sle i64",
+                                    BinaryOp::Gt => "icmp sgt i64",
+                                    BinaryOp::Ge => "icmp sge i64",
+                                    _ => unreachable!(),
+                                };
+                                writeln!(
+                                    self.output,
+                                    "  {} = {} {}, 0",
+                                    dest_name, cmp_op, cmp_result
+                                )
+                                .unwrap();
+                                return Ok(());
+                            }
+                            _ => {}
+                        }
+                    }
+                    IrType::Float => {
+                        // Float comparison
+                        let cmp_op = match op {
+                            BinaryOp::Eq => "fcmp oeq double",
+                            BinaryOp::Ne => "fcmp one double",
+                            BinaryOp::Lt => "fcmp olt double",
+                            BinaryOp::Le => "fcmp ole double",
+                            BinaryOp::Gt => "fcmp ogt double",
+                            BinaryOp::Ge => "fcmp oge double",
+                            _ => unreachable!(),
+                        };
+                        writeln!(
+                            self.output,
+                            "  {} = {} {}, {}",
+                            dest_name, cmp_op, left_name, right_name
+                        )
+                        .unwrap();
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         let instruction = match (op, ty) {
             (BinaryOp::Add, IrType::Int) => "add i64",
@@ -1533,6 +1802,60 @@ impl LlvmCodegen {
             (BinaryOp::Le, IrType::Float) => "fcmp ole double",
             (BinaryOp::Gt, IrType::Float) => "fcmp ogt double",
             (BinaryOp::Ge, IrType::Float) => "fcmp oge double",
+
+            // String comparison using runtime functions
+            (BinaryOp::Eq, IrType::String) => {
+                writeln!(
+                    self.output,
+                    "  {} = call i1 @trq_string_equals(ptr {}, ptr {})",
+                    dest_name, left_name, right_name
+                )
+                .unwrap();
+                return Ok(());
+            }
+            (BinaryOp::Ne, IrType::String) => {
+                // Not equals: negate the result of equals
+                let tmp = self.fresh_name("tmp.streq");
+                writeln!(
+                    self.output,
+                    "  {} = call i1 @trq_string_equals(ptr {}, ptr {})",
+                    tmp, left_name, right_name
+                )
+                .unwrap();
+                writeln!(self.output, "  {} = xor i1 {}, true", dest_name, tmp).unwrap();
+                return Ok(());
+            }
+            (BinaryOp::Lt, IrType::String)
+            | (BinaryOp::Le, IrType::String)
+            | (BinaryOp::Gt, IrType::String)
+            | (BinaryOp::Ge, IrType::String) => {
+                // String comparison: compare < 0, <= 0, > 0, >= 0
+                let cmp_result = self.fresh_name("tmp.strcmp");
+                writeln!(
+                    self.output,
+                    "  {} = call i64 @trq_string_compare(ptr {}, ptr {})",
+                    cmp_result, left_name, right_name
+                )
+                .unwrap();
+                let cmp_op = match op {
+                    BinaryOp::Lt => "icmp slt i64",
+                    BinaryOp::Le => "icmp sle i64",
+                    BinaryOp::Gt => "icmp sgt i64",
+                    BinaryOp::Ge => "icmp sge i64",
+                    _ => unreachable!(),
+                };
+                writeln!(
+                    self.output,
+                    "  {} = {} {}, 0",
+                    dest_name, cmp_op, cmp_result
+                )
+                .unwrap();
+                return Ok(());
+            }
+
+            // Pointer comparison (for object identity)
+            (BinaryOp::Eq, IrType::Ptr(_)) => "icmp eq ptr",
+            (BinaryOp::Ne, IrType::Ptr(_)) => "icmp ne ptr",
 
             (BinaryOp::And, IrType::Bool) => "and i1",
             (BinaryOp::Or, IrType::Bool) => "or i1",
@@ -1847,6 +2170,7 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "الى_درجات" | "درجات" => Some("trq_to_degrees"),
 
         "توقف" => Some("trq_panic"),
+        "طول" => Some("trq_array_len"), // Generic length function for arrays
         "طول_مصفوفة" => Some("trq_array_len"),
         "الحق" => Some("trq_array_push"),
 
