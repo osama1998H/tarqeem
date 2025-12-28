@@ -60,7 +60,7 @@ Phase 3: Standard Library (In Progress)
    - `architecture.md` - Layer boundaries and invariants
    - `testing.md` - Testing requirements
    - `rust-style.md` - Path-scoped Rust coding standards
-   - `arabic-support.md` - Arabic language handling rules
+   - `arabic-philosophy.md` - Arabic language philosophy and Unicode handling
 
 2. Created `.claude/commands/` with reusable workflows:
    - `safe-change.md` - Full safe change workflow
@@ -107,13 +107,13 @@ Phase 3: Standard Library (In Progress)
 **Date**: Project inception
 **Decision**: All user-facing messages must have both Arabic and English versions.
 **Rationale**: Tarqeem is Arabic-first but needs to be accessible to English speakers.
-**See**: `.claude/rules/arabic-support.md`
+**See**: `.claude/rules/arabic-philosophy.md`
 
 ### Decision: NFC Normalization
 **Date**: Project inception
 **Decision**: All Arabic identifiers must be NFC-normalized before comparison.
 **Rationale**: Arabic text can have multiple byte representations for the same visual characters.
-**See**: `.claude/rules/arabic-support.md`
+**See**: `.claude/rules/arabic-philosophy.md`
 
 ---
 
