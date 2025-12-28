@@ -26,19 +26,12 @@ use std::path::{Path, PathBuf};
 // ============================================================================
 
 pub(super) fn warn_invalid_extension(file: &Path) {
+    // Arabic-only: ترقيم لغة برمجة عربية
     if !is_valid_source_extension(file) {
         eprintln!(
             "{}",
             format!(
                 "تحذير: الملف لا يحمل امتداد ترقيم صالح ({})",
-                valid_source_extension_display()
-            )
-            .yellow()
-        );
-        eprintln!(
-            "{}",
-            format!(
-                "Warning: File doesn't have a valid Tarqeem extension ({})",
                 valid_source_extension_display()
             )
             .yellow()
@@ -113,15 +106,11 @@ fn find_stdlib_path() -> Option<PathBuf> {
 
 pub(super) fn configure_analyzer(analyzer: &mut Analyzer, verbose: bool) {
     if let Some(stdlib_path) = find_stdlib_path() {
+        // Arabic-only: ترقيم لغة برمجة عربية
         if verbose {
             eprintln!(
                 "{}",
-                format!(
-                    "Using stdlib: {} / المكتبة القياسية: {}",
-                    stdlib_path.display(),
-                    stdlib_path.display()
-                )
-                .dimmed()
+                format!("المكتبة القياسية: {}", stdlib_path.display()).dimmed()
             );
         }
         analyzer.add_search_path(stdlib_path);
@@ -131,16 +120,11 @@ pub(super) fn configure_analyzer(analyzer: &mut Analyzer, verbose: bool) {
 fn collect_source_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
 
-    let entries = fs::read_dir(dir).map_err(|e| {
-        format!(
-            "Could not read directory: {} / لا يمكن قراءة المجلد: {}",
-            e, e
-        )
-    })?;
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let entries = fs::read_dir(dir).map_err(|e| format!("لا يمكن قراءة المجلد: {}", e))?;
 
     for entry in entries {
-        let entry = entry
-            .map_err(|e| format!("Could not read entry: {} / لا يمكن قراءة المدخل: {}", e, e))?;
+        let entry = entry.map_err(|e| format!("لا يمكن قراءة المدخل: {}", e))?;
         let path = entry.path();
 
         if path.is_file() && is_valid_source_extension(&path) {
@@ -413,8 +397,8 @@ pub fn run(cli: Cli) -> Result<(), String> {
 fn run_command(file: PathBuf, jit: bool, verbose: bool, lang: Language) -> Result<(), String> {
     warn_invalid_extension(&file);
 
-    let source = fs::read_to_string(&file)
-        .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let source = fs::read_to_string(&file).map_err(|e| format!("لا يمكن قراءة الملف: {}", e))?;
 
     let filename = file.display().to_string();
 
@@ -424,7 +408,7 @@ fn run_command(file: PathBuf, jit: bool, verbose: bool, lang: Language) -> Resul
     let mut parser = Parser::new(&source);
     let ast = parser.parse().map_err(|e| {
         e.emit(&source, &filename, lang);
-        "Parse error / خطأ في التحليل".to_string()
+        "خطأ في التحليل".to_string()
     })?;
 
     let mut analyzer = Analyzer::new();
@@ -507,8 +491,8 @@ fn run_command(file: PathBuf, jit: bool, verbose: bool, lang: Language) -> Resul
 fn check_command(file: PathBuf, verbose: bool, lang: Language) -> Result<(), String> {
     warn_invalid_extension(&file);
 
-    let source = fs::read_to_string(&file)
-        .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let source = fs::read_to_string(&file).map_err(|e| format!("لا يمكن قراءة الملف: {}", e))?;
 
     let filename = file.display().to_string();
 
@@ -518,7 +502,7 @@ fn check_command(file: PathBuf, verbose: bool, lang: Language) -> Result<(), Str
     let mut parser = Parser::new(&source);
     let ast = parser.parse().map_err(|e| {
         e.emit(&source, &filename, lang);
-        "Parse error / خطأ في التحليل".to_string()
+        "خطأ في التحليل".to_string()
     })?;
 
     let mut analyzer = Analyzer::new();
@@ -545,9 +529,10 @@ fn check_command(file: PathBuf, verbose: bool, lang: Language) -> Result<(), Str
 fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
     println!(
         "{}",
-        "=== Tarqeem REPL / الوضع التفاعلي لترقيم ===".cyan().bold()
+        // Arabic-only: ترقيم لغة برمجة عربية
+        "=== الوضع التفاعلي لترقيم ===".cyan().bold()
     );
-    println!("Type 'exit' or 'خروج' to quit / اكتب 'exit' أو 'خروج' للخروج");
+    println!("اكتب 'خروج' للخروج");
     println!();
 
     let stdin = io::stdin();
@@ -569,8 +554,9 @@ fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
             Ok(0) => break, // EOF
             Ok(_) => {
                 let trimmed = line.trim();
-                if trimmed == "exit" || trimmed == "خروج" {
-                    println!("Goodbye! / مع السلامة!");
+                // Arabic-only: ترقيم لغة برمجة عربية
+                if trimmed == "خروج" {
+                    println!("مع السلامة!");
                     break;
                 }
 
@@ -653,12 +639,8 @@ fn fmt_command(
     })?;
 
     let format_config = if let Some(config_path) = config {
-        FormatConfig::from_file(&config_path).map_err(|e| {
-            format!(
-                "Could not load config: {} / لا يمكن تحميل الإعدادات: {}",
-                e, e
-            )
-        })?
+        FormatConfig::from_file(&config_path)
+            .map_err(|e| format!("لا يمكن تحميل الإعدادات: {}", e))?
     } else {
         FormatConfig::find_and_load().unwrap_or_default()
     };
@@ -678,25 +660,12 @@ fn fmt_command(
     let mut files_changed = 0;
 
     for file in &files {
-        let source = fs::read_to_string(file).map_err(|e| {
-            format!(
-                "Could not read file {}: {} / لا يمكن قراءة الملف {}: {}",
-                file.display(),
-                e,
-                file.display(),
-                e
-            )
-        })?;
+        // Arabic-only: ترقيم لغة برمجة عربية
+        let source = fs::read_to_string(file)
+            .map_err(|e| format!("لا يمكن قراءة الملف {}: {}", file.display(), e))?;
 
-        let formatted = fmt::format_source(&source, &format_config).map_err(|e| {
-            format!(
-                "Format error in {}: {} / خطأ التنسيق في {}: {}",
-                file.display(),
-                e,
-                file.display(),
-                e
-            )
-        })?;
+        let formatted = fmt::format_source(&source, &format_config)
+            .map_err(|e| format!("خطأ التنسيق في {}: {}", file.display(), e))?;
 
         let is_changed = source != formatted;
 
@@ -724,26 +693,12 @@ fn fmt_command(
             }
         } else if write {
             if is_changed {
-                fs::write(file, &formatted).map_err(|e| {
-                    format!(
-                        "Could not write file {}: {} / لا يمكن كتابة الملف {}: {}",
-                        file.display(),
-                        e,
-                        file.display(),
-                        e
-                    )
-                })?;
+                // Arabic-only: ترقيم لغة برمجة عربية
+                fs::write(file, &formatted)
+                    .map_err(|e| format!("لا يمكن كتابة الملف {}: {}", file.display(), e))?;
                 files_changed += 1;
                 if verbose {
-                    println!(
-                        "{}",
-                        format!(
-                            "Formatted: {} / تم تنسيق: {}",
-                            file.display(),
-                            file.display()
-                        )
-                        .green()
-                    );
+                    println!("{}", format!("تم تنسيق: {}", file.display()).green());
                 }
             }
         } else {
@@ -782,13 +737,13 @@ fn fmt_command(
 fn lex_command(file: PathBuf) -> Result<(), String> {
     warn_invalid_extension(&file);
 
-    let source = fs::read_to_string(&file)
-        .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let source = fs::read_to_string(&file).map_err(|e| format!("لا يمكن قراءة الملف: {}", e))?;
 
     let mut lexer = Lexer::new(&source);
     let tokens = lexer.tokenize();
 
-    println!("{}", "=== Tokens / الرموز ===".cyan().bold());
+    println!("{}", "=== الرموز ===".cyan().bold());
     for token in tokens {
         println!(
             "  [{:>4}:{:<3}] {:?} '{}'",
@@ -802,20 +757,20 @@ fn lex_command(file: PathBuf) -> Result<(), String> {
 fn parse_command(file: PathBuf, lang: Language) -> Result<(), String> {
     warn_invalid_extension(&file);
 
-    let source = fs::read_to_string(&file)
-        .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let source = fs::read_to_string(&file).map_err(|e| format!("لا يمكن قراءة الملف: {}", e))?;
 
     let filename = file.display().to_string();
 
     let mut parser = Parser::new(&source);
     match parser.parse() {
         Ok(ast) => {
-            println!("{}", "=== AST / الشجرة النحوية ===".cyan().bold());
+            println!("{}", "=== الشجرة النحوية ===".cyan().bold());
             println!("{:#?}", ast);
         }
         Err(e) => {
             e.emit(&source, &filename, lang);
-            return Err("Parse error / خطأ في التحليل".to_string());
+            return Err("خطأ في التحليل".to_string());
         }
     }
 
@@ -842,26 +797,18 @@ fn pkg_command(command: PkgCommands) -> Result<(), String> {
 }
 
 fn lsp_command(verbose: bool) -> Result<(), String> {
+    // Arabic-only: ترقيم لغة برمجة عربية
     if verbose {
-        eprintln!(
-            "{}",
-            "Starting Tarqeem Language Server... / جاري بدء خادم لغة ترقيم..."
-                .cyan()
-                .bold()
-        );
+        eprintln!("{}", "جاري بدء خادم لغة ترقيم...".cyan().bold());
     }
 
-    let runtime = tokio::runtime::Runtime::new().map_err(|e| {
-        format!(
-            "Failed to create runtime: {} / فشل إنشاء وقت التشغيل: {}",
-            e, e
-        )
-    })?;
+    let runtime =
+        tokio::runtime::Runtime::new().map_err(|e| format!("فشل إنشاء وقت التشغيل: {}", e))?;
 
     runtime.block_on(async {
         crate::lsp::run_server()
             .await
-            .map_err(|e| format!("LSP server error: {} / خطأ خادم LSP: {}", e, e))
+            .map_err(|e| format!("خطأ خادم LSP: {}", e))
     })
 }
 
@@ -906,24 +853,15 @@ fn doc_command(
         }
     });
 
+    // Arabic-only: ترقيم لغة برمجة عربية
     if !single_file {
-        fs::create_dir_all(&output_dir).map_err(|e| {
-            format!(
-                "Could not create output directory: {} / لا يمكن إنشاء مجلد الإخراج: {}",
-                e, e
-            )
-        })?;
+        fs::create_dir_all(&output_dir).map_err(|e| format!("لا يمكن إنشاء مجلد الإخراج: {}", e))?;
     }
 
     if verbose {
         println!(
             "{}",
-            format!(
-                "Generating documentation for {} file(s)... / جاري توليد التوثيق لـ {} ملف(ات)...",
-                source_files.len(),
-                source_files.len()
-            )
-            .cyan()
+            format!("جاري توليد التوثيق لـ {} ملف(ات)...", source_files.len()).cyan()
         );
     }
 
@@ -932,15 +870,8 @@ fn doc_command(
 
     let mut all_docs = Vec::new();
     for source_file in &source_files {
-        let source = fs::read_to_string(source_file).map_err(|e| {
-            format!(
-                "Could not read file {}: {} / لا يمكن قراءة الملف {}: {}",
-                source_file.display(),
-                e,
-                source_file.display(),
-                e
-            )
-        })?;
+        let source = fs::read_to_string(source_file)
+            .map_err(|e| format!("لا يمكن قراءة الملف {}: {}", source_file.display(), e))?;
 
         let filename = source_file.display().to_string();
         let module_name = source_file
@@ -952,11 +883,7 @@ fn doc_command(
         let mut parser = Parser::new(&source);
         let ast = parser.parse().map_err(|e| {
             e.emit(&source, &filename, lang);
-            format!(
-                "Parse error in {}: / خطأ في تحليل {}:",
-                source_file.display(),
-                source_file.display()
-            )
+            format!("خطأ في تحليل {}", source_file.display())
         })?;
 
         let extractor = DocExtractor::new(module_name.clone(), filename);
@@ -964,10 +891,7 @@ fn doc_command(
 
         if verbose {
             let item_count = doc.items.len();
-            println!(
-                "  {} - {} items / {} عنصر",
-                module_name, item_count, item_count
-            );
+            println!("  {} - {} عنصر", module_name, item_count);
         }
 
         all_docs.push((module_name, doc));
@@ -980,12 +904,7 @@ fn doc_command(
     }
 
     if verbose {
-        println!(
-            "{}",
-            "Documentation generation complete! / اكتمل توليد التوثيق!"
-                .green()
-                .bold()
-        );
+        println!("{}", "اكتمل توليد التوثيق!".green().bold());
     }
 
     Ok(())
@@ -1026,33 +945,19 @@ fn generate_single_doc_file(
                 generator.generate(doc, &mut output_buffer)
             }
         }
-        .map_err(|e| {
-            format!(
-                "Failed to generate documentation: {} / فشل توليد التوثيق: {}",
-                e, e
-            )
-        })?;
+        .map_err(|e| format!("فشل توليد التوثيق: {}", e))?;
 
         if let Some(parent) = output_file.parent() {
-            fs::create_dir_all(parent).map_err(|e| {
-                format!(
-                    "Could not create output directory: {} / لا يمكن إنشاء مجلد الإخراج: {}",
-                    e, e
-                )
-            })?;
+            fs::create_dir_all(parent).map_err(|e| format!("لا يمكن إنشاء مجلد الإخراج: {}", e))?;
         }
 
         fs::write(&output_file, output_buffer)
-            .map_err(|e| format!("Could not write output: {} / لا يمكن كتابة الإخراج: {}", e, e))?;
+            .map_err(|e| format!("لا يمكن كتابة الإخراج: {}", e))?;
 
+        // Arabic-only: ترقيم لغة برمجة عربية
         println!(
             "{}",
-            format!(
-                "Documentation generated: {} / تم توليد التوثيق: {}",
-                output_file.display(),
-                output_file.display()
-            )
-            .green()
+            format!("تم توليد التوثيق: {}", output_file.display()).green()
         );
     }
 
@@ -1090,32 +995,22 @@ fn generate_multi_doc_files(
                 generator.generate(doc, &mut output_buffer)
             }
         }
-        .map_err(|e| {
-            format!(
-                "Failed to generate documentation: {} / فشل توليد التوثيق: {}",
-                e, e
-            )
-        })?;
+        .map_err(|e| format!("فشل توليد التوثيق: {}", e))?;
 
         fs::write(&output_file, output_buffer)
-            .map_err(|e| format!("Could not write output: {} / لا يمكن كتابة الإخراج: {}", e, e))?;
+            .map_err(|e| format!("لا يمكن كتابة الإخراج: {}", e))?;
     }
 
     if output_format == OutputFormat::Html && all_docs.len() > 1 {
         let index_content = generate_html_index(all_docs);
         let index_file = output_dir.join("index.html");
-        fs::write(&index_file, index_content)
-            .map_err(|e| format!("Could not write index: {} / لا يمكن كتابة الفهرس: {}", e, e))?;
+        fs::write(&index_file, index_content).map_err(|e| format!("لا يمكن كتابة الفهرس: {}", e))?;
     }
 
+    // Arabic-only: ترقيم لغة برمجة عربية
     println!(
         "{}",
-        format!(
-            "Documentation generated in: {} / تم توليد التوثيق في: {}",
-            output_dir.display(),
-            output_dir.display()
-        )
-        .green()
+        format!("تم توليد التوثيق في: {}", output_dir.display()).green()
     );
 
     Ok(())
