@@ -90,11 +90,12 @@ impl Analyzer {
 
             ExprKind::This => {
                 if !self.scope.is_in_class() {
+                    use crate::error::codes::ERR_THIS_OUTSIDE_CLASS;
                     self.error_with_code(
                         "'this' can only be used inside a class",
                         "'هذا' يمكن استخدامها فقط داخل صنف",
                         expr.span,
-                        "E0424",
+                        &ERR_THIS_OUTSIDE_CLASS.to_string(),
                     );
                     Type::Error
                 } else if let Some(ref class_name) = self.current_class {
@@ -611,11 +612,12 @@ impl Analyzer {
     /// Infer super expression type.
     fn infer_super_expr(&mut self, span: Span) -> Type {
         if !self.scope.is_in_class() {
+            use crate::error::codes::ERR_SUPER_OUTSIDE_CLASS;
             self.error_with_code(
                 "'super' can only be used inside a class",
                 "'الأصل' يمكن استخدامها فقط داخل صنف",
                 span,
-                "E0424",
+                &ERR_SUPER_OUTSIDE_CLASS.to_string(),
             );
             Type::Error
         } else if let Some(ref class_name) = self.current_class {
