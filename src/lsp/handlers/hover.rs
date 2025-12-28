@@ -48,122 +48,60 @@ pub fn handle_hover(
     })
 }
 
-fn format_type_info(ty: &Type, kind: &SymbolKind, language: Language) -> (String, String) {
-    let type_str = match language {
-        Language::Arabic => ty.arabic_name(),
-        Language::English => ty.to_string(),
-    };
+fn format_type_info(ty: &Type, kind: &SymbolKind, _language: Language) -> (String, String) {
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let type_str = ty.arabic_name();
 
-    let kind_label = match (kind, language) {
-        (SymbolKind::Variable, Language::Arabic) => "متغير",
-        (SymbolKind::Variable, Language::English) => "Variable",
-        (SymbolKind::Function, Language::Arabic) => "دالة",
-        (SymbolKind::Function, Language::English) => "Function",
-        (SymbolKind::Class, Language::Arabic) => "صنف",
-        (SymbolKind::Class, Language::English) => "Class",
-        (SymbolKind::Interface, Language::Arabic) => "ميثاق",
-        (SymbolKind::Interface, Language::English) => "Interface",
-        (SymbolKind::Parameter, Language::Arabic) => "معامل",
-        (SymbolKind::Parameter, Language::English) => "Parameter",
-        (SymbolKind::Field, Language::Arabic) => "حقل",
-        (SymbolKind::Field, Language::English) => "Field",
-        (SymbolKind::Method, Language::Arabic) => "دالة",
-        (SymbolKind::Method, Language::English) => "Method",
-        (SymbolKind::Property, Language::Arabic) => "خاصية",
-        (SymbolKind::Property, Language::English) => "Property",
-        (SymbolKind::Enum, Language::Arabic) => "تعداد",
-        (SymbolKind::Enum, Language::English) => "Enum",
-        (SymbolKind::EnumVariant, Language::Arabic) => "حالة تعداد",
-        (SymbolKind::EnumVariant, Language::English) => "Enum Variant",
+    let kind_label = match kind {
+        SymbolKind::Variable => "متغير",
+        SymbolKind::Function => "دالة",
+        SymbolKind::Class => "صنف",
+        SymbolKind::Interface => "ميثاق",
+        SymbolKind::Parameter => "معامل",
+        SymbolKind::Field => "حقل",
+        SymbolKind::Method => "دالة",
+        SymbolKind::Property => "خاصية",
+        SymbolKind::Enum => "تعداد",
+        SymbolKind::EnumVariant => "حالة تعداد",
     };
 
     (type_str, kind_label.to_string())
 }
 
 #[allow(dead_code)]
-pub fn get_builtin_hover(name: &str, language: Language) -> Option<Hover> {
-    let (signature, description_ar, description_en) = match name {
-        "اطبع" | "print" => (
-            "دالة اطبع(قيمة: أي)", // No return type means no return value
-            "طباعة قيمة إلى المخرج القياسي",
-            "Print a value to standard output",
-        ),
-        "println" | "اطبع_سطر" => (
-            "دالة اطبع_سطر(قيمة: أي)", // No return type means no return value
-            "طباعة قيمة مع سطر جديد",
-            "Print a value with a newline",
-        ),
-        "ادخل" | "input" => (
-            "دالة ادخل() -> نص",
-            "قراءة سطر من المدخل القياسي",
-            "Read a line from standard input",
-        ),
-
-        "طول" | "len" | "length" => (
+pub fn get_builtin_hover(name: &str, _language: Language) -> Option<Hover> {
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let (signature, description) = match name {
+        "اطبع" => ("دالة اطبع(قيمة: أي)", "طباعة قيمة إلى المخرج القياسي"),
+        "اطبع_سطر" => ("دالة اطبع_سطر(قيمة: أي)", "طباعة قيمة مع سطر جديد"),
+        "ادخل" => ("دالة ادخل() -> نص", "قراءة سطر من المدخل القياسي"),
+        "طول" => (
             "دالة طول(قيمة: أي) -> عدد",
             "الحصول على طول المصفوفة أو النص",
-            "Get the length of an array or string",
         ),
-        "نوع" | "type" | "typeof" => (
-            "دالة نوع(قيمة: أي) -> نص",
-            "الحصول على نوع القيمة كنص",
-            "Get the type of a value as a string",
-        ),
-
-        "عدد" | "int" => (
-            "دالة عدد(قيمة: أي) -> عدد",
-            "تحويل قيمة إلى عدد صحيح",
-            "Convert a value to an integer",
-        ),
-        "عدد_عشري" | "float" => (
+        "نوع" => ("دالة نوع(قيمة: أي) -> نص", "الحصول على نوع القيمة كنص"),
+        "عدد" => ("دالة عدد(قيمة: أي) -> عدد", "تحويل قيمة إلى عدد صحيح"),
+        "عدد_عشري" => (
             "دالة عدد_عشري(قيمة: أي) -> عدد_عشري",
             "تحويل قيمة إلى عدد عشري",
-            "Convert a value to a float",
         ),
-        "نص" | "str" | "string" => (
-            "دالة نص(قيمة: أي) -> نص",
-            "تحويل قيمة إلى نص",
-            "Convert a value to a string",
-        ),
-        "منطقي" | "bool" => (
-            "دالة منطقي(قيمة: أي) -> منطقي",
-            "تحويل قيمة إلى منطقي",
-            "Convert a value to a boolean",
-        ),
-
-        "مطلق" | "abs" => (
-            "دالة مطلق(قيمة: عدد) -> عدد",
-            "الحصول على القيمة المطلقة",
-            "Get the absolute value",
-        ),
-        "جذر" | "sqrt" => (
+        "نص" => ("دالة نص(قيمة: أي) -> نص", "تحويل قيمة إلى نص"),
+        "منطقي" => ("دالة منطقي(قيمة: أي) -> منطقي", "تحويل قيمة إلى منطقي"),
+        "مطلق" => ("دالة مطلق(قيمة: عدد) -> عدد", "الحصول على القيمة المطلقة"),
+        "جذر" => (
             "دالة جذر(قيمة: عدد_عشري) -> عدد_عشري",
             "حساب الجذر التربيعي",
-            "Calculate the square root",
         ),
-        "قوة" | "pow" => (
+        "قوة" => (
             "دالة قوة(أساس: عدد_عشري، أس: عدد_عشري) -> عدد_عشري",
             "رفع عدد لقوة معينة",
-            "Raise a number to a power",
         ),
-
-        "اقرأ_ملف" | "read_file" => (
-            "دالة اقرأ_ملف(مسار: نص) -> نص",
-            "قراءة محتوى ملف",
-            "Read the contents of a file",
-        ),
-        "اكتب_ملف" | "write_file" => (
+        "اقرأ_ملف" => ("دالة اقرأ_ملف(مسار: نص) -> نص", "قراءة محتوى ملف"),
+        "اكتب_ملف" => (
             "دالة اكتب_ملف(مسار: نص، محتوى: نص) -> منطقي",
             "كتابة محتوى إلى ملف",
-            "Write contents to a file",
         ),
-
         _ => return None,
-    };
-
-    let description = match language {
-        Language::Arabic => description_ar,
-        Language::English => description_en,
     };
 
     let markdown = format!("```tarqeem\n{}\n```\n\n{}", signature, description);
@@ -183,19 +121,22 @@ mod tests {
 
     #[test]
     fn test_format_type_info() {
+        // Arabic-only: ترقيم لغة برمجة عربية
         let (type_str, kind) =
             format_type_info(&Type::Int, &SymbolKind::Variable, Language::Arabic);
         assert_eq!(type_str, "عدد");
         assert_eq!(kind, "متغير");
 
+        // Even with English language setting, output should be Arabic
         let (type_str, kind) =
             format_type_info(&Type::Int, &SymbolKind::Variable, Language::English);
-        assert_eq!(type_str, "int");
-        assert_eq!(kind, "Variable");
+        assert_eq!(type_str, "عدد");
+        assert_eq!(kind, "متغير");
     }
 
     #[test]
     fn test_builtin_hover() {
+        // Arabic-only: ترقيم لغة برمجة عربية
         let hover = get_builtin_hover("اطبع", Language::Arabic);
         assert!(hover.is_some());
         let hover = hover.unwrap();
@@ -203,7 +144,8 @@ mod tests {
             assert!(markup.value.contains("طباعة"));
         }
 
-        let hover_en = get_builtin_hover("print", Language::English);
-        assert!(hover_en.is_some());
+        // English names are no longer supported
+        let hover_en = get_builtin_hover("print", Language::Arabic);
+        assert!(hover_en.is_none());
     }
 }

@@ -41,6 +41,7 @@ pub fn handle_signature_help(
 
     let parsed_doc = symbol_info.doc.as_ref().map(|d| DocCommentParser::parse(d));
 
+    // Arabic-only: ترقيم لغة برمجة عربية
     let parameters: Vec<ParameterInformation> = param_types
         .iter()
         .enumerate()
@@ -49,12 +50,9 @@ pub fn handle_signature_help(
 
             let param_name = param_doc
                 .map(|p| p.name.clone())
-                .unwrap_or_else(|| format_param_placeholder(i, language));
+                .unwrap_or_else(|| format_param_placeholder(i));
 
-            let type_str = match language {
-                Language::Arabic => param_type.arabic_name(),
-                Language::English => param_type.to_string(),
-            };
+            let type_str = param_type.arabic_name();
 
             let label = format!("{}: {}", param_name, type_str);
 
@@ -82,15 +80,10 @@ pub fn handle_signature_help(
         })
         .collect();
 
-    let return_type_str = match language {
-        Language::Arabic => return_type.arabic_name(),
-        Language::English => return_type.to_string(),
-    };
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let return_type_str = return_type.arabic_name();
 
-    let func_label = match language {
-        Language::Arabic => "دالة",
-        Language::English => "function",
-    };
+    let func_label = "دالة";
 
     let signature_label = format!(
         "{} {}({}) -> {}",
@@ -100,34 +93,23 @@ pub fn handle_signature_help(
         return_type_str
     );
 
+    // Arabic-only: ترقيم لغة برمجة عربية
     let signature_documentation = parsed_doc.as_ref().and_then(|pd| {
         pd.description.as_ref().map(|desc| {
             let mut doc_text = desc.clone();
 
             if let Some(returns) = &pd.returns {
                 if let Some(ret_desc) = &returns.description {
-                    let returns_label = match language {
-                        Language::Arabic => "الإرجاع",
-                        Language::English => "Returns",
-                    };
-                    doc_text.push_str(&format!("\n\n**{}**: {}", returns_label, ret_desc));
+                    doc_text.push_str(&format!("\n\n**الإرجاع**: {}", ret_desc));
                 }
             }
 
             for note in &pd.notes {
-                let note_label = match language {
-                    Language::Arabic => "ملاحظة",
-                    Language::English => "Note",
-                };
-                doc_text.push_str(&format!("\n\n**{}**: {}", note_label, note));
+                doc_text.push_str(&format!("\n\n**ملاحظة**: {}", note));
             }
 
             for warning in &pd.warnings {
-                let warning_label = match language {
-                    Language::Arabic => "تحذير",
-                    Language::English => "Warning",
-                };
-                doc_text.push_str(&format!("\n\n**{}**: {}", warning_label, warning));
+                doc_text.push_str(&format!("\n\n**تحذير**: {}", warning));
             }
 
             Documentation::MarkupContent(MarkupContent {
@@ -226,176 +208,100 @@ fn is_arabic_letter(c: char) -> bool {
     matches!(c, '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}' | '\u{08A0}'..='\u{08FF}')
 }
 
-fn format_param_placeholder(index: usize, language: Language) -> String {
-    match language {
-        Language::Arabic => format!("معامل{}", index + 1),
-        Language::English => format!("param{}", index + 1),
-    }
+fn format_param_placeholder(index: usize) -> String {
+    // Arabic-only: ترقيم لغة برمجة عربية
+    format!("معامل{}", index + 1)
 }
 
 #[allow(dead_code)]
 pub fn get_builtin_signature_help(
     name: &str,
     active_parameter: usize,
-    language: Language,
+    _language: Language,
 ) -> Option<SignatureHelp> {
-    let (label, params, doc_ar, doc_en) = match name {
-        "اطبع" | "print" => (
-            match language {
-                Language::Arabic => "دالة اطبع(قيمة: أي)", // No return type = no return value
-                Language::English => "function print(value: any)",
-            },
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let (label, params, description) = match name {
+        "اطبع" => (
+            "دالة اطبع(قيمة: أي)",
             vec![ParameterInformation {
-                label: ParameterLabel::Simple(match language {
-                    Language::Arabic => "قيمة: أي".to_string(),
-                    Language::English => "value: any".to_string(),
-                }),
+                label: ParameterLabel::Simple("قيمة: أي".to_string()),
                 documentation: Some(Documentation::MarkupContent(MarkupContent {
                     kind: MarkupKind::Markdown,
-                    value: match language {
-                        Language::Arabic => "القيمة المراد طباعتها".to_string(),
-                        Language::English => "The value to print".to_string(),
-                    },
+                    value: "القيمة المراد طباعتها".to_string(),
                 })),
             }],
             "طباعة قيمة إلى المخرج القياسي",
-            "Print a value to standard output",
         ),
 
-        "ادخل" | "input" => (
-            match language {
-                Language::Arabic => "دالة ادخل() -> نص",
-                Language::English => "function input() -> string",
-            },
-            vec![],
-            "قراءة سطر من المدخل القياسي",
-            "Read a line from standard input",
-        ),
+        "ادخل" => ("دالة ادخل() -> نص", vec![], "قراءة سطر من المدخل القياسي"),
 
-        "طول" | "len" | "length" => (
-            match language {
-                Language::Arabic => "دالة طول(قيمة: أي) -> عدد",
-                Language::English => "function len(value: any) -> int",
-            },
+        "طول" => (
+            "دالة طول(قيمة: أي) -> عدد",
             vec![ParameterInformation {
-                label: ParameterLabel::Simple(match language {
-                    Language::Arabic => "قيمة: أي".to_string(),
-                    Language::English => "value: any".to_string(),
-                }),
+                label: ParameterLabel::Simple("قيمة: أي".to_string()),
                 documentation: Some(Documentation::MarkupContent(MarkupContent {
                     kind: MarkupKind::Markdown,
-                    value: match language {
-                        Language::Arabic => "المصفوفة أو النص المراد معرفة طوله".to_string(),
-                        Language::English => "The array or string to get the length of".to_string(),
-                    },
+                    value: "المصفوفة أو النص المراد معرفة طوله".to_string(),
                 })),
             }],
             "الحصول على طول المصفوفة أو النص",
-            "Get the length of an array or string",
         ),
 
-        "قوة" | "pow" => (
-            match language {
-                Language::Arabic => "دالة قوة(أساس: عدد_عشري، أس: عدد_عشري) -> عدد_عشري",
-                Language::English => "function pow(base: float, exponent: float) -> float",
-            },
+        "قوة" => (
+            "دالة قوة(أساس: عدد_عشري، أس: عدد_عشري) -> عدد_عشري",
             vec![
                 ParameterInformation {
-                    label: ParameterLabel::Simple(match language {
-                        Language::Arabic => "أساس: عدد_عشري".to_string(),
-                        Language::English => "base: float".to_string(),
-                    }),
+                    label: ParameterLabel::Simple("أساس: عدد_عشري".to_string()),
                     documentation: Some(Documentation::MarkupContent(MarkupContent {
                         kind: MarkupKind::Markdown,
-                        value: match language {
-                            Language::Arabic => "الأساس المراد رفعه".to_string(),
-                            Language::English => "The base number".to_string(),
-                        },
+                        value: "الأساس المراد رفعه".to_string(),
                     })),
                 },
                 ParameterInformation {
-                    label: ParameterLabel::Simple(match language {
-                        Language::Arabic => "أس: عدد_عشري".to_string(),
-                        Language::English => "exponent: float".to_string(),
-                    }),
+                    label: ParameterLabel::Simple("أس: عدد_عشري".to_string()),
                     documentation: Some(Documentation::MarkupContent(MarkupContent {
                         kind: MarkupKind::Markdown,
-                        value: match language {
-                            Language::Arabic => "الأس".to_string(),
-                            Language::English => "The exponent".to_string(),
-                        },
+                        value: "الأس".to_string(),
                     })),
                 },
             ],
             "رفع عدد لقوة معينة",
-            "Raise a number to a power",
         ),
 
-        "اقرأ_ملف" | "read_file" => (
-            match language {
-                Language::Arabic => "دالة اقرأ_ملف(مسار: نص) -> نص",
-                Language::English => "function read_file(path: string) -> string",
-            },
+        "اقرأ_ملف" => (
+            "دالة اقرأ_ملف(مسار: نص) -> نص",
             vec![ParameterInformation {
-                label: ParameterLabel::Simple(match language {
-                    Language::Arabic => "مسار: نص".to_string(),
-                    Language::English => "path: string".to_string(),
-                }),
+                label: ParameterLabel::Simple("مسار: نص".to_string()),
                 documentation: Some(Documentation::MarkupContent(MarkupContent {
                     kind: MarkupKind::Markdown,
-                    value: match language {
-                        Language::Arabic => "مسار الملف المراد قراءته".to_string(),
-                        Language::English => "Path to the file to read".to_string(),
-                    },
+                    value: "مسار الملف المراد قراءته".to_string(),
                 })),
             }],
             "قراءة محتوى ملف",
-            "Read the contents of a file",
         ),
 
-        "اكتب_ملف" | "write_file" => (
-            match language {
-                Language::Arabic => "دالة اكتب_ملف(مسار: نص، محتوى: نص) -> منطقي",
-                Language::English => "function write_file(path: string, content: string) -> bool",
-            },
+        "اكتب_ملف" => (
+            "دالة اكتب_ملف(مسار: نص، محتوى: نص) -> منطقي",
             vec![
                 ParameterInformation {
-                    label: ParameterLabel::Simple(match language {
-                        Language::Arabic => "مسار: نص".to_string(),
-                        Language::English => "path: string".to_string(),
-                    }),
+                    label: ParameterLabel::Simple("مسار: نص".to_string()),
                     documentation: Some(Documentation::MarkupContent(MarkupContent {
                         kind: MarkupKind::Markdown,
-                        value: match language {
-                            Language::Arabic => "مسار الملف المراد الكتابة إليه".to_string(),
-                            Language::English => "Path to the file to write".to_string(),
-                        },
+                        value: "مسار الملف المراد الكتابة إليه".to_string(),
                     })),
                 },
                 ParameterInformation {
-                    label: ParameterLabel::Simple(match language {
-                        Language::Arabic => "محتوى: نص".to_string(),
-                        Language::English => "content: string".to_string(),
-                    }),
+                    label: ParameterLabel::Simple("محتوى: نص".to_string()),
                     documentation: Some(Documentation::MarkupContent(MarkupContent {
                         kind: MarkupKind::Markdown,
-                        value: match language {
-                            Language::Arabic => "المحتوى المراد كتابته".to_string(),
-                            Language::English => "The content to write".to_string(),
-                        },
+                        value: "المحتوى المراد كتابته".to_string(),
                     })),
                 },
             ],
             "كتابة محتوى إلى ملف",
-            "Write contents to a file",
         ),
 
         _ => return None,
-    };
-
-    let description = match language {
-        Language::Arabic => doc_ar,
-        Language::English => doc_en,
     };
 
     Some(SignatureHelp {
@@ -454,29 +360,17 @@ mod tests {
     }
 
     #[test]
-    fn test_find_call_context_english() {
-        let content = "print(add(1, 2), ";
-        let offset = content.len();
-        let ctx = find_call_context(content, offset);
-
-        assert!(ctx.is_some());
-        let ctx = ctx.unwrap();
-        assert_eq!(ctx.function_name, "print");
-        assert_eq!(ctx.active_parameter, 1);
-    }
-
-    #[test]
     fn test_builtin_signature_help() {
+        // Arabic-only: ترقيم لغة برمجة عربية
         let help = get_builtin_signature_help("اطبع", 0, Language::Arabic);
         assert!(help.is_some());
         let help = help.unwrap();
         assert!(!help.signatures.is_empty());
         assert!(help.signatures[0].label.contains("اطبع"));
 
-        let help_en = get_builtin_signature_help("print", 0, Language::English);
-        assert!(help_en.is_some());
-        let help_en = help_en.unwrap();
-        assert!(help_en.signatures[0].label.contains("print"));
+        // English names are no longer supported
+        let help_en = get_builtin_signature_help("print", 0, Language::Arabic);
+        assert!(help_en.is_none());
     }
 
     #[test]

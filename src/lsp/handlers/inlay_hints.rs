@@ -32,24 +32,20 @@ pub fn handle_inlay_hints(
             continue;
         }
 
-        let type_str = match language {
-            Language::Arabic => format!(": {}", info.ty.arabic_name()),
-            Language::English => format!(": {}", info.ty),
-        };
+        // Arabic-only: ترقيم لغة برمجة عربية
+        let _language = language; // Mark as used
+        let type_str = format!(": {}", info.ty.arabic_name());
 
         hints.push(InlayHint {
             position: hint_position,
             label: InlayHintLabel::String(type_str),
             kind: Some(InlayHintKind::TYPE),
             text_edits: None,
-            tooltip: Some(tower_lsp::lsp_types::InlayHintTooltip::String(
-                match language {
-                    Language::Arabic => {
-                        format!("نوع المتغير '{}' هو {}", name, info.ty.arabic_name())
-                    }
-                    Language::English => format!("Type of '{}' is {}", name, info.ty),
-                },
-            )),
+            tooltip: Some(tower_lsp::lsp_types::InlayHintTooltip::String(format!(
+                "نوع المتغير '{}' هو {}",
+                name,
+                info.ty.arabic_name()
+            ))),
             padding_left: Some(true),
             padding_right: Some(false),
             data: None,
@@ -199,12 +195,11 @@ fn collect_parameter_hints_from_expr(
                             label: InlayHintLabel::String(format!("{}: ", param_name)),
                             kind: Some(InlayHintKind::PARAMETER),
                             text_edits: None,
-                            tooltip: Some(tower_lsp::lsp_types::InlayHintTooltip::String(
-                                match language {
-                                    Language::Arabic => format!("المعامل رقم {}", i + 1),
-                                    Language::English => format!("Parameter {}", i + 1),
-                                },
-                            )),
+                            // Arabic-only: ترقيم لغة برمجة عربية
+                            tooltip: Some(tower_lsp::lsp_types::InlayHintTooltip::String(format!(
+                                "المعامل رقم {}",
+                                i + 1
+                            ))),
                             padding_left: Some(false),
                             padding_right: Some(true),
                             data: None,
@@ -247,29 +242,21 @@ fn collect_parameter_hints_from_expr(
 }
 
 fn get_builtin_param_names(name: &str, language: Language) -> Option<Vec<&'static str>> {
-    match (name, language) {
-        ("اطبع", Language::Arabic) => Some(vec!["قيمة"]),
-        ("اطبع_سطر", Language::Arabic) => Some(vec!["قيمة"]),
-        ("ادخل", Language::Arabic) => Some(vec![]),
-        ("طول", Language::Arabic) => Some(vec!["قيمة"]),
-        ("نوع", Language::Arabic) => Some(vec!["قيمة"]),
-        ("قوة", Language::Arabic) => Some(vec!["أساس", "أس"]),
-        ("جذر", Language::Arabic) => Some(vec!["قيمة"]),
-        ("مطلق", Language::Arabic) => Some(vec!["قيمة"]),
-        ("اقرأ_ملف", Language::Arabic) => Some(vec!["مسار"]),
-        ("اكتب_ملف", Language::Arabic) => Some(vec!["مسار", "محتوى"]),
-
-        ("print", Language::English) => Some(vec!["value"]),
-        ("println", Language::English) => Some(vec!["value"]),
-        ("input", Language::English) => Some(vec![]),
-        ("len", Language::English) | ("length", Language::English) => Some(vec!["value"]),
-        ("type", Language::English) | ("typeof", Language::English) => Some(vec!["value"]),
-        ("pow", Language::English) => Some(vec!["base", "exp"]),
-        ("sqrt", Language::English) => Some(vec!["value"]),
-        ("abs", Language::English) => Some(vec!["value"]),
-        ("read_file", Language::English) => Some(vec!["path"]),
-        ("write_file", Language::English) => Some(vec!["path", "content"]),
-
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let _language = language; // Mark as used
+    match name {
+        "اطبع" | "طباعة" => Some(vec!["قيمة"]),
+        "اطبع_سطر" => Some(vec!["قيمة"]),
+        "ادخل" => Some(vec![]),
+        "طول" => Some(vec!["قيمة"]),
+        "نوع" => Some(vec!["قيمة"]),
+        "قوة" | "قوة_عدد" => Some(vec!["أساس", "أس"]),
+        "جذر" | "جذر_تكعيبي" => Some(vec!["قيمة"]),
+        "مطلق" | "مطلق_عدد" => Some(vec!["قيمة"]),
+        "اقرأ_ملف" => Some(vec!["مسار"]),
+        "اكتب_ملف" => Some(vec!["مسار", "محتوى"]),
+        "أقل" | "أدنى" => Some(vec!["أ", "ب"]),
+        "أكبر" | "أقصى" => Some(vec!["أ", "ب"]),
         _ => None,
     }
 }
@@ -328,19 +315,21 @@ mod tests {
 
     #[test]
     fn test_get_builtin_param_names() {
+        // Arabic-only: ترقيم لغة برمجة عربية
         assert_eq!(
             get_builtin_param_names("اطبع", Language::Arabic),
             Some(vec!["قيمة"])
         );
         assert_eq!(
-            get_builtin_param_names("print", Language::English),
-            Some(vec!["value"])
+            get_builtin_param_names("طباعة", Language::Arabic),
+            Some(vec!["قيمة"])
         );
         assert_eq!(
             get_builtin_param_names("قوة", Language::Arabic),
             Some(vec!["أساس", "أس"])
         );
-        assert_eq!(get_builtin_param_names("unknown", Language::English), None);
+        assert_eq!(get_builtin_param_names("unknown", Language::Arabic), None);
+        assert_eq!(get_builtin_param_names("print", Language::Arabic), None); // English not supported
     }
 
     #[test]

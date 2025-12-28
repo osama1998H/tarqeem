@@ -1522,7 +1522,7 @@ fn test_builtin_len_string() {
     });
     block.instructions.push(Instruction::Call {
         dest: Some(VarId(1)),
-        func: FuncId("len".to_string()),
+        func: FuncId("طول".to_string()),
         args: vec![VarId(0)],
         ret_ty: IrType::Int,
     });
@@ -1549,7 +1549,7 @@ fn test_builtin_abs() {
     });
     block.instructions.push(Instruction::Call {
         dest: Some(VarId(1)),
-        func: FuncId("abs".to_string()),
+        func: FuncId("مطلق".to_string()),
         args: vec![VarId(0)],
         ret_ty: IrType::Int,
     });
@@ -1577,7 +1577,7 @@ fn test_builtin_sqrt() {
     });
     block.instructions.push(Instruction::Call {
         dest: Some(VarId(1)),
-        func: FuncId("sqrt".to_string()),
+        func: FuncId("جذر".to_string()),
         args: vec![VarId(0)],
         ret_ty: IrType::Float,
     });

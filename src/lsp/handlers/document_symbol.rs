@@ -50,13 +50,11 @@ pub fn handle_document_symbol(
                         _ => SymbolKind::PROPERTY,
                     };
 
+                    // Arabic-only: ترقيم لغة برمجة عربية
                     #[allow(deprecated)]
                     DocumentSymbol {
                         name: short_name.to_string(),
-                        detail: Some(match language {
-                            Language::Arabic => member_info.ty.arabic_name(),
-                            Language::English => member_info.ty.to_string(),
-                        }),
+                        detail: Some(member_info.ty.arabic_name()),
                         kind: member_kind,
                         tags: None,
                         deprecated: None,
@@ -76,10 +74,9 @@ pub fn handle_document_symbol(
             None
         };
 
-        let type_str = match language {
-            Language::Arabic => info.ty.arabic_name(),
-            Language::English => info.ty.to_string(),
-        };
+        // Arabic-only: ترقيم لغة برمجة عربية
+        let _language = language; // Mark as used
+        let type_str = info.ty.arabic_name();
 
         #[allow(deprecated)]
         symbols.push(DocumentSymbol {

@@ -2,6 +2,9 @@
 //!
 //! This module provides the interpreter's built-in functions including
 //! I/O operations, math functions, type conversions, and utility functions.
+//!
+//! Note: Tarqeem is an Arabic-only programming language.
+//! All built-in functions use Arabic names exclusively.
 
 use std::io::{self, Write};
 
@@ -11,141 +14,114 @@ impl Interpreter {
     pub(crate) fn is_builtin(&self, name: &str) -> bool {
         matches!(
             name,
-            "print"
-                | "اطبع"
-                | "println"
+            // I/O functions
+            "اطبع"
                 | "طباعة"
                 | "اطبع_سطر"
-                | "input"
+                | "اطبع_خطأ"
                 | "ادخل"
                 | "ادخل_رسالة"
-                | "input_prompt"
                 | "ادخل_عدد"
-                | "input_int"
                 | "ادخل_عشري"
-                | "input_float"
-                | "len"
+                // Type functions
                 | "طول"
-                | "length"
-                | "type"
                 | "نوع"
-                | "typeof"
-                | "int"
                 | "عدد"
-                | "float"
                 | "عدد_عشري"
-                | "str"
                 | "نص"
-                | "string"
-                | "bool"
                 | "منطقي"
-                | "abs"
+                // Math - basic
                 | "مطلق"
-                | "pow"
+                | "مطلق_عدد"
                 | "قوة"
-                | "sqrt"
+                | "قوة_عدد"
                 | "جذر"
-                | "cbrt"
                 | "جذر_تكعيبي"
-                | "log"
+                // Math - logarithms
                 | "لوغاريتم"
-                | "log10"
                 | "لوغ10"
                 | "لوغاريتم10"
-                | "log2"
                 | "لوغ2"
-                | "exp"
                 | "أس"
                 | "أسي"
-                | "floor"
+                // Math - rounding
                 | "أرضية"
-                | "ceil"
                 | "سقف"
-                | "round"
                 | "قرب"
+                | "قرّب"
                 | "تقريب"
-                | "trunc"
                 | "اقتطع"
-                | "min"
+                // Math - comparison
                 | "أقل"
                 | "أدنى"
-                | "max"
+                | "أقل_عدد"
                 | "أكبر"
                 | "أقصى"
-                | "clamp"
+                | "أكبر_عدد"
                 | "حصر"
-                | "sign"
+                | "حصر_عدد"
                 | "علامة"
-                | "gcd"
+                // Math - number theory
                 | "قاسم_مشترك"
-                | "lcm"
                 | "مضاعف_مشترك"
-                | "factorial"
                 | "عاملي"
-                | "sin"
+                | "باقي"
+                // Trigonometry
                 | "جا"
                 | "جيب"
-                | "cos"
                 | "جتا"
                 | "جيب_التمام"
-                | "tan"
                 | "ظا"
                 | "ظل"
-                | "cot"
                 | "ظتا"
                 | "ظل_التمام"
-                | "sec"
                 | "قا"
                 | "قاطع"
-                | "csc"
                 | "قتا"
                 | "قاطع_التمام"
-                | "asin"
+                // Inverse trigonometry
                 | "جا_عكسي"
                 | "جيب_عكسي"
-                | "acos"
                 | "جتا_عكسي"
                 | "جيب_تمام_عكسي"
-                | "atan"
                 | "ظا_عكسي"
                 | "ظل_عكسي"
-                | "atan2"
                 | "ظا_عكسي2"
                 | "ظل_عكسي2"
-                | "sinh"
+                // Hyperbolic
                 | "جا_زائدي"
                 | "جيب_زائدي"
-                | "cosh"
                 | "جتا_زائدي"
                 | "جيب_تمام_زائدي"
-                | "tanh"
                 | "ظا_زائدي"
                 | "ظل_زائدي"
-                | "to_radians"
+                // Angle conversion
                 | "الى_راديان"
                 | "راديان"
-                | "to_degrees"
                 | "الى_درجات"
                 | "درجات"
-                | "random"
+                // Random
                 | "عشوائي"
-                | "random_int"
-                | "random_range"
+                | "عشوائي_عدد"
                 | "عشوائي_بين"
-                | "random_float"
+                | "عشوائي_عدد_بين"
                 | "عشوائي_عشري"
-                | "random_bool"
+                | "عشوائي_عشري_بين"
                 | "عشوائي_منطقي"
-                | "assert"
+                | "بذرة_عشوائية"
+                | "بذرة_عشوائي"
+                // Assertions and control
                 | "تأكد"
-                | "assert_msg"
                 | "تأكد_رسالة"
-                | "panic"
                 | "توقف"
-                | "sleep"
                 | "نم"
-                | "time_now"
                 | "وقت_الآن"
+                | "وقت_أداء"
+                // Internal conversion (used by runtime)
+                | "عدد_لنص"
+                | "عشري_لنص"
+                | "منطقي_لنص"
+                // Runtime function names (used by IR/codegen)
                 | "trq_int_to_string"
                 | "trq_float_to_string"
                 | "trq_bool_to_string"
@@ -154,7 +130,7 @@ impl Interpreter {
 
     pub(crate) fn call_builtin(&mut self, name: &str, args: Vec<Value>) -> RuntimeResult<Value> {
         match name {
-            "print" | "اطبع" | "println" | "طباعة" | "اطبع_سطر" => {
+            "اطبع" | "طباعة" | "اطبع_سطر" | "اطبع_خطأ" => {
                 let output = args
                     .iter()
                     .map(|v| v.to_display_string())
@@ -170,7 +146,7 @@ impl Interpreter {
                 Ok(Value::Null)
             }
 
-            "input" | "ادخل" => {
+            "ادخل" => {
                 if let Some(prompt) = args.first() {
                     print!("{}", prompt.to_display_string());
                     io::stdout().flush().ok();
@@ -184,7 +160,7 @@ impl Interpreter {
                 Ok(Value::string(input.trim_end()))
             }
 
-            "len" | "طول" | "length" => {
+            "طول" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "len() requires 1 argument",
@@ -199,7 +175,7 @@ impl Interpreter {
                 }
             }
 
-            "type" | "نوع" | "typeof" => {
+            "نوع" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "type() requires 1 argument",
@@ -209,7 +185,7 @@ impl Interpreter {
                 Ok(Value::string(val.type_name_ar()))
             }
 
-            "int" | "عدد" => {
+            "عدد" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "int() requires 1 argument",
@@ -232,7 +208,7 @@ impl Interpreter {
                 }
             }
 
-            "float" | "عدد_عشري" => {
+            "عدد_عشري" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "float() requires 1 argument",
@@ -254,7 +230,7 @@ impl Interpreter {
                 }
             }
 
-            "str" | "نص" | "string" => {
+            "نص" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "str() requires 1 argument",
@@ -264,7 +240,7 @@ impl Interpreter {
                 Ok(Value::string(val.to_display_string()))
             }
 
-            "bool" | "منطقي" => {
+            "منطقي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "bool() requires 1 argument",
@@ -274,7 +250,7 @@ impl Interpreter {
                 Ok(Value::Bool(val.is_truthy()))
             }
 
-            "abs" | "مطلق" => {
+            "مطلق" | "مطلق_عدد" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "abs() requires 1 argument",
@@ -289,7 +265,7 @@ impl Interpreter {
                 }
             }
 
-            "pow" | "قوة" => {
+            "قوة" | "قوة_عدد" => {
                 let base = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "pow() requires 2 arguments",
@@ -318,7 +294,7 @@ impl Interpreter {
                 }
             }
 
-            "sqrt" | "جذر" => {
+            "جذر" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "sqrt() requires 1 argument",
@@ -332,7 +308,7 @@ impl Interpreter {
                 Ok(Value::Float(f.sqrt()))
             }
 
-            "cbrt" | "جذر_تكعيبي" => {
+            "جذر_تكعيبي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "cbrt() requires 1 argument",
@@ -346,7 +322,7 @@ impl Interpreter {
                 Ok(Value::Float(f.cbrt()))
             }
 
-            "log" | "لوغاريتم" => {
+            "لوغاريتم" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "log() requires 1 argument",
@@ -359,7 +335,7 @@ impl Interpreter {
                 Ok(Value::Float(f.ln()))
             }
 
-            "log10" | "لوغ10" | "لوغاريتم10" => {
+            "لوغ10" | "لوغاريتم10" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "log10() requires 1 argument",
@@ -372,7 +348,7 @@ impl Interpreter {
                 Ok(Value::Float(f.log10()))
             }
 
-            "log2" | "لوغ2" => {
+            "لوغ2" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "log2() requires 1 argument",
@@ -385,7 +361,7 @@ impl Interpreter {
                 Ok(Value::Float(f.log2()))
             }
 
-            "exp" | "أس" | "أسي" => {
+            "أس" | "أسي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "exp() requires 1 argument",
@@ -398,7 +374,7 @@ impl Interpreter {
                 Ok(Value::Float(f.exp()))
             }
 
-            "floor" | "أرضية" => {
+            "أرضية" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "floor() requires 1 argument",
@@ -411,7 +387,7 @@ impl Interpreter {
                 Ok(Value::Float(f.floor()))
             }
 
-            "ceil" | "سقف" => {
+            "سقف" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "ceil() requires 1 argument",
@@ -424,7 +400,7 @@ impl Interpreter {
                 Ok(Value::Float(f.ceil()))
             }
 
-            "round" | "قرب" | "تقريب" => {
+            "قرب" | "قرّب" | "تقريب" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "round() requires 1 argument",
@@ -437,7 +413,7 @@ impl Interpreter {
                 Ok(Value::Float(f.round()))
             }
 
-            "trunc" | "اقتطع" => {
+            "اقتطع" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "trunc() requires 1 argument",
@@ -450,7 +426,7 @@ impl Interpreter {
                 Ok(Value::Float(f.trunc()))
             }
 
-            "min" | "أقل" | "أدنى" => {
+            "أقل" | "أدنى" | "أقل_عدد" => {
                 let a = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "min() requires 2 arguments",
@@ -473,7 +449,7 @@ impl Interpreter {
                 }
             }
 
-            "max" | "أكبر" | "أقصى" => {
+            "أكبر" | "أقصى" | "أكبر_عدد" => {
                 let a = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "max() requires 2 arguments",
@@ -496,7 +472,7 @@ impl Interpreter {
                 }
             }
 
-            "clamp" | "حصر" => {
+            "حصر" | "حصر_عدد" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "clamp() requires 3 arguments",
@@ -535,7 +511,7 @@ impl Interpreter {
                 }
             }
 
-            "sign" | "علامة" => {
+            "علامة" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "sign() requires 1 argument",
@@ -560,7 +536,7 @@ impl Interpreter {
                 }
             }
 
-            "gcd" | "قاسم_مشترك" => {
+            "قاسم_مشترك" => {
                 let a = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "gcd() requires 2 arguments",
@@ -595,7 +571,7 @@ impl Interpreter {
                 Ok(Value::Int(gcd(x, y)))
             }
 
-            "lcm" | "مضاعف_مشترك" => {
+            "مضاعف_مشترك" => {
                 let a = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "lcm() requires 2 arguments",
@@ -634,7 +610,7 @@ impl Interpreter {
                 }
             }
 
-            "factorial" | "عاملي" => {
+            "عاملي" => {
                 let n = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "factorial() requires 1 argument",
@@ -660,7 +636,7 @@ impl Interpreter {
                 Ok(Value::Int(result))
             }
 
-            "sin" | "جا" | "جيب" => {
+            "جا" | "جيب" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "sin() requires 1 argument",
@@ -673,7 +649,7 @@ impl Interpreter {
                 Ok(Value::Float(f.sin()))
             }
 
-            "cos" | "جتا" | "جيب_التمام" => {
+            "جتا" | "جيب_التمام" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "cos() requires 1 argument",
@@ -686,7 +662,7 @@ impl Interpreter {
                 Ok(Value::Float(f.cos()))
             }
 
-            "tan" | "ظا" | "ظل" => {
+            "ظا" | "ظل" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "tan() requires 1 argument",
@@ -699,7 +675,7 @@ impl Interpreter {
                 Ok(Value::Float(f.tan()))
             }
 
-            "cot" | "ظتا" | "ظل_التمام" => {
+            "ظتا" | "ظل_التمام" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "cot() requires 1 argument",
@@ -712,7 +688,7 @@ impl Interpreter {
                 Ok(Value::Float(1.0 / f.tan()))
             }
 
-            "sec" | "قا" | "قاطع" => {
+            "قا" | "قاطع" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "sec() requires 1 argument",
@@ -725,7 +701,7 @@ impl Interpreter {
                 Ok(Value::Float(1.0 / f.cos()))
             }
 
-            "csc" | "قتا" | "قاطع_التمام" => {
+            "قتا" | "قاطع_التمام" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "csc() requires 1 argument",
@@ -738,7 +714,7 @@ impl Interpreter {
                 Ok(Value::Float(1.0 / f.sin()))
             }
 
-            "asin" | "جا_عكسي" | "جيب_عكسي" => {
+            "جا_عكسي" | "جيب_عكسي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "asin() requires 1 argument",
@@ -751,7 +727,7 @@ impl Interpreter {
                 Ok(Value::Float(f.asin()))
             }
 
-            "acos" | "جتا_عكسي" | "جيب_تمام_عكسي" => {
+            "جتا_عكسي" | "جيب_تمام_عكسي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "acos() requires 1 argument",
@@ -764,7 +740,7 @@ impl Interpreter {
                 Ok(Value::Float(f.acos()))
             }
 
-            "atan" | "ظا_عكسي" | "ظل_عكسي" => {
+            "ظا_عكسي" | "ظل_عكسي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "atan() requires 1 argument",
@@ -777,7 +753,7 @@ impl Interpreter {
                 Ok(Value::Float(f.atan()))
             }
 
-            "atan2" | "ظا_عكسي2" | "ظل_عكسي2" => {
+            "ظا_عكسي2" | "ظل_عكسي2" => {
                 let y = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "atan2() requires 2 arguments",
@@ -801,7 +777,7 @@ impl Interpreter {
                 Ok(Value::Float(y.atan2(x)))
             }
 
-            "sinh" | "جا_زائدي" | "جيب_زائدي" => {
+            "جا_زائدي" | "جيب_زائدي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "sinh() requires 1 argument",
@@ -814,7 +790,7 @@ impl Interpreter {
                 Ok(Value::Float(f.sinh()))
             }
 
-            "cosh" | "جتا_زائدي" | "جيب_تمام_زائدي" => {
+            "جتا_زائدي" | "جيب_تمام_زائدي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "cosh() requires 1 argument",
@@ -827,7 +803,7 @@ impl Interpreter {
                 Ok(Value::Float(f.cosh()))
             }
 
-            "tanh" | "ظا_زائدي" | "ظل_زائدي" => {
+            "ظا_زائدي" | "ظل_زائدي" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "tanh() requires 1 argument",
@@ -840,7 +816,7 @@ impl Interpreter {
                 Ok(Value::Float(f.tanh()))
             }
 
-            "to_radians" | "الى_راديان" | "راديان" => {
+            "الى_راديان" | "راديان" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "to_radians() requires 1 argument",
@@ -853,7 +829,7 @@ impl Interpreter {
                 Ok(Value::Float(f.to_radians()))
             }
 
-            "to_degrees" | "الى_درجات" | "درجات" => {
+            "الى_درجات" | "درجات" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "to_degrees() requires 1 argument",
@@ -866,7 +842,7 @@ impl Interpreter {
                 Ok(Value::Float(f.to_degrees()))
             }
 
-            "random" | "عشوائي" | "random_int" => {
+            "عشوائي" | "عشوائي_عدد" => {
                 use std::time::{SystemTime, UNIX_EPOCH};
                 let seed = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -876,7 +852,7 @@ impl Interpreter {
                 Ok(Value::Int((random % (i64::MAX as u64 + 1)) as i64))
             }
 
-            "random_range" | "عشوائي_بين" => {
+            "عشوائي_بين" | "عشوائي_عدد_بين" => {
                 let min_val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "random_range() requires 2 arguments",
@@ -908,7 +884,7 @@ impl Interpreter {
                 Ok(Value::Int(result))
             }
 
-            "random_float" | "عشوائي_عشري" => {
+            "عشوائي_عشري" | "عشوائي_عشري_بين" => {
                 use std::time::{SystemTime, UNIX_EPOCH};
                 let seed = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -919,7 +895,7 @@ impl Interpreter {
                 Ok(Value::Float(result))
             }
 
-            "random_bool" | "عشوائي_منطقي" => {
+            "عشوائي_منطقي" => {
                 use std::time::{SystemTime, UNIX_EPOCH};
                 let seed = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -929,7 +905,7 @@ impl Interpreter {
                 Ok(Value::Bool(random.is_multiple_of(2)))
             }
 
-            "assert" | "تأكد" => {
+            "تأكد" => {
                 let cond = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "assert() requires 1 argument",
@@ -946,7 +922,7 @@ impl Interpreter {
                 Ok(Value::Null)
             }
 
-            "assert_msg" | "تأكد_رسالة" => {
+            "تأكد_رسالة" => {
                 let cond = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "assert_msg() requires 2 arguments",
@@ -970,7 +946,7 @@ impl Interpreter {
                 Ok(Value::Null)
             }
 
-            "panic" | "توقف" => {
+            "توقف" => {
                 let msg = args
                     .first()
                     .map(|v| v.to_display_string())
@@ -982,7 +958,7 @@ impl Interpreter {
                 ))
             }
 
-            "sleep" | "نم" => {
+            "نم" => {
                 let ms = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "sleep() requires 1 argument (milliseconds)",
@@ -1000,7 +976,7 @@ impl Interpreter {
                 Ok(Value::Null)
             }
 
-            "time_now" | "وقت_الآن" => {
+            "وقت_الآن" | "وقت_أداء" => {
                 use std::time::{SystemTime, UNIX_EPOCH};
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -1009,7 +985,7 @@ impl Interpreter {
                 Ok(Value::Int(now))
             }
 
-            "ادخل_رسالة" | "input_prompt" => {
+            "ادخل_رسالة" => {
                 let prompt = args
                     .first()
                     .map(|v| v.to_display_string())
@@ -1026,7 +1002,7 @@ impl Interpreter {
                 Ok(Value::string(input.trim_end()))
             }
 
-            "ادخل_عدد" | "input_int" => {
+            "ادخل_عدد" => {
                 let mut input = String::new();
                 io::stdin()
                     .read_line(&mut input)
@@ -1039,7 +1015,7 @@ impl Interpreter {
                     .map_err(|_| RuntimeError::type_error("integer input", "invalid input"))
             }
 
-            "ادخل_عشري" | "input_float" => {
+            "ادخل_عشري" => {
                 let mut input = String::new();
                 io::stdin()
                     .read_line(&mut input)
@@ -1052,39 +1028,39 @@ impl Interpreter {
                     .map_err(|_| RuntimeError::type_error("float input", "invalid input"))
             }
 
-            "trq_int_to_string" => {
+            "عدد_لنص" | "trq_int_to_string" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
-                        "trq_int_to_string requires 1 argument",
-                        "trq_int_to_string تتطلب معامل واحد",
+                        "عدد_لنص() requires 1 argument",
+                        "عدد_لنص() تتطلب معامل واحد",
                     )
                 })?;
                 match val {
                     Value::Int(n) => Ok(Value::string(n.to_string())),
                     Value::Float(f) => Ok(Value::string((*f as i64).to_string())),
-                    _ => Err(RuntimeError::type_error("int", val.type_name())),
+                    _ => Err(RuntimeError::type_error("عدد", val.type_name())),
                 }
             }
 
-            "trq_float_to_string" => {
+            "عشري_لنص" | "trq_float_to_string" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
-                        "trq_float_to_string requires 1 argument",
-                        "trq_float_to_string تتطلب معامل واحد",
+                        "عشري_لنص() requires 1 argument",
+                        "عشري_لنص() تتطلب معامل واحد",
                     )
                 })?;
                 match val {
                     Value::Float(f) => Ok(Value::string(f.to_string())),
                     Value::Int(n) => Ok(Value::string((*n as f64).to_string())),
-                    _ => Err(RuntimeError::type_error("float", val.type_name())),
+                    _ => Err(RuntimeError::type_error("عدد_عشري", val.type_name())),
                 }
             }
 
-            "trq_bool_to_string" => {
+            "منطقي_لنص" | "trq_bool_to_string" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
-                        "trq_bool_to_string requires 1 argument",
-                        "trq_bool_to_string تتطلب معامل واحد",
+                        "منطقي_لنص() requires 1 argument",
+                        "منطقي_لنص() تتطلب معامل واحد",
                     )
                 })?;
                 match val {
@@ -1093,7 +1069,7 @@ impl Interpreter {
                     } else {
                         "خطأ".to_string()
                     })),
-                    _ => Err(RuntimeError::type_error("bool", val.type_name())),
+                    _ => Err(RuntimeError::type_error("منطقي", val.type_name())),
                 }
             }
 

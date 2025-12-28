@@ -46,10 +46,9 @@ fn convert_diagnostic(
         DiagnosticLevel::Hint => DiagnosticSeverity::HINT,
     };
 
-    let message = match language {
-        Language::Arabic => &diag.message_ar,
-        Language::English => &diag.message,
-    };
+    // Arabic-only: ترقيم لغة برمجة عربية
+    let _language = language; // Mark as used
+    let message = &diag.message_ar;
 
     let range = span_to_range(content, &diag.span);
 
@@ -61,10 +60,8 @@ fn convert_diagnostic(
                 .iter()
                 .filter_map(|note| {
                     note.span.as_ref().map(|span| {
-                        let note_message = match language {
-                            Language::Arabic => &note.message_ar,
-                            Language::English => &note.message,
-                        };
+                        // Arabic-only
+                        let note_message = &note.message_ar;
                         DiagnosticRelatedInformation {
                             location: Location {
                                 uri: uri.clone(),
@@ -106,6 +103,7 @@ mod tests {
 
     #[test]
     fn test_convert_diagnostic() {
+        // Arabic-only: ترقيم لغة برمجة عربية
         let diag = Diagnostic::error(
             "Undefined variable 'x'",
             "المتغير 'x' غير معرف",
@@ -119,12 +117,14 @@ mod tests {
         assert_eq!(lsp_diag.message, "المتغير 'x' غير معرف");
         assert_eq!(lsp_diag.severity, Some(DiagnosticSeverity::ERROR));
 
-        let lsp_diag_en = convert_diagnostic(&diag, content, &uri, Language::English);
-        assert_eq!(lsp_diag_en.message, "Undefined variable 'x'");
+        // Even with English language setting, output should be Arabic
+        let lsp_diag_with_en = convert_diagnostic(&diag, content, &uri, Language::English);
+        assert_eq!(lsp_diag_with_en.message, "المتغير 'x' غير معرف");
     }
 
     #[test]
     fn test_severity_mapping() {
+        // Arabic-only: ترقيم لغة برمجة عربية
         let content = "x";
         let span = Span::new(0, 1, 1, 1);
         let uri = test_uri();
@@ -132,10 +132,13 @@ mod tests {
         let error = Diagnostic::error("error", "خطأ", span);
         let warning = Diagnostic::warning("warning", "تحذير", span);
 
-        let lsp_error = convert_diagnostic(&error, content, &uri, Language::English);
-        let lsp_warning = convert_diagnostic(&warning, content, &uri, Language::English);
+        let lsp_error = convert_diagnostic(&error, content, &uri, Language::Arabic);
+        let lsp_warning = convert_diagnostic(&warning, content, &uri, Language::Arabic);
 
         assert_eq!(lsp_error.severity, Some(DiagnosticSeverity::ERROR));
         assert_eq!(lsp_warning.severity, Some(DiagnosticSeverity::WARNING));
+        // Verify Arabic messages are used
+        assert_eq!(lsp_error.message, "خطأ");
+        assert_eq!(lsp_warning.message, "تحذير");
     }
 }
