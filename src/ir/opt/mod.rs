@@ -18,6 +18,9 @@ mod dce;
 mod inline;
 pub mod loop_opt;
 
+#[cfg(test)]
+mod integration_tests;
+
 pub use const_fold::ConstantFolder;
 pub use cse::CommonSubexprElim;
 pub use dce::DeadCodeEliminator;
