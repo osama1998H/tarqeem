@@ -37,7 +37,9 @@ jobs:
           set -o pipefail  # Make pipeline fail if any command fails
           echo "Running benchmarks on PR branch..."
           mkdir -p benchmark-results
-          if cargo bench -- --save-baseline pr 2>&1 | tee benchmark-pr.log; then
+          # Use --benches to only run Criterion benchmarks, not library tests
+          # (library tests don't understand --save-baseline option)
+          if cargo bench --benches -- --save-baseline pr 2>&1 | tee benchmark-pr.log; then
             echo "pr_success=true" >> $GITHUB_OUTPUT
             if [ -d "target/criterion" ]; then
               cp -r target/criterion benchmark-results/pr
@@ -67,7 +69,8 @@ jobs:
             exit 0
           fi
 
-          if cargo bench -- --save-baseline base 2>&1 | tee benchmark-base.log; then
+          # Use --benches to only run Criterion benchmarks, not library tests
+          if cargo bench --benches -- --save-baseline base 2>&1 | tee benchmark-base.log; then
             echo "base_success=true" >> $GITHUB_OUTPUT
             if [ -d "target/criterion" ]; then
               cp -r target/criterion benchmark-results/base
