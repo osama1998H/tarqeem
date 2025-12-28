@@ -121,6 +121,10 @@ impl Interpreter {
                 | "عدد_لنص"
                 | "عشري_لنص"
                 | "منطقي_لنص"
+                // Runtime function names (used by IR/codegen)
+                | "trq_int_to_string"
+                | "trq_float_to_string"
+                | "trq_bool_to_string"
         )
     }
 
@@ -1024,7 +1028,7 @@ impl Interpreter {
                     .map_err(|_| RuntimeError::type_error("float input", "invalid input"))
             }
 
-            "عدد_لنص" => {
+            "عدد_لنص" | "trq_int_to_string" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "عدد_لنص() requires 1 argument",
@@ -1038,7 +1042,7 @@ impl Interpreter {
                 }
             }
 
-            "عشري_لنص" => {
+            "عشري_لنص" | "trq_float_to_string" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "عشري_لنص() requires 1 argument",
@@ -1052,7 +1056,7 @@ impl Interpreter {
                 }
             }
 
-            "منطقي_لنص" => {
+            "منطقي_لنص" | "trq_bool_to_string" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation(
                         "منطقي_لنص() requires 1 argument",
