@@ -78,6 +78,7 @@ path = "src/main.rs"
 [lib]
 name = "tarqeem"
 path = "src/lib.rs"
+bench = false  # Disable libtest harness for lib to allow Criterion CLI args
 
 [profile.release]
 lto = true
