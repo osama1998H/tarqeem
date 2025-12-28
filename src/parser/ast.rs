@@ -1,8 +1,9 @@
 //! Abstract Syntax Tree (AST) definitions for Tarqeem
 
 use crate::error::Span;
+use serde::Serialize;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Ast {
     pub statements: Vec<Stmt>,
     pub bismillah_span: Option<Span>,
@@ -35,7 +36,7 @@ impl Ast {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Stmt {
     pub kind: StmtKind,
     pub span: Span,
@@ -70,7 +71,7 @@ impl Stmt {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum StmtKind {
     VarDecl {
         name: String,
@@ -172,7 +173,7 @@ pub enum StmtKind {
     Block(Block),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Expr {
     pub kind: ExprKind,
     pub span: Span,
@@ -184,7 +185,7 @@ impl Expr {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum ExprKind {
     Literal(Literal),
 
@@ -269,7 +270,7 @@ pub enum ExprKind {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum Literal {
     Int(i64),
     Float(f64),
@@ -278,7 +279,7 @@ pub enum Literal {
     Null,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -320,7 +321,7 @@ impl BinaryOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum UnaryOp {
     Neg,     // -x
     Not,     // !x, ليس x
@@ -330,7 +331,7 @@ pub enum UnaryOp {
     PostDec, // x--
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Block {
     pub statements: Vec<Stmt>,
     pub span: Span,
@@ -342,7 +343,7 @@ impl Block {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Param {
     pub name: String,
     pub ty: Option<TypeAnnotation>,
@@ -350,7 +351,7 @@ pub struct Param {
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TypeAnnotation {
     pub kind: TypeKind,
     pub span: Span,
@@ -362,7 +363,7 @@ impl TypeAnnotation {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum TypeKind {
     Simple(String),
 
@@ -383,13 +384,13 @@ pub enum TypeKind {
     Optional(Box<TypeAnnotation>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum LambdaBody {
     Expr(Box<Expr>),
     Block(Block),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MatchArm {
     pub patterns: Vec<Pattern>,
     pub body: Block,
@@ -398,7 +399,7 @@ pub struct MatchArm {
 
 /// Pattern for match expressions
 /// نمط للمطابقة في تعبيرات تطابق
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Pattern {
     pub kind: PatternKind,
     pub span: Span,
@@ -421,7 +422,7 @@ impl Pattern {
 }
 
 /// Pattern kinds for match expressions
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum PatternKind {
     /// Literal value pattern (numbers, strings, booleans)
     /// نمط القيمة الحرفية (أرقام، نصوص، قيم منطقية)
@@ -444,27 +445,27 @@ pub enum PatternKind {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CatchClause {
     pub param: String,
     pub body: Block,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum ImportItems {
     Named(Vec<ImportItem>),
     Wildcard(String),
     Default(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ImportItem {
     pub name: String,
     pub alias: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum PropertyAccessor {
     Get {
         visibility: Visibility,
@@ -477,13 +478,13 @@ pub enum PropertyAccessor {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum PropertyAccessorBody {
     Expr(Box<Expr>),
     Block(Block),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum ClassMember {
     Field {
         visibility: Visibility,
@@ -522,7 +523,7 @@ pub enum ClassMember {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MethodSignature {
     pub name: String,
     pub params: Vec<Param>,
@@ -530,7 +531,7 @@ pub struct MethodSignature {
     pub doc_comment: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct EnumVariant {
     pub name: String,
     pub discriminant: Option<i64>,
@@ -539,14 +540,14 @@ pub struct EnumVariant {
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct EnumVariantField {
     pub name: Option<String>,
     pub ty: TypeAnnotation,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 pub enum Visibility {
     #[default]
     Public,

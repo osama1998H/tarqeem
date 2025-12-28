@@ -375,7 +375,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
         Commands::Lex { file } => lex_command(file),
 
-        Commands::Parse { file } => parse_command(file, lang),
+        Commands::Parse { file, format } => parse_command(file, format, lang),
 
         Commands::Pkg { command } => pkg_command(command),
 
@@ -754,7 +754,7 @@ fn lex_command(file: PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_command(file: PathBuf, lang: Language) -> Result<(), String> {
+fn parse_command(file: PathBuf, format: String, lang: Language) -> Result<(), String> {
     warn_invalid_extension(&file);
 
     // Arabic-only: ترقيم لغة برمجة عربية
@@ -765,8 +765,19 @@ fn parse_command(file: PathBuf, lang: Language) -> Result<(), String> {
     let mut parser = Parser::new(&source);
     match parser.parse() {
         Ok(ast) => {
-            println!("{}", "=== الشجرة النحوية ===".cyan().bold());
-            println!("{:#?}", ast);
+            match format.as_str() {
+                "json" => {
+                    // Output AST as JSON for IDE integration
+                    let json = serde_json::to_string_pretty(&ast)
+                        .map_err(|e| format!("خطأ في تحويل JSON: {}", e))?;
+                    println!("{}", json);
+                }
+                _ => {
+                    // Default: debug format
+                    println!("{}", "=== الشجرة النحوية ===".cyan().bold());
+                    println!("{:#?}", ast);
+                }
+            }
         }
         Err(e) => {
             e.emit(&source, &filename, lang);
