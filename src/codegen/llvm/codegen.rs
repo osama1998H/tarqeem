@@ -2083,7 +2083,7 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "الى_درجات" | "درجات" => Some("trq_to_degrees"),
 
         "توقف" => Some("trq_panic"),
-        "طول" => Some("trq_array_len"),  // Generic length function for arrays
+        "طول" => Some("trq_array_len"), // Generic length function for arrays
         "طول_مصفوفة" => Some("trq_array_len"),
         "الحق" => Some("trq_array_push"),
 
