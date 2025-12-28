@@ -203,8 +203,8 @@
             </div>
 
             <div class="buttons">
-                <button class="func-btn" onclick="calculate('قوة')">قوة</button>
-                <button class="func-btn" onclick="calculate('باقي')">باقي</button>
+                <button class="func-btn" onclick="calculate('حساب_القوة')">قوة</button>
+                <button class="func-btn" onclick="calculate('حساب_الباقي')">باقي</button>
                 <button class="func-btn" onclick="calculateSingle('مضروب')">مضروب</button>
                 <button class="func-btn" onclick="calculateSingle('فيبوناتشي')">فيبوناتشي</button>
             </div>
@@ -314,8 +314,8 @@
                             case 'طرح': return a - b;
                             case 'ضرب': return a * b;
                             case 'قسمة': return b !== 0 ? Math.floor(a / b) : 0;
-                            case 'قوة': return Math.pow(a, b);
-                            case 'باقي': return a % b;
+                            case 'حساب_القوة': return Math.pow(a, b);
+                            case 'حساب_الباقي': return a % b;
                             case 'مضروب':
                                 let f = 1;
                                 for (let i = 2; i <= a; i++) f *= i;
