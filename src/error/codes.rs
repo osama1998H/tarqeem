@@ -103,7 +103,7 @@ impl ErrorCategory {
 
 /// رمز خطأ عربي - Arabic error code
 ///
-/// Represents an error code in the format: [category][4-digit-number]
+/// Represents an error code in the format: `<category><4-digit-number>`
 /// Example: د٠٣٠١ (category: Dalala, number: 301)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ErrorCode {
