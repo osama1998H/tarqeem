@@ -237,10 +237,9 @@ fn get_symbol_completions(doc: &mut DocumentState, language: Language) -> Vec<Co
                 SymbolKind::EnumVariant => CompletionItemKind::ENUM_MEMBER,
             };
 
-            let type_str = match language {
-                Language::Arabic => info.ty.arabic_name(),
-                Language::English => info.ty.to_string(),
-            };
+            // Arabic-only: ترقيم لغة برمجة عربية
+            let _language = language; // Mark as used
+            let type_str = info.ty.arabic_name();
 
             CompletionItem {
                 label: name.clone(),

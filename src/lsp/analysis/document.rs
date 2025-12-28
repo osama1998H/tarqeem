@@ -434,14 +434,14 @@ impl DocumentState {
     }
 
     fn parse_type_name(&self, name: &str) -> Type {
+        // Arabic-only: ترقيم لغة برمجة عربية
         match name {
-            "عدد" | "int" => Type::Int,
-            "عدد_عشري" | "float" => Type::Float,
-            "نص" | "string" => Type::String,
-            "منطقي" | "bool" => Type::Bool,
-            "void" => Type::Void, // فراغ eliminated - functions default to no return
-            "لا_شيء" | "null" | "none" => Type::Null,
-            "أي" | "اي" | "any" => Type::Any,
+            "عدد" => Type::Int,
+            "عدد_عشري" => Type::Float,
+            "نص" => Type::String,
+            "منطقي" => Type::Bool,
+            "لا_شيء" => Type::Null,
+            "أي" | "اي" => Type::Any,
             _ => Type::Class(name.to_string()),
         }
     }
