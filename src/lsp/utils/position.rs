@@ -191,25 +191,37 @@ mod tests {
         // Char 0 -> line 0, char 0
         assert_eq!(
             offset_to_position(content, 0),
-            Position { line: 0, character: 0 }
+            Position {
+                line: 0,
+                character: 0
+            }
         );
 
         // Char 8 (newline) -> line 0, char 8
         assert_eq!(
             offset_to_position(content, 8),
-            Position { line: 0, character: 8 }
+            Position {
+                line: 0,
+                character: 8
+            }
         );
 
         // Char 9 (first char after newline) -> line 1, char 0
         assert_eq!(
             offset_to_position(content, 9),
-            Position { line: 1, character: 0 }
+            Position {
+                line: 1,
+                character: 0
+            }
         );
 
         // Char 14 (opening quote of string arg) -> line 1, char 5
         assert_eq!(
             offset_to_position(content, 14),
-            Position { line: 1, character: 5 }
+            Position {
+                line: 1,
+                character: 5
+            }
         );
     }
 

@@ -359,7 +359,8 @@ mod tests {
 // تعليق فقط
 متغير س = 5
 متغير ص = 10
-الحمد_لله"#.to_string();
+الحمد_لله"#
+            .to_string();
         let mut doc = DocumentState::new(test_uri(), 1, content);
 
         let range = Range {
@@ -379,8 +380,11 @@ mod tests {
         if let Some(ref hint_list) = hints {
             for hint in hint_list {
                 // Parameter hints should NOT exist since there are no function calls
-                assert_ne!(hint.kind, Some(InlayHintKind::PARAMETER),
-                    "Found unexpected PARAMETER hint! There are no function calls in this file.");
+                assert_ne!(
+                    hint.kind,
+                    Some(InlayHintKind::PARAMETER),
+                    "Found unexpected PARAMETER hint! There are no function calls in this file."
+                );
             }
         }
     }
@@ -390,7 +394,8 @@ mod tests {
         // Test file WITH function call - should have parameter hint
         let content = r#"بسم_الله
 اطبع("مرحبا")
-الحمد_لله"#.to_string();
+الحمد_لله"#
+            .to_string();
         let mut doc = DocumentState::new(test_uri(), 1, content);
 
         let range = Range {
@@ -408,14 +413,17 @@ mod tests {
 
         // Should have at least one PARAMETER hint for the اطبع call
         if let Some(ref hint_list) = hints {
-            let param_hints: Vec<_> = hint_list.iter()
+            let param_hints: Vec<_> = hint_list
+                .iter()
                 .filter(|h| h.kind == Some(InlayHintKind::PARAMETER))
                 .collect();
             // Verify the parameter hint is at the correct position (line 1, not line 0)
             for hint in &param_hints {
-                assert!(hint.position.line >= 1,
+                assert!(
+                    hint.position.line >= 1,
                     "Parameter hint should be on line 1 or later (where اطبع is), not line {}",
-                    hint.position.line);
+                    hint.position.line
+                );
             }
         }
     }
