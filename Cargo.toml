@@ -47,7 +47,7 @@ futures = "0.3"
 dashmap = "6.0"    # Concurrent hashmap for document state
 
 # JIT Compilation (optional)
-cranelift-codegen = { version = "0.113", optional = true }
+cranelift-codegen = { version = "0.127", optional = true }
 cranelift-frontend = { version = "0.113", optional = true }
 cranelift-jit = { version = "0.113", optional = true }
 cranelift-module = { version = "0.113", optional = true }
