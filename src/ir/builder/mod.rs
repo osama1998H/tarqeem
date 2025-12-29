@@ -14,6 +14,7 @@ mod expr_builder;
 mod stmt_builder;
 mod type_helpers;
 
+use crate::error::codes::ERR_ENTRY_POINT_CONFLICT;
 use crate::parser::{Ast, ClassMember, Param, StmtKind, TypeAnnotation};
 
 use super::{
@@ -188,21 +189,41 @@ impl IrBuilder {
             }
         }
 
-        // Check if there's any top-level code that needs a __main__ function
-        let mut has_top_level_code = false;
-        for stmt in &ast.statements {
-            match &stmt.kind {
+        // Check if user defined دالة رئيسية() (Program mode entry point)
+        let has_user_main = ast.statements.iter().any(|stmt| {
+            matches!(&stmt.kind, StmtKind::FuncDecl { name, .. } if name == "رئيسية")
+        });
+
+        // Check if there's top-level EXECUTABLE code (Script mode entry point)
+        // VarDecl is allowed (global variables), but other statements are executable code
+        let has_top_level_executable = ast.statements.iter().any(|stmt| {
+            !matches!(
+                &stmt.kind,
                 StmtKind::FuncDecl { .. }
-                | StmtKind::ClassDecl { .. }
-                | StmtKind::InterfaceDecl { .. } => {}
-                _ => {
-                    has_top_level_code = true;
-                    break;
-                }
-            }
+                    | StmtKind::ClassDecl { .. }
+                    | StmtKind::InterfaceDecl { .. }
+                    | StmtKind::VarDecl { .. }
+            )
+        });
+
+        // ERROR: Cannot have both Script mode and Program mode in the same file
+        if has_user_main && has_top_level_executable {
+            return Err(IrError::new(
+                format!(
+                    "[{}] Cannot have both top-level executable statements and دالة رئيسية() in the same file. \
+                     Use either Script mode (top-level code) or Program mode (دالة رئيسية).",
+                    ERR_ENTRY_POINT_CONFLICT
+                ),
+                format!(
+                    "[{}] لا يمكن وجود جمل تنفيذية عليا ودالة رئيسية() في نفس الملف. \
+                     استخدم إما وضع السكربت (كود علوي) أو وضع البرنامج (دالة رئيسية).",
+                    ERR_ENTRY_POINT_CONFLICT
+                ),
+            ));
         }
 
-        if has_top_level_code {
+        // Script mode: wrap top-level executable code in auto-generated __main__
+        if has_top_level_executable && !has_user_main {
             self.begin_function("__main__".to_string(), vec![], IrType::Void)?;
         }
 
@@ -211,7 +232,8 @@ impl IrBuilder {
             self.build_stmt(stmt)?;
         }
 
-        if has_top_level_code {
+        // Close the auto-generated __main__ if in Script mode
+        if has_top_level_executable && !has_user_main {
             if let Some(ref func) = self.current_function {
                 // Use current_block, not blocks.last(), because after control flow
                 // statements (like match), current_block may be different from the
@@ -223,6 +245,17 @@ impl IrBuilder {
                 }
             }
             self.end_function()?;
+        }
+
+        // Program mode: rename دالة رئيسية() to __main__ to serve as entry point
+        if has_user_main {
+            for func in &mut self.module.functions {
+                if func.name == "رئيسية" {
+                    func.name = "__main__".to_string();
+                    func.id = FuncId("__main__".to_string());
+                    break;
+                }
+            }
         }
 
         Ok(self.module)
@@ -633,4 +666,95 @@ mod tests {
         });
         assert!(has_alloca, "Local variable should use Alloca");
     }
+
+    #[test]
+    fn test_program_mode_main_function_renamed() {
+        // Program mode: دالة رئيسية() is renamed to __main__ for linking
+        let source = r#"
+            دالة رئيسية() {
+                اطبع("مرحبا")
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+
+        // Should have __main__ function, not رئيسية
+        assert!(
+            module.functions.iter().any(|f| f.name == "__main__"),
+            "Function رئيسية should be renamed to __main__"
+        );
+        assert!(
+            !module.functions.iter().any(|f| f.name == "رئيسية"),
+            "Function رئيسية should not exist after renaming"
+        );
+    }
+
+    #[test]
+    fn test_program_mode_with_globals() {
+        // Program mode: globals + دالة رئيسية() should work
+        let source = r#"
+            متغير س = 5
+
+            دالة رئيسية() {
+                اطبع("مرحبا")
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+
+        // Should have global and __main__
+        assert_eq!(module.globals.len(), 1, "Should have one global variable");
+        assert!(
+            module.functions.iter().any(|f| f.name == "__main__"),
+            "Function رئيسية should be renamed to __main__"
+        );
+        // Should NOT have duplicate __main__ functions
+        let main_count = module.functions.iter().filter(|f| f.name == "__main__").count();
+        assert_eq!(main_count, 1, "Should have exactly one __main__ function");
+    }
+
+    #[test]
+    fn test_script_mode_top_level_code() {
+        // Script mode: top-level executable code creates auto __main__
+        let source = r#"
+            اطبع("مرحبا")
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+
+        assert!(
+            module.functions.iter().any(|f| f.name == "__main__"),
+            "Script mode should create __main__ for top-level code"
+        );
+    }
+
+    #[test]
+    fn test_script_and_program_mode_conflict_error() {
+        // Conflict: both top-level executable code AND دالة رئيسية() should error
+        let source = r#"
+            اطبع("top level")
+
+            دالة رئيسية() {
+                اطبع("in main")
+            }
+        "#;
+        let result = build_ir(source);
+
+        assert!(
+            result.is_err(),
+            "Should error when both Script mode and Program mode are used"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.message.contains("Cannot have both"),
+            "Error should mention the conflict"
+        );
+        // Verify error code is included
+        assert!(
+            err.message.contains("ت٠٢٠١"),
+            "Error should include error code ت٠٢٠١"
+        );
+        assert!(
+            err.message_ar.contains("ت٠٢٠١"),
+            "Arabic error should include error code ت٠٢٠١"
+        );
+    }
+
 }

@@ -856,6 +856,96 @@ If no return type is specified, the function does not return a value (void).
 | `اطبع(قيمة)` | `print(value)` | Print to stdout |
 | `طول(مصفوفة)` | `len(array)` | Get array length |
 
+### 8.7 Program Entry Points
+
+Tarqeem supports two mutually exclusive execution modes:
+
+#### Script Mode (وضع السكربت)
+
+In Script Mode, executable statements at the top level define the program's entry point. The compiler automatically wraps this code in a main function.
+
+```tarqeem
+بسم_الله
+
+// Global variables (allowed)
+متغير counter = 0
+
+// Top-level executable code - this is the entry point
+اطبع("مرحباً بالعالم!")
+counter = counter + 1
+اطبع("العداد: " + counter)
+
+الحمد_لله
+```
+
+#### Program Mode (وضع البرنامج)
+
+In Program Mode, the `دالة رئيسية()` function explicitly defines the entry point. This is similar to `main()` in C/C++ or Java.
+
+```tarqeem
+بسم_الله
+
+// Global variables (allowed)
+متغير الاسم: نص = "ترقيم"
+ثابت الإصدار = "1.0.0"
+
+// Helper function
+دالة تحية(اسم: نص) {
+    اطبع("مرحباً يا " + اسم + "!")
+}
+
+// Main entry point
+دالة رئيسية() {
+    اطبع("=== وضع البرنامج ===")
+    تحية(الاسم)
+    اطبع("=== انتهى البرنامج ===")
+}
+
+الحمد_لله
+```
+
+#### Mode Conflict (Compile Error)
+
+**IMPORTANT**: A program CANNOT use both modes simultaneously. If both top-level executable statements AND `دالة رئيسية()` exist in the same file, a compile error is produced:
+
+```tarqeem
+// ❌ ERROR: Cannot have both modes
+بسم_الله
+
+اطبع("top level code")    // Script mode entry point
+
+دالة رئيسية() {            // Program mode entry point
+    اطبع("in main")       // This would never execute!
+}
+
+الحمد_لله
+```
+
+**Error [ت٠٢٠١]**:
+- English: "Cannot have both top-level executable statements and دالة رئيسية() in the same file."
+- Arabic: "لا يمكن وجود جمل تنفيذية عليا ودالة رئيسية() في نفس الملف."
+
+#### Design Rationale
+
+This design ensures:
+
+1. **Predictable behavior**: Only one entry point exists - no ambiguity about what executes first
+2. **Tool-friendly**: IDEs and debuggers can easily identify the entry point
+3. **Scalability**: Program Mode encourages structured code organization for larger projects
+4. **Simplicity**: Script Mode allows quick scripts without boilerplate
+
+#### What Counts as Top-Level Executable Code
+
+| Statement Type | Script Mode? | Allowed with `دالة رئيسية()`? |
+|----------------|--------------|-------------------------------|
+| `متغير` / `ثابت` (global declarations) | No | Yes ✓ |
+| `دالة` (function declarations) | No | Yes ✓ |
+| `صنف` (class declarations) | No | Yes ✓ |
+| `ميثاق` (interface declarations) | No | Yes ✓ |
+| `اطبع()` (function calls) | Yes ✗ | No - causes error |
+| `إذا` / `طالما` (control flow) | Yes ✗ | No - causes error |
+| Expressions and assignments | Yes ✗ | No - causes error |
+
 ---
 
 ## 9. Object-Oriented Programming

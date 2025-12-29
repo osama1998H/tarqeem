@@ -348,6 +348,11 @@ pub const ERR_LLVM_INTERNAL: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 
 /// ت٠١٠١: فشل الربط
 pub const ERR_LINKING_FAILED: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 101);
 
+/// ت٠٢٠١: تعارض وضع نقطة الدخول (وضع السكربت ووضع البرنامج معاً)
+/// Entry point mode conflict: Cannot have both top-level executable code (Script mode)
+/// and دالة رئيسية() (Program mode) in the same file.
+pub const ERR_ENTRY_POINT_CONFLICT: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 201);
+
 // ============================================================================
 // رموز التحذيرات (ح) - Warning Codes
 // ============================================================================
@@ -390,6 +395,7 @@ mod tests {
         assert_eq!(ERR_CLASS_NOT_FOUND.to_string(), "ص٠٠٠١");
         assert_eq!(ERR_MODULE_NOT_FOUND.to_string(), "و٠٠٠١");
         assert_eq!(ERR_LLVM_INTERNAL.to_string(), "ت٠٠٠١");
+        assert_eq!(ERR_ENTRY_POINT_CONFLICT.to_string(), "ت٠٢٠١");
     }
 
     #[test]
