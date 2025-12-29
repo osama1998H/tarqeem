@@ -3,7 +3,7 @@
 mod compile;
 mod debug;
 
-pub use compile::{compile, CompileArgs};
+pub use compile::{compile, CompileArgs, CompilationTiming};
 pub use debug::{debug, DebugArgs};
 
 use super::{Cli, Commands, PkgCommands};
@@ -40,19 +40,28 @@ pub(super) fn warn_invalid_extension(file: &Path) {
 }
 
 pub(super) fn find_runtime() -> Option<PathBuf> {
-    let search_paths = [
-        std::env::current_exe()
-            .ok()?
-            .parent()?
-            .join("runtime/libtrq.a"),
-        std::env::current_exe()
-            .ok()?
-            .parent()?
-            .join("../runtime/libtrq.a"),
-        PathBuf::from("runtime/libtrq.a"),
-        PathBuf::from("/usr/local/lib/tarqeem/libtrq.a"),
-        PathBuf::from("/usr/lib/tarqeem/libtrq.a"),
-    ];
+    // Build search paths, filtering out None values
+    let mut search_paths: Vec<PathBuf> = Vec::new();
+
+    // Relative to executable
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            search_paths.push(parent.join("runtime/libtrq.a"));
+            search_paths.push(parent.join("../runtime/libtrq.a"));
+        }
+    }
+
+    // Relative to current directory
+    search_paths.push(PathBuf::from("runtime/libtrq.a"));
+
+    // User-local path (~/.tarqeem/lib/libtrq.a)
+    if let Some(home) = dirs::home_dir() {
+        search_paths.push(home.join(".tarqeem/lib/libtrq.a"));
+    }
+
+    // System paths
+    search_paths.push(PathBuf::from("/usr/local/lib/tarqeem/libtrq.a"));
+    search_paths.push(PathBuf::from("/usr/lib/tarqeem/libtrq.a"));
 
     for path in &search_paths {
         if path.exists() {
@@ -318,6 +327,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             dump_ast,
             dump_ir,
             dump_opt_stats,
+            timing,
         } => {
             let args = CompileArgs {
                 file,
@@ -336,6 +346,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
                 dump_ir,
                 dump_opt_stats,
                 verbose: cli.verbose,
+                timing,
             };
             compile(args, lang)
         }
