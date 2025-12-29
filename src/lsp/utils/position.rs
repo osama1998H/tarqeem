@@ -18,9 +18,8 @@ use tower_lsp::lsp_types::{Position, Range};
 pub fn offset_to_position(content: &str, offset: usize) -> Position {
     let mut line = 0u32;
     let mut character = 0u32;
-    let mut char_index = 0usize;
 
-    for c in content.chars() {
+    for (char_index, c) in content.chars().enumerate() {
         if char_index >= offset {
             break;
         }
@@ -32,8 +31,6 @@ pub fn offset_to_position(content: &str, offset: usize) -> Position {
             // LSP uses UTF-16 code units for character position
             character += c.len_utf16() as u32;
         }
-
-        char_index += 1; // Count characters, not bytes
     }
 
     Position { line, character }
