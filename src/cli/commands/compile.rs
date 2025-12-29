@@ -10,6 +10,35 @@ use crate::utils::CompilerContext;
 use colored::Colorize;
 use std::fs;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+/// Timing information for each compilation stage (in microseconds)
+#[derive(Default)]
+pub struct CompilationTiming {
+    pub lexer: Duration,
+    pub parser: Duration,
+    pub semantic: Duration,
+    pub ir_build: Duration,
+    pub optimize: Duration,
+    pub codegen: Duration,
+    pub total: Duration,
+}
+
+impl CompilationTiming {
+    /// Output timing data as JSON (times in microseconds)
+    pub fn to_json(&self) -> String {
+        format!(
+            r#"{{"lexer":{},"parser":{},"semantic":{},"ir":{},"optimize":{},"codegen":{},"total":{}}}"#,
+            self.lexer.as_micros(),
+            self.parser.as_micros(),
+            self.semantic.as_micros(),
+            self.ir_build.as_micros(),
+            self.optimize.as_micros(),
+            self.codegen.as_micros(),
+            self.total.as_micros()
+        )
+    }
+}
 
 use super::{configure_analyzer, find_runtime, find_wasm_runtime, warn_invalid_extension};
 
@@ -31,10 +60,16 @@ pub struct CompileArgs {
     pub dump_ir: bool,
     pub dump_opt_stats: bool,
     pub verbose: bool,
+    /// Output compilation timing as JSON (for IDE integration)
+    pub timing: bool,
 }
 
 pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     warn_invalid_extension(&args.file);
+
+    // Start total timing
+    let total_start = Instant::now();
+    let mut timing = CompilationTiming::default();
 
     let source = fs::read_to_string(&args.file)
         .map_err(|e| format!("Could not read file: {} / لا يمكن قراءة الملف: {}", e, e))?;
@@ -45,26 +80,41 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     let mut ctx = CompilerContext::new();
 
     if args.dump_tokens {
+        let lexer_start = Instant::now();
         let mut lexer = Lexer::with_interner(&source, ctx.interner_mut());
         println!("{}", "=== Tokens / الرموز ===".cyan().bold());
         for token in lexer.tokenize() {
             println!("  {:?} @ {}", token.kind, token.span);
         }
+        timing.lexer = lexer_start.elapsed();
+        timing.total = total_start.elapsed();
+        if args.timing {
+            println!("{}", timing.to_json());
+        }
         return Ok(());
     }
 
+    // Lexer + Parser timing (parser includes lexer internally)
+    let parser_start = Instant::now();
     let mut parser = Parser::new(&source);
     let ast = parser.parse().map_err(|e| {
         e.emit(&source, &filename, lang);
         "Parse error / خطأ في التحليل".to_string()
     })?;
+    timing.parser = parser_start.elapsed();
 
     if args.dump_ast {
         println!("{}", "=== AST / الشجرة النحوية ===".cyan().bold());
         println!("{:#?}", ast);
+        timing.total = total_start.elapsed();
+        if args.timing {
+            println!("{}", timing.to_json());
+        }
         return Ok(());
     }
 
+    // Semantic analysis timing
+    let semantic_start = Instant::now();
     let mut analyzer = Analyzer::new();
     configure_analyzer(&mut analyzer, args.verbose);
     if let Err(diagnostics) = analyzer.analyze(&ast) {
@@ -77,6 +127,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
             diagnostics.len()
         ));
     }
+    timing.semantic = semantic_start.elapsed();
 
     let module_name = args
         .file
@@ -85,6 +136,8 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
         .unwrap_or("module")
         .to_string();
 
+    // IR generation timing
+    let ir_start = Instant::now();
     let ir_builder = IrBuilder::new(module_name);
     let mut ir_module = ir_builder.build(&ast).map_err(|e| {
         format!(
@@ -92,6 +145,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
             e.message, e.message_ar
         )
     })?;
+    timing.ir_build = ir_start.elapsed();
 
     let opt = match args.opt_level {
         0 => OptLevel::O0,
@@ -100,8 +154,11 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
         _ => OptLevel::O3,
     };
 
+    // Optimization timing
+    let opt_start = Instant::now();
     let mut optimizer = Optimizer::new(opt);
     optimizer.optimize(&mut ir_module);
+    timing.optimize = opt_start.elapsed();
 
     if args.dump_opt_stats && optimizer.stats().any_changes() {
         println!(
@@ -116,6 +173,10 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     if args.dump_ir {
         println!("{}", "=== IR / التمثيل الوسيط ===".cyan().bold());
         println!("{}", ir_module);
+        timing.total = total_start.elapsed();
+        if args.timing {
+            println!("{}", timing.to_json());
+        }
         return Ok(());
     }
 
@@ -136,6 +197,8 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
         Target::native()
     };
 
+    // Code generation timing
+    let codegen_start = Instant::now();
     let mut codegen = LlvmCodegen::new(target_config.clone());
     let llvm_ir = codegen.generate(&ir_module).map_err(|e| {
         format!(
@@ -143,6 +206,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
             e.message, e.message_ar
         )
     })?;
+    timing.codegen = codegen_start.elapsed();
 
     let output_path = args.output.unwrap_or_else(|| {
         let stem = args
@@ -338,6 +402,14 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
                 output_path.display()
             );
         }
+    }
+
+    // Calculate total time
+    timing.total = total_start.elapsed();
+
+    // Output timing JSON if requested
+    if args.timing {
+        println!("{}", timing.to_json());
     }
 
     if args.verbose {

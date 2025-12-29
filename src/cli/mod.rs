@@ -80,6 +80,10 @@ pub enum Commands {
 
         #[arg(long)]
         dump_opt_stats: bool,
+
+        /// Output compilation timing as JSON (for IDE integration)
+        #[arg(long, aliases = ["توقيت"])]
+        timing: bool,
     },
 
     #[command(aliases = ["شغل", "r"])]
