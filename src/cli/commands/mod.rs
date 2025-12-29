@@ -3,7 +3,7 @@
 mod compile;
 mod debug;
 
-pub use compile::{compile, CompileArgs, CompilationTiming};
+pub use compile::{compile, CompilationTiming, CompileArgs};
 pub use debug::{debug, DebugArgs};
 
 use super::{Cli, Commands, PkgCommands};

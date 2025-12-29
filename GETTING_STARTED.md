@@ -78,12 +78,12 @@ cargo run -- compile مرحبا.ترقيم -o مرحبا
 
 ## Common Commands | الأوامر الشائعة
 
-| Command | Description |
-|---------|-------------|
-| `cargo run -- run file.ترقيم` | Run a program |
-| `cargo run -- compile file.ترقيم` | Compile to binary |
-| `cargo run -- check file.ترقيم` | Check for errors |
-| `cargo run -- repl` | Start interactive mode |
+| Command                           | Description            |
+|-----------------------------------|------------------------|
+| `cargo run -- run file.ترقيم`     | Run a program          |
+| `cargo run -- compile file.ترقيم` | Compile to binary      |
+| `cargo run -- check file.ترقيم`   | Check for errors       |
+| `cargo run -- repl`               | Start interactive mode |
 
 ## Next Steps | الخطوات التالية
 
