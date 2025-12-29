@@ -190,9 +190,10 @@ impl IrBuilder {
         }
 
         // Check if user defined دالة رئيسية() (Program mode entry point)
-        let has_user_main = ast.statements.iter().any(|stmt| {
-            matches!(&stmt.kind, StmtKind::FuncDecl { name, .. } if name == "رئيسية")
-        });
+        let has_user_main = ast
+            .statements
+            .iter()
+            .any(|stmt| matches!(&stmt.kind, StmtKind::FuncDecl { name, .. } if name == "رئيسية"));
 
         // Check if there's top-level EXECUTABLE code (Script mode entry point)
         // VarDecl is allowed (global variables), but other statements are executable code
@@ -707,7 +708,11 @@ mod tests {
             "Function رئيسية should be renamed to __main__"
         );
         // Should NOT have duplicate __main__ functions
-        let main_count = module.functions.iter().filter(|f| f.name == "__main__").count();
+        let main_count = module
+            .functions
+            .iter()
+            .filter(|f| f.name == "__main__")
+            .count();
         assert_eq!(main_count, 1, "Should have exactly one __main__ function");
     }
 
@@ -756,5 +761,4 @@ mod tests {
             "Arabic error should include error code ت٠٢٠١"
         );
     }
-
 }
