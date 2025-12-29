@@ -6,7 +6,7 @@
 //! - LSP's `Range` (start/end positions)
 //!
 //! IMPORTANT: The lexer stores spans as character indices (not byte offsets)
-//! because it uses Vec<char>. This module converts those indices to LSP positions.
+//! because it uses `Vec<char>`. This module converts those indices to LSP positions.
 
 use crate::error::Span;
 use tower_lsp::lsp_types::{Position, Range};
@@ -14,7 +14,7 @@ use tower_lsp::lsp_types::{Position, Range};
 /// Converts a character index to an LSP Position.
 ///
 /// The `offset` parameter is a CHARACTER INDEX (not byte offset) because
-/// the Tarqeem lexer uses Vec<char> and stores character positions in spans.
+/// the Tarqeem lexer uses `Vec<char>` and stores character positions in spans.
 pub fn offset_to_position(content: &str, offset: usize) -> Position {
     let mut line = 0u32;
     let mut character = 0u32;
