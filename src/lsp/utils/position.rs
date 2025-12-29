@@ -1,20 +1,26 @@
 //! Position and offset conversion utilities
 //!
 //! Handles conversion between:
-//! - Tarqeem's `Span` (byte offsets + line/column)
-//! - LSP's `Position` (line/character, 0-indexed)
+//! - Tarqeem's `Span` (character indices from lexer)
+//! - LSP's `Position` (line/character, 0-indexed, UTF-16 code units)
 //! - LSP's `Range` (start/end positions)
+//!
+//! IMPORTANT: The lexer stores spans as character indices (not byte offsets)
+//! because it uses `Vec<char>`. This module converts those indices to LSP positions.
 
 use crate::error::Span;
 use tower_lsp::lsp_types::{Position, Range};
 
+/// Converts a character index to an LSP Position.
+///
+/// The `offset` parameter is a CHARACTER INDEX (not byte offset) because
+/// the Tarqeem lexer uses `Vec<char>` and stores character positions in spans.
 pub fn offset_to_position(content: &str, offset: usize) -> Position {
     let mut line = 0u32;
     let mut character = 0u32;
-    let mut current_offset = 0usize;
 
-    for c in content.chars() {
-        if current_offset >= offset {
+    for (char_index, c) in content.chars().enumerate() {
+        if char_index >= offset {
             break;
         }
 
@@ -22,10 +28,9 @@ pub fn offset_to_position(content: &str, offset: usize) -> Position {
             line += 1;
             character = 0;
         } else {
+            // LSP uses UTF-16 code units for character position
             character += c.len_utf16() as u32;
         }
-
-        current_offset += c.len_utf8();
     }
 
     Position { line, character }
@@ -163,6 +168,56 @@ mod tests {
             Position {
                 line: 0,
                 character: 0
+            }
+        );
+    }
+
+    #[test]
+    fn test_offset_to_position_arabic_multiline() {
+        // This tests the exact scenario from the inlay hints bug
+        // Content has بسم_الله on line 0, اطبع("مرحبا") on line 1
+        let content = "بسم_الله\nاطبع(\"مرحبا\")";
+
+        // Character indices (what the lexer produces):
+        // 0-7: بسم_الله (8 chars)
+        // 8: \n
+        // 9-12: اطبع (4 chars)
+        // 13: (
+        // 14: "
+
+        // Char 0 -> line 0, char 0
+        assert_eq!(
+            offset_to_position(content, 0),
+            Position {
+                line: 0,
+                character: 0
+            }
+        );
+
+        // Char 8 (newline) -> line 0, char 8
+        assert_eq!(
+            offset_to_position(content, 8),
+            Position {
+                line: 0,
+                character: 8
+            }
+        );
+
+        // Char 9 (first char after newline) -> line 1, char 0
+        assert_eq!(
+            offset_to_position(content, 9),
+            Position {
+                line: 1,
+                character: 0
+            }
+        );
+
+        // Char 14 (opening quote of string arg) -> line 1, char 5
+        assert_eq!(
+            offset_to_position(content, 14),
+            Position {
+                line: 1,
+                character: 5
             }
         );
     }

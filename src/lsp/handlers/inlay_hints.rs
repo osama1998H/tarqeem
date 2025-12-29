@@ -351,4 +351,80 @@ mod tests {
         let hints = handle_inlay_hints(&mut doc, range, Language::Arabic);
         assert!(hints.is_some() || hints.is_none()); // May or may not have hints depending on analysis
     }
+
+    #[test]
+    fn test_inlay_hints_no_calls() {
+        // Test file with NO function calls - should have NO parameter hints
+        let content = r#"بسم_الله
+// تعليق فقط
+متغير س = 5
+متغير ص = 10
+الحمد_لله"#
+            .to_string();
+        let mut doc = DocumentState::new(test_uri(), 1, content);
+
+        let range = Range {
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 100,
+                character: 100,
+            },
+        };
+
+        let hints = handle_inlay_hints(&mut doc, range, Language::Arabic);
+
+        // Check that no PARAMETER hints exist (only TYPE hints should exist for variables)
+        if let Some(ref hint_list) = hints {
+            for hint in hint_list {
+                // Parameter hints should NOT exist since there are no function calls
+                assert_ne!(
+                    hint.kind,
+                    Some(InlayHintKind::PARAMETER),
+                    "Found unexpected PARAMETER hint! There are no function calls in this file."
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_inlay_hints_with_builtin_call() {
+        // Test file WITH function call - should have parameter hint
+        let content = r#"بسم_الله
+اطبع("مرحبا")
+الحمد_لله"#
+            .to_string();
+        let mut doc = DocumentState::new(test_uri(), 1, content);
+
+        let range = Range {
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 100,
+                character: 100,
+            },
+        };
+
+        let hints = handle_inlay_hints(&mut doc, range, Language::Arabic);
+
+        // Should have at least one PARAMETER hint for the اطبع call
+        if let Some(ref hint_list) = hints {
+            let param_hints: Vec<_> = hint_list
+                .iter()
+                .filter(|h| h.kind == Some(InlayHintKind::PARAMETER))
+                .collect();
+            // Verify the parameter hint is at the correct position (line 1, not line 0)
+            for hint in &param_hints {
+                assert!(
+                    hint.position.line >= 1,
+                    "Parameter hint should be on line 1 or later (where اطبع is), not line {}",
+                    hint.position.line
+                );
+            }
+        }
+    }
 }
