@@ -94,6 +94,12 @@ impl LanguageServer for TarqeemLanguageServer {
         let version = params.text_document.version;
         let content = params.text_document.text;
 
+        // Skip manifest files - they use a different format than Tarqeem code
+        let path = uri.path();
+        if path.ends_with(".حزمة") || path.ends_with("ترقيم.حزمة") {
+            return;
+        }
+
         self.documents.insert(
             uri.clone(),
             DocumentState::new(uri.clone(), version, content),
@@ -105,6 +111,12 @@ impl LanguageServer for TarqeemLanguageServer {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
+
+        // Skip manifest files - they use a different format than Tarqeem code
+        let path = uri.path();
+        if path.ends_with(".حزمة") || path.ends_with("ترقيم.حزمة") {
+            return;
+        }
 
         if let Some(change) = params.content_changes.into_iter().next() {
             if let Some(mut doc) = self.documents.get_mut(&uri) {
@@ -123,6 +135,12 @@ impl LanguageServer for TarqeemLanguageServer {
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        // Skip manifest files - they use a different format than Tarqeem code
+        let path = params.text_document.uri.path();
+        if path.ends_with(".حزمة") || path.ends_with("ترقيم.حزمة") {
+            return;
+        }
+
         self.publish_diagnostics_for(&params.text_document.uri)
             .await;
     }
