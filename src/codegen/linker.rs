@@ -415,7 +415,7 @@ impl Linker {
             cmd.arg(runtime);
         }
 
-        cmd.arg("-lc").arg("-lm");
+        cmd.arg("-lc").arg("-lm").arg("-lz"); // -lz for zlib (compression)
 
         self.run_command(cmd, "clang")
     }
@@ -442,9 +442,10 @@ impl Linker {
             cmd.arg("-dynamic-linker")
                 .arg("/lib64/ld-linux-x86-64.so.2")
                 .arg("-lc")
-                .arg("-lm");
+                .arg("-lm")
+                .arg("-lz"); // zlib for compression
         } else if self.target.triple.os == "darwin" {
-            cmd.arg("-lSystem");
+            cmd.arg("-lSystem").arg("-lz"); // zlib for compression
         }
 
         self.run_command(cmd, "linker")

@@ -6,9 +6,30 @@
 //! Note: Tarqeem is an Arabic-only programming language.
 //! All built-in functions use Arabic names exclusively.
 
-use std::io::{self, Write};
+use std::fs;
+use std::io::{self, BufRead, Read, Write};
+
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
+use flate2::Compression;
+use sha2::{Digest, Sha256};
 
 use super::{Interpreter, RuntimeError, RuntimeResult, Value};
+
+/// Convert a Value to a byte (0-255) with range validation.
+fn value_to_byte(v: &Value) -> Result<u8, RuntimeError> {
+    let i = v
+        .as_int()
+        .ok_or_else(|| RuntimeError::type_error("عدد", v.type_name()))?;
+    if (0..=255).contains(&i) {
+        Ok(i as u8)
+    } else {
+        Err(RuntimeError::invalid_operation(
+            format!("Byte value must be 0-255, got {}", i),
+            format!("قيمة البايت يجب أن تكون 0-255، حصلنا على {}", i),
+        ))
+    }
+}
 
 impl Interpreter {
     pub(crate) fn is_builtin(&self, name: &str) -> bool {
@@ -125,6 +146,27 @@ impl Interpreter {
                 | "trq_int_to_string"
                 | "trq_float_to_string"
                 | "trq_bool_to_string"
+                // SHA-256 functions
+                | "احسب_بصمة"
+                | "بصمة_ملف"
+                | "بصمة_ثنائي"
+                | "طابق_بصمة"
+                // Hex encoding functions
+                | "إلى_ست_عشري"
+                | "من_ست_عشري"
+                | "ثنائي_إلى_ست_عشري"
+                | "ست_عشري_إلى_ثنائي"
+                // GZIP compression functions
+                | "اضغط"
+                | "فك_الضغط"
+                | "اضغط_ثنائي"
+                | "فك_ضغط_ثنائي"
+                | "اضغط_ملف"
+                | "فك_ضغط_ملف"
+                // File I/O functions
+                | "اقرأ_ملف"
+                | "اكتب_ملف"
+                | "اقرأ_سطر"
         )
     }
 
@@ -1071,6 +1113,543 @@ impl Interpreter {
                     })),
                     _ => Err(RuntimeError::type_error("منطقي", val.type_name())),
                 }
+            }
+
+            // ============================================================
+            // SHA-256 Functions (البصمة الرقمية)
+            // ============================================================
+            "احسب_بصمة" => {
+                // SHA256 hash of a string
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "احسب_بصمة() requires 1 argument",
+                        "احسب_بصمة() تتطلب معامل واحد",
+                    )
+                })?;
+
+                let text = match val {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", val.type_name())),
+                };
+
+                let mut hasher = Sha256::new();
+                hasher.update(text.as_bytes());
+                let result = hasher.finalize();
+                Ok(Value::string(hex::encode(result)))
+            }
+
+            "بصمة_ملف" => {
+                // SHA256 hash of a file
+                let path_val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "بصمة_ملف() requires 1 argument (file path)",
+                        "بصمة_ملف() تتطلب معامل واحد (مسار الملف)",
+                    )
+                })?;
+
+                let path = match path_val {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", path_val.type_name())),
+                };
+
+                let content = std::fs::read(path.as_str()).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Failed to read file '{}': {}", path, e),
+                        format!("فشل قراءة الملف '{}': {}", path, e),
+                    )
+                })?;
+
+                let mut hasher = Sha256::new();
+                hasher.update(&content);
+                let result = hasher.finalize();
+                Ok(Value::string(hex::encode(result)))
+            }
+
+            "بصمة_ثنائي" => {
+                // SHA256 hash of byte array
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "بصمة_ثنائي() requires 1 argument (byte array)",
+                        "بصمة_ثنائي() تتطلب معامل واحد (مصفوفة بايتات)",
+                    )
+                })?;
+
+                let bytes: Vec<u8> = match val {
+                    Value::Array(arr) => {
+                        let arr = arr.borrow();
+                        arr.iter()
+                            .map(value_to_byte)
+                            .collect::<Result<Vec<_>, _>>()?
+                    }
+                    _ => return Err(RuntimeError::type_error("مصفوفة", val.type_name())),
+                };
+
+                let mut hasher = Sha256::new();
+                hasher.update(&bytes);
+                let result = hasher.finalize();
+                Ok(Value::string(hex::encode(result)))
+            }
+
+            "طابق_بصمة" => {
+                // Compare two SHA256 hashes (constant-time comparison)
+                let hash1 = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "طابق_بصمة() requires 2 arguments",
+                        "طابق_بصمة() تتطلب معاملين",
+                    )
+                })?;
+                let hash2 = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "طابق_بصمة() requires 2 arguments",
+                        "طابق_بصمة() تتطلب معاملين",
+                    )
+                })?;
+
+                let h1 = match hash1 {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", hash1.type_name())),
+                };
+                let h2 = match hash2 {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", hash2.type_name())),
+                };
+
+                // Constant-time comparison to prevent timing attacks
+                let result = h1.len() == h2.len()
+                    && h1
+                        .bytes()
+                        .zip(h2.bytes())
+                        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+                        == 0;
+
+                Ok(Value::Bool(result))
+            }
+
+            // ============================================================
+            // Hex Encoding Functions (الترميز الست عشري)
+            // ============================================================
+            "إلى_ست_عشري" => {
+                // Hex encode a string
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "إلى_ست_عشري() requires 1 argument",
+                        "إلى_ست_عشري() تتطلب معامل واحد",
+                    )
+                })?;
+
+                let text = match val {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", val.type_name())),
+                };
+
+                Ok(Value::string(hex::encode(text.as_bytes())))
+            }
+
+            "من_ست_عشري" => {
+                // Hex decode to string
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "من_ست_عشري() requires 1 argument",
+                        "من_ست_عشري() تتطلب معامل واحد",
+                    )
+                })?;
+
+                let hex_str = match val {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", val.type_name())),
+                };
+
+                let bytes = hex::decode(hex_str.as_bytes()).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Invalid hex string: {}", e),
+                        format!("نص ست عشري غير صالح: {}", e),
+                    )
+                })?;
+
+                let text = String::from_utf8(bytes).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Invalid UTF-8 in decoded bytes: {}", e),
+                        format!("UTF-8 غير صالح في البيانات المفككة: {}", e),
+                    )
+                })?;
+
+                Ok(Value::string(text))
+            }
+
+            "ثنائي_إلى_ست_عشري" => {
+                // Hex encode byte array
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "ثنائي_إلى_ست_عشري() requires 1 argument",
+                        "ثنائي_إلى_ست_عشري() تتطلب معامل واحد",
+                    )
+                })?;
+
+                let bytes: Vec<u8> = match val {
+                    Value::Array(arr) => {
+                        let arr = arr.borrow();
+                        arr.iter()
+                            .map(value_to_byte)
+                            .collect::<Result<Vec<_>, _>>()?
+                    }
+                    _ => return Err(RuntimeError::type_error("مصفوفة", val.type_name())),
+                };
+
+                Ok(Value::string(hex::encode(&bytes)))
+            }
+
+            "ست_عشري_إلى_ثنائي" => {
+                // Hex decode to byte array
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "ست_عشري_إلى_ثنائي() requires 1 argument",
+                        "ست_عشري_إلى_ثنائي() تتطلب معامل واحد",
+                    )
+                })?;
+
+                let hex_str = match val {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", val.type_name())),
+                };
+
+                let bytes = hex::decode(hex_str.as_bytes()).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Invalid hex string: {}", e),
+                        format!("نص ست عشري غير صالح: {}", e),
+                    )
+                })?;
+
+                let values: Vec<Value> = bytes.into_iter().map(|b| Value::Int(b as i64)).collect();
+                Ok(Value::array_from(values))
+            }
+
+            // ============================================================
+            // GZIP Compression Functions (الضغط)
+            // ============================================================
+            "اضغط" => {
+                // GZIP compress a string, returns byte array
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "اضغط() requires 1 argument",
+                        "اضغط() تتطلب معامل واحد",
+                    )
+                })?;
+
+                let text = match val {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", val.type_name())),
+                };
+
+                let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                encoder.write_all(text.as_bytes()).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Compression failed: {}", e),
+                        format!("فشل الضغط: {}", e),
+                    )
+                })?;
+                let compressed = encoder.finish().map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Compression failed: {}", e),
+                        format!("فشل الضغط: {}", e),
+                    )
+                })?;
+
+                let values: Vec<Value> = compressed
+                    .into_iter()
+                    .map(|b| Value::Int(b as i64))
+                    .collect();
+                Ok(Value::array_from(values))
+            }
+
+            "فك_الضغط" => {
+                // GZIP decompress byte array to string
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "فك_الضغط() requires 1 argument",
+                        "فك_الضغط() تتطلب معامل واحد",
+                    )
+                })?;
+
+                let bytes: Vec<u8> = match val {
+                    Value::Array(arr) => {
+                        let arr = arr.borrow();
+                        arr.iter()
+                            .map(value_to_byte)
+                            .collect::<Result<Vec<_>, _>>()?
+                    }
+                    _ => return Err(RuntimeError::type_error("مصفوفة", val.type_name())),
+                };
+
+                let mut decoder = GzDecoder::new(&bytes[..]);
+                let mut decompressed = String::new();
+                decoder.read_to_string(&mut decompressed).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Decompression failed: {}", e),
+                        format!("فشل فك الضغط: {}", e),
+                    )
+                })?;
+
+                Ok(Value::string(decompressed))
+            }
+
+            "اضغط_ثنائي" => {
+                // GZIP compress byte array, returns byte array
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "اضغط_ثنائي() requires 1 argument",
+                        "اضغط_ثنائي() تتطلب معامل واحد",
+                    )
+                })?;
+
+                let bytes: Vec<u8> = match val {
+                    Value::Array(arr) => {
+                        let arr = arr.borrow();
+                        arr.iter()
+                            .map(value_to_byte)
+                            .collect::<Result<Vec<_>, _>>()?
+                    }
+                    _ => return Err(RuntimeError::type_error("مصفوفة", val.type_name())),
+                };
+
+                let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                encoder.write_all(&bytes).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Compression failed: {}", e),
+                        format!("فشل الضغط: {}", e),
+                    )
+                })?;
+                let compressed = encoder.finish().map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Compression failed: {}", e),
+                        format!("فشل الضغط: {}", e),
+                    )
+                })?;
+
+                let values: Vec<Value> = compressed
+                    .into_iter()
+                    .map(|b| Value::Int(b as i64))
+                    .collect();
+                Ok(Value::array_from(values))
+            }
+
+            "فك_ضغط_ثنائي" => {
+                // GZIP decompress byte array to byte array
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "فك_ضغط_ثنائي() requires 1 argument",
+                        "فك_ضغط_ثنائي() تتطلب معامل واحد",
+                    )
+                })?;
+
+                let bytes: Vec<u8> = match val {
+                    Value::Array(arr) => {
+                        let arr = arr.borrow();
+                        arr.iter()
+                            .map(value_to_byte)
+                            .collect::<Result<Vec<_>, _>>()?
+                    }
+                    _ => return Err(RuntimeError::type_error("مصفوفة", val.type_name())),
+                };
+
+                let mut decoder = GzDecoder::new(&bytes[..]);
+                let mut decompressed = Vec::new();
+                decoder.read_to_end(&mut decompressed).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Decompression failed: {}", e),
+                        format!("فشل فك الضغط: {}", e),
+                    )
+                })?;
+
+                let values: Vec<Value> = decompressed
+                    .into_iter()
+                    .map(|b| Value::Int(b as i64))
+                    .collect();
+                Ok(Value::array_from(values))
+            }
+
+            "اضغط_ملف" => {
+                // GZIP compress a file
+                let input_path = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "اضغط_ملف() requires 2 arguments (input, output)",
+                        "اضغط_ملف() تتطلب معاملين (المدخل، المخرج)",
+                    )
+                })?;
+                let output_path = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "اضغط_ملف() requires 2 arguments (input, output)",
+                        "اضغط_ملف() تتطلب معاملين (المدخل، المخرج)",
+                    )
+                })?;
+
+                let input = match input_path {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", input_path.type_name())),
+                };
+                let output = match output_path {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", output_path.type_name())),
+                };
+
+                let content = std::fs::read(input.as_str()).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Failed to read file '{}': {}", input, e),
+                        format!("فشل قراءة الملف '{}': {}", input, e),
+                    )
+                })?;
+
+                let output_file = std::fs::File::create(output.as_str()).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Failed to create file '{}': {}", output, e),
+                        format!("فشل إنشاء الملف '{}': {}", output, e),
+                    )
+                })?;
+
+                let mut encoder = GzEncoder::new(output_file, Compression::default());
+                encoder.write_all(&content).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Compression failed: {}", e),
+                        format!("فشل الضغط: {}", e),
+                    )
+                })?;
+                encoder.finish().map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Compression failed: {}", e),
+                        format!("فشل الضغط: {}", e),
+                    )
+                })?;
+
+                Ok(Value::Bool(true))
+            }
+
+            "فك_ضغط_ملف" => {
+                // GZIP decompress a file
+                let input_path = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "فك_ضغط_ملف() requires 2 arguments (input, output)",
+                        "فك_ضغط_ملف() تتطلب معاملين (المدخل، المخرج)",
+                    )
+                })?;
+                let output_path = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "فك_ضغط_ملف() requires 2 arguments (input, output)",
+                        "فك_ضغط_ملف() تتطلب معاملين (المدخل، المخرج)",
+                    )
+                })?;
+
+                let input = match input_path {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", input_path.type_name())),
+                };
+                let output = match output_path {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", output_path.type_name())),
+                };
+
+                let compressed = std::fs::read(input.as_str()).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Failed to read file '{}': {}", input, e),
+                        format!("فشل قراءة الملف '{}': {}", input, e),
+                    )
+                })?;
+
+                let mut decoder = GzDecoder::new(&compressed[..]);
+                let mut decompressed = Vec::new();
+                decoder.read_to_end(&mut decompressed).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Decompression failed: {}", e),
+                        format!("فشل فك الضغط: {}", e),
+                    )
+                })?;
+
+                std::fs::write(output.as_str(), &decompressed).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Failed to write file '{}': {}", output, e),
+                        format!("فشل كتابة الملف '{}': {}", output, e),
+                    )
+                })?;
+
+                Ok(Value::Bool(true))
+            }
+
+            "اقرأ_ملف" => {
+                // Read file contents as string
+                let path = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "اقرأ_ملف() requires 1 argument (file path)",
+                        "اقرأ_ملف() تتطلب معامل واحد (مسار الملف)",
+                    )
+                })?;
+
+                let path_str = match path {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", path.type_name())),
+                };
+
+                let content = fs::read_to_string(path_str.as_str()).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Failed to read file '{}': {}", path_str, e),
+                        format!("فشل قراءة الملف '{}': {}", path_str, e),
+                    )
+                })?;
+
+                Ok(Value::string(content))
+            }
+
+            "اكتب_ملف" => {
+                // Write string to file
+                let path = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "اكتب_ملف() requires 2 arguments (file path, content)",
+                        "اكتب_ملف() تتطلب معاملين (مسار الملف، المحتوى)",
+                    )
+                })?;
+                let content = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "اكتب_ملف() requires 2 arguments (file path, content)",
+                        "اكتب_ملف() تتطلب معاملين (مسار الملف، المحتوى)",
+                    )
+                })?;
+
+                let path_str = match path {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", path.type_name())),
+                };
+                let content_str = match content {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", content.type_name())),
+                };
+
+                fs::write(path_str.as_str(), content_str.as_str()).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Failed to write file '{}': {}", path_str, e),
+                        format!("فشل كتابة الملف '{}': {}", path_str, e),
+                    )
+                })?;
+
+                Ok(Value::Bool(true))
+            }
+
+            "اقرأ_سطر" => {
+                // Read line from stdin
+                let stdin = io::stdin();
+                let mut line = String::new();
+                stdin.lock().read_line(&mut line).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Failed to read line: {}", e),
+                        format!("فشل قراءة السطر: {}", e),
+                    )
+                })?;
+
+                // Remove trailing newline
+                if line.ends_with('\n') {
+                    line.pop();
+                    if line.ends_with('\r') {
+                        line.pop();
+                    }
+                }
+
+                Ok(Value::string(line))
             }
 
             _ => Err(RuntimeError::undefined_function(name)),
