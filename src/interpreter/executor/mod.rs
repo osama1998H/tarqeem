@@ -74,6 +74,12 @@ impl Interpreter {
     pub fn run(&mut self) -> RuntimeResult<Value> {
         self.init_globals()?;
 
+        // Call __global_init__ if it exists (initializes complex globals like arrays/objects)
+        let global_init_func = FuncId("__global_init__".to_string());
+        if self.module.get_function(&global_init_func).is_some() {
+            self.call_function(&global_init_func, vec![])?;
+        }
+
         let main_func = self.find_main_function()?;
 
         self.call_function(&main_func, vec![])
