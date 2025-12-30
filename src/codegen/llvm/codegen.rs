@@ -41,6 +41,9 @@ pub struct LlvmCodegen {
     current_return_type: IrType,
     global_vars: HashMap<String, String>,
     inherited_field_count: HashMap<String, usize>,
+    /// Global string variables that need runtime initialization
+    /// (mangled_global_name, string_constant_global, length)
+    global_string_inits: Vec<(String, String, usize)>,
 }
 
 impl LlvmCodegen {
@@ -61,6 +64,7 @@ impl LlvmCodegen {
             current_return_type: IrType::Void,
             global_vars: HashMap::new(),
             inherited_field_count: HashMap::new(),
+            global_string_inits: Vec::new(),
         }
     }
 
@@ -105,9 +109,42 @@ impl LlvmCodegen {
         emit!(self, "; C entry point");
         emit!(self, "define i32 @main() {{");
         emit!(self, "entry:");
+
+        // Initialize global string variables with TrqString* values
+        self.emit_global_string_init()?;
+
         emit!(self, "  call void @__main__()");
         emit!(self, "  ret i32 0");
         emit!(self, "}}");
+        Ok(())
+    }
+
+    /// Emit initialization code for global string variables
+    /// Converts raw char* string constants to TrqString* at program start
+    fn emit_global_string_init(&mut self) -> Result<(), CodegenError> {
+        if self.global_string_inits.is_empty() {
+            return Ok(());
+        }
+
+        emit!(self, "  ; Initialize global string variables");
+        for (global_name, str_global, len) in self.global_string_inits.clone() {
+            let ptr_temp = self.new_temp();
+            emit!(
+                self,
+                "  {} = getelementptr [0 x i8], ptr {}, i64 0, i64 0",
+                ptr_temp,
+                str_global
+            );
+            let str_temp = self.new_temp();
+            emit!(
+                self,
+                "  {} = call ptr @trq_string_new(ptr {}, i64 {})",
+                str_temp,
+                ptr_temp,
+                len
+            );
+            emit!(self, "  store ptr {}, ptr @{}", str_temp, global_name);
+        }
         Ok(())
     }
 
@@ -186,15 +223,16 @@ impl LlvmCodegen {
                 }
                 Some(Constant::Null) => "null".to_string(),
                 Some(Constant::String(idx)) => {
+                    // String globals store TrqString*, initialized at program start
+                    // Store the init info for emit_global_string_init() to handle
                     if let Some((str_global, len)) = self.string_globals.get(idx) {
-                        format!(
-                            "getelementptr ([{} x i8], ptr {}, i64 0, i64 0)",
-                            len + 1,
-                            str_global
-                        )
-                    } else {
-                        "null".to_string()
+                        self.global_string_inits.push((
+                            global_name.clone(),
+                            str_global.clone(),
+                            *len,
+                        ));
                     }
+                    "null".to_string()
                 }
                 None => self.zero_initializer(ty),
             };
@@ -1391,80 +1429,15 @@ impl LlvmCodegen {
                 let llvm_type = self.type_mapper.map_type(ty);
                 let global_name = mangle_name(name);
 
-                // For String type, global stores raw char* but we need TrqString*
-                // Load the raw pointer, get length with strlen, then wrap with trq_string_new
-                // SAFETY: Check for null pointer before calling strlen to avoid UB
-                if *ty == IrType::String {
-                    let raw_ptr = self.new_temp();
-                    emit!(self, "  {} = load ptr, ptr @{}", raw_ptr, global_name);
-
-                    // Null check: if the global string is uninitialized (null), use length 0
-                    let is_not_null = self.new_temp();
-                    let label_not_null = self
-                        .fresh_name("str_not_null")
-                        .trim_start_matches('%')
-                        .to_string();
-                    let label_is_null = self
-                        .fresh_name("str_is_null")
-                        .trim_start_matches('%')
-                        .to_string();
-                    let label_continue = self
-                        .fresh_name("str_continue")
-                        .trim_start_matches('%')
-                        .to_string();
-
-                    emit!(self, "  {} = icmp ne ptr {}, null", is_not_null, raw_ptr);
-                    emit!(
-                        self,
-                        "  br i1 {}, label %{}, label %{}",
-                        is_not_null,
-                        label_not_null,
-                        label_is_null
-                    );
-
-                    // Not null path: call strlen
-                    emit!(self, "{}:", label_not_null);
-                    let strlen_result = self.new_temp();
-                    emit!(
-                        self,
-                        "  {} = call i64 @strlen(ptr {})",
-                        strlen_result,
-                        raw_ptr
-                    );
-                    emit!(self, "  br label %{}", label_continue);
-
-                    // Null path: length is 0
-                    emit!(self, "{}:", label_is_null);
-                    emit!(self, "  br label %{}", label_continue);
-
-                    // Merge with phi
-                    emit!(self, "{}:", label_continue);
-                    let len_var = self.new_temp();
-                    emit!(
-                        self,
-                        "  {} = phi i64 [ {}, %{} ], [ 0, %{} ]",
-                        len_var,
-                        strlen_result,
-                        label_not_null,
-                        label_is_null
-                    );
-
-                    emit!(
-                        self,
-                        "  {} = call ptr @trq_string_new(ptr {}, i64 {})",
-                        dest_name,
-                        raw_ptr,
-                        len_var
-                    );
-                } else {
-                    emit!(
-                        self,
-                        "  {} = load {}, ptr @{}",
-                        dest_name,
-                        llvm_type,
-                        global_name
-                    );
-                }
+                // String globals store TrqString* (initialized at program start or from assignments)
+                // Just load the pointer directly - no wrapping needed
+                emit!(
+                    self,
+                    "  {} = load {}, ptr @{}",
+                    dest_name,
+                    llvm_type,
+                    global_name
+                );
                 self.var_types.insert(dest.0, ty.clone());
             }
 
