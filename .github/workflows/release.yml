@@ -19,7 +19,7 @@ jobs:
     name: Build Linux x86_64
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -43,7 +43,7 @@ jobs:
           cd dist && tar -czvf ../tarqeem-linux-x86_64.tar.gz *
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: tarqeem-linux-x86_64
           path: tarqeem-linux-x86_64.tar.gz
@@ -55,7 +55,7 @@ jobs:
     name: Build Linux ARM64
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -88,7 +88,7 @@ jobs:
           cd dist && tar -czvf ../tarqeem-linux-aarch64.tar.gz *
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: tarqeem-linux-aarch64
           path: tarqeem-linux-aarch64.tar.gz
@@ -100,7 +100,7 @@ jobs:
     name: Build macOS x86_64
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -124,7 +124,7 @@ jobs:
           cd dist && tar -czvf ../tarqeem-macos-x86_64.tar.gz *
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: tarqeem-macos-x86_64
           path: tarqeem-macos-x86_64.tar.gz
@@ -136,7 +136,7 @@ jobs:
     name: Build macOS ARM64
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -160,7 +160,7 @@ jobs:
           cd dist && tar -czvf ../tarqeem-macos-aarch64.tar.gz *
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: tarqeem-macos-aarch64
           path: tarqeem-macos-aarch64.tar.gz
@@ -172,7 +172,7 @@ jobs:
     name: Build Windows x86_64
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -195,7 +195,7 @@ jobs:
           Compress-Archive -Path dist/* -DestinationPath tarqeem-windows-x86_64.zip
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: tarqeem-windows-x86_64
           path: tarqeem-windows-x86_64.zip
@@ -213,10 +213,10 @@ jobs:
       - build-macos-aarch64
       - build-windows-x86_64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: artifacts
 
@@ -301,7 +301,7 @@ jobs:
   #   runs-on: ubuntu-latest
   #   needs: release
   #   steps:
-  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v6
   #     - uses: dtolnay/rust-toolchain@stable
   #     - name: Publish
   #       run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
