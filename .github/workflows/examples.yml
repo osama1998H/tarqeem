@@ -148,6 +148,8 @@ jobs:
           - لعبة_الحياة
           - حاسبة
           - وضع_البرنامج
+          - بصمة
+          - ضغط
     steps:
       - uses: actions/checkout@v6
 
@@ -203,6 +205,8 @@ jobs:
           - لعبة_الحياة
           - حاسبة
           - وضع_البرنامج
+          - بصمة
+          - ضغط
     steps:
       - uses: actions/checkout@v6
 
@@ -258,6 +262,8 @@ jobs:
           - لعبة_الحياة
           - حاسبة
           - وضع_البرنامج
+          - بصمة
+          - ضغط
     steps:
       - uses: actions/checkout@v6
 

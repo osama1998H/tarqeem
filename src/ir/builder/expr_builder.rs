@@ -471,6 +471,20 @@ impl IrBuilder {
                 }
             }
 
+            // Handle نص (to-string conversion) with type dispatch
+            // This function accepts Type::Any but needs to dispatch to the correct
+            // runtime function based on the actual argument type
+            if name == "نص" {
+                if let Some(arg_var) = arg_vars.first() {
+                    let arg_ty = self
+                        .var_types
+                        .get(&arg_var.0)
+                        .cloned()
+                        .unwrap_or(IrType::Int);
+                    return self.convert_to_string(*arg_var, &arg_ty);
+                }
+            }
+
             let ret_ty = self.get_function_return_type(name);
 
             let dest = self.new_var();

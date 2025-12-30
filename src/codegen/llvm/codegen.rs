@@ -41,6 +41,9 @@ pub struct LlvmCodegen {
     current_return_type: IrType,
     global_vars: HashMap<String, String>,
     inherited_field_count: HashMap<String, usize>,
+    /// Global string variables that need runtime initialization
+    /// (mangled_global_name, string_constant_global, length)
+    global_string_inits: Vec<(String, String, usize)>,
 }
 
 impl LlvmCodegen {
@@ -61,6 +64,7 @@ impl LlvmCodegen {
             current_return_type: IrType::Void,
             global_vars: HashMap::new(),
             inherited_field_count: HashMap::new(),
+            global_string_inits: Vec::new(),
         }
     }
 
@@ -105,9 +109,42 @@ impl LlvmCodegen {
         emit!(self, "; C entry point");
         emit!(self, "define i32 @main() {{");
         emit!(self, "entry:");
+
+        // Initialize global string variables with TrqString* values
+        self.emit_global_string_init()?;
+
         emit!(self, "  call void @__main__()");
         emit!(self, "  ret i32 0");
         emit!(self, "}}");
+        Ok(())
+    }
+
+    /// Emit initialization code for global string variables
+    /// Converts raw char* string constants to TrqString* at program start
+    fn emit_global_string_init(&mut self) -> Result<(), CodegenError> {
+        if self.global_string_inits.is_empty() {
+            return Ok(());
+        }
+
+        emit!(self, "  ; Initialize global string variables");
+        for (global_name, str_global, len) in self.global_string_inits.clone() {
+            let ptr_temp = self.new_temp();
+            emit!(
+                self,
+                "  {} = getelementptr [0 x i8], ptr {}, i64 0, i64 0",
+                ptr_temp,
+                str_global
+            );
+            let str_temp = self.new_temp();
+            emit!(
+                self,
+                "  {} = call ptr @trq_string_new(ptr {}, i64 {})",
+                str_temp,
+                ptr_temp,
+                len
+            );
+            emit!(self, "  store ptr {}, ptr @{}", str_temp, global_name);
+        }
         Ok(())
     }
 
@@ -186,15 +223,16 @@ impl LlvmCodegen {
                 }
                 Some(Constant::Null) => "null".to_string(),
                 Some(Constant::String(idx)) => {
+                    // String globals store TrqString*, initialized at program start
+                    // Store the init info for emit_global_string_init() to handle
                     if let Some((str_global, len)) = self.string_globals.get(idx) {
-                        format!(
-                            "getelementptr ([{} x i8], ptr {}, i64 0, i64 0)",
-                            len + 1,
-                            str_global
-                        )
-                    } else {
-                        "null".to_string()
+                        self.global_string_inits.push((
+                            global_name.clone(),
+                            str_global.clone(),
+                            *len,
+                        ));
                     }
+                    "null".to_string()
                 }
                 None => self.zero_initializer(ty),
             };
@@ -1390,6 +1428,9 @@ impl LlvmCodegen {
                 let dest_name = self.get_or_create_var(*dest);
                 let llvm_type = self.type_mapper.map_type(ty);
                 let global_name = mangle_name(name);
+
+                // String globals store TrqString* (initialized at program start or from assignments)
+                // Just load the pointer directly - no wrapping needed
                 emit!(
                     self,
                     "  {} = load {}, ptr @{}",
@@ -2017,6 +2058,7 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "عدد_لنص" => Some("trq_int_to_string"),
         "عشري_لنص" => Some("trq_float_to_string"),
         "منطقي_لنص" => Some("trq_bool_to_string"),
+        "نص" => Some("trq_int_to_string"), // Generic to-string (primarily used with int)
         "نص_لعدد" => Some("trq_string_to_int"),
         "نص_لعشري" => Some("trq_string_to_float"),
 
