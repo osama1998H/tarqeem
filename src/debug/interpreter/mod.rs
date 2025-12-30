@@ -16,7 +16,8 @@ use crate::ir::{BasicBlock, BlockId, Constant, FuncId, Function, Instruction, Mo
 use super::context::{BreakpointId, DebugContext};
 use super::source_map::SourceLocation;
 use super::state::{
-    DebugEvent, DebugScope, DebugState, DebugVariable, PauseReason, StackFrame, StepMode,
+    DebugEvent, DebugScope, DebugState, DebugVariable, HeapAllocation, HeapChild, PauseReason,
+    StackFrame, StepMode,
 };
 use super::{DebugError, DebugResult};
 
@@ -488,6 +489,160 @@ impl DebugInterpreter {
             DebugScope::new("Locals / محليات".to_string()).with_variables(self.get_locals()),
             DebugScope::new("Globals / عالميات".to_string()).with_variables(self.get_globals()),
         ]
+    }
+
+    /// Returns all heap-allocated objects (strings, arrays, objects) for memory inspection
+    pub fn get_heap_allocations(&self) -> Vec<HeapAllocation> {
+        use std::collections::HashSet;
+        use std::rc::Rc;
+
+        let mut allocations = Vec::new();
+        let mut seen_addresses: HashSet<usize> = HashSet::new();
+        let mut allocation_id: u64 = 1;
+
+        // Helper to estimate size of a value
+        fn estimate_size(value: &Value) -> usize {
+            match value {
+                Value::String(s) => std::mem::size_of::<Rc<String>>() + s.len(),
+                Value::Array(arr) => {
+                    let arr_ref = arr.borrow();
+                    std::mem::size_of_val(&*arr_ref)
+                        + arr_ref.iter().map(estimate_size).sum::<usize>()
+                }
+                Value::Object(obj) => {
+                    let obj_ref = obj.borrow();
+                    std::mem::size_of_val(&*obj_ref)
+                        + obj_ref
+                            .fields
+                            .iter()
+                            .map(|(k, v)| k.len() + estimate_size(v))
+                            .sum::<usize>()
+                }
+                Value::Int(_) => 8,
+                Value::Float(_) => 8,
+                Value::Bool(_) => 1,
+                Value::Null => 0,
+                _ => std::mem::size_of::<Value>(),
+            }
+        }
+
+        // Process a value and add to allocations if heap-allocated
+        let mut process_value = |name: &str, value: &Value, id: &mut u64| {
+            match value {
+                Value::String(s) => {
+                    let addr = Rc::as_ptr(s) as usize;
+                    if seen_addresses.insert(addr) {
+                        let alloc = HeapAllocation::new(
+                            *id,
+                            "String".to_string(),
+                            "نص".to_string(),
+                            estimate_size(value),
+                            format!("{:#x}", addr),
+                            Rc::strong_count(s) as u32,
+                            name.to_string(),
+                        );
+                        allocations.push(alloc);
+                        *id += 1;
+                    }
+                }
+                Value::Array(arr) => {
+                    let addr = Rc::as_ptr(arr) as *const () as usize;
+                    if seen_addresses.insert(addr) {
+                        let arr_ref = arr.borrow();
+                        let children: Vec<HeapChild> = arr_ref
+                            .iter()
+                            .enumerate()
+                            .take(10) // Limit children for display
+                            .map(|(i, v)| {
+                                HeapChild::new(
+                                    format!("[{}]", i),
+                                    v.to_display_string(),
+                                    v.type_name().to_string(),
+                                    v.type_name_ar().to_string(),
+                                )
+                            })
+                            .collect();
+
+                        let mut alloc = HeapAllocation::new(
+                            *id,
+                            "Array".to_string(),
+                            "مصفوفة".to_string(),
+                            estimate_size(value),
+                            format!("{:#x}", addr),
+                            Rc::strong_count(arr) as u32,
+                            name.to_string(),
+                        );
+                        if arr_ref.len() > 10 {
+                            let mut children = children;
+                            children.push(HeapChild::new(
+                                "...".to_string(),
+                                format!("{} عناصر أخرى", arr_ref.len() - 10),
+                                "".to_string(),
+                                "".to_string(),
+                            ));
+                            alloc = alloc.with_children(children);
+                        } else {
+                            alloc = alloc.with_children(children);
+                        }
+                        allocations.push(alloc);
+                        *id += 1;
+                    }
+                }
+                Value::Object(obj) => {
+                    let addr = Rc::as_ptr(obj) as *const () as usize;
+                    if seen_addresses.insert(addr) {
+                        let obj_ref = obj.borrow();
+                        let children: Vec<HeapChild> = obj_ref
+                            .fields
+                            .iter()
+                            .take(20) // Limit fields for display
+                            .map(|(field_name, field_value)| {
+                                HeapChild::new(
+                                    field_name.clone(),
+                                    field_value.to_display_string(),
+                                    field_value.type_name().to_string(),
+                                    field_value.type_name_ar().to_string(),
+                                )
+                            })
+                            .collect();
+
+                        let alloc = HeapAllocation::new(
+                            *id,
+                            format!("Object ({})", obj_ref.class_id.0),
+                            format!("كائن ({})", obj_ref.class_id.0),
+                            estimate_size(value),
+                            format!("{:#x}", addr),
+                            Rc::strong_count(obj) as u32,
+                            name.to_string(),
+                        )
+                        .with_children(children);
+                        allocations.push(alloc);
+                        *id += 1;
+                    }
+                }
+                _ => {} // Primitive types are not heap-allocated
+            }
+        };
+
+        // Process globals
+        for (name, value) in &self.globals {
+            process_value(name, value, &mut allocation_id);
+        }
+
+        // Process current frame locals
+        if let Some(frame) = self.call_stack.last() {
+            for (&var_id, value) in &frame.locals {
+                let name = self
+                    .context
+                    .source_map()
+                    .get_variable_info(&frame.func_id, VarId(var_id))
+                    .map(|i| i.name.clone())
+                    .unwrap_or_else(|| format!("%{}", var_id));
+                process_value(&name, value, &mut allocation_id);
+            }
+        }
+
+        allocations
     }
 
     pub fn evaluate(&self, expression: &str) -> DebugResult<Value> {

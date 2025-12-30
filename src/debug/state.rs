@@ -299,6 +299,67 @@ impl DebugScope {
     }
 }
 
+/// Represents a heap-allocated object for memory inspection
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HeapAllocation {
+    pub id: u64,
+    pub type_name: String,
+    pub type_name_ar: String,
+    pub size: usize,
+    pub address: String,
+    pub ref_count: u32,
+    pub tag: String,
+    pub children: Vec<HeapChild>,
+}
+
+impl HeapAllocation {
+    pub fn new(
+        id: u64,
+        type_name: String,
+        type_name_ar: String,
+        size: usize,
+        address: String,
+        ref_count: u32,
+        tag: String,
+    ) -> Self {
+        Self {
+            id,
+            type_name,
+            type_name_ar,
+            size,
+            address,
+            ref_count,
+            tag,
+            children: Vec::new(),
+        }
+    }
+
+    pub fn with_children(mut self, children: Vec<HeapChild>) -> Self {
+        self.children = children;
+        self
+    }
+}
+
+/// Child element of a heap allocation (field or array element)
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HeapChild {
+    pub name: String,
+    pub value: String,
+    pub type_name: String,
+    pub type_name_ar: String,
+}
+
+impl HeapChild {
+    pub fn new(name: String, value: String, type_name: String, type_name_ar: String) -> Self {
+        Self {
+            name,
+            value,
+            type_name,
+            type_name_ar,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

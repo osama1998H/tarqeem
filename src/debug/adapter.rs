@@ -322,6 +322,10 @@ impl DapAdapter {
             "evaluate" => self.handle_evaluate(&request),
             "source" => self.handle_source(&request),
             "setVariable" => self.handle_set_variable(&request),
+            // Memory Inspector extensions
+            "tarqeem/memoryStats" => self.handle_memory_stats(&request),
+            "tarqeem/heapAllocations" => self.handle_heap_allocations(&request),
+            "tarqeem/memoryTimeline" => self.handle_memory_timeline(&request),
             _ => DapResponse::error(&request, format!("Unknown command: {}", request.command)),
         };
 
@@ -841,6 +845,139 @@ impl DapAdapter {
             }
         }
         DapResponse::error(request, "Source not available".to_string())
+    }
+
+    // ========================================================================
+    // Memory Inspector DAP Extensions
+    // ========================================================================
+
+    /// Handle tarqeem/memoryStats request - returns memory usage statistics
+    fn handle_memory_stats(&mut self, request: &DapRequest) -> DapResponse {
+        if let Some(ref interpreter) = self.interpreter {
+            // Collect heap allocations to compute statistics
+            let allocations = interpreter.get_heap_allocations();
+
+            let mut total_size: usize = 0;
+            let mut string_size: usize = 0;
+            let mut array_size: usize = 0;
+            let mut object_size: usize = 0;
+
+            for alloc in &allocations {
+                total_size += alloc.size;
+                match alloc.type_name.as_str() {
+                    "string" | "نص" => string_size += alloc.size,
+                    "array" | "مصفوفة" => array_size += alloc.size,
+                    "object" | "كائن" => object_size += alloc.size,
+                    _ => {}
+                }
+            }
+
+            let regions = vec![
+                serde_json::json!({
+                    "name": "Strings",
+                    "name_ar": "نصوص",
+                    "allocated": string_size,
+                    "peak": string_size,
+                    "allocation_count": allocations.iter().filter(|a| a.type_name == "string" || a.type_name == "نص").count(),
+                    "deallocation_count": 0
+                }),
+                serde_json::json!({
+                    "name": "Arrays",
+                    "name_ar": "مصفوفات",
+                    "allocated": array_size,
+                    "peak": array_size,
+                    "allocation_count": allocations.iter().filter(|a| a.type_name == "array" || a.type_name == "مصفوفة").count(),
+                    "deallocation_count": 0
+                }),
+                serde_json::json!({
+                    "name": "Objects",
+                    "name_ar": "كائنات",
+                    "allocated": object_size,
+                    "peak": object_size,
+                    "allocation_count": allocations.iter().filter(|a| a.type_name == "object" || a.type_name == "كائن").count(),
+                    "deallocation_count": 0
+                }),
+            ];
+
+            DapResponse::success(
+                request,
+                Some(serde_json::json!({
+                    "regions": regions,
+                    "total_allocated": total_size,
+                    "total_peak": total_size,
+                    "live_allocations": allocations.len()
+                })),
+            )
+        } else {
+            DapResponse::error(
+                request,
+                "No active debug session / لا توجد جلسة تصحيح نشطة".to_string(),
+            )
+        }
+    }
+
+    /// Handle tarqeem/heapAllocations request - returns list of heap objects with ref counts
+    fn handle_heap_allocations(&mut self, request: &DapRequest) -> DapResponse {
+        let limit = request
+            .arguments
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(100) as usize;
+
+        if let Some(ref interpreter) = self.interpreter {
+            let allocations = interpreter.get_heap_allocations();
+
+            let alloc_json: Vec<serde_json::Value> = allocations
+                .into_iter()
+                .take(limit)
+                .map(|a| {
+                    serde_json::json!({
+                        "id": a.id,
+                        "type_name": a.type_name,
+                        "type_name_ar": a.type_name_ar,
+                        "size": a.size,
+                        "address": a.address,
+                        "ref_count": a.ref_count,
+                        "tag": a.tag,
+                        "children": a.children
+                    })
+                })
+                .collect();
+
+            DapResponse::success(
+                request,
+                Some(serde_json::json!({
+                    "allocations": alloc_json
+                })),
+            )
+        } else {
+            DapResponse::error(
+                request,
+                "No active debug session / لا توجد جلسة تصحيح نشطة".to_string(),
+            )
+        }
+    }
+
+    /// Handle tarqeem/memoryTimeline request - returns allocation events over time
+    fn handle_memory_timeline(&mut self, request: &DapRequest) -> DapResponse {
+        // Memory timeline tracking requires instrumentation during execution
+        // For now, return an empty timeline - this can be enhanced later
+        // with allocation/deallocation event tracking
+        if self.interpreter.is_some() {
+            DapResponse::success(
+                request,
+                Some(serde_json::json!({
+                    "events": [],
+                    "message": "Memory timeline tracking not yet implemented",
+                    "message_ar": "تتبع الخط الزمني للذاكرة لم يُنفَّذ بعد"
+                })),
+            )
+        } else {
+            DapResponse::error(
+                request,
+                "No active debug session / لا توجد جلسة تصحيح نشطة".to_string(),
+            )
+        }
     }
 }
 
