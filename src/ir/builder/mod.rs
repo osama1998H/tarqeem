@@ -794,10 +794,9 @@ mod tests {
             .expect("__global_init__ function should exist");
 
         let has_global_store = init_func.blocks.iter().any(|block| {
-            block
-                .instructions
-                .iter()
-                .any(|inst| matches!(inst, Instruction::GlobalStore { name, .. } if name == "قائمة"))
+            block.instructions.iter().any(
+                |inst| matches!(inst, Instruction::GlobalStore { name, .. } if name == "قائمة"),
+            )
         });
         assert!(
             has_global_store,
