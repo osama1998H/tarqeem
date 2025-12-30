@@ -76,7 +76,10 @@ pub use context::{Breakpoint, BreakpointId, DebugContext, WatchExpression};
 pub use interpreter::{DebugInterpreter, StepResult};
 pub use server::{DapMessage, DapProtocol, DapServer, TransportError, TransportResult};
 pub use source_map::{SourceLocation, SourceMap};
-pub use state::{DebugEvent, DebugState, DebugVariable, PauseReason, StackFrame, StepMode};
+pub use state::{
+    DebugEvent, DebugState, DebugVariable, HeapAllocation, HeapChild, PauseReason, StackFrame,
+    StepMode,
+};
 
 #[derive(Debug, Clone)]
 pub struct DebugError {
