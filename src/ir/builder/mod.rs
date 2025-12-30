@@ -15,7 +15,7 @@ mod stmt_builder;
 mod type_helpers;
 
 use crate::error::codes::ERR_ENTRY_POINT_CONFLICT;
-use crate::parser::{Ast, ClassMember, Param, StmtKind, TypeAnnotation};
+use crate::parser::{Ast, ClassMember, Expr, Param, StmtKind, TypeAnnotation};
 
 use super::{
     BasicBlock, BlockId, Class, ClassId, Constant, FuncId, Function, Instruction, IrType, Module,
@@ -221,6 +221,43 @@ impl IrBuilder {
                     ERR_ENTRY_POINT_CONFLICT
                 ),
             ));
+        }
+
+        // Collect global variables that need runtime initialization (non-constant initializers)
+        // This is needed for Program mode where VarDecl is processed outside function context
+        let globals_needing_init: Vec<(String, Expr)> = ast
+            .statements
+            .iter()
+            .filter_map(|stmt| {
+                if let StmtKind::VarDecl { name, init, .. } = &stmt.kind {
+                    if self.global_variables.contains(name) {
+                        if let Some(init_expr) = init {
+                            // Only include if it's NOT a constant (arrays, objects, etc.)
+                            if self.try_evaluate_const(init_expr).is_none() {
+                                return Some((name.clone(), init_expr.clone()));
+                            }
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
+
+        // In Program mode, create __global_init__ function for complex initializers
+        // This ensures arrays, objects, etc. are properly initialized before main runs
+        if has_user_main && !globals_needing_init.is_empty() {
+            self.begin_function("__global_init__".to_string(), vec![], IrType::Void)?;
+
+            for (name, init_expr) in &globals_needing_init {
+                let value = self.build_expr(init_expr)?;
+                self.emit(Instruction::GlobalStore {
+                    name: name.clone(),
+                    value,
+                });
+            }
+
+            self.emit(Instruction::Return { value: None });
+            self.end_function()?;
         }
 
         // Script mode: wrap top-level executable code in auto-generated __main__
@@ -727,6 +764,65 @@ mod tests {
         assert!(
             module.functions.iter().any(|f| f.name == "__main__"),
             "Script mode should create __main__ for top-level code"
+        );
+    }
+
+    #[test]
+    fn test_program_mode_global_array_init() {
+        // Program mode: global variables with complex initializers (arrays)
+        // should create __global_init__ function
+        let source = r#"
+            متغير قائمة = [1، 2، 3]
+
+            دالة رئيسية() {
+                اطبع(قائمة)
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+
+        // Should have __global_init__ function for array initialization
+        assert!(
+            module.functions.iter().any(|f| f.name == "__global_init__"),
+            "Program mode with array global should create __global_init__ function"
+        );
+
+        // __global_init__ should have GlobalStore instruction
+        let init_func = module
+            .functions
+            .iter()
+            .find(|f| f.name == "__global_init__")
+            .expect("__global_init__ function should exist");
+
+        let has_global_store = init_func.blocks.iter().any(|block| {
+            block
+                .instructions
+                .iter()
+                .any(|inst| matches!(inst, Instruction::GlobalStore { name, .. } if name == "قائمة"))
+        });
+        assert!(
+            has_global_store,
+            "__global_init__ should have GlobalStore for قائمة"
+        );
+    }
+
+    #[test]
+    fn test_program_mode_constant_global_no_init_func() {
+        // Program mode: global variables with constant initializers (int, string, etc.)
+        // should NOT create __global_init__ function
+        let source = r#"
+            متغير س = 5
+            ثابت اسم = "احمد"
+
+            دالة رئيسية() {
+                اطبع(س)
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+
+        // Should NOT have __global_init__ function (constants don't need it)
+        assert!(
+            !module.functions.iter().any(|f| f.name == "__global_init__"),
+            "Program mode with only constant globals should NOT create __global_init__"
         );
     }
 
