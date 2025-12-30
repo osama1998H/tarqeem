@@ -259,8 +259,8 @@ jobs:
           - لعبة_الحياة
           - حاسبة
           - وضع_البرنامج
-          # Note: بصمة and ضغط excluded from compiled mode - require LLVM codegen
-          # mappings for نص() and crypto/compression functions (work in interpreter/JIT)
+          - بصمة
+          - ضغط
     steps:
       - uses: actions/checkout@v6
 

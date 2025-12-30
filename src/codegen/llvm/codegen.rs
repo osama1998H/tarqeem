@@ -2017,6 +2017,7 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "عدد_لنص" => Some("trq_int_to_string"),
         "عشري_لنص" => Some("trq_float_to_string"),
         "منطقي_لنص" => Some("trq_bool_to_string"),
+        "نص" => Some("trq_int_to_string"), // Generic to-string (primarily used with int)
         "نص_لعدد" => Some("trq_string_to_int"),
         "نص_لعشري" => Some("trq_string_to_float"),
 
