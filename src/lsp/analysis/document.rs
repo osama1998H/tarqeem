@@ -2,9 +2,10 @@
 //!
 //! Manages the state of open documents and their analysis results.
 
-use crate::error::{Diagnostic, Language, Span};
+use crate::error::codes::ERR_ENTRY_POINT_CONFLICT;
+use crate::error::{Diagnostic, DiagnosticLevel, Language, Span};
 use crate::lexer::{Lexer, Token, TokenKind};
-use crate::parser::{Ast, Parser, TypeAnnotation, TypeKind};
+use crate::parser::{Ast, ClassMember, Parser, StmtKind, TypeAnnotation, TypeKind};
 use crate::semantic::{Analyzer, Type};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::Url;
@@ -159,6 +160,12 @@ impl DocumentState {
                 }
                 has_errors = true;
             }
+
+            // Check for entry point mode conflict (Script mode vs Program mode)
+            if let Some(diag) = self.check_entry_point_conflict(ast) {
+                diagnostics.push(diag);
+                has_errors = true;
+            }
         }
 
         AnalysisResult {
@@ -170,8 +177,66 @@ impl DocumentState {
         }
     }
 
+    /// Check for entry point mode conflict (Script mode vs Program mode).
+    /// Returns an error diagnostic if both top-level executable statements
+    /// AND دالة رئيسية() exist in the same file.
+    fn check_entry_point_conflict(&self, ast: &Ast) -> Option<Diagnostic> {
+        // Find دالة رئيسية() declaration (Program mode entry point)
+        let main_func_span = ast.statements.iter().find_map(|stmt| {
+            if let StmtKind::FuncDecl { name, .. } = &stmt.kind {
+                if name == "رئيسية" {
+                    return Some(stmt.span);
+                }
+            }
+            None
+        });
+
+        // Find first top-level executable statement (Script mode entry point)
+        // VarDecl, FuncDecl, ClassDecl, InterfaceDecl are declarations (allowed)
+        // Everything else is executable code
+        let first_executable_span = ast.statements.iter().find_map(|stmt| {
+            if !matches!(
+                &stmt.kind,
+                StmtKind::FuncDecl { .. }
+                    | StmtKind::ClassDecl { .. }
+                    | StmtKind::InterfaceDecl { .. }
+                    | StmtKind::VarDecl { .. }
+            ) {
+                return Some(stmt.span);
+            }
+            None
+        });
+
+        // If both exist, we have a conflict
+        if let (Some(main_span), Some(exec_span)) = (main_func_span, first_executable_span) {
+            // Point the error at the دالة رئيسية() declaration since that's likely
+            // what the user should remove to use Script mode
+            return Some(Diagnostic {
+                level: DiagnosticLevel::Error,
+                message: format!(
+                    "[{}] Cannot have both top-level executable statements and دالة رئيسية() in the same file. \
+                     Use either Script mode (top-level code) or Program mode (دالة رئيسية).",
+                    ERR_ENTRY_POINT_CONFLICT
+                ),
+                message_ar: format!(
+                    "[{}] لا يمكن وجود جمل تنفيذية عليا ودالة رئيسية() في نفس الملف. \
+                     استخدم إما وضع السكربت (كود علوي) أو وضع البرنامج (دالة رئيسية).",
+                    ERR_ENTRY_POINT_CONFLICT
+                ),
+                span: main_span,
+                notes: vec![crate::error::Note::new(
+                    format!("First top-level executable statement is at line {}", exec_span.line),
+                    format!("أول جملة تنفيذية عليا في السطر {}", exec_span.line),
+                ).with_span(exec_span)],
+                suggestions: vec![],
+                code: Some(ERR_ENTRY_POINT_CONFLICT.to_string()),
+            });
+        }
+
+        None
+    }
+
     fn collect_symbols(&self, ast: &Ast, symbols: &mut HashMap<String, SymbolInfo>) {
-        use crate::parser::{ClassMember, StmtKind};
 
         for stmt in &ast.statements {
             match &stmt.kind {
