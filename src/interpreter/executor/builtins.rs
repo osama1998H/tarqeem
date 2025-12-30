@@ -138,6 +138,10 @@ impl Interpreter {
                 | "نم"
                 | "وقت_الآن"
                 | "وقت_أداء"
+                // String functions
+                | "نص_يحتوي"
+                | "نص_يبدأ_بـ"
+                | "نص_ينتهي_بـ"
                 // Internal conversion (used by runtime)
                 | "عدد_لنص"
                 | "عشري_لنص"
@@ -1068,6 +1072,70 @@ impl Interpreter {
                     .parse::<f64>()
                     .map(Value::Float)
                     .map_err(|_| RuntimeError::type_error("float input", "invalid input"))
+            }
+
+            "نص_يحتوي" => {
+                let haystack = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "نص_يحتوي() requires 2 arguments",
+                        "نص_يحتوي() تتطلب معاملين",
+                    )
+                })?;
+                let needle = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "نص_يحتوي() requires 2 arguments",
+                        "نص_يحتوي() تتطلب معاملين",
+                    )
+                })?;
+
+                match (haystack, needle) {
+                    (Value::String(h), Value::String(n)) => Ok(Value::Bool(h.contains(n.as_str()))),
+                    _ => Err(RuntimeError::type_error("نص", haystack.type_name())),
+                }
+            }
+
+            "نص_يبدأ_بـ" => {
+                let text = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "نص_يبدأ_بـ() requires 2 arguments",
+                        "نص_يبدأ_بـ() تتطلب معاملين",
+                    )
+                })?;
+                let prefix = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "نص_يبدأ_بـ() requires 2 arguments",
+                        "نص_يبدأ_بـ() تتطلب معاملين",
+                    )
+                })?;
+
+                match (text, prefix) {
+                    (Value::String(t), Value::String(p)) => {
+                        Ok(Value::Bool(t.starts_with(p.as_str())))
+                    }
+                    _ => Err(RuntimeError::type_error("نص", text.type_name())),
+                }
+            }
+
+            "نص_ينتهي_بـ" => {
+                let text = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "نص_ينتهي_بـ() requires 2 arguments",
+                        "نص_ينتهي_بـ() تتطلب معاملين",
+                    )
+                })?;
+                let suffix = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "نص_ينتهي_بـ() requires 2 arguments",
+                        "نص_ينتهي_بـ() تتطلب معاملين",
+                    )
+                })?;
+
+                match (text, suffix) {
+                    (Value::String(t), Value::String(s)) => {
+                        Ok(Value::Bool(t.ends_with(s.as_str())))
+                    }
+                    _ => Err(RuntimeError::type_error("نص", text.type_name())),
+                }
             }
 
             "عدد_لنص" | "trq_int_to_string" => {

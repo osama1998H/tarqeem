@@ -1857,7 +1857,9 @@ fn test_print_string() {
 }
 
 #[test]
-fn test_c_main_entry_point() {
+fn test_main_entry_point() {
+    // The C main() entry point is provided by the runtime library (builtins.c),
+    // not by codegen. Codegen only generates __main__() which the runtime calls.
     let mut codegen = create_codegen();
     let mut module = create_test_module("test");
 
@@ -1877,9 +1879,10 @@ fn test_c_main_entry_point() {
 
     let result = codegen.generate(&module).unwrap();
 
-    assert!(result.contains("define i32 @main()"));
-    assert!(result.contains("call void @__main__()"));
-    assert!(result.contains("ret i32 0"));
+    // Verify __main__ is generated (called by runtime's main())
+    assert!(result.contains("define void @__main__()"));
+    // Verify we do NOT generate main() (runtime provides it)
+    assert!(!result.contains("define i32 @main()"));
 }
 
 #[test]
