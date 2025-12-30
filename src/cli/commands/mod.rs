@@ -351,7 +351,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
             compile(args, lang)
         }
 
-        Commands::Run { file, jit } => run_command(file, jit, cli.verbose, lang),
+        Commands::Run { file, jit, profile } => run_command(file, jit, profile, cli.verbose, lang),
 
         Commands::Debug {
             file,
@@ -405,7 +405,13 @@ pub fn run(cli: Cli) -> Result<(), String> {
 // Individual Command Implementations
 // ============================================================================
 
-fn run_command(file: PathBuf, jit: bool, verbose: bool, lang: Language) -> Result<(), String> {
+fn run_command(
+    file: PathBuf,
+    jit: bool,
+    profile: bool,
+    verbose: bool,
+    lang: Language,
+) -> Result<(), String> {
     warn_invalid_extension(&file);
 
     // Arabic-only: ترقيم لغة برمجة عربية
@@ -443,21 +449,27 @@ fn run_command(file: PathBuf, jit: bool, verbose: bool, lang: Language) -> Resul
         )
     })?;
 
-    if jit {
+    // When --profile is used, always use JIT for profiling data
+    let use_jit = jit || profile;
+
+    if use_jit {
         // Use JIT compilation
-        if verbose {
+        if verbose && !profile {
             println!(
                 "{}",
                 "Using JIT compilation / استخدام الترجمة الفورية".cyan()
             );
         }
 
-        let config = JitConfig::default().with_verbose(verbose);
+        let config = JitConfig::default().with_verbose(verbose && !profile);
         let mut executor = JitExecutor::new(ir_module, config);
 
         match executor.run() {
             Ok(_result) => {
-                if verbose {
+                if profile {
+                    // Output profiling data as JSON for IDE integration
+                    println!("{}", executor.profile_summary().to_json());
+                } else if verbose {
                     println!(
                         "{}",
                         "Program completed successfully (JIT) / اكتمل تنفيذ البرنامج بنجاح (ترجمة فورية)".green()

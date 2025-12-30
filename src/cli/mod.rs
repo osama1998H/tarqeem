@@ -93,6 +93,10 @@ pub enum Commands {
         /// Use JIT compilation instead of interpreter (experimental)
         #[arg(long, aliases = ["ترجمة_فورية"])]
         jit: bool,
+
+        /// Output profiling data as JSON (for IDE integration)
+        #[arg(long, aliases = ["تنميط"])]
+        profile: bool,
     },
 
     #[command(aliases = ["صحح", "dbg"])]
