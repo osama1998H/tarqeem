@@ -447,6 +447,21 @@ impl Scope {
             vec![Type::String, Type::String],
             Type::Bool,
         ));
+        scope.define(Symbol::function(
+            "نص_يحتوي",
+            vec![Type::String, Type::String],
+            Type::Bool,
+        ));
+        scope.define(Symbol::function(
+            "نص_يبدأ_بـ",
+            vec![Type::String, Type::String],
+            Type::Bool,
+        ));
+        scope.define(Symbol::function(
+            "نص_ينتهي_بـ",
+            vec![Type::String, Type::String],
+            Type::Bool,
+        ));
 
         scope.define(Symbol::function("عدد_لنص", vec![Type::Int], Type::String));
         scope.define(Symbol::function(
