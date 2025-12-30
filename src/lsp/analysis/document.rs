@@ -237,7 +237,6 @@ impl DocumentState {
     }
 
     fn collect_symbols(&self, ast: &Ast, symbols: &mut HashMap<String, SymbolInfo>) {
-
         for stmt in &ast.statements {
             match &stmt.kind {
                 StmtKind::VarDecl {
