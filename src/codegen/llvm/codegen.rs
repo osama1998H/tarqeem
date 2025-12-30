@@ -1393,11 +1393,62 @@ impl LlvmCodegen {
 
                 // For String type, global stores raw char* but we need TrqString*
                 // Load the raw pointer, get length with strlen, then wrap with trq_string_new
+                // SAFETY: Check for null pointer before calling strlen to avoid UB
                 if *ty == IrType::String {
                     let raw_ptr = self.new_temp();
-                    let len_var = self.new_temp();
                     emit!(self, "  {} = load ptr, ptr @{}", raw_ptr, global_name);
-                    emit!(self, "  {} = call i64 @strlen(ptr {})", len_var, raw_ptr);
+
+                    // Null check: if the global string is uninitialized (null), use length 0
+                    let is_not_null = self.new_temp();
+                    let label_not_null = self
+                        .fresh_name("str_not_null")
+                        .trim_start_matches('%')
+                        .to_string();
+                    let label_is_null = self
+                        .fresh_name("str_is_null")
+                        .trim_start_matches('%')
+                        .to_string();
+                    let label_continue = self
+                        .fresh_name("str_continue")
+                        .trim_start_matches('%')
+                        .to_string();
+
+                    emit!(self, "  {} = icmp ne ptr {}, null", is_not_null, raw_ptr);
+                    emit!(
+                        self,
+                        "  br i1 {}, label %{}, label %{}",
+                        is_not_null,
+                        label_not_null,
+                        label_is_null
+                    );
+
+                    // Not null path: call strlen
+                    emit!(self, "{}:", label_not_null);
+                    let strlen_result = self.new_temp();
+                    emit!(
+                        self,
+                        "  {} = call i64 @strlen(ptr {})",
+                        strlen_result,
+                        raw_ptr
+                    );
+                    emit!(self, "  br label %{}", label_continue);
+
+                    // Null path: length is 0
+                    emit!(self, "{}:", label_is_null);
+                    emit!(self, "  br label %{}", label_continue);
+
+                    // Merge with phi
+                    emit!(self, "{}:", label_continue);
+                    let len_var = self.new_temp();
+                    emit!(
+                        self,
+                        "  {} = phi i64 [ {}, %{} ], [ 0, %{} ]",
+                        len_var,
+                        strlen_result,
+                        label_not_null,
+                        label_is_null
+                    );
+
                     emit!(
                         self,
                         "  {} = call ptr @trq_string_new(ptr {}, i64 {})",

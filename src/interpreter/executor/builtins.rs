@@ -6,7 +6,8 @@
 //! Note: Tarqeem is an Arabic-only programming language.
 //! All built-in functions use Arabic names exclusively.
 
-use std::io::{self, Read, Write};
+use std::fs;
+use std::io::{self, BufRead, Read, Write};
 
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
@@ -14,6 +15,21 @@ use flate2::Compression;
 use sha2::{Digest, Sha256};
 
 use super::{Interpreter, RuntimeError, RuntimeResult, Value};
+
+/// Convert a Value to a byte (0-255) with range validation.
+fn value_to_byte(v: &Value) -> Result<u8, RuntimeError> {
+    let i = v
+        .as_int()
+        .ok_or_else(|| RuntimeError::type_error("عدد", v.type_name()))?;
+    if (0..=255).contains(&i) {
+        Ok(i as u8)
+    } else {
+        Err(RuntimeError::invalid_operation(
+            format!("Byte value must be 0-255, got {}", i),
+            format!("قيمة البايت يجب أن تكون 0-255، حصلنا على {}", i),
+        ))
+    }
+}
 
 impl Interpreter {
     pub(crate) fn is_builtin(&self, name: &str) -> bool {
@@ -147,6 +163,10 @@ impl Interpreter {
                 | "فك_ضغط_ثنائي"
                 | "اضغط_ملف"
                 | "فك_ضغط_ملف"
+                // File I/O functions
+                | "اقرأ_ملف"
+                | "اكتب_ملف"
+                | "اقرأ_سطر"
         )
     }
 
@@ -1158,11 +1178,7 @@ impl Interpreter {
                     Value::Array(arr) => {
                         let arr = arr.borrow();
                         arr.iter()
-                            .map(|v| {
-                                v.as_int()
-                                    .map(|i| i as u8)
-                                    .ok_or_else(|| RuntimeError::type_error("عدد", v.type_name()))
-                            })
+                            .map(value_to_byte)
                             .collect::<Result<Vec<_>, _>>()?
                     }
                     _ => return Err(RuntimeError::type_error("مصفوفة", val.type_name())),
@@ -1273,11 +1289,7 @@ impl Interpreter {
                     Value::Array(arr) => {
                         let arr = arr.borrow();
                         arr.iter()
-                            .map(|v| {
-                                v.as_int()
-                                    .map(|i| i as u8)
-                                    .ok_or_else(|| RuntimeError::type_error("عدد", v.type_name()))
-                            })
+                            .map(value_to_byte)
                             .collect::<Result<Vec<_>, _>>()?
                     }
                     _ => return Err(RuntimeError::type_error("مصفوفة", val.type_name())),
@@ -1362,11 +1374,7 @@ impl Interpreter {
                     Value::Array(arr) => {
                         let arr = arr.borrow();
                         arr.iter()
-                            .map(|v| {
-                                v.as_int()
-                                    .map(|i| i as u8)
-                                    .ok_or_else(|| RuntimeError::type_error("عدد", v.type_name()))
-                            })
+                            .map(value_to_byte)
                             .collect::<Result<Vec<_>, _>>()?
                     }
                     _ => return Err(RuntimeError::type_error("مصفوفة", val.type_name())),
@@ -1397,11 +1405,7 @@ impl Interpreter {
                     Value::Array(arr) => {
                         let arr = arr.borrow();
                         arr.iter()
-                            .map(|v| {
-                                v.as_int()
-                                    .map(|i| i as u8)
-                                    .ok_or_else(|| RuntimeError::type_error("عدد", v.type_name()))
-                            })
+                            .map(value_to_byte)
                             .collect::<Result<Vec<_>, _>>()?
                     }
                     _ => return Err(RuntimeError::type_error("مصفوفة", val.type_name())),
@@ -1441,11 +1445,7 @@ impl Interpreter {
                     Value::Array(arr) => {
                         let arr = arr.borrow();
                         arr.iter()
-                            .map(|v| {
-                                v.as_int()
-                                    .map(|i| i as u8)
-                                    .ok_or_else(|| RuntimeError::type_error("عدد", v.type_name()))
-                            })
+                            .map(value_to_byte)
                             .collect::<Result<Vec<_>, _>>()?
                     }
                     _ => return Err(RuntimeError::type_error("مصفوفة", val.type_name())),
@@ -1570,6 +1570,86 @@ impl Interpreter {
                 })?;
 
                 Ok(Value::Bool(true))
+            }
+
+            "اقرأ_ملف" => {
+                // Read file contents as string
+                let path = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "اقرأ_ملف() requires 1 argument (file path)",
+                        "اقرأ_ملف() تتطلب معامل واحد (مسار الملف)",
+                    )
+                })?;
+
+                let path_str = match path {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", path.type_name())),
+                };
+
+                let content = fs::read_to_string(path_str.as_str()).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Failed to read file '{}': {}", path_str, e),
+                        format!("فشل قراءة الملف '{}': {}", path_str, e),
+                    )
+                })?;
+
+                Ok(Value::string(content))
+            }
+
+            "اكتب_ملف" => {
+                // Write string to file
+                let path = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "اكتب_ملف() requires 2 arguments (file path, content)",
+                        "اكتب_ملف() تتطلب معاملين (مسار الملف، المحتوى)",
+                    )
+                })?;
+                let content = args.get(1).ok_or_else(|| {
+                    RuntimeError::invalid_operation(
+                        "اكتب_ملف() requires 2 arguments (file path, content)",
+                        "اكتب_ملف() تتطلب معاملين (مسار الملف، المحتوى)",
+                    )
+                })?;
+
+                let path_str = match path {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", path.type_name())),
+                };
+                let content_str = match content {
+                    Value::String(s) => s.clone(),
+                    _ => return Err(RuntimeError::type_error("نص", content.type_name())),
+                };
+
+                fs::write(path_str.as_str(), content_str.as_str()).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Failed to write file '{}': {}", path_str, e),
+                        format!("فشل كتابة الملف '{}': {}", path_str, e),
+                    )
+                })?;
+
+                Ok(Value::Bool(true))
+            }
+
+            "اقرأ_سطر" => {
+                // Read line from stdin
+                let stdin = io::stdin();
+                let mut line = String::new();
+                stdin.lock().read_line(&mut line).map_err(|e| {
+                    RuntimeError::invalid_operation(
+                        format!("Failed to read line: {}", e),
+                        format!("فشل قراءة السطر: {}", e),
+                    )
+                })?;
+
+                // Remove trailing newline
+                if line.ends_with('\n') {
+                    line.pop();
+                    if line.ends_with('\r') {
+                        line.pop();
+                    }
+                }
+
+                Ok(Value::string(line))
             }
 
             _ => Err(RuntimeError::undefined_function(name)),
