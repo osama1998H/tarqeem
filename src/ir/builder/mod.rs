@@ -101,7 +101,7 @@ pub struct IrBuilder {
 impl IrBuilder {
     /// Create a new IR builder for a module.
     pub fn new(module_name: String) -> Self {
-        Self {
+        let mut builder = Self {
             module: Module::new(module_name),
             current_function: None,
             current_block: BlockId(0),
@@ -122,7 +122,110 @@ impl IrBuilder {
             global_variables: HashSet::new(),
             global_var_types: HashMap::new(),
             enum_variant_fields: HashMap::new(),
-        }
+        };
+        builder.register_builtin_return_types();
+        builder
+    }
+
+    /// Register return types for builtin functions.
+    fn register_builtin_return_types(&mut self) {
+        // نوع (type) function returns string
+        self.function_return_types
+            .insert("نوع".to_string(), IrType::String);
+        self.function_return_types
+            .insert("type".to_string(), IrType::String);
+
+        // نص (string conversion) function returns string
+        self.function_return_types
+            .insert("نص".to_string(), IrType::String);
+        self.function_return_types
+            .insert("str".to_string(), IrType::String);
+        self.function_return_types
+            .insert("string".to_string(), IrType::String);
+
+        // طول (length) function returns int
+        self.function_return_types
+            .insert("طول".to_string(), IrType::Int);
+        self.function_return_types
+            .insert("len".to_string(), IrType::Int);
+        self.function_return_types
+            .insert("length".to_string(), IrType::Int);
+
+        // عدد (int conversion) function returns int
+        self.function_return_types
+            .insert("عدد".to_string(), IrType::Int);
+        self.function_return_types
+            .insert("int".to_string(), IrType::Int);
+
+        // عدد_عشري (float conversion) function returns float
+        self.function_return_types
+            .insert("عدد_عشري".to_string(), IrType::Float);
+        self.function_return_types
+            .insert("float".to_string(), IrType::Float);
+
+        // منطقي (bool conversion) function returns bool
+        self.function_return_types
+            .insert("منطقي".to_string(), IrType::Bool);
+        self.function_return_types
+            .insert("bool".to_string(), IrType::Bool);
+
+        // SHA-256 builtin functions
+        self.function_return_types
+            .insert("احسب_بصمة".to_string(), IrType::String);
+        self.function_return_types
+            .insert("بصمة_ملف".to_string(), IrType::String);
+        self.function_return_types
+            .insert("بصمة_ثنائي".to_string(), IrType::String);
+        self.function_return_types
+            .insert("طابق_بصمة".to_string(), IrType::Bool);
+
+        // Hex encoding builtin functions
+        self.function_return_types
+            .insert("إلى_ست_عشري".to_string(), IrType::String);
+        self.function_return_types
+            .insert("من_ست_عشري".to_string(), IrType::String);
+        self.function_return_types
+            .insert("ثنائي_إلى_ست_عشري".to_string(), IrType::String);
+        self.function_return_types.insert(
+            "ست_عشري_إلى_ثنائي".to_string(),
+            IrType::Array(Box::new(IrType::Int), 0),
+        );
+
+        // GZIP compression builtin functions
+        self.function_return_types
+            .insert("اضغط".to_string(), IrType::Array(Box::new(IrType::Int), 0));
+        self.function_return_types
+            .insert("فك_الضغط".to_string(), IrType::String);
+        self.function_return_types.insert(
+            "اضغط_ثنائي".to_string(),
+            IrType::Array(Box::new(IrType::Int), 0),
+        );
+        self.function_return_types.insert(
+            "فك_ضغط_ثنائي".to_string(),
+            IrType::Array(Box::new(IrType::Int), 0),
+        );
+        self.function_return_types
+            .insert("اضغط_ملف".to_string(), IrType::Bool);
+        self.function_return_types
+            .insert("فك_ضغط_ملف".to_string(), IrType::Bool);
+
+        // اقرأ_ملف (read_file) returns string
+        self.function_return_types
+            .insert("اقرأ_ملف".to_string(), IrType::String);
+        self.function_return_types
+            .insert("read_file".to_string(), IrType::String);
+
+        // اكتب_ملف (write_file) returns bool
+        self.function_return_types
+            .insert("اكتب_ملف".to_string(), IrType::Bool);
+        self.function_return_types
+            .insert("write_file".to_string(), IrType::Bool);
+
+        // اقرأ_سطر (read_line) returns string
+        self.function_return_types
+            .insert("اقرأ_سطر".to_string(), IrType::String);
+        self.function_return_types
+            .insert("read_line".to_string(), IrType::String);
     }
 
     /// Build IR from an AST.
