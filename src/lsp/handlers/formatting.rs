@@ -161,6 +161,14 @@ fn format_line(line: &str) -> String {
                 chars.next();
                 ensure_space_after(&mut result, &mut chars);
             }
+            '/' if chars.peek() == Some(&'/') => {
+                // Line comment - preserve the rest of the line as-is
+                result.push_str("//");
+                chars.next();
+                for remaining in chars.by_ref() {
+                    result.push(remaining);
+                }
+            }
             '+' | '-' | '*' | '/' | '%' | '=' => {
                 ensure_space_before(&mut result);
                 result.push(c);
