@@ -444,6 +444,32 @@ pub struct ProfileSummary {
     pub hottest_functions: Vec<(String, u64)>,
 }
 
+impl ProfileSummary {
+    /// Output profiling data as JSON (for IDE integration)
+    pub fn to_json(&self) -> String {
+        let hot_spots_json: Vec<String> = self
+            .hottest_functions
+            .iter()
+            .map(|(name, calls)| format!(r#"{{"name":"{}","calls":{}}}"#, name, calls))
+            .collect();
+
+        let tiers_json: Vec<String> = self
+            .by_tier
+            .iter()
+            .map(|(tier, count)| format!(r#""{}": {}"#, tier.name_en(), count))
+            .collect();
+
+        format!(
+            r#"{{"total_functions":{},"total_calls":{},"tier_up_count":{},"hot_spots":[{}],"by_tier":{{{}}}}}"#,
+            self.total_functions,
+            self.total_calls,
+            self.tier_up_count,
+            hot_spots_json.join(","),
+            tiers_json.join(",")
+        )
+    }
+}
+
 impl std::fmt::Display for ProfileSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "JIT Profile Summary / ملخص التنميط الفوري")?;
