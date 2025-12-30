@@ -1390,13 +1390,30 @@ impl LlvmCodegen {
                 let dest_name = self.get_or_create_var(*dest);
                 let llvm_type = self.type_mapper.map_type(ty);
                 let global_name = mangle_name(name);
-                emit!(
-                    self,
-                    "  {} = load {}, ptr @{}",
-                    dest_name,
-                    llvm_type,
-                    global_name
-                );
+
+                // For String type, global stores raw char* but we need TrqString*
+                // Load the raw pointer, get length with strlen, then wrap with trq_string_new
+                if *ty == IrType::String {
+                    let raw_ptr = self.new_temp();
+                    let len_var = self.new_temp();
+                    emit!(self, "  {} = load ptr, ptr @{}", raw_ptr, global_name);
+                    emit!(self, "  {} = call i64 @strlen(ptr {})", len_var, raw_ptr);
+                    emit!(
+                        self,
+                        "  {} = call ptr @trq_string_new(ptr {}, i64 {})",
+                        dest_name,
+                        raw_ptr,
+                        len_var
+                    );
+                } else {
+                    emit!(
+                        self,
+                        "  {} = load {}, ptr @{}",
+                        dest_name,
+                        llvm_type,
+                        global_name
+                    );
+                }
                 self.var_types.insert(dest.0, ty.clone());
             }
 
