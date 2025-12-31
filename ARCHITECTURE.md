@@ -582,7 +582,6 @@ tarqeem/
 pub struct Diagnostic {
     pub level: DiagnosticLevel,
     pub message: String,
-    pub message_ar: String,  // Arabic translation
     pub span: Span,
     pub notes: Vec<Note>,
     pub suggestions: Vec<Suggestion>,
