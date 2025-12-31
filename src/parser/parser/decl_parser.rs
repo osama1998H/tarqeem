@@ -3,6 +3,9 @@
 //! This module handles parsing of declarations including variables, functions,
 //! classes, interfaces, enums, and imports/exports.
 
+use crate::error::codes::{
+    ERR_EXPECTED_CLASS_NAME, ERR_EXPECTED_FUNCTION_NAME, ERR_EXPECTED_VARIABLE_NAME,
+};
 use crate::error::Diagnostic;
 use crate::lexer::TokenKind;
 
@@ -59,7 +62,9 @@ impl Parser {
         let mutable = self.check(&TokenKind::Let);
         self.advance(); // consume 'let' or 'const'
 
-        let name = self.expect_identifier("Expected variable name", "متوقع اسم المتغير")?;
+        let name = self
+            .expect_identifier("Expected variable name", "متوقع اسم المتغير")
+            .map_err(|e| e.with_code(ERR_EXPECTED_VARIABLE_NAME.to_string()))?;
 
         let ty = if self.match_token(&TokenKind::Colon) {
             Some(self.parse_type_annotation()?)
@@ -97,7 +102,9 @@ impl Parser {
         let start = self.current_span();
         self.expect(&TokenKind::Function, "Expected 'function'", "متوقع 'دالة'")?;
 
-        let name = self.expect_identifier("Expected function name", "متوقع اسم الدالة")?;
+        let name = self
+            .expect_identifier("Expected function name", "متوقع اسم الدالة")
+            .map_err(|e| e.with_code(ERR_EXPECTED_FUNCTION_NAME.to_string()))?;
 
         self.expect(&TokenKind::LeftParen, "Expected '('", "متوقع '('")?;
         let params = self.parse_parameters()?;
@@ -133,7 +140,9 @@ impl Parser {
         let start = self.current_span();
         self.advance(); // consume 'class'
 
-        let name = self.expect_identifier("Expected class name", "متوقع اسم الصنف")?;
+        let name = self
+            .expect_identifier("Expected class name", "متوقع اسم الصنف")
+            .map_err(|e| e.with_code(ERR_EXPECTED_CLASS_NAME.to_string()))?;
 
         let type_params = self.parse_type_parameters()?;
 
