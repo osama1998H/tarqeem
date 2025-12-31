@@ -1593,5 +1593,86 @@ throw_stmt      := 'ارمِ' expr ';'
 
 ---
 
+## Appendix D: Error Codes Reference
+
+### D.1 Error Code System
+
+Tarqeem uses a standardized Arabic error code system for consistent error identification and documentation. Each error code consists of:
+
+- **Category letter**: Arabic letter indicating the error category
+- **Four digits**: Arabic-Indic numerals (٠-٩) identifying the specific error
+
+**Format**: `[حرف][٤ أرقام]` (e.g., `د٠٣٠١`)
+
+### D.2 Error Categories
+
+| Letter | Arabic Name | English | Description |
+|--------|-------------|---------|-------------|
+| ق | قراءة | Lexer | Tokenization errors (invalid characters, unclosed strings) |
+| ب | بناء | Parser | Syntax errors (unexpected tokens, missing semicolons) |
+| د | دلالة | Semantic | Semantic analysis errors (undefined variables, scope issues) |
+| ن | نوع | Type | Type system errors (type mismatch, inference failures) |
+| ص | صنف | Class | OOP-related errors (inheritance, visibility, interfaces) |
+| و | وحدة | Module | Import/export errors (missing modules, circular deps) |
+| ت | توليد | Codegen | Code generation errors (LLVM errors, linking failures) |
+| ح | تحذير | Warning | Compiler warnings (unused variables, deprecated features) |
+| م | مهمل | Deprecated | Deprecated syntax warnings |
+
+### D.3 Example Error Codes
+
+| Code | Description (Arabic) | Description (English) |
+|------|---------------------|----------------------|
+| ق٠٠٠١ | حرف غير معروف | Unknown character |
+| ب٠٠٠٢ | رمز غير متوقع | Unexpected token |
+| د٠٠٠١ | متغير غير معرف | Undefined variable |
+| د٠٣٠١ | استخدام 'أوقف' خارج حلقة | 'break' outside loop |
+| ن٠٠٠١ | عدم تطابق الأنواع | Type mismatch |
+| ص٠٠٠١ | صنف غير موجود | Class not found |
+| ح٠٠٠١ | متغير غير مستخدم | Unused variable |
+
+### D.4 Using the Explain Command
+
+To get detailed explanation of any error code:
+
+```bash
+# Arabic command
+tarqeem اشرح <error-code>
+
+# English alias
+tarqeem explain <error-code>
+
+# Example
+tarqeem اشرح د٠٣٠١
+```
+
+The explain command displays:
+- Error description in Arabic
+- Cause of the error
+- Code examples showing the error
+- Solutions and fixes
+- Related error codes
+
+### D.5 Error Message Format
+
+Error messages in Tarqeem follow this format:
+
+```
+خطأ [رمز]: وصف الخطأ
+  --> ملف.ترقيم:سطر:عمود
+   |
+ N |     الكود المسبب للخطأ
+   |     ^^^^
+   |
+   = ملاحظة: معلومات إضافية
+```
+
+### D.6 Documentation
+
+Full error code documentation is available at:
+- `docs/رموز_الأخطاء/فهرس.md` - Complete index of all error codes
+- `docs/رموز_الأخطاء/نظام_رموز_الأخطاء.md` - Error code system specification
+
+---
+
 **Copyright 2025 Tarqeem Project**
 **حقوق النشر ٢٠٢٥ مشروع ترقيم**
