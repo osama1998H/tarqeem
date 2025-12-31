@@ -6,9 +6,24 @@ use crate::error::{Diagnostic, DiagnosticLevel, Language};
 use crate::lsp::analysis::DocumentState;
 use crate::lsp::utils::span_to_range;
 use tower_lsp::lsp_types::{
-    Diagnostic as LspDiagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, Location,
-    NumberOrString, PublishDiagnosticsParams, Url,
+    CodeDescription, Diagnostic as LspDiagnostic, DiagnosticRelatedInformation,
+    DiagnosticSeverity, Location, NumberOrString, PublishDiagnosticsParams, Url,
 };
+
+/// Valid category letters for error codes
+const VALID_CATEGORIES: &[char] = &['ق', 'ب', 'د', 'ن', 'ص', 'و', 'ت', 'ح', 'م'];
+
+/// Generate documentation URL for an error code.
+/// Format: tarqeem://explain/<category>/<code>
+fn error_code_url(code: &str) -> Option<Url> {
+    let category = code.chars().next()?;
+
+    if !VALID_CATEGORIES.contains(&category) {
+        return None;
+    }
+
+    Url::parse(&format!("tarqeem://explain/{}/{}", category, code)).ok()
+}
 
 pub fn publish_diagnostics(
     doc: &mut DocumentState,
@@ -82,7 +97,10 @@ fn convert_diagnostic(
             .code
             .as_ref()
             .map(|c| NumberOrString::String(c.clone())),
-        code_description: None,
+        code_description: diag
+            .code
+            .as_ref()
+            .and_then(|c| error_code_url(c).map(|href| CodeDescription { href })),
         source: Some("tarqeem".to_string()),
         message: message.clone(),
         related_information,
@@ -140,5 +158,61 @@ mod tests {
         // Verify Arabic messages are used
         assert_eq!(lsp_error.message, "خطأ");
         assert_eq!(lsp_warning.message, "تحذير");
+    }
+
+    #[test]
+    fn test_error_code_url_warning() {
+        let url = error_code_url("ح٠٠٠١");
+        assert!(url.is_some());
+        let url = url.unwrap();
+        assert_eq!(url.scheme(), "tarqeem");
+        assert_eq!(url.host_str(), Some("explain"));
+    }
+
+    #[test]
+    fn test_error_code_url_semantic() {
+        let url = error_code_url("د٠٣٠١");
+        assert!(url.is_some());
+        let url = url.unwrap();
+        assert_eq!(url.scheme(), "tarqeem");
+        assert_eq!(url.host_str(), Some("explain"));
+    }
+
+    #[test]
+    fn test_error_code_url_invalid_category() {
+        let url = error_code_url("X0001");
+        assert!(url.is_none());
+    }
+
+    #[test]
+    fn test_error_code_url_empty() {
+        let url = error_code_url("");
+        assert!(url.is_none());
+    }
+
+    #[test]
+    fn test_diagnostic_with_code_description() {
+        let content = "x";
+        let uri = test_uri();
+        let mut diag = Diagnostic::error("error", "خطأ", Span::new(0, 1, 1, 1));
+        diag.code = Some("ح٠٠٠١".to_string());
+
+        let lsp_diag = convert_diagnostic(&diag, content, &uri, Language::Arabic);
+
+        assert!(lsp_diag.code_description.is_some());
+        let code_desc = lsp_diag.code_description.unwrap();
+        assert_eq!(code_desc.href.scheme(), "tarqeem");
+        assert_eq!(code_desc.href.host_str(), Some("explain"));
+    }
+
+    #[test]
+    fn test_diagnostic_without_code_no_description() {
+        let content = "x";
+        let uri = test_uri();
+        let diag = Diagnostic::error("error", "خطأ", Span::new(0, 1, 1, 1));
+
+        let lsp_diag = convert_diagnostic(&diag, content, &uri, Language::Arabic);
+
+        assert!(lsp_diag.code_description.is_none());
     }
 }
