@@ -403,12 +403,7 @@ impl DapAdapter {
         let ir_builder = crate::ir::IrBuilder::new("debug".to_string());
         let ir_module = match ir_builder.build(&ast) {
             Ok(m) => m,
-            Err(e) => {
-                return DapResponse::error(
-                    request,
-                    format!("IR error: {} / {}", e.message, e.message_ar),
-                )
-            }
+            Err(e) => return DapResponse::error(request, format!("IR error: {}", e.message)),
         };
 
         let mut context = DebugContext::new();
