@@ -7,6 +7,7 @@ use super::super::modules::ExportKind;
 use super::super::scope::{ScopeKind, Symbol, SymbolKind};
 use super::super::types::Type;
 use super::{Analyzer, EnumInfo, EnumVariantInfo};
+use crate::error::codes::ERR_CLASS_NOT_FOUND;
 use crate::error::Span;
 use crate::parser::*;
 use std::path::PathBuf;
@@ -1071,10 +1072,11 @@ impl Analyzer {
         let parent_constructor = match self.class_resolver.get_class(&parent_name) {
             Some(parent_info) => parent_info.constructor.clone(),
             None => {
-                self.error(
+                self.error_with_code(
                     &format!("Parent class '{}' not found", parent_name),
                     &format!("الصنف الأب '{}' غير موجود", parent_name),
                     span,
+                    &ERR_CLASS_NOT_FOUND.to_string(),
                 );
                 return Type::Error;
             }

@@ -9,6 +9,7 @@
 
 use super::class_resolver::{ClassResolver, FieldInfo, MethodInfo};
 use super::types::Type;
+use crate::error::codes::ERR_METHOD_NOT_FOUND;
 use crate::error::{Diagnostic, Span};
 
 #[derive(Debug, Clone)]
@@ -246,17 +247,20 @@ impl<'a> MethodResolver<'a> {
             }
         }
 
-        self.diagnostics.push(Diagnostic::error(
-            format!(
-                "Method '{}' not found on type '{}'",
-                method_name, class_name
-            ),
-            format!(
-                "الدالة '{}' غير موجودة في النوع '{}'",
-                method_name, class_name
-            ),
-            span,
-        ));
+        self.diagnostics.push(
+            Diagnostic::error(
+                format!(
+                    "Method '{}' not found on type '{}'",
+                    method_name, class_name
+                ),
+                format!(
+                    "الدالة '{}' غير موجودة في النوع '{}'",
+                    method_name, class_name
+                ),
+                span,
+            )
+            .with_code(ERR_METHOD_NOT_FOUND.to_string()),
+        );
 
         None
     }

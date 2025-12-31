@@ -7,6 +7,9 @@
 //! - Method override validation
 
 use super::types::Type;
+use crate::error::codes::{
+    ERR_CIRCULAR_INHERITANCE, ERR_INTERFACE_NOT_IMPLEMENTED, ERR_PRIVATE_ACCESS,
+};
 use crate::error::{Diagnostic, Span};
 use crate::parser::{ClassMember, MethodSignature, TypeAnnotation, Visibility};
 use indexmap::IndexMap;
@@ -628,11 +631,14 @@ impl ClassResolver {
 
             while let Some(class_name) = current {
                 if visited.contains(class_name) {
-                    self.diagnostics.push(Diagnostic::error(
-                        format!("Circular inheritance detected for class '{}'", name),
-                        format!("وراثة دائرية مكتشفة للصنف '{}'", name),
-                        class.span,
-                    ));
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            format!("Circular inheritance detected for class '{}'", name),
+                            format!("وراثة دائرية مكتشفة للصنف '{}'", name),
+                            class.span,
+                        )
+                        .with_code(ERR_CIRCULAR_INHERITANCE.to_string()),
+                    );
                     break;
                 }
                 visited.insert(class_name);
@@ -719,13 +725,16 @@ impl ClassResolver {
         }
 
         for (msg, msg_ar, span) in violations {
-            self.diagnostics
-                .push(Diagnostic::error(&msg, &msg_ar, span));
+            self.diagnostics.push(
+                Diagnostic::error(&msg, &msg_ar, span)
+                    .with_code(ERR_INTERFACE_NOT_IMPLEMENTED.to_string()),
+            );
         }
     }
 
     fn check_method_overrides(&mut self) {
         let mut violations = Vec::new();
+        let mut private_override_violations = Vec::new();
 
         for class in self.classes.values() {
             if let Some(parent_name) = &class.parent {
@@ -735,7 +744,7 @@ impl ClassResolver {
                             if method.visibility == Visibility::Private
                                 && parent_method.visibility != Visibility::Private
                             {
-                                violations.push((
+                                private_override_violations.push((
                                     format!(
                                         "Cannot override {} method '{}' with private visibility",
                                         format_visibility(parent_method.visibility),
@@ -811,6 +820,12 @@ impl ClassResolver {
                     }
                 }
             }
+        }
+
+        for (msg, msg_ar, span) in private_override_violations {
+            self.diagnostics.push(
+                Diagnostic::error(&msg, &msg_ar, span).with_code(ERR_PRIVATE_ACCESS.to_string()),
+            );
         }
 
         for (msg, msg_ar, span) in violations {

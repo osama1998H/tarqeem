@@ -7,6 +7,7 @@ use super::super::method_resolver::{MemberResolution, MethodResolver};
 use super::super::scope::Symbol;
 use super::super::types::Type;
 use super::Analyzer;
+use crate::error::codes::ERR_PROPERTY_NOT_FOUND;
 use crate::error::Span;
 use crate::parser::*;
 
@@ -780,7 +781,7 @@ impl Analyzer {
             MemberResolution::NotFound => {
                 if let Type::Class(class_name) = object_type {
                     if self.class_resolver.get_class(class_name).is_some() {
-                        self.error(
+                        self.error_with_code(
                             &format!(
                                 "Property '{}' not found on class '{}'",
                                 property, class_name
@@ -790,6 +791,7 @@ impl Analyzer {
                                 property, class_name
                             ),
                             span,
+                            &ERR_PROPERTY_NOT_FOUND.to_string(),
                         );
                     }
                 }
