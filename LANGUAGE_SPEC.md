@@ -1,900 +1,889 @@
-# Tarqeem Language Specification
+<div dir="rtl" align="right">
 
-**Version 1.0.0**
-**مواصفات لغة ترقيم**
+# مواصفات لغة ترقيم
 
----
-
-## Table of Contents
-
-1. [Introduction](#1-introduction)
-2. [Language Purpose](#2-language-purpose)
-3. [Design Philosophy](#3-design-philosophy)
-4. [Lexical Structure](#4-lexical-structure)
-5. [Type System](#5-type-system)
-6. [Expressions](#6-expressions)
-7. [Statements](#7-statements)
-8. [Functions](#8-functions)
-9. [Object-Oriented Programming](#9-object-oriented-programming)
-10. [Modules and Imports](#10-modules-and-imports)
-11. [Error Handling](#11-error-handling)
-12. [Concurrency](#12-concurrency)
-13. [Memory Model](#13-memory-model)
-14. [Standard Library](#14-standard-library)
-15. [Formal Grammar](#15-formal-grammar)
-16. [Appendix: Keyword Reference](#appendix-a-keyword-reference)
+**الإصدار ١.٠.٠**
 
 ---
 
-## 1. Introduction
+## فهرس المحتويات
 
-Tarqeem (ترقيم) is a compiled, statically-typed, general-purpose programming language with native Arabic syntax support. The name "ترقيم" means "numbering" or "notation" in Arabic, reflecting the language's purpose of making programming accessible to Arabic speakers.
-
-### 1.1 Scope
-
-This specification defines:
-- The lexical structure and syntax of Tarqeem programs
-- The type system and type checking rules
-- The semantics of expressions, statements, and declarations
-- The object-oriented programming model
-- The module system and imports
-- Error handling mechanisms
-- The memory model and lifetime semantics
-
-### 1.2 Notation Conventions
-
-- `keyword` - Language keywords shown in monospace
-- `<name>` - Placeholder for user-defined names
-- `[optional]` - Optional elements in brackets
-- `...` - Repetition of preceding element
-- `|` - Alternative choices
+١. [مقدمة](#١-مقدمة)
+٢. [غاية اللغة](#٢-غاية-اللغة)
+٣. [فلسفة التصميم](#٣-فلسفة-التصميم)
+٤. [البنية اللغوية](#٤-البنية-اللغوية)
+٥. [نظام الأنماط](#٥-نظام-الأنماط)
+٦. [التعبيرات](#٦-التعبيرات)
+٧. [الجمل](#٧-الجمل)
+٨. [الدوال](#٨-الدوال)
+٩. [البرمجة الكائنية](#٩-البرمجة-الكائنية)
+١٠. [الوحدات والاستيراد](#١٠-الوحدات-والاستيراد)
+١١. [معالجة الاستثناءات](#١١-معالجة-الاستثناءات)
+١٢. [التزامن](#١٢-التزامن)
+١٣. [نموذج الذاكرة](#١٣-نموذج-الذاكرة)
+١٤. [المكتبة القياسية](#١٤-المكتبة-القياسية)
+١٥. [القواعد النحوية الرسمية](#١٥-القواعد-النحوية-الرسمية)
+١٦. [ملحق: مرجع الكلمات المفتاحية](#ملحق-أ-مرجع-الكلمات-المفتاحية)
 
 ---
 
-## 2. Language Purpose
+## ١. مقدمة
 
-### 2.1 Problem Statement
+ترقيم هي لغة برمجة مُترجَمة ذات أنماط ثابتة للأغراض العامة مع دعم كامل للصياغة العربية. اسم «ترقيم» يعكس غرض اللغة في جعل البرمجة متاحة للناطقين بالعربية.
 
-Programming has historically been dominated by English-based languages, creating barriers for Arabic speakers:
-- Learning programming requires learning English terminology
-- Code cannot express domain concepts in the native language
-- Right-to-left (RTL) text handling is an afterthought
+### ١.١ نطاق المواصفات
 
-### 2.2 Solution
+تُعرِّف هذه المواصفات:
+- البنية اللغوية والنحوية لبرامج ترقيم
+- نظام الأنماط وقواعد التحقق منها
+- دلالات التعبيرات والجمل والإعلانات
+- نموذج البرمجة الكائنية
+- نظام الوحدات والاستيراد
+- آليات معالجة الاستثناءات
+- نموذج الذاكرة ودلالات دورة الحياة
 
-Tarqeem addresses these challenges by providing:
+### ١.٢ اصطلاحات الترميز
 
-1. **Native Arabic Syntax**: All keywords have Arabic primary forms
-2. **Bilingual Support**: English aliases for all keywords enable collaboration
-3. **Unicode-First Design**: Full UTF-8 support with proper bidirectional text handling
-4. **Compiled Performance**: Native machine code via LLVM backend
-5. **Modern Features**: Static typing, generics, async/await, pattern matching
-
-### 2.3 Target Audience
-
-- Arabic-speaking developers learning programming
-- Development teams in Arabic-speaking regions
-- Educational institutions teaching programming in Arabic
-- Projects requiring Arabic domain terminology in code
+- `كلمة_مفتاحية` - الكلمات المفتاحية بخط ثابت
+- `<اسم>` - موضع لأسماء يحددها المستخدم
+- `[اختياري]` - عناصر اختيارية بين أقواس معقوفة
+- `...` - تكرار العنصر السابق
+- `|` - اختيارات بديلة
 
 ---
 
-## 3. Design Philosophy
+## ٢. غاية اللغة
 
-### 3.1 Core Principles
+### ٢.١ بيان المشكلة
 
-| Principle | Description |
-|-----------|-------------|
-| **Arabic-First** | Arabic is the primary language; English is an alias |
-| **Bilingual** | All constructs work in both Arabic and English |
-| **Safe** | Strong static typing prevents runtime errors |
-| **Expressive** | Modern language features for concise code |
-| **Fast** | Compiled to native code for production performance |
+هيمنت اللغات المبنية على الإنجليزية على البرمجة تاريخياً، مما خلق حواجز للناطقين بالعربية:
+- تعلم البرمجة يتطلب تعلم المصطلحات الإنجليزية
+- لا يمكن للكود التعبير عن مفاهيم المجال باللغة الأم
+- معالجة النص من اليمين لليسار تأتي كفكرة لاحقة
 
-### 3.2 Design Influences
+### ٢.٢ الحل
 
-Tarqeem draws inspiration from:
+تعالج ترقيم هذه التحديات بتوفير:
 
-- **Python**: Clean, readable syntax
-- **TypeScript**: Static typing with inference
-- **Rust**: Memory safety concepts, pattern matching
-- **JavaScript**: Modern async/await, arrow functions
+١. **صياغة عربية أصيلة**: جميع الكلمات المفتاحية لها أشكال عربية أساسية
+٢. **تصميم يونيكود أولاً**: دعم كامل لـ UTF-8 مع معالجة صحيحة للنص ثنائي الاتجاه
+٣. **أداء مُترجَم**: كود آلة أصلي عبر واجهة LLVM الخلفية
+٤. **ميزات حديثة**: أنماط ثابتة، أنماط معممة، متوازي/انتظر، مطابقة الأنماط
 
-### 3.3 Trade-offs
+### ٢.٣ الجمهور المستهدف
 
-| Choice | Trade-off |
-|--------|-----------|
-| Static typing | More verbose but catches errors at compile time |
-| Reference counting | Simpler than GC, deterministic, but cyclic references need care |
-| Compiled | Slower iteration but faster runtime |
-| Explicit visibility | More typing but clearer intent |
+- المطورون الناطقون بالعربية الذين يتعلمون البرمجة
+- فرق التطوير في المناطق الناطقة بالعربية
+- المؤسسات التعليمية التي تدرس البرمجة بالعربية
+- المشاريع التي تتطلب مصطلحات المجال العربية في الكود
 
 ---
 
-## 4. Lexical Structure
+## ٣. فلسفة التصميم
 
-### 4.1 Source Encoding
+### ٣.١ المبادئ الأساسية
 
-- Source files MUST be encoded in UTF-8
-- Identifiers undergo NFC (Canonical Decomposition, followed by Canonical Composition) normalization before comparison
-- File extension: `.ترقيم`
+| المبدأ | الوصف |
+|--------|-------|
+| **العربية أولاً** | العربية هي اللغة الأساسية |
+| **الأمان** | الأنماط الثابتة القوية تمنع أخطاء وقت التشغيل |
+| **التعبيرية** | ميزات لغوية حديثة لكود موجز |
+| **السرعة** | تُترجَم إلى كود أصلي للأداء الإنتاجي |
 
-### 4.2 Identifiers
+### ٣.٢ مصادر الإلهام
 
-Identifiers follow Unicode identifier rules:
+تستلهم ترقيم من:
+
+- **بايثون**: صياغة نظيفة وقابلة للقراءة
+- **تايب سكريبت**: أنماط ثابتة مع استنتاج
+- **رست**: مفاهيم أمان الذاكرة، مطابقة الأنماط
+- **جافاسكريبت**: متوازي/انتظر الحديثة، الدوال السهمية
+
+### ٣.٣ المقايضات
+
+| الاختيار | المقايضة |
+|----------|----------|
+| الأنماط الثابتة | أكثر تفصيلاً لكنها تكتشف الأخطاء وقت الترجمة |
+| عد المراجع | أبسط من جامع القمامة، حتمي، لكن المراجع الدائرية تحتاج عناية |
+| مُترجَمة | تكرار أبطأ لكن تشغيل أسرع |
+| الرؤية الصريحة | كتابة أكثر لكن نية أوضح |
+
+---
+
+## ٤. البنية اللغوية
+
+### ٤.١ ترميز الملفات المصدرية
+
+- يجب أن تكون الملفات المصدرية مُرمَّزة بـ UTF-8
+- تخضع المُعرِّفات لتطبيع NFC قبل المقارنة
+- امتداد الملف: `.ترقيم`
+
+### ٤.٢ المُعرِّفات
+
+تتبع المُعرِّفات قواعد معرِّفات يونيكود:
 
 ```
-identifier := identifier_start identifier_continue*
-identifier_start := <Unicode Letter> | '_'
-identifier_continue := <Unicode Letter> | <Unicode Digit> | '_'
+معرِّف := بداية_معرِّف تكملة_معرِّف*
+بداية_معرِّف := <حرف يونيكود> | '_'
+تكملة_معرِّف := <حرف يونيكود> | <رقم يونيكود> | '_'
 ```
 
-Valid identifiers:
+معرِّفات صالحة:
 ```tarqeem
-متغير       // Arabic identifier
-userName    // English identifier
-مستخدم_1    // Mixed with underscore
-_private    // Starting with underscore
+متغير           // معرِّف عربي
+مستخدم_١        // ممزوج مع شرطة سفلية
+_خاص            // يبدأ بشرطة سفلية
 ```
 
-### 4.3 Keywords
+### ٤.٣ الكلمات المفتاحية
 
-All keywords have Arabic and English forms. The Arabic form is primary.
+#### كلمات المتغيرات
+| الكلمة المفتاحية | الوصف |
+|------------------|-------|
+| `متغير` | متغير قابل للتعديل |
+| `ثابت` | ثابت غير قابل للتعديل |
 
-#### Variable Keywords
-| Arabic | English | Description |
-|--------|---------|-------------|
-| `متغير` | `let`, `var` | Mutable variable |
-| `ثابت` | `const` | Immutable constant |
+#### كلمات الدوال
+| الكلمة المفتاحية | الوصف |
+|------------------|-------|
+| `دالة` | إعلان دالة |
+| `أرجع` / `ارجع` | جملة الإرجاع |
+| `متوازي` | دالة متوازية |
+| `انتظر` | تعبير الانتظار |
 
-#### Function Keywords
-| Arabic | English | Description |
-|--------|---------|-------------|
-| `دالة` | `function`, `fn` | Function declaration |
-| `أرجع` / `ارجع` | `return` | Return statement |
-| `متوازي` | `async` | Async/parallel function |
-| `انتظر` | `await` | Await expression |
+#### كلمات التحكم في التدفق
+| الكلمة المفتاحية | الوصف |
+|------------------|-------|
+| `إذا` / `اذا` | شرط |
+| `وإلا` / `والا` | فرع وإلا |
+| `طالما` | حلقة طالما |
+| `لكل` | حلقة لكل |
+| `في` | عامل في |
+| `افعل` | حلقة افعل-طالما |
+| `أوقف` / `اوقف` | إيقاف الحلقة |
+| `استمر` | استمرار الحلقة |
+| `تطابق` | مطابقة الأنماط |
+| `حالة` | حالة المطابقة |
+| `غير_ذلك` | الحالة الافتراضية |
 
-#### Control Flow Keywords
-| Arabic | English | Description |
-|--------|---------|-------------|
-| `إذا` / `اذا` | `if` | If condition |
-| `وإلا` / `والا` | `else` | Else branch |
-| `طالما` | `while` | While loop |
-| `لكل` | `for` | For loop |
-| `في` | `in` | In operator |
-| `افعل` | `do` | Do-while loop |
-| `أوقف` / `اوقف` | `break` | Break loop |
-| `استمر` | `continue` | Continue loop |
-| `تطابق` | `match`, `switch` | Pattern matching |
-| `حالة` | `case` | Match case |
-| `غير_ذلك` | `default` | Default case |
+#### كلمات البرمجة الكائنية
+| الكلمة المفتاحية | الوصف |
+|------------------|-------|
+| `صنف` | إعلان صنف |
+| `ميثاق` | إعلان ميثاق (عقد) |
+| `يرث` | الوراثة |
+| `يلتزم` | الالتزام بالميثاق |
+| `عام` | رؤية عامة |
+| `خاص` | رؤية خاصة |
+| `محمي` | رؤية محمية |
+| `مشترك` | عضو مشترك بين النسخ |
+| `منشئ` | المنشئ |
+| `هذا` | مرجع النسخة الحالية |
+| `الأصل` / `الاصل` | مرجع الأب |
+| `جديد` | إنشاء كائن |
 
-#### OOP Keywords
-| Arabic | English | Description |
-|--------|---------|-------------|
-| `صنف` | `class` | Class declaration |
-| `ميثاق` | `interface` | Interface/contract declaration |
-| `يرث` | `extends` | Inheritance |
-| `يلتزم` | `implements` | Contract commitment |
-| `عام` | `public` | Public visibility |
-| `خاص` | `private` | Private visibility |
-| `محمي` | `protected` | Protected visibility |
-| `مشترك` | `static` | Shared member (across instances) |
-| `منشئ` | `constructor` | Constructor |
-| `هذا` | `this` | Self reference |
-| `الأصل` / `الاصل` | `super` | Parent reference |
-| `جديد` | `new` | Object instantiation |
+#### كلمات معالجة الاستثناءات
+| الكلمة المفتاحية | الوصف |
+|------------------|-------|
+| `حاول` | كتلة المحاولة |
+| `التقط` | كتلة الالتقاط |
+| `أخيراً` / `اخيرا` | كتلة أخيراً |
+| `ارمِ` / `ارم` | رمي استثناء |
 
-#### Error Handling Keywords
-| Arabic | English | Description |
-|--------|---------|-------------|
-| `حاول` | `try` | Try block |
-| `التقط` | `catch` | Catch block |
-| `أخيراً` / `اخيرا` | `finally` | Finally block |
-| `ارمِ` / `ارم` | `throw` | Throw exception |
+#### كلمات الوحدات
+| الكلمة المفتاحية | الوصف |
+|------------------|-------|
+| `استورد` | استيراد وحدة |
+| `صدّر` / `صدر` | تصدير إعلان |
+| `من` | محدد المصدر |
+| `كـ` / `ك` | محدد الاسم المستعار |
 
-#### Module Keywords
-| Arabic | English | Description |
-|--------|---------|-------------|
-| `استورد` | `import` | Import module |
-| `صدّر` / `صدر` | `export` | Export declaration |
-| `من` | `from` | From specifier |
-| `كـ` / `ك` | `as` | Alias specifier |
+#### الكلمات الحرفية
+| الكلمة المفتاحية | الوصف |
+|------------------|-------|
+| `صحيح` | صواب منطقي |
+| `خطأ` / `خطا` | خطأ منطقي |
+| `لا_شيء` | قيمة فارغة |
 
-#### Literal Keywords
-| Arabic | English | Description |
-|--------|---------|-------------|
-| `صحيح` | `true` | Boolean true |
-| `خطأ` / `خطا` | `false` | Boolean false |
-| `لا_شيء` | `null`, `none` | Null value |
+#### العوامل المنطقية (الشكل الكلمي)
+| الكلمة المفتاحية | الوصف |
+|------------------|-------|
+| `و` | و المنطقية |
+| `أو` / `او` | أو المنطقية |
+| `ليس` | النفي المنطقي |
 
-#### Logical Operators (Word Form)
-| Arabic | English | Description |
-|--------|---------|-------------|
-| `و` | `&&` | Logical AND |
-| `أو` / `او` | `\|\|` | Logical OR |
-| `ليس` | `not`, `!` | Logical NOT |
+### ٤.٤ القيم الحرفية
 
-### 4.4 Literals
-
-#### Integer Literals
+#### الأعداد الصحيحة
 ```tarqeem
-42        // Decimal
-0x2A      // Hexadecimal
-0b101010  // Binary
-0o52      // Octal
-٤٢        // Arabic-Indic numerals
+٤٢        // عشري بالأرقام العربية
+42        // عشري
+0x2A      // ست عشري
+0b101010  // ثنائي
+0o52      // ثماني
 ```
 
-#### Float Literals
+#### الأعداد العشرية
 ```tarqeem
+٣.١٤      // بالأرقام العربية
 3.14159
 2.5e10
 1.0E-5
-٣.١٤      // Arabic-Indic numerals
 ```
 
-#### String Literals
+#### النصوص
 ```tarqeem
-"مرحبا"           // Double quotes
-'hello'           // Single quotes
-«مرحبا»           // Arabic quotation marks
-"سطر أول\nسطر ثاني"  // Escape sequences
+"مرحبا"                   // علامات اقتباس مزدوجة
+'مرحبا'                   // علامات اقتباس مفردة
+«مرحبا»                   // علامات اقتباس عربية
+"سطر أول\nسطر ثاني"       // تسلسلات الهروب
 ```
 
-Escape sequences:
-| Sequence | Meaning |
-|----------|---------|
-| `\n` | Newline |
-| `\t` | Tab |
-| `\r` | Carriage return |
-| `\\` | Backslash |
-| `\"` | Double quote |
-| `\'` | Single quote |
+تسلسلات الهروب:
+| التسلسل | المعنى |
+|---------|--------|
+| `\n` | سطر جديد |
+| `\t` | مسافة جدولة |
+| `\r` | إرجاع |
+| `\\` | شرطة مائلة عكسية |
+| `\"` | علامة اقتباس مزدوجة |
+| `\'` | علامة اقتباس مفردة |
 
-#### Boolean Literals
+#### القيم المنطقية
 ```tarqeem
-صحيح      // true
-خطأ       // false
-true      // English alias
-false     // English alias
+صحيح      // صواب
+خطأ       // خطأ
 ```
 
-#### Null Literal
+#### القيمة الفارغة
 ```tarqeem
-لا_شيء    // null
-null      // English alias
+لا_شيء    // قيمة فارغة
 ```
 
-#### Array Literals
+#### المصفوفات
 ```tarqeem
-[1, 2, 3]
-[1، 2، 3]       // Arabic comma
-["أ"، "ب"، "ج"]  // Strings
-[]               // Empty array
+[١، ٢، ٣]          // بالأرقام والفاصلة العربية
+[1, 2, 3]          // بالأرقام والفاصلة اللاتينية
+["أ"، "ب"، "ج"]    // مصفوفة نصوص
+[]                 // مصفوفة فارغة
 ```
 
-#### Object Literals
+#### الكائنات
 ```tarqeem
-{ اسم: "أحمد"، عمر: 30 }
-{ name: "Ahmed", age: 30 }
+{ اسم: "أحمد"، عمر: ٣٠ }
 ```
 
-### 4.5 Operators
+### ٤.٥ العوامل
 
-#### Arithmetic Operators
-| Operator | Description |
-|----------|-------------|
-| `+` | Addition |
-| `-` | Subtraction |
-| `*` | Multiplication |
-| `/` | Division |
-| `%` | Modulus |
-| `**` | Exponentiation |
+#### العوامل الحسابية
+| العامل | الوصف |
+|--------|-------|
+| `+` | جمع |
+| `-` | طرح |
+| `*` | ضرب |
+| `/` | قسمة |
+| `%` | باقي القسمة |
+| `**` | الأس |
 
-#### Comparison Operators
-| Operator | Description |
-|----------|-------------|
-| `==` | Equal |
-| `!=` | Not equal |
-| `<` | Less than |
-| `<=` | Less than or equal |
-| `>` | Greater than |
-| `>=` | Greater than or equal |
+#### عوامل المقارنة
+| العامل | الوصف |
+|--------|-------|
+| `==` | يساوي |
+| `!=` | لا يساوي |
+| `<` | أصغر من |
+| `<=` | أصغر من أو يساوي |
+| `>` | أكبر من |
+| `>=` | أكبر من أو يساوي |
 
-#### Logical Operators
-| Operator | Arabic Form | Description |
-|----------|-------------|-------------|
-| `&&` | `و` | Logical AND |
-| `\|\|` | `أو` | Logical OR |
-| `!` | `ليس` | Logical NOT |
+#### العوامل المنطقية
+| العامل | الشكل العربي | الوصف |
+|--------|--------------|-------|
+| `&&` | `و` | و المنطقية |
+| `\|\|` | `أو` | أو المنطقية |
+| `!` | `ليس` | النفي المنطقي |
 
-#### Assignment Operators
-| Operator | Description |
-|----------|-------------|
-| `=` | Assignment |
-| `+=` | Add and assign |
-| `-=` | Subtract and assign |
-| `*=` | Multiply and assign |
-| `/=` | Divide and assign |
-| `%=` | Modulus and assign |
+#### عوامل الإسناد
+| العامل | الوصف |
+|--------|-------|
+| `=` | إسناد |
+| `+=` | جمع وإسناد |
+| `-=` | طرح وإسناد |
+| `*=` | ضرب وإسناد |
+| `/=` | قسمة وإسناد |
+| `%=` | باقي وإسناد |
 
-#### Increment/Decrement
-| Operator | Description |
-|----------|-------------|
-| `++` | Increment |
-| `--` | Decrement |
+#### الزيادة والنقصان
+| العامل | الوصف |
+|--------|-------|
+| `++` | زيادة |
+| `--` | نقصان |
 
-#### Other Operators
-| Operator | Description |
-|----------|-------------|
-| `?:` | Ternary conditional |
-| `?.` | Optional chaining (planned) |
-| `??` | Nullish coalescing (planned) |
+#### عوامل أخرى
+| العامل | الوصف |
+|--------|-------|
+| `?:` | الشرطي الثلاثي |
+| `?.` | السلسلة الاختيارية (مخطط) |
+| `??` | دمج القيمة الفارغة (مخطط) |
 
-### 4.6 Punctuation
+### ٤.٦ علامات الترقيم
 
-Both ASCII and Arabic punctuation are accepted:
+تُقبَل كل من علامات الترقيم العربية واللاتينية:
 
-| ASCII | Arabic | Usage |
-|-------|--------|-------|
-| `,` | `،` | Separator |
-| `;` | `؛` | Statement terminator |
-| `(` `)` | | Grouping |
-| `{` `}` | | Block |
-| `[` `]` | | Index/Array |
-| `:` | | Type annotation |
-| `->` | | Return type |
-| `=>` | | Arrow function |
-| `.` | | Member access |
+| لاتيني | عربي | الاستخدام |
+|--------|------|-----------|
+| `,` | `،` | فاصل |
+| `;` | `؛` | منهي الجملة |
+| `(` `)` | | تجميع |
+| `{` `}` | | كتلة |
+| `[` `]` | | فهرس/مصفوفة |
+| `:` | | تحديد النمط |
+| `->` | | نمط الإرجاع |
+| `=>` | | الدالة السهمية |
+| `.` | | الوصول للعضو |
 
-### 4.7 Comments
+### ٤.٧ التعليقات
 
 ```tarqeem
-// Single-line comment (تعليق سطري)
+// تعليق سطري
 
-/* Multi-line
-   comment */
+/* تعليق
+   متعدد الأسطر */
 
-/// Documentation comment (للتوثيق)
-/// Returns the sum of two numbers
+/// تعليق توثيقي
+/// يُرجع مجموع عددين
 دالة جمع(أ: عدد، ب: عدد) -> عدد { ... }
 
-/** Block documentation comment */
+/** تعليق توثيقي كتلي */
 ```
 
-### 4.8 Operator Precedence
+### ٤.٨ أولوية العوامل
 
-From lowest to highest precedence:
+من الأدنى إلى الأعلى أولوية:
 
-| Level | Operators | Associativity |
-|-------|-----------|---------------|
-| 1 | `=`, `+=`, `-=`, `*=`, `/=`, `%=` | Right |
-| 2 | `?:` (ternary) | Right |
-| 3 | `\|\|`, `أو` | Left |
-| 4 | `&&`, `و` | Left |
-| 5 | `==`, `!=` | Left |
-| 6 | `<`, `<=`, `>`, `>=` | Left |
-| 7 | `+`, `-` | Left |
-| 8 | `*`, `/`, `%` | Left |
-| 9 | `**` | Right |
-| 10 | `!`, `-` (unary), `++`, `--` | Right |
-| 11 | `()`, `[]`, `.` | Left |
+| المستوى | العوامل | الترابط |
+|---------|---------|---------|
+| ١ | `=`، `+=`، `-=`، `*=`، `/=`، `%=` | يمين |
+| ٢ | `?:` (الثلاثي) | يمين |
+| ٣ | `\|\|`، `أو` | يسار |
+| ٤ | `&&`، `و` | يسار |
+| ٥ | `==`، `!=` | يسار |
+| ٦ | `<`، `<=`، `>`، `>=` | يسار |
+| ٧ | `+`، `-` | يسار |
+| ٨ | `*`، `/`، `%` | يسار |
+| ٩ | `**` | يمين |
+| ١٠ | `!`، `-` (أحادي)، `++`، `--` | يمين |
+| ١١ | `()`، `[]`، `.` | يسار |
 
 ---
 
-## 5. Type System
+## ٥. نظام الأنماط
 
-### 5.1 Overview
+### ٥.١ نظرة عامة
 
-Tarqeem uses a **strong, static type system** with type inference. Types are checked at compile time, preventing many runtime errors.
+تستخدم ترقيم **نظام أنماط ثابت قوي** مع استنتاج الأنماط. تُفحَص الأنماط وقت الترجمة، مما يمنع كثيراً من أخطاء وقت التشغيل.
 
-### 5.2 Primitive Types
+### ٥.٢ الأنماط الأولية
 
-| Arabic | English | Description | Size |
-|--------|---------|-------------|------|
-| `عدد` | `int` | Signed integer | 64-bit |
-| `عدد_عشري` | `float` | Floating point | 64-bit |
-| `نص` | `string` | UTF-8 string | Variable |
-| `منطقي` | `bool` | Boolean | 1-bit |
-| `لا_شيء` | `null` | Null value | Pointer |
+| النمط | الوصف | الحجم |
+|-------|-------|-------|
+| `عدد` | عدد صحيح بإشارة | ٦٤ بت |
+| `عدد_عشري` | عدد عشري عائم | ٦٤ بت |
+| `نص` | سلسلة UTF-8 | متغير |
+| `منطقي` | قيمة منطقية | ١ بت |
+| `لا_شيء` | قيمة فارغة | مؤشر |
 
-> **Note**: Functions that don't return a value simply omit the return type annotation. There is no `void` keyword.
+> **ملاحظة**: الدوال التي لا تُرجع قيمة تحذف ببساطة تحديد نمط الإرجاع. لا توجد كلمة `فراغ`.
 
-### 5.3 Composite Types
+### ٥.٣ الأنماط المركبة
 
-#### Array Type
+#### نمط المصفوفة
 ```tarqeem
-مصفوفة<عدد>        // Array of integers
-مصفوفة<نص>         // Array of strings
-array<int>         // English form
+مصفوفة<عدد>        // مصفوفة أعداد صحيحة
+مصفوفة<نص>         // مصفوفة نصوص
 ```
 
-#### Map Type
+#### نمط القاموس
 ```tarqeem
-قاموس<نص، عدد>     // Map from string to int
-map<string, int>   // English form
+قاموس<نص، عدد>     // قاموس من نص إلى عدد
 ```
 
-#### Optional Type
+#### النمط الاختياري
 ```tarqeem
-عدد?               // Optional integer (may be null)
-نص?                // Optional string
+عدد?               // عدد اختياري (قد يكون فارغاً)
+نص?                // نص اختياري
 ```
 
-#### Function Type
+#### نمط الدالة
 ```tarqeem
-(عدد، عدد) -> عدد   // Function taking two ints, returning int
-()                  // Function with no params, no return (void)
+(عدد، عدد) -> عدد   // دالة تأخذ عددين وتُرجع عدداً
+()                  // دالة بدون معاملات ولا إرجاع
 ```
 
-### 5.4 User-Defined Types
+### ٥.٤ الأنماط المُعرَّفة من المستخدم
 
-#### Class Types
+#### أنماط الأصناف
 ```tarqeem
 صنف شخص { ... }
-متغير ش: شخص       // Variable of type شخص
+متغير ش: شخص       // متغير من نمط شخص
 ```
 
-#### Interface Types
+#### أنماط المواثيق
 ```tarqeem
 ميثاق قابل_للطباعة { ... }
 ```
 
-#### Generic Types
+#### الأنماط المعممة
 ```tarqeem
 صنف قائمة<ن> { ... }
 متغير أرقام: قائمة<عدد>
 ```
 
-### 5.5 Special Types
+### ٥.٥ الأنماط الخاصة
 
-| Type | Arabic | Description |
-|------|--------|-------------|
-| `any` | `أي` | Accepts any type (escape hatch) |
-| `never` | `أبداً` | Function never returns |
-| `unknown` | `مجهول` | Used during inference |
+| النمط | الوصف |
+|-------|-------|
+| `أي` | يقبل أي نمط (مخرج طوارئ) |
+| `أبداً` | الدالة لا تُرجع أبداً |
+| `مجهول` | يُستخدم أثناء الاستنتاج |
 
-### 5.6 Type Compatibility
+### ٥.٦ توافق الأنماط
 
-#### Implicit Conversions
-- `عدد` → `عدد_عشري` (int to float)
-- `T` → `T?` (value to optional)
-- `لا_شيء` → `T?` (null to optional)
+#### التحويلات الضمنية
+- `عدد` ← `عدد_عشري` (من صحيح إلى عشري)
+- `ن` ← `ن?` (من قيمة إلى اختيارية)
+- `لا_شيء` ← `ن?` (من فارغ إلى اختيارية)
 
-#### String Concatenation Coercion
-When using `+` with a string, other types are implicitly converted:
+#### قسر دمج النصوص
+عند استخدام `+` مع نص، تُحوَّل الأنماط الأخرى ضمنياً:
 ```tarqeem
-"العدد: " + 42        // → "العدد: 42"
-"القيمة: " + صحيح     // → "القيمة: true"
+"العدد: " + ٤٢        // ← "العدد: ٤٢"
+"القيمة: " + صحيح     // ← "القيمة: صحيح"
 ```
 
-### 5.7 Type Inference
+### ٥.٧ استنتاج الأنماط
 
-Types can be inferred from initialization:
+يمكن استنتاج الأنماط من التهيئة:
 ```tarqeem
-متغير س = 5          // س: عدد
+متغير س = ٥          // س: عدد
 متغير اسم = "أحمد"    // اسم: نص
-ثابت قيم = [1, 2, 3] // قيم: مصفوفة<عدد>
+ثابت قيم = [١، ٢، ٣]  // قيم: مصفوفة<عدد>
 ```
 
-### 5.8 Type Annotations
+### ٥.٨ تحديد الأنماط
 
-Explicit type annotations use colon syntax:
+تحديد الأنماط الصريح يستخدم صياغة النقطتين:
 ```tarqeem
-متغير س: عدد = 5
-ثابت ط: عدد_عشري = 3.14
+متغير س: عدد = ٥
+ثابت ط: عدد_عشري = ٣.١٤
 متغير قائمة: مصفوفة<نص> = []
 ```
 
 ---
 
-## 6. Expressions
+## ٦. التعبيرات
 
-### 6.1 Primary Expressions
-
-```tarqeem
-42                    // Integer literal
-3.14                  // Float literal
-"مرحبا"               // String literal
-صحيح                  // Boolean true
-خطأ                   // Boolean false
-لا_شيء                // Null
-متغير_اسم             // Identifier
-(تعبير)               // Grouping
-```
-
-### 6.2 Arithmetic Expressions
+### ٦.١ التعبيرات الأولية
 
 ```tarqeem
-أ + ب                 // Addition
-أ - ب                 // Subtraction
-أ * ب                 // Multiplication
-أ / ب                 // Division
-أ % ب                 // Modulus
-أ ** ب                // Exponentiation
--أ                    // Negation
+٤٢                    // قيمة عدد صحيح
+٣.١٤                  // قيمة عدد عشري
+"مرحبا"               // قيمة نص
+صحيح                  // صواب منطقي
+خطأ                   // خطأ منطقي
+لا_شيء                // قيمة فارغة
+اسم_المتغير           // معرِّف
+(تعبير)               // تجميع
 ```
 
-### 6.3 Comparison Expressions
+### ٦.٢ التعبيرات الحسابية
 
 ```tarqeem
-أ == ب                // Equality
-أ != ب                // Inequality
-أ < ب                 // Less than
-أ <= ب                // Less than or equal
-أ > ب                 // Greater than
-أ >= ب                // Greater than or equal
+أ + ب                 // جمع
+أ - ب                 // طرح
+أ * ب                 // ضرب
+أ / ب                 // قسمة
+أ % ب                 // باقي القسمة
+أ ** ب                // الأس
+-أ                    // نفي
 ```
 
-### 6.4 Logical Expressions
+### ٦.٣ تعبيرات المقارنة
 
 ```tarqeem
-أ && ب                // Logical AND
-أ و ب                 // Arabic form of AND
-أ || ب                // Logical OR
-أ أو ب                // Arabic form of OR
-!أ                    // Logical NOT
-ليس أ                 // Arabic form of NOT
+أ == ب                // يساوي
+أ != ب                // لا يساوي
+أ < ب                 // أصغر من
+أ <= ب                // أصغر من أو يساوي
+أ > ب                 // أكبر من
+أ >= ب                // أكبر من أو يساوي
 ```
 
-### 6.5 Assignment Expressions
+### ٦.٤ التعبيرات المنطقية
 
 ```tarqeem
-س = 5                 // Simple assignment
-س += 1                // Add and assign
-س -= 1                // Subtract and assign
-س *= 2                // Multiply and assign
-س /= 2                // Divide and assign
-س++                   // Post-increment
-++س                   // Pre-increment
-س--                   // Post-decrement
---س                   // Pre-decrement
+أ && ب                // و المنطقية
+أ و ب                 // الشكل العربي
+أ || ب                // أو المنطقية
+أ أو ب                // الشكل العربي
+!أ                    // النفي المنطقي
+ليس أ                 // الشكل العربي
 ```
 
-### 6.6 Ternary Expression
+### ٦.٥ تعبيرات الإسناد
+
+```tarqeem
+س = ٥                 // إسناد بسيط
+س += ١                // جمع وإسناد
+س -= ١                // طرح وإسناد
+س *= ٢                // ضرب وإسناد
+س /= ٢                // قسمة وإسناد
+س++                   // زيادة لاحقة
+++س                   // زيادة سابقة
+س--                   // نقصان لاحق
+--س                   // نقصان سابق
+```
+
+### ٦.٦ التعبير الثلاثي
 
 ```tarqeem
 شرط ? قيمة_صحيح : قيمة_خطأ
 
-// Example
-متغير حالة = عمر >= 18 ? "بالغ" : "قاصر"
+// مثال
+متغير حالة = عمر >= ١٨ ? "بالغ" : "قاصر"
 ```
 
-### 6.7 Member Access
+### ٦.٧ الوصول للعضو
 
 ```tarqeem
-كائن.خاصية            // Property access
-كائن.دالة()           // Method call
+كائن.خاصية            // الوصول للخاصية
+كائن.دالة()           // استدعاء الدالة
 ```
 
-### 6.8 Index Access
+### ٦.٨ الوصول بالفهرس
 
 ```tarqeem
-مصفوفة[0]             // Array index
-قاموس["مفتاح"]        // Map key access
+مصفوفة[٠]             // فهرس المصفوفة
+قاموس["مفتاح"]        // الوصول بمفتاح القاموس
 ```
 
-### 6.9 Function Call
+### ٦.٩ استدعاء الدالة
 
 ```tarqeem
-دالة()                // No arguments
-دالة(أ، ب)            // With arguments
-كائن.دالة(أ)          // Method call
+دالة()                // بدون معاملات
+دالة(أ، ب)            // مع معاملات
+كائن.دالة(أ)          // استدعاء دالة عضو
 ```
 
-### 6.10 Object Creation
+### ٦.١٠ إنشاء الكائن
 
 ```tarqeem
-جديد صنف()            // Constructor call
-جديد صنف(أ، ب)        // With arguments
+جديد صنف()            // استدعاء المنشئ
+جديد صنف(أ، ب)        // مع معاملات
 ```
 
-### 6.11 Lambda Expressions
+### ٦.١١ تعبيرات لامدا
 
 ```tarqeem
-// Expression body
-(س) => س * 2
+// جسم تعبيري
+(س) => س * ٢
 
-// Block body
+// جسم كتلي
 (س، ص) => {
     متغير نتيجة = س + ص
     أرجع نتيجة
 }
 
-// Typed parameters
+// معاملات محددة النمط
 (س: عدد، ص: عدد) => س + ص
 ```
 
-### 6.12 Array Expressions
+### ٦.١٢ تعبيرات المصفوفة
 
 ```tarqeem
-[1, 2, 3]             // Array literal
-[1، 2، 3]             // With Arabic comma
-[]                    // Empty array
+[١، ٢، ٣]             // قيمة مصفوفة
+[]                    // مصفوفة فارغة
 ```
 
-### 6.13 Await Expression
+### ٦.١٣ تعبير الانتظار
 
 ```tarqeem
-انتظر وعد             // Await a promise
+انتظر وعد             // انتظار وعد
 انتظر دالة_متوازية()
 ```
 
 ---
 
-## 7. Statements
+## ٧. الجمل
 
-### 7.1 Variable Declaration
+### ٧.١ إعلان المتغير
 
 ```tarqeem
-// Mutable variable
+// متغير قابل للتعديل
 متغير اسم = "أحمد"
-متغير س: عدد = 5
+متغير س: عدد = ٥
 
-// Immutable constant
-ثابت PI = 3.14159
-ثابت قائمة: مصفوفة<عدد> = [1, 2, 3]
+// ثابت غير قابل للتعديل
+ثابت ط = ٣.١٤١٥٩
+ثابت قائمة: مصفوفة<عدد> = [١، ٢، ٣]
 ```
 
-### 7.2 Global Variables
+### ٧.٢ المتغيرات العامة
 
-Variables declared at the top level (outside any function) are **global variables**. They are accessible from all functions in the module.
+المتغيرات المُعلَنة في المستوى الأعلى (خارج أي دالة) هي **متغيرات عامة**. يمكن الوصول إليها من جميع الدوال في الوحدة.
 
 ```tarqeem
-// Global mutable variable
-متغير counter = 0
+// متغير عام قابل للتعديل
+متغير عداد = ٠
 
-// Global constant (inlined at compile time)
-ثابت MAX_SIZE = 100
+// ثابت عام (يُدمَج وقت الترجمة)
+ثابت الحد_الأقصى = ١٠٠
 
-دالة increment() {
-    counter = counter + 1  // Access global variable
+دالة زد() {
+    عداد = عداد + ١  // الوصول للمتغير العام
 }
 
-دالة reset() {
-    counter = 0  // Modify global variable
+دالة صفّر() {
+    عداد = ٠  // تعديل المتغير العام
 }
 ```
 
-**Key behaviors**:
-- Global constants with compile-time values are inlined for optimization
-- Mutable globals use load/store operations at runtime
-- Local variables in functions shadow global variables of the same name
+**السلوكيات الرئيسية**:
+- الثوابت العامة ذات القيم المعروفة وقت الترجمة تُدمَج للتحسين
+- المتغيرات العامة القابلة للتعديل تستخدم عمليات تحميل/تخزين وقت التشغيل
+- المتغيرات المحلية في الدوال تُظلِّل المتغيرات العامة بنفس الاسم
 
-### 7.3 Expression Statement
+### ٧.٣ جملة التعبير
 
 ```tarqeem
-اطبع("مرحبا");        // Function call
-س = 5;                // Assignment
-س++;                  // Increment
+اطبع("مرحبا")؛        // استدعاء دالة
+س = ٥؛                // إسناد
+س++؛                  // زيادة
 ```
 
-### 7.4 Block Statement
+### ٧.٤ جملة الكتلة
 
 ```tarqeem
 {
-    متغير س = 5
+    متغير س = ٥
     اطبع(س)
 }
 ```
 
-### 7.5 If Statement
+### ٧.٥ جملة إذا
 
 ```tarqeem
-// Simple if
+// إذا بسيطة
 إذا (شرط) {
-    // code
+    // كود
 }
 
-// If-else
+// إذا-وإلا
 إذا (شرط) {
-    // code
+    // كود
 } وإلا {
-    // code
+    // كود
 }
 
-// If-else if-else
+// إذا-وإلا إذا-وإلا
 إذا (شرط١) {
-    // code
+    // كود
 } وإلا إذا (شرط٢) {
-    // code
+    // كود
 } وإلا {
-    // code
+    // كود
 }
 ```
 
-### 7.6 While Loop
+### ٧.٦ حلقة طالما
 
 ```tarqeem
 طالما (شرط) {
-    // code
+    // كود
 }
 
-// With break
+// مع إيقاف
 طالما (صحيح) {
     إذا (انتهى) {
         أوقف
     }
 }
 
-// With continue
+// مع استمرار
 طالما (شرط) {
     إذا (تخطي) {
         استمر
     }
-    // code
+    // كود
 }
 ```
 
-### 7.7 For Loop
+### ٧.٧ حلقة لكل
 
 ```tarqeem
-// C-style for
-لكل (متغير ع = 0؛ ع < 10؛ ع++) {
+// حلقة لكل بنمط سي
+لكل (متغير ع = ٠؛ ع < ١٠؛ ع++) {
     اطبع(ع)
 }
 
-// For-in (iteration)
+// لكل-في (التكرار)
 لكل عنصر في مجموعة {
     اطبع(عنصر)
 }
 ```
 
-### 7.8 Do-While Loop
+### ٧.٨ حلقة افعل-طالما
 
 ```tarqeem
 افعل {
-    // code - executes at least once
+    // كود - يُنفَّذ مرة واحدة على الأقل
 } طالما (شرط)
 ```
 
-### 7.9 Match Statement
+### ٧.٩ جملة التطابق
 
 ```tarqeem
 تطابق (قيمة) {
-    حالة 1 => اطبع("واحد")
-    حالة 2، 3 => اطبع("اثنان أو ثلاثة")
+    حالة ١ => اطبع("واحد")
+    حالة ٢، ٣ => اطبع("اثنان أو ثلاثة")
     حالة "نص" => {
-        // block body
+        // جسم كتلي
         اطبع("نص")
     }
     غير_ذلك => اطبع("شيء آخر")
 }
 ```
 
-### 7.10 Return Statement
+### ٧.١٠ جملة الإرجاع
 
 ```tarqeem
-أرجع                  // Return void
-أرجع قيمة             // Return value
-ارجع نتيجة            // Alternative spelling
+أرجع                  // إرجاع بدون قيمة
+أرجع قيمة             // إرجاع قيمة
+ارجع نتيجة            // تهجئة بديلة
 ```
 
-### 7.11 Break and Continue
+### ٧.١١ أوقف واستمر
 
 ```tarqeem
-أوقف                  // Break loop
-اوقف                  // Alternative spelling
-استمر                 // Continue loop
+أوقف                  // إيقاف الحلقة
+اوقف                  // تهجئة بديلة
+استمر                 // استمرار الحلقة
 ```
 
 ---
 
-## 8. Functions
+## ٨. الدوال
 
-### 8.1 Function Declaration
+### ٨.١ إعلان الدالة
 
 ```tarqeem
-// Simple function
+// دالة بسيطة
 دالة تحية() {
     اطبع("مرحبا")
 }
 
-// With parameters
+// مع معاملات
 دالة جمع(أ: عدد، ب: عدد) -> عدد {
     أرجع أ + ب
 }
 
-// With default parameters (planned)
+// مع معاملات افتراضية (مخطط)
 دالة تحية(اسم: نص = "ضيف") {
     اطبع("مرحباً يا " + اسم)
 }
 ```
 
-### 8.2 Return Type
+### ٨.٢ نمط الإرجاع
 
-The return type is specified with `->`:
+يُحدَّد نمط الإرجاع بـ `->`:
 ```tarqeem
 دالة مساحة(نصف_قطر: عدد_عشري) -> عدد_عشري {
-    أرجع 3.14159 * نصف_قطر * نصف_قطر
+    أرجع ٣.١٤١٥٩ * نصف_قطر * نصف_قطر
 }
 ```
 
-If no return type is specified, the function does not return a value (void).
+إذا لم يُحدَّد نمط الإرجاع، فالدالة لا تُرجع قيمة.
 
-### 8.3 Lambda Functions
+### ٨.٣ دوال لامدا
 
 ```tarqeem
-// Expression lambda
+// لامدا تعبيرية
 ثابت مربع = (س: عدد) => س * س
 
-// Block lambda
+// لامدا كتلية
 ثابت معالج = (س: عدد) => {
-    متغير نتيجة = س * 2
+    متغير نتيجة = س * ٢
     أرجع نتيجة
 }
 
-// Inferred types
+// أنماط مُستنتَجة
 ثابت جمع = (أ، ب) => أ + ب
 ```
 
-### 8.4 Function Calls
+### ٨.٤ استدعاء الدوال
 
 ```tarqeem
-تحية()               // No arguments
-جمع(5، 3)            // With arguments
-مصفوفة.طول()         // Method call
+تحية()               // بدون معاملات
+جمع(٥، ٣)            // مع معاملات
+مصفوفة.طول()         // استدعاء دالة عضو
 ```
 
-### 8.5 Recursion
+### ٨.٥ التكرار
 
 ```tarqeem
 دالة فيبوناتشي(ن: عدد) -> عدد {
-    إذا (ن <= 1) {
+    إذا (ن <= ١) {
         أرجع ن
     }
-    أرجع فيبوناتشي(ن - 1) + فيبوناتشي(ن - 2)
+    أرجع فيبوناتشي(ن - ١) + فيبوناتشي(ن - ٢)
 }
 ```
 
-### 8.6 Built-in Functions
+### ٨.٦ الدوال المدمجة
 
-| Arabic | English | Description |
-|--------|---------|-------------|
-| `اطبع(قيمة)` | `print(value)` | Print to stdout |
-| `طول(مصفوفة)` | `len(array)` | Get array length |
+| الدالة | الوصف |
+|--------|-------|
+| `اطبع(قيمة)` | الطباعة إلى المخرج القياسي |
+| `طول(مصفوفة)` | الحصول على طول المجموعة |
 
-### 8.7 Program Entry Points
+### ٨.٧ نقاط دخول البرنامج
 
-Tarqeem supports two mutually exclusive execution modes:
+تدعم ترقيم وضعين تنفيذيين متعارضين:
 
-#### Script Mode (وضع السكربت)
+#### وضع السكربت
 
-In Script Mode, executable statements at the top level define the program's entry point. The compiler automatically wraps this code in a main function.
+في وضع السكربت، الجمل التنفيذية في المستوى الأعلى تُعرِّف نقطة دخول البرنامج. يلف المترجم هذا الكود تلقائياً في دالة رئيسية.
 
 ```tarqeem
 بسم_الله
 
-// Global variables (allowed)
-متغير counter = 0
+// المتغيرات العامة (مسموحة)
+متغير عداد = ٠
 
-// Top-level executable code - this is the entry point
+// كود تنفيذي في المستوى الأعلى - هذه نقطة الدخول
 اطبع("مرحباً بالعالم!")
-counter = counter + 1
-اطبع("العداد: " + counter)
+عداد = عداد + ١
+اطبع("العداد: " + عداد)
 
 الحمد_لله
 ```
 
-#### Program Mode (وضع البرنامج)
+#### وضع البرنامج
 
-In Program Mode, the `دالة رئيسية()` function explicitly defines the entry point. This is similar to `main()` in C/C++ or Java.
+في وضع البرنامج، `دالة رئيسية()` تُعرِّف نقطة الدخول صراحةً.
 
 ```tarqeem
 بسم_الله
 
-// Global variables (allowed)
+// المتغيرات العامة (مسموحة)
 متغير الاسم: نص = "ترقيم"
-ثابت الإصدار = "1.0.0"
+ثابت الإصدار = "١.٠.٠"
 
-// Helper function
+// دالة مساعدة
 دالة تحية(اسم: نص) {
     اطبع("مرحباً يا " + اسم + "!")
 }
 
-// Main entry point
+// نقطة الدخول الرئيسية
 دالة رئيسية() {
     اطبع("=== وضع البرنامج ===")
     تحية(الاسم)
@@ -904,84 +893,82 @@ In Program Mode, the `دالة رئيسية()` function explicitly defines the e
 الحمد_لله
 ```
 
-#### Mode Conflict (Compile Error)
+#### تعارض الوضعين (خطأ ترجمة)
 
-**IMPORTANT**: A program CANNOT use both modes simultaneously. If both top-level executable statements AND `دالة رئيسية()` exist in the same file, a compile error is produced:
+**مهم**: لا يمكن للبرنامج استخدام كلا الوضعين في آن واحد. إذا وُجِدت جمل تنفيذية في المستوى الأعلى و`دالة رئيسية()` في نفس الملف، يُنتَج خطأ ترجمة:
 
 ```tarqeem
-// ❌ ERROR: Cannot have both modes
+// ❌ خطأ: لا يمكن وجود كلا الوضعين
 بسم_الله
 
-اطبع("top level code")    // Script mode entry point
+اطبع("كود المستوى الأعلى")    // نقطة دخول وضع السكربت
 
-دالة رئيسية() {            // Program mode entry point
-    اطبع("in main")       // This would never execute!
+دالة رئيسية() {                // نقطة دخول وضع البرنامج
+    اطبع("في الرئيسية")        // هذا لن يُنفَّذ أبداً!
 }
 
 الحمد_لله
 ```
 
-**Error [ت٠٢٠١]**:
-- English: "Cannot have both top-level executable statements and دالة رئيسية() in the same file."
-- Arabic: "لا يمكن وجود جمل تنفيذية عليا ودالة رئيسية() في نفس الملف."
+**خطأ [ت٠٢٠١]**: لا يمكن وجود جمل تنفيذية عليا ودالة رئيسية() في نفس الملف.
 
-#### Design Rationale
+#### مبررات التصميم
 
-This design ensures:
+يضمن هذا التصميم:
 
-1. **Predictable behavior**: Only one entry point exists - no ambiguity about what executes first
-2. **Tool-friendly**: IDEs and debuggers can easily identify the entry point
-3. **Scalability**: Program Mode encourages structured code organization for larger projects
-4. **Simplicity**: Script Mode allows quick scripts without boilerplate
+١. **سلوك متوقع**: نقطة دخول واحدة فقط - لا غموض حول ما يُنفَّذ أولاً
+٢. **صديق للأدوات**: بيئات التطوير والمنقحات يمكنها تحديد نقطة الدخول بسهولة
+٣. **القابلية للتوسع**: وضع البرنامج يشجع التنظيم المهيكل للكود في المشاريع الكبيرة
+٤. **البساطة**: وضع السكربت يسمح بسكربتات سريعة بدون نمطية
 
-#### What Counts as Top-Level Executable Code
+#### ما يُعَد كوداً تنفيذياً في المستوى الأعلى
 
-| Statement Type | Script Mode? | Allowed with `دالة رئيسية()`? |
-|----------------|--------------|-------------------------------|
-| `متغير` / `ثابت` (global declarations) | No | Yes ✓ |
-| `دالة` (function declarations) | No | Yes ✓ |
-| `صنف` (class declarations) | No | Yes ✓ |
-| `ميثاق` (interface declarations) | No | Yes ✓ |
-| `اطبع()` (function calls) | Yes ✗ | No - causes error |
-| `إذا` / `طالما` (control flow) | Yes ✗ | No - causes error |
-| Expressions and assignments | Yes ✗ | No - causes error |
+| نوع الجملة | وضع السكربت؟ | مسموح مع `دالة رئيسية()`؟ |
+|------------|--------------|---------------------------|
+| `متغير` / `ثابت` (إعلانات عامة) | لا | نعم ✓ |
+| `دالة` (إعلانات دوال) | لا | نعم ✓ |
+| `صنف` (إعلانات أصناف) | لا | نعم ✓ |
+| `ميثاق` (إعلانات مواثيق) | لا | نعم ✓ |
+| `اطبع()` (استدعاءات دوال) | نعم ✗ | لا - يسبب خطأ |
+| `إذا` / `طالما` (التحكم في التدفق) | نعم ✗ | لا - يسبب خطأ |
+| التعبيرات والإسنادات | نعم ✗ | لا - يسبب خطأ |
 
 ---
 
-## 9. Object-Oriented Programming
+## ٩. البرمجة الكائنية
 
-### 9.1 Class Declaration
+### ٩.١ إعلان الصنف
 
 ```tarqeem
 صنف شخص {
-    // Fields
+    // الحقول
     خاص اسم: نص
     خاص عمر: عدد
 
-    // Constructor
+    // المنشئ
     منشئ(اسم: نص، عمر: عدد) {
         هذا.اسم = اسم
         هذا.عمر = عمر
     }
 
-    // Methods
+    // الدوال
     عام دالة تحية() {
         اطبع("مرحباً، أنا " + هذا.اسم)
     }
 }
 ```
 
-### 9.2 Visibility Modifiers
+### ٩.٢ محددات الرؤية
 
-| Arabic | English | Access |
-|--------|---------|--------|
-| `عام` | `public` | Accessible everywhere |
-| `خاص` | `private` | Accessible only within class |
-| `محمي` | `protected` | Accessible in class and subclasses |
+| المحدد | الوصول |
+|--------|--------|
+| `عام` | يمكن الوصول من كل مكان |
+| `خاص` | يمكن الوصول فقط داخل الصنف |
+| `محمي` | يمكن الوصول في الصنف والأصناف الفرعية |
 
-Default visibility is `public`.
+الرؤية الافتراضية هي `عام`.
 
-### 9.3 Constructors
+### ٩.٣ المنشئات
 
 ```tarqeem
 صنف شخص {
@@ -993,49 +980,49 @@ Default visibility is `public`.
 }
 ```
 
-### 9.4 Instance Reference
+### ٩.٤ مرجع النسخة
 
-Use `هذا` (this) to reference the current instance:
+استخدم `هذا` للإشارة إلى النسخة الحالية:
 ```tarqeem
-هذا.اسم              // Access field
-هذا.دالة()           // Call method
+هذا.اسم              // الوصول للحقل
+هذا.دالة()           // استدعاء الدالة
 ```
 
-### 9.5 Static Members
+### ٩.٥ الأعضاء المشتركة
 
 ```tarqeem
 صنف رياضيات {
-    مشترك PI: عدد_عشري = 3.14159
+    مشترك ط: عدد_عشري = ٣.١٤١٥٩
 
     مشترك دالة جذر(س: عدد_عشري) -> عدد_عشري {
-        // implementation
+        // التنفيذ
     }
 }
 
-// Usage
-اطبع(رياضيات.PI)
-متغير نتيجة = رياضيات.جذر(16.0)
+// الاستخدام
+اطبع(رياضيات.ط)
+متغير نتيجة = رياضيات.جذر(١٦.٠)
 ```
 
-### 9.6 Inheritance
+### ٩.٦ الوراثة
 
 ```tarqeem
 صنف موظف يرث شخص {
     خاص راتب: عدد_عشري
 
     منشئ(اسم: نص، عمر: عدد، راتب: عدد_عشري) {
-        الأصل(اسم، عمر)      // Call parent constructor
+        الأصل(اسم، عمر)      // استدعاء منشئ الأب
         هذا.راتب = راتب
     }
 
-    عام دالة تحية() {      // Override parent method
-        الأصل.تحية()        // Call parent method
+    عام دالة تحية() {      // تجاوز دالة الأب
+        الأصل.تحية()        // استدعاء دالة الأب
         اطبع("أنا موظف")
     }
 }
 ```
 
-### 9.7 Interfaces
+### ٩.٧ المواثيق
 
 ```tarqeem
 ميثاق قابل_للطباعة {
@@ -1048,20 +1035,20 @@ Use `هذا` (this) to reference the current instance:
 
 صنف شخص يلتزم قابل_للطباعة {
     عام دالة اطبع_معلومات() {
-        // Implementation required
+        // التنفيذ مطلوب
     }
 }
 ```
 
-### 9.8 Multiple Interface Implementation
+### ٩.٨ الالتزام بمواثيق متعددة
 
 ```tarqeem
 صنف منتج يلتزم قابل_للطباعة، قابل_للمقارنة {
-    // Must implement all interface methods
+    // يجب تنفيذ جميع دوال المواثيق
 }
 ```
 
-### 9.9 Generics
+### ٩.٩ الأنماط المعممة
 
 ```tarqeem
 صنف قائمة<ن> {
@@ -1080,76 +1067,73 @@ Use `هذا` (this) to reference the current instance:
     }
 }
 
-// Usage
+// الاستخدام
 متغير أرقام = جديد قائمة<عدد>()
-أرقام.أضف(1)
-أرقام.أضف(2)
+أرقام.أضف(١)
+أرقام.أضف(٢)
 ```
 
-### 9.10 Object Instantiation
+### ٩.١٠ إنشاء الكائنات
 
 ```tarqeem
-متغير شخص = جديد شخص("أحمد"، 30)
-متغير موظف = جديد موظف("محمد"، 35، 10000.0)
+متغير شخص = جديد شخص("أحمد"، ٣٠)
+متغير موظف = جديد موظف("محمد"، ٣٥، ١٠٠٠٠.٠)
 ```
 
 ---
 
-## 10. Modules and Imports
+## ١٠. الوحدات والاستيراد
 
-### 10.1 Import Statement
+### ١٠.١ جملة الاستيراد
 
 ```tarqeem
-// Named imports
+// استيراد مسمى
 استورد { قائمة، قاموس } من "مجموعات"
 
-// Wildcard import with alias
+// استيراد شامل مع اسم مستعار
 استورد * كـ رياضيات من "رياضيات"
 
-// Default import
+// استيراد افتراضي
 استورد مساعد من "./مساعدات"
-
-// English form
-import { List, Map } from "collections"
 ```
 
-### 10.2 Export Statement
+### ١٠.٢ جملة التصدير
 
 ```tarqeem
-// Export function
+// تصدير دالة
 صدّر دالة مساعدة() { }
 
-// Export class
+// تصدير صنف
 صدّر صنف أداة { }
 
-// Export variable
-صدّر ثابت الإصدار = "1.0.0"
+// تصدير متغير
+صدّر ثابت الإصدار = "١.٠.٠"
 ```
 
-### 10.3 Module Resolution
+### ١٠.٣ استبيان الوحدات
 
-- Relative paths: `"./ملف"`, `"../مجلد/ملف"`
-- Standard library: `"مجموعات"`, `"رياضيات"`, `"ملفات"`
-- Package modules: `"حزمة/وحدة"`
+- المسارات النسبية: `"./ملف"`، `"../مجلد/ملف"`
+- المكتبة القياسية: `"مجموعات"`، `"رياضيات"`، `"ملفات"`
+- وحدات الحزم: `"حزمة/وحدة"`
 
 ---
 
-## 11. Error Handling
+## ١١. معالجة الاستثناءات
 
-### 11.1 Error Objects
+### ١١.١ كائنات الاستثناء
 
-Tarqeem uses a structured error handling model. **Only error objects can be thrown** - strings, numbers, and other primitive types cannot be thrown directly.
+تستخدم ترقيم نموذج معالجة استثناءات مهيكل. **فقط كائنات الاستثناء يمكن رميها** - النصوص والأعداد والأنماط الأولية الأخرى لا يمكن رميها مباشرة.
 
-> **Note:** The word `خطأ` is reserved for the boolean value `false`. The base exception class is named `استثناء` (exception).
+> **ملاحظة:** الكلمة `خطأ` محجوزة للقيمة المنطقية. صنف الاستثناء الأساسي اسمه `استثناء`.
 
-#### Base Exception Class
+#### صنف الاستثناء الأساسي
 
-The base exception class `استثناء` provides the foundation for all throwable types:
+يوفر صنف `استثناء` الأساسي الأساس لجميع الأنماط القابلة للرمي:
 
 ```tarqeem
 صنف استثناء {
-    عام رسالة: نص              // Error message
-    عام رسالة_عربية: نص        // Arabic error message (optional)
+    عام رسالة: نص              // رسالة الاستثناء
+    عام رسالة_عربية: نص        // رسالة الاستثناء بالعربية (اختياري)
 
     منشئ(رسالة: نص) {
         هذا.رسالة = رسالة
@@ -1163,22 +1147,22 @@ The base exception class `استثناء` provides the foundation for all throwa
 }
 ```
 
-#### Standard Exception Types
+#### أنماط الاستثناء القياسية
 
-The standard library provides specialized exception classes:
+توفر المكتبة القياسية أصناف استثناء متخصصة:
 
-| Arabic | English | Description |
-|--------|---------|-------------|
-| `استثناء_قيمة` | `ValueError` | Invalid value |
-| `استثناء_نوع` | `TypeError` | Type mismatch |
-| `استثناء_فهرس` | `IndexError` | Index out of bounds |
-| `استثناء_ملف` | `FileError` | File operation error |
-| `استثناء_شبكة` | `NetworkError` | Network error |
-| `استثناء_قسمة` | `DivisionError` | Division by zero |
+| الاستثناء | الوصف |
+|-----------|-------|
+| `استثناء_قيمة` | قيمة غير صالحة |
+| `استثناء_نوع` | عدم تطابق الأنماط |
+| `استثناء_فهرس` | فهرس خارج الحدود |
+| `استثناء_ملف` | خطأ في عملية الملف |
+| `استثناء_شبكة` | خطأ شبكة |
+| `استثناء_قسمة` | قسمة على صفر |
 
-#### Custom Exception Classes
+#### أصناف الاستثناء المخصصة
 
-Create custom exception types by extending `استثناء`:
+أنشئ أنماط استثناء مخصصة بتوريث `استثناء`:
 
 ```tarqeem
 صنف استثناء_تحقق يرث استثناء {
@@ -1191,37 +1175,37 @@ Create custom exception types by extending `استثناء`:
 }
 ```
 
-### 11.2 Try-Catch-Finally
+### ١١.٢ حاول-التقط-أخيراً
 
 ```tarqeem
 حاول {
-    // Code that might throw
+    // كود قد يرمي استثناء
     متغير نتيجة = عملية_خطرة()
 } التقط (خ) {
-    // Handle exception - 'خ' is typed as the base exception class
+    // معالجة الاستثناء - 'خ' نمطه صنف الاستثناء الأساسي
     اطبع("حدث استثناء: " + خ.رسالة)
 } أخيراً {
-    // Always executed (cleanup)
+    // يُنفَّذ دائماً (تنظيف)
     تنظيف()
 }
 ```
 
-**Note:** The catch parameter is automatically typed as `استثناء`, which provides access to the `.رسالة` property and other exception fields.
+**ملاحظة:** معامل الالتقاط نمطه تلقائياً `استثناء`، مما يوفر الوصول لخاصية `.رسالة` وحقول الاستثناء الأخرى.
 
-### 11.3 Throw Statement
+### ١١.٣ جملة الرمي
 
-The `ارمِ` (throw) statement **requires an exception object**:
+جملة `ارمِ` **تتطلب كائن استثناء**:
 
 ```tarqeem
 دالة قسمة(أ: عدد، ب: عدد) -> عدد {
-    إذا (ب == 0) {
-        // Correct: throw an exception object
+    إذا (ب == ٠) {
+        // صحيح: رمي كائن استثناء
         ارمِ جديد استثناء_قسمة("لا يمكن القسمة على صفر")
     }
     أرجع أ / ب
 }
 
-// Using a helper function
+// باستخدام دالة مساعدة
 دالة استثناء_جديد(رسالة: نص) -> استثناء {
     أرجع جديد استثناء(رسالة)
 }
@@ -1231,22 +1215,22 @@ The `ارمِ` (throw) statement **requires an exception object**:
 }
 ```
 
-**Invalid throws (compile-time errors):**
+**رميات غير صالحة (أخطاء وقت الترجمة):**
 ```tarqeem
-// These will cause compile-time errors:
-ارمِ "نص"           // ❌ Cannot throw string
-ارمِ 42              // ❌ Cannot throw number
-ارمِ صحيح           // ❌ Cannot throw boolean
-ارمِ جديد شخص()    // ❌ Cannot throw non-exception class
+// هذه ستسبب أخطاء وقت الترجمة:
+ارمِ "نص"           // ❌ لا يمكن رمي نص
+ارمِ ٤٢              // ❌ لا يمكن رمي عدد
+ارمِ صحيح           // ❌ لا يمكن رمي منطقي
+ارمِ جديد شخص()    // ❌ لا يمكن رمي صنف غير استثناء
 ```
 
-### 11.4 Error Propagation
+### ١١.٤ انتشار الاستثناء
 
-Exceptions propagate up the call stack until caught:
+تنتشر الاستثناءات صعوداً في مكدس الاستدعاء حتى تُلتَقط:
 
 ```tarqeem
 دالة أ() {
-    ب()  // Exception from ب() propagates if not caught
+    ب()  // الاستثناء من ب() ينتشر إذا لم يُلتَقط
 }
 
 دالة ب() {
@@ -1256,15 +1240,15 @@ Exceptions propagate up the call stack until caught:
 حاول {
     أ()
 } التقط (خ) {
-    اطبع(خ.رسالة)  // Catches exception from ب()
+    اطبع(خ.رسالة)  // يلتقط الاستثناء من ب()
 }
 ```
 
 ---
 
-## 12. Concurrency
+## ١٢. التزامن
 
-### 12.1 Async Functions
+### ١٢.١ الدوال المتوازية
 
 ```tarqeem
 متوازي دالة احضر_بيانات(رابط: نص) -> نص {
@@ -1273,7 +1257,7 @@ Exceptions propagate up the call stack until caught:
 }
 ```
 
-### 12.2 Await Expression
+### ١٢.٢ تعبير الانتظار
 
 ```tarqeem
 متوازي دالة رئيسية() {
@@ -1282,397 +1266,394 @@ Exceptions propagate up the call stack until caught:
 }
 ```
 
-### 12.3 Async Execution Model
+### ١٢.٣ نموذج التنفيذ المتوازي
 
-- Async functions return a promise-like object
-- `انتظر` suspends execution until the promise resolves
-- The runtime manages an event loop for I/O operations
+- الدوال المتوازية تُرجع كائناً شبيهاً بالوعد
+- `انتظر` يوقف التنفيذ حتى يُحَل الوعد
+- وقت التشغيل يدير حلقة أحداث لعمليات الإدخال/الإخراج
 
 ---
 
-## 13. Memory Model
+## ١٣. نموذج الذاكرة
 
-### 13.1 Overview
+### ١٣.١ نظرة عامة
 
-Tarqeem uses a hybrid memory management approach:
-- **Stack Allocation**: Primitives and small fixed-size values
-- **Heap Allocation**: Objects, arrays, strings
-- **Reference Counting**: Automatic memory management for heap objects
+تستخدم ترقيم نهجاً هجيناً لإدارة الذاكرة:
+- **تخصيص المكدس**: الأوليات والقيم ثابتة الحجم الصغيرة
+- **تخصيص الكومة**: الكائنات، المصفوفات، النصوص
+- **عد المراجع**: إدارة ذاكرة تلقائية لكائنات الكومة
 
-### 13.2 Value Types vs Reference Types
+### ١٣.٢ أنماط القيمة مقابل أنماط المرجع
 
-**Value Types** (passed by copy):
-- `عدد` (int)
-- `عدد_عشري` (float)
-- `منطقي` (bool)
+**أنماط القيمة** (تُمرَّر بالنسخ):
+- `عدد`
+- `عدد_عشري`
+- `منطقي`
 
-**Reference Types** (passed by reference):
-- `نص` (string)
-- `مصفوفة` (array)
-- `صنف` instances (class)
-- `قاموس` (map)
+**أنماط المرجع** (تُمرَّر بالمرجع):
+- `نص`
+- `مصفوفة`
+- نسخ `صنف`
+- `قاموس`
 
-### 13.3 Reference Counting
+### ١٣.٣ عد المراجع
 
-Objects are automatically freed when no references remain:
+تُحرَّر الكائنات تلقائياً عندما لا تبقى مراجع:
 ```tarqeem
 {
-    متغير قائمة = [1, 2, 3]  // Reference count = 1
-    متغير أخرى = قائمة       // Reference count = 2
-}  // Both variables go out of scope, count = 0, freed
+    متغير قائمة = [١، ٢، ٣]  // عدد المراجع = ١
+    متغير أخرى = قائمة       // عدد المراجع = ٢
+}  // كلا المتغيرين يخرجان من النطاق، العدد = ٠، تُحرَّر
 ```
 
-### 13.4 Null Safety
+### ١٣.٤ أمان القيمة الفارغة
 
-Optional types must be checked before use:
+الأنماط الاختيارية يجب فحصها قبل الاستخدام:
 ```tarqeem
 متغير س: عدد? = لا_شيء
 
-// Direct use would be an error
-// اطبع(س + 1)  // Error!
+// الاستخدام المباشر سيكون خطأ
+// اطبع(س + ١)  // خطأ!
 
-// Safe usage
+// الاستخدام الآمن
 إذا (س != لا_شيء) {
-    اطبع(س + 1)  // OK, س is known to be non-null
+    اطبع(س + ١)  // مقبول، س معروف أنه ليس فارغاً
 }
 ```
 
 ---
 
-## 14. Standard Library
+## ١٤. المكتبة القياسية
 
-### 14.1 Core Types
+### ١٤.١ الأنماط الأساسية
 
-| Module | Contents |
-|--------|----------|
-| `مجموعات` | `قائمة<ن>`, `قاموس<م،ق>`, `مجموعة<ن>` |
-| `رياضيات` | `جذر()`, `قوة()`, `مطلق()`, trigonometry |
-| `نص` | String manipulation utilities |
-| `ملفات` | File system operations |
-| `شبكة` | Networking (HTTP, sockets) |
+| الوحدة | المحتويات |
+|--------|-----------|
+| `مجموعات` | `قائمة<ن>`، `قاموس<م،ق>`، `مجموعة<ن>` |
+| `رياضيات` | `جذر()`، `قوة()`، `مطلق()`، دوال مثلثية |
+| `نص` | أدوات معالجة النصوص |
+| `ملفات` | عمليات نظام الملفات |
+| `شبكة` | الشبكات (HTTP، مآخذ) |
 
-### 14.2 Built-in Functions
+### ١٤.٢ الدوال المدمجة
 
-| Function | Arabic | Description |
-|----------|--------|-------------|
-| `print()` | `اطبع()` | Output to stdout |
-| `len()` | `طول()` | Get collection length |
-| `type()` | `نوع()` | Get type name |
+| الدالة | الوصف |
+|--------|-------|
+| `اطبع()` | الإخراج إلى المخرج القياسي |
+| `طول()` | الحصول على طول المجموعة |
+| `نوع()` | الحصول على اسم النمط |
 
-### 14.3 Array Methods
+### ١٤.٣ دوال المصفوفة
 
-| Method | Arabic | Description |
-|--------|--------|-------------|
-| `push()` | `ألحق()` | Add to end |
-| `pop()` | `احذف_آخر()` | Remove from end |
-| `length` | `طول` | Get length |
-| `map()` | `عيّن()` | Transform elements |
-| `filter()` | `رشّح()` | Filter elements |
-
----
-
-## 15. Formal Grammar
-
-### 15.1 Notation
-
-```
-<non-terminal>
-'literal'
-[optional]
-{zero-or-more}
-(grouping)
-|   alternative
-```
-
-### 15.2 Program Structure
-
-```
-program         := {statement}
-
-statement       := var_decl
-                 | func_decl
-                 | class_decl
-                 | interface_decl
-                 | if_stmt
-                 | while_stmt
-                 | for_stmt
-                 | match_stmt
-                 | return_stmt
-                 | break_stmt
-                 | continue_stmt
-                 | try_stmt
-                 | throw_stmt
-                 | import_stmt
-                 | export_stmt
-                 | expr_stmt
-                 | block
-```
-
-### 15.3 Declarations
-
-```
-var_decl        := ('متغير' | 'ثابت') IDENTIFIER [':' type] ['=' expr] ';'
-
-func_decl       := ['متوازي'] 'دالة' IDENTIFIER '(' [params] ')' ['->' type] block
-
-class_decl      := 'صنف' IDENTIFIER ['<' type_params '>']
-                   ['يرث' IDENTIFIER]
-                   ['يلتزم' IDENTIFIER {',' IDENTIFIER}]
-                   '{' {class_member} '}'
-
-interface_decl  := 'ميثاق' IDENTIFIER ['<' type_params '>']
-                   '{' {method_sig} '}'
-```
-
-### 15.4 Types
-
-```
-type            := simple_type
-                 | array_type
-                 | map_type
-                 | function_type
-                 | optional_type
-                 | generic_type
-
-simple_type     := 'عدد' | 'عدد_عشري' | 'نص' | 'منطقي' | IDENTIFIER
-
-array_type      := 'مصفوفة' '<' type '>'
-
-map_type        := 'قاموس' '<' type ',' type '>'
-
-function_type   := '(' [type {',' type}] ')' '->' type
-
-optional_type   := type '?'
-
-generic_type    := IDENTIFIER '<' type {',' type} '>'
-```
-
-### 15.5 Expressions
-
-```
-expr            := assignment
-
-assignment      := ternary [('=' | '+=' | '-=' | '*=' | '/=' | '%=') assignment]
-
-ternary         := or ['?' expr ':' ternary]
-
-or              := and {('||' | 'أو') and}
-
-and             := equality {('&&' | 'و') equality}
-
-equality        := comparison {('==' | '!=') comparison}
-
-comparison      := term {('<' | '<=' | '>' | '>=') term}
-
-term            := factor {('+' | '-') factor}
-
-factor          := power {('*' | '/' | '%') power}
-
-power           := unary {'**' unary}
-
-unary           := ('!' | '-' | 'ليس' | '++' | '--') unary
-                 | postfix
-
-postfix         := primary {call | index | member | ('++' | '--')}
-
-primary         := literal
-                 | IDENTIFIER
-                 | 'هذا'
-                 | 'الأصل'
-                 | '(' expr ')'
-                 | array_literal
-                 | object_literal
-                 | lambda
-                 | new_expr
-                 | await_expr
-```
-
-### 15.6 Statements
-
-```
-if_stmt         := 'إذا' '(' expr ')' block ['وإلا' (if_stmt | block)]
-
-while_stmt      := 'طالما' '(' expr ')' block
-
-for_stmt        := 'لكل' '(' [var_decl | expr] ';' [expr] ';' [expr] ')' block
-                 | 'لكل' IDENTIFIER 'في' expr block
-
-match_stmt      := 'تطابق' '(' expr ')' '{' {match_arm} '}'
-
-match_arm       := 'حالة' expr {',' expr} '=>' (expr | block)
-                 | 'غير_ذلك' '=>' (expr | block)
-
-try_stmt        := 'حاول' block ['التقط' '(' IDENTIFIER ')' block] ['أخيراً' block]
-
-return_stmt     := 'أرجع' [expr] ';'
-
-break_stmt      := 'أوقف' ';'
-
-continue_stmt   := 'استمر' ';'
-
-throw_stmt      := 'ارمِ' expr ';'
-```
+| الدالة | الوصف |
+|--------|-------|
+| `ألحق()` | إضافة للنهاية |
+| `احذف_آخر()` | حذف من النهاية |
+| `طول` | الحصول على الطول |
+| `عيّن()` | تحويل العناصر |
+| `رشّح()` | ترشيح العناصر |
 
 ---
 
-## Appendix A: Keyword Reference
+## ١٥. القواعد النحوية الرسمية
 
-### Complete Keyword List
+### ١٥.١ الترميز
 
-| Category | Arabic | English Aliases | Token |
-|----------|--------|-----------------|-------|
-| Variables | `متغير` | `let`, `var` | `Let` |
-| Variables | `ثابت` | `const` | `Const` |
-| Functions | `دالة` | `function`, `fn` | `Function` |
-| Functions | `أرجع`, `ارجع` | `return` | `Return` |
-| Functions | `متوازي` | `async` | `Async` |
-| Functions | `انتظر` | `await` | `Await` |
-| Control | `إذا`, `اذا` | `if` | `If` |
-| Control | `وإلا`, `والا` | `else` | `Else` |
-| Control | `طالما` | `while` | `While` |
-| Control | `لكل` | `for` | `For` |
-| Control | `في` | `in` | `In` |
-| Control | `افعل` | `do` | `Do` |
-| Control | `أوقف`, `اوقف` | `break` | `Break` |
-| Control | `استمر` | `continue` | `Continue` |
-| Control | `تطابق` | `match`, `switch` | `Match` |
-| Control | `حالة` | `case` | `Case` |
-| Control | `غير_ذلك` | `default` | `Default` |
-| OOP | `صنف` | `class` | `Class` |
-| OOP | `ميثاق` | `interface` | `Interface` |
-| OOP | `يرث` | `extends` | `Extends` |
-| OOP | `يلتزم` | `implements` | `Implements` |
-| OOP | `عام` | `public` | `Public` |
-| OOP | `خاص` | `private` | `Private` |
-| OOP | `محمي` | `protected` | `Protected` |
-| OOP | `مشترك` | `static` | `Static` |
-| OOP | `منشئ` | `constructor` | `Constructor` |
-| OOP | `هذا` | `this` | `This` |
-| OOP | `الأصل`, `الاصل` | `super` | `Super` |
-| OOP | `جديد` | `new` | `New` |
-| Errors | `حاول` | `try` | `Try` |
-| Errors | `التقط` | `catch` | `Catch` |
-| Errors | `أخيراً`, `اخيرا` | `finally` | `Finally` |
-| Errors | `ارمِ`, `ارم` | `throw` | `Throw` |
-| Modules | `استورد` | `import` | `Import` |
-| Modules | `صدّر`, `صدر` | `export` | `Export` |
-| Modules | `من` | `from` | `From` |
-| Modules | `كـ`, `ك` | `as` | `As` |
-| Literals | `صحيح` | `true` | `True` |
-| Literals | `خطأ`, `خطا` | `false` | `False` |
-| Literals | `لا_شيء` | `null`, `none` | `Null` |
-| Logical | `و` | | `And` |
-| Logical | `أو`, `او` | | `Or` |
-| Logical | `ليس` | `not` | `Bang` |
-| Types | `عدد` | `int` | `TypeInt` |
-| Types | `عدد_عشري` | `float` | `TypeFloat` |
-| Types | `نص` | `string` | `TypeString` |
-| Types | `منطقي` | `bool` | `TypeBool` |
-| Types | `مصفوفة` | `array` | `TypeArray` |
-| Types | `قاموس` | `map`, `dict` | `TypeMap` |
-| Types | `أي`, `اي` | `any` | `TypeAny` |
+```
+<غير_طرفي>
+'حرفي'
+[اختياري]
+{صفر-أو-أكثر}
+(تجميع)
+|   بديل
+```
 
-> **Note**: There is no `void` keyword. Functions that don't return a value simply omit the return type annotation.
+### ١٥.٢ بنية البرنامج
+
+```
+برنامج           := {جملة}
+
+جملة             := إعلان_متغير
+                  | إعلان_دالة
+                  | إعلان_صنف
+                  | إعلان_ميثاق
+                  | جملة_إذا
+                  | جملة_طالما
+                  | جملة_لكل
+                  | جملة_تطابق
+                  | جملة_إرجاع
+                  | جملة_أوقف
+                  | جملة_استمر
+                  | جملة_حاول
+                  | جملة_ارم
+                  | جملة_استورد
+                  | جملة_صدر
+                  | جملة_تعبير
+                  | كتلة
+```
+
+### ١٥.٣ الإعلانات
+
+```
+إعلان_متغير      := ('متغير' | 'ثابت') معرِّف [':' نمط] ['=' تعبير] '؛'
+
+إعلان_دالة       := ['متوازي'] 'دالة' معرِّف '(' [معاملات] ')' ['->' نمط] كتلة
+
+إعلان_صنف        := 'صنف' معرِّف ['<' معاملات_نمط '>']
+                    ['يرث' معرِّف]
+                    ['يلتزم' معرِّف {'،' معرِّف}]
+                    '{' {عضو_صنف} '}'
+
+إعلان_ميثاق      := 'ميثاق' معرِّف ['<' معاملات_نمط '>']
+                    '{' {توقيع_دالة} '}'
+```
+
+### ١٥.٤ الأنماط
+
+```
+نمط              := نمط_بسيط
+                  | نمط_مصفوفة
+                  | نمط_قاموس
+                  | نمط_دالة
+                  | نمط_اختياري
+                  | نمط_معمم
+
+نمط_بسيط         := 'عدد' | 'عدد_عشري' | 'نص' | 'منطقي' | معرِّف
+
+نمط_مصفوفة       := 'مصفوفة' '<' نمط '>'
+
+نمط_قاموس        := 'قاموس' '<' نمط '،' نمط '>'
+
+نمط_دالة         := '(' [نمط {'،' نمط}] ')' '->' نمط
+
+نمط_اختياري     := نمط '?'
+
+نمط_معمم         := معرِّف '<' نمط {'،' نمط} '>'
+```
+
+### ١٥.٥ التعبيرات
+
+```
+تعبير            := إسناد
+
+إسناد            := ثلاثي [('=' | '+=' | '-=' | '*=' | '/=' | '%=') إسناد]
+
+ثلاثي            := أو ['?' تعبير ':' ثلاثي]
+
+أو               := و {('||' | 'أو') و}
+
+و                := مساواة {('&&' | 'و') مساواة}
+
+مساواة           := مقارنة {('==' | '!=') مقارنة}
+
+مقارنة           := حد {('<' | '<=' | '>' | '>=') حد}
+
+حد               := عامل {('+' | '-') عامل}
+
+عامل             := قوة {('*' | '/' | '%') قوة}
+
+قوة              := أحادي {'**' أحادي}
+
+أحادي            := ('!' | '-' | 'ليس' | '++' | '--') أحادي
+                  | لاحق
+
+لاحق             := أولي {استدعاء | فهرس | عضو | ('++' | '--')}
+
+أولي             := حرفي
+                  | معرِّف
+                  | 'هذا'
+                  | 'الأصل'
+                  | '(' تعبير ')'
+                  | حرفي_مصفوفة
+                  | حرفي_كائن
+                  | لامدا
+                  | تعبير_جديد
+                  | تعبير_انتظار
+```
+
+### ١٥.٦ الجمل
+
+```
+جملة_إذا         := 'إذا' '(' تعبير ')' كتلة ['وإلا' (جملة_إذا | كتلة)]
+
+جملة_طالما       := 'طالما' '(' تعبير ')' كتلة
+
+جملة_لكل         := 'لكل' '(' [إعلان_متغير | تعبير] '؛' [تعبير] '؛' [تعبير] ')' كتلة
+                  | 'لكل' معرِّف 'في' تعبير كتلة
+
+جملة_تطابق       := 'تطابق' '(' تعبير ')' '{' {ذراع_تطابق} '}'
+
+ذراع_تطابق       := 'حالة' تعبير {'،' تعبير} '=>' (تعبير | كتلة)
+                  | 'غير_ذلك' '=>' (تعبير | كتلة)
+
+جملة_حاول        := 'حاول' كتلة ['التقط' '(' معرِّف ')' كتلة] ['أخيراً' كتلة]
+
+جملة_إرجاع       := 'أرجع' [تعبير] '؛'
+
+جملة_أوقف        := 'أوقف' '؛'
+
+جملة_استمر       := 'استمر' '؛'
+
+جملة_ارم         := 'ارمِ' تعبير '؛'
+```
 
 ---
 
-## Appendix B: Version History
+## ملحق أ: مرجع الكلمات المفتاحية
 
-| Version | Date | Description |
-|---------|------|-------------|
-| 1.0.0 | 2025 | Initial specification |
+### قائمة الكلمات المفتاحية الكاملة
+
+| الفئة | الكلمة المفتاحية | الوصف |
+|-------|------------------|-------|
+| المتغيرات | `متغير` | متغير قابل للتعديل |
+| المتغيرات | `ثابت` | ثابت غير قابل للتعديل |
+| الدوال | `دالة` | إعلان دالة |
+| الدوال | `أرجع`، `ارجع` | جملة الإرجاع |
+| الدوال | `متوازي` | دالة متوازية |
+| الدوال | `انتظر` | تعبير الانتظار |
+| التحكم | `إذا`، `اذا` | شرط |
+| التحكم | `وإلا`، `والا` | فرع وإلا |
+| التحكم | `طالما` | حلقة طالما |
+| التحكم | `لكل` | حلقة لكل |
+| التحكم | `في` | عامل في |
+| التحكم | `افعل` | حلقة افعل-طالما |
+| التحكم | `أوقف`، `اوقف` | إيقاف الحلقة |
+| التحكم | `استمر` | استمرار الحلقة |
+| التحكم | `تطابق` | مطابقة الأنماط |
+| التحكم | `حالة` | حالة المطابقة |
+| التحكم | `غير_ذلك` | الحالة الافتراضية |
+| الكائنية | `صنف` | إعلان صنف |
+| الكائنية | `ميثاق` | إعلان ميثاق |
+| الكائنية | `يرث` | الوراثة |
+| الكائنية | `يلتزم` | الالتزام بالميثاق |
+| الكائنية | `عام` | رؤية عامة |
+| الكائنية | `خاص` | رؤية خاصة |
+| الكائنية | `محمي` | رؤية محمية |
+| الكائنية | `مشترك` | عضو مشترك |
+| الكائنية | `منشئ` | المنشئ |
+| الكائنية | `هذا` | مرجع النسخة |
+| الكائنية | `الأصل`، `الاصل` | مرجع الأب |
+| الكائنية | `جديد` | إنشاء كائن |
+| الاستثناءات | `حاول` | كتلة المحاولة |
+| الاستثناءات | `التقط` | كتلة الالتقاط |
+| الاستثناءات | `أخيراً`، `اخيرا` | كتلة أخيراً |
+| الاستثناءات | `ارمِ`، `ارم` | رمي استثناء |
+| الوحدات | `استورد` | استيراد وحدة |
+| الوحدات | `صدّر`، `صدر` | تصدير إعلان |
+| الوحدات | `من` | محدد المصدر |
+| الوحدات | `كـ`، `ك` | محدد الاسم المستعار |
+| الحرفيات | `صحيح` | صواب منطقي |
+| الحرفيات | `خطأ`، `خطا` | خطأ منطقي |
+| الحرفيات | `لا_شيء` | قيمة فارغة |
+| المنطقية | `و` | و المنطقية |
+| المنطقية | `أو`، `او` | أو المنطقية |
+| المنطقية | `ليس` | النفي المنطقي |
+| الأنماط | `عدد` | عدد صحيح |
+| الأنماط | `عدد_عشري` | عدد عشري |
+| الأنماط | `نص` | سلسلة نصية |
+| الأنماط | `منطقي` | قيمة منطقية |
+| الأنماط | `مصفوفة` | مصفوفة |
+| الأنماط | `قاموس` | قاموس |
+| الأنماط | `أي`، `اي` | أي نمط |
+
+> **ملاحظة**: لا توجد كلمة `فراغ`. الدوال التي لا تُرجع قيمة تحذف ببساطة تحديد نمط الإرجاع.
 
 ---
 
-## Appendix C: References
+## ملحق ب: سجل الإصدارات
 
-1. Unicode Standard Annex #9: Unicode Bidirectional Algorithm
-2. Unicode Technical Standard #39: Unicode Security Mechanisms
-3. LLVM Language Reference Manual
-4. "Crafting Interpreters" by Robert Nystrom
+| الإصدار | التاريخ | الوصف |
+|---------|---------|-------|
+| ١.٠.٠ | ٢٠٢٥ | المواصفات الأولية |
 
 ---
 
-## Appendix D: Error Codes Reference
+## ملحق ج: المراجع
 
-### D.1 Error Code System
+١. ملحق معيار يونيكود رقم ٩: خوارزمية النص ثنائي الاتجاه
+٢. المعيار التقني ليونيكود رقم ٣٩: آليات أمان يونيكود
+٣. دليل مرجع لغة LLVM
+٤. كتاب "صناعة المفسرات" لروبرت نايستروم
 
-Tarqeem uses a standardized Arabic error code system for consistent error identification and documentation. Each error code consists of:
+---
 
-- **Category letter**: Arabic letter indicating the error category
-- **Four digits**: Arabic-Indic numerals (٠-٩) identifying the specific error
+## ملحق د: مرجع رموز الأخطاء
 
-**Format**: `[حرف][٤ أرقام]` (e.g., `د٠٣٠١`)
+### د.١ نظام رموز الأخطاء
 
-### D.2 Error Categories
+تستخدم ترقيم نظام رموز أخطاء عربي موحد للتعريف المتسق بالأخطاء وتوثيقها. يتكون كل رمز من:
 
-| Letter | Arabic Name | English | Description |
-|--------|-------------|---------|-------------|
-| ق | قراءة | Lexer | Tokenization errors (invalid characters, unclosed strings) |
-| ب | بناء | Parser | Syntax errors (unexpected tokens, missing semicolons) |
-| د | دلالة | Semantic | Semantic analysis errors (undefined variables, scope issues) |
-| ن | نوع | Type | Type system errors (type mismatch, inference failures) |
-| ص | صنف | Class | OOP-related errors (inheritance, visibility, interfaces) |
-| و | وحدة | Module | Import/export errors (missing modules, circular deps) |
-| ت | توليد | Codegen | Code generation errors (LLVM errors, linking failures) |
-| ح | تحذير | Warning | Compiler warnings (unused variables, deprecated features) |
-| م | مهمل | Deprecated | Deprecated syntax warnings |
+- **حرف الفئة**: حرف عربي يدل على فئة الخطأ
+- **أربعة أرقام**: أرقام عربية-هندية (٠-٩) تحدد الخطأ المحدد
 
-### D.3 Example Error Codes
+**التنسيق**: `[حرف][٤ أرقام]` (مثال: `د٠٣٠١`)
 
-| Code | Description (Arabic) | Description (English) |
-|------|---------------------|----------------------|
-| ق٠٠٠١ | حرف غير معروف | Unknown character |
-| ب٠٠٠٢ | رمز غير متوقع | Unexpected token |
-| د٠٠٠١ | متغير غير معرف | Undefined variable |
-| د٠٣٠١ | استخدام 'أوقف' خارج حلقة | 'break' outside loop |
-| ن٠٠٠١ | عدم تطابق الأنواع | Type mismatch |
-| ص٠٠٠١ | صنف غير موجود | Class not found |
-| ح٠٠٠١ | متغير غير مستخدم | Unused variable |
+### د.٢ فئات الأخطاء
 
-### D.4 Using the Explain Command
+| الحرف | الاسم | الوصف |
+|-------|-------|-------|
+| ق | قراءة | أخطاء التجزئة اللغوية (أحرف غير صالحة، نصوص غير مغلقة) |
+| ب | بناء | أخطاء بناء الجملة (رموز غير متوقعة، فواصل منقوطة مفقودة) |
+| د | دلالة | أخطاء التحليل الدلالي (متغيرات غير معرفة، مشاكل النطاق) |
+| ن | نوع | أخطاء نظام الأنماط (عدم تطابق الأنماط، فشل الاستنتاج) |
+| ص | صنف | أخطاء متعلقة بالكائنية (الوراثة، الرؤية، المواثيق) |
+| و | وحدة | أخطاء الاستيراد/التصدير (وحدات مفقودة، اعتماديات دائرية) |
+| ت | توليد | أخطاء توليد الكود (أخطاء LLVM، فشل الربط) |
+| ح | تحذير | تحذيرات المترجم (متغيرات غير مستخدمة، ميزات مهملة) |
+| م | مهمل | تحذيرات صيغ مهملة |
 
-To get detailed explanation of any error code:
+### د.٣ أمثلة على رموز الأخطاء
+
+| الرمز | الوصف |
+|-------|-------|
+| ق٠٠٠١ | حرف غير معروف |
+| ب٠٠٠٢ | رمز غير متوقع |
+| د٠٠٠١ | متغير غير معرف |
+| د٠٣٠١ | استخدام 'أوقف' خارج حلقة |
+| ن٠٠٠١ | عدم تطابق الأنماط |
+| ص٠٠٠١ | صنف غير موجود |
+| ح٠٠٠١ | متغير غير مستخدم |
+
+### د.٤ استخدام أمر الشرح
+
+للحصول على شرح مفصل لأي رمز خطأ:
 
 ```bash
-# Arabic command
-tarqeem اشرح <error-code>
+tarqeem اشرح <رمز-الخطأ>
 
-# English alias
-tarqeem explain <error-code>
-
-# Example
+# مثال
 tarqeem اشرح د٠٣٠١
 ```
 
-The explain command displays:
-- Error description in Arabic
-- Cause of the error
-- Code examples showing the error
-- Solutions and fixes
-- Related error codes
+يعرض أمر الشرح:
+- وصف الخطأ بالعربية
+- سبب الخطأ
+- أمثلة كود توضح الخطأ
+- الحلول والإصلاحات
+- رموز الأخطاء ذات الصلة
 
-### D.5 Error Message Format
+### د.٥ تنسيق رسالة الخطأ
 
-Error messages in Tarqeem follow this format:
+تتبع رسائل الأخطاء في ترقيم هذا التنسيق:
 
 ```
 خطأ [رمز]: وصف الخطأ
   --> ملف.ترقيم:سطر:عمود
    |
- N |     الكود المسبب للخطأ
+ ن |     الكود المسبب للخطأ
    |     ^^^^
    |
    = ملاحظة: معلومات إضافية
 ```
 
-### D.6 Documentation
+### د.٦ التوثيق
 
-Full error code documentation is available at:
-- `docs/رموز_الأخطاء/فهرس.md` - Complete index of all error codes
-- `docs/رموز_الأخطاء/نظام_رموز_الأخطاء.md` - Error code system specification
+التوثيق الكامل لرموز الأخطاء متاح في:
+- `docs/رموز_الأخطاء/فهرس.md` - فهرس كامل لجميع رموز الأخطاء
+- `docs/رموز_الأخطاء/نظام_رموز_الأخطاء.md` - مواصفات نظام رموز الأخطاء
 
 ---
 
-**Copyright 2025 Tarqeem Project**
 **حقوق النشر ٢٠٢٥ مشروع ترقيم**
+
+</div>
