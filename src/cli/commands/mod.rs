@@ -2,6 +2,7 @@
 
 mod compile;
 mod debug;
+mod explain;
 
 pub use compile::{compile, CompileArgs};
 pub use debug::{debug, DebugArgs};
@@ -398,6 +399,8 @@ pub fn run(cli: Cli) -> Result<(), String> {
             format,
             single_file,
         } => doc_command(path, output, format, single_file, cli.verbose, lang),
+
+        Commands::Explain { code } => explain::explain_command(code, cli.verbose, lang),
     }
 }
 

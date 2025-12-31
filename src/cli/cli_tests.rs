@@ -1258,3 +1258,72 @@ fn test_lexer_tokenizes_arabic_identifiers() {
         _ => panic!("Expected Identifier token"),
     }
 }
+
+// ============================================================================
+// Explain Command Tests
+// ============================================================================
+
+#[test]
+fn test_cli_parse_explain_basic() {
+    let args = Cli::try_parse_from(["tarqeem", "explain", "د٠٣٠١"]);
+    assert!(args.is_ok());
+
+    let cli = args.unwrap();
+    match cli.command {
+        Commands::Explain { code } => {
+            assert_eq!(code, "د٠٣٠١");
+        }
+        _ => panic!("Expected Explain command"),
+    }
+}
+
+#[test]
+fn test_cli_parse_explain_arabic_alias() {
+    let args = Cli::try_parse_from(["tarqeem", "اشرح", "د٠٣٠١"]);
+    assert!(args.is_ok());
+
+    match args.unwrap().command {
+        Commands::Explain { code } => {
+            assert_eq!(code, "د٠٣٠١");
+        }
+        _ => panic!("Expected Explain command"),
+    }
+}
+
+#[test]
+fn test_cli_explain_missing_code() {
+    let args = Cli::try_parse_from(["tarqeem", "explain"]);
+    assert!(args.is_err());
+}
+
+#[test]
+fn test_cli_parse_explain_various_categories() {
+    // Test different error code categories
+    let categories = [
+        "ق٠٠٠١",
+        "ب٠٠٠١",
+        "د٠٠٠١",
+        "ن٠٠٠١",
+        "ص٠٠٠١",
+        "و٠٠٠١",
+        "ت٠٠٠١",
+        "ح٠٠٠١",
+        "م٠٠٠١",
+    ];
+
+    for code in categories {
+        let args = Cli::try_parse_from(["tarqeem", "explain", code]);
+        assert!(
+            args.is_ok(),
+            "Should parse explain command for code: {}",
+            code
+        );
+
+        match args.unwrap().command {
+            Commands::Explain { code: parsed_code } => {
+                assert_eq!(parsed_code, code);
+            }
+            _ => panic!("Expected Explain command for code: {}", code),
+        }
+    }
+}
