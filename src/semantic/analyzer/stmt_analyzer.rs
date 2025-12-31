@@ -212,7 +212,7 @@ impl Analyzer {
             }
         }
 
-        let symbol = Symbol::variable(name, var_type, mutable);
+        let symbol = Symbol::variable(name, var_type, mutable, span);
         if !self.scope.define(symbol) {
             use crate::error::codes::ERR_VARIABLE_REDEFINITION;
             self.already_defined_error(
@@ -249,7 +249,7 @@ impl Analyzer {
             .map(|t| self.resolve_type(t))
             .unwrap_or(Type::Void);
 
-        let symbol = Symbol::function(name, param_types.clone(), ret_type.clone());
+        let symbol = Symbol::function(name, param_types.clone(), ret_type.clone(), span);
         if !self.scope.define(symbol) {
             use crate::error::codes::ERR_VARIABLE_REDEFINITION;
             self.already_defined_error(
@@ -271,6 +271,8 @@ impl Analyzer {
                 ty: param_type.clone(),
                 mutable: false,
                 defined: true,
+                used: false,
+                span: param.span,
             };
             self.scope.define(symbol);
         }
@@ -352,7 +354,7 @@ impl Analyzer {
             }
         }
 
-        let symbol = Symbol::class(name);
+        let symbol = Symbol::class(name, span);
         if !self.scope.define(symbol) {
             use crate::error::codes::ERR_VARIABLE_REDEFINITION;
             self.already_defined_error(
@@ -370,15 +372,18 @@ impl Analyzer {
 
         self.push_scope(ScopeKind::Class);
 
+        // هذا/this are synthetic symbols, so use default span
         self.scope.define(Symbol::variable(
             "هذا",
             Type::Class(name.to_string()),
             false,
+            Span::default(),
         ));
         self.scope.define(Symbol::variable(
             "this",
             Type::Class(name.to_string()),
             false,
+            Span::default(),
         ));
 
         for member in members {
@@ -423,8 +428,13 @@ impl Analyzer {
                     }
                 }
 
-                self.scope
-                    .define(Symbol::variable(field_name, field_type, true));
+                // Class fields use default span (internal to class analysis)
+                self.scope.define(Symbol::variable(
+                    field_name,
+                    field_type,
+                    true,
+                    Span::default(),
+                ));
             }
 
             ClassMember::Method {
@@ -454,7 +464,7 @@ impl Analyzer {
                         .map(|t| self.resolve_type(t))
                         .unwrap_or(Type::Any);
                     self.scope
-                        .define(Symbol::variable(&param.name, param_type, false));
+                        .define(Symbol::variable(&param.name, param_type, false, param.span));
                 }
 
                 for stmt in &body.statements {
@@ -532,8 +542,13 @@ impl Analyzer {
                     param_name, body, ..
                 } => {
                     self.push_function_scope(Type::Void);
-                    self.scope
-                        .define(Symbol::variable(param_name, prop_type.clone(), false));
+                    // Setter param is internal, use default span
+                    self.scope.define(Symbol::variable(
+                        param_name,
+                        prop_type.clone(),
+                        false,
+                        Span::default(),
+                    ));
                     for stmt in &body.statements {
                         self.analyze_stmt(stmt);
                     }
@@ -542,8 +557,13 @@ impl Analyzer {
             }
         }
 
-        self.scope
-            .define(Symbol::variable(prop_name, prop_type, true));
+        // Property is internal to class, use default span
+        self.scope.define(Symbol::variable(
+            prop_name,
+            prop_type,
+            true,
+            Span::default(),
+        ));
     }
 
     /// Analyze an interface declaration.
@@ -559,6 +579,8 @@ impl Analyzer {
             ty: Type::Interface(name.to_string()),
             mutable: false,
             defined: true,
+            used: false,
+            span,
         };
 
         if !self.scope.define(symbol) {
@@ -588,6 +610,8 @@ impl Analyzer {
             ty: Type::Enum(name.to_string()),
             mutable: false,
             defined: true,
+            used: false,
+            span,
         };
 
         if !self.scope.define(symbol) {
@@ -717,7 +741,7 @@ impl Analyzer {
         variable: &str,
         iterable: &Expr,
         body: &Block,
-        _span: Span,
+        span: Span,
     ) {
         let iter_type = self.infer_type(iterable);
 
@@ -737,7 +761,7 @@ impl Analyzer {
 
         self.push_scope(ScopeKind::Loop);
         self.scope
-            .define(Symbol::variable(variable, elem_type, false));
+            .define(Symbol::variable(variable, elem_type, false, span));
 
         for stmt in &body.statements {
             self.analyze_stmt(stmt);
@@ -825,8 +849,12 @@ impl Analyzer {
     fn add_pattern_bindings(&mut self, pattern: &Pattern, match_type: &Type) {
         match &pattern.kind {
             PatternKind::Identifier(name) => {
-                self.scope
-                    .define(Symbol::variable(name, match_type.clone(), false));
+                self.scope.define(Symbol::variable(
+                    name,
+                    match_type.clone(),
+                    false,
+                    pattern.span,
+                ));
             }
             PatternKind::EnumVariant {
                 enum_name,
@@ -843,8 +871,13 @@ impl Analyzer {
                             } else {
                                 Type::Unknown
                             };
-                            self.scope
-                                .define(Symbol::variable(binding, field_type, false));
+                            // Bindings use pattern span (individual binding spans not available)
+                            self.scope.define(Symbol::variable(
+                                binding,
+                                field_type,
+                                false,
+                                pattern.span,
+                            ));
                         }
                     }
                 }
@@ -882,10 +915,12 @@ impl Analyzer {
 
         if let Some(catch_clause) = catch {
             self.push_scope(ScopeKind::Block);
+            // Catch param uses body span as its declaration location
             self.scope.define(Symbol::variable(
                 &catch_clause.param,
                 Type::Class("استثناء".to_string()),
                 false,
+                catch_clause.body.span,
             ));
 
             for stmt in &catch_clause.body.statements {
@@ -940,7 +975,7 @@ impl Analyzer {
                     ),
                     span,
                 );
-                self.register_imports_as_any(items);
+                self.register_imports_as_any(items, span);
                 return;
             }
         };
@@ -951,7 +986,7 @@ impl Analyzer {
                 let loader_diagnostics = self.module_loader.take_diagnostics();
                 self.diagnostics.extend(loader_diagnostics);
 
-                self.register_imports_as_any(items);
+                self.register_imports_as_any(items, span);
                 return;
             }
         };
@@ -962,7 +997,15 @@ impl Analyzer {
                     let name = import.alias.as_ref().unwrap_or(&import.name);
                     if let Some(exported) = module_exports.get(&import.name) {
                         let ty = self.export_kind_to_type(&exported.kind, &import.name);
-                        self.scope.define(Symbol::variable(name, ty, false));
+                        self.scope.define(Symbol {
+                            name: name.clone(),
+                            kind: SymbolKind::Import,
+                            ty,
+                            mutable: false,
+                            defined: true,
+                            used: false,
+                            span,
+                        });
                     } else {
                         self.error_with_code(
                             &format!("Module '{}' has no export named '{}'", from, import.name),
@@ -970,43 +1013,99 @@ impl Analyzer {
                             span,
                             &ERR_NOT_EXPORTED.to_string(),
                         );
-                        self.scope.define(Symbol::variable(name, Type::Any, false));
+                        self.scope.define(Symbol {
+                            name: name.clone(),
+                            kind: SymbolKind::Import,
+                            ty: Type::Any,
+                            mutable: false,
+                            defined: true,
+                            used: false,
+                            span,
+                        });
                     }
                 }
             }
             ImportItems::Wildcard(alias) => {
-                self.scope.define(Symbol::variable(alias, Type::Any, false));
+                self.scope.define(Symbol {
+                    name: alias.clone(),
+                    kind: SymbolKind::Import,
+                    ty: Type::Any,
+                    mutable: false,
+                    defined: true,
+                    used: false,
+                    span,
+                });
             }
             ImportItems::Default(name) => {
                 if let Some(exported) = module_exports.get("default") {
                     let ty = self.export_kind_to_type(&exported.kind, "default");
-                    self.scope.define(Symbol::variable(name, ty, false));
+                    self.scope.define(Symbol {
+                        name: name.clone(),
+                        kind: SymbolKind::Import,
+                        ty,
+                        mutable: false,
+                        defined: true,
+                        used: false,
+                        span,
+                    });
                 } else {
                     self.warn(
                         &format!("Module '{}' has no default export", from),
                         &format!("الوحدة '{}' لا تحتوي على تصدير افتراضي", from),
                         span,
                     );
-                    self.scope.define(Symbol::variable(name, Type::Any, false));
+                    self.scope.define(Symbol {
+                        name: name.clone(),
+                        kind: SymbolKind::Import,
+                        ty: Type::Any,
+                        mutable: false,
+                        defined: true,
+                        used: false,
+                        span,
+                    });
                 }
             }
         }
     }
 
     /// Register imports as Any type when module is not found.
-    fn register_imports_as_any(&mut self, items: &ImportItems) {
+    fn register_imports_as_any(&mut self, items: &ImportItems, span: Span) {
         match items {
             ImportItems::Named(imports) => {
                 for import in imports {
                     let name = import.alias.as_ref().unwrap_or(&import.name);
-                    self.scope.define(Symbol::variable(name, Type::Any, false));
+                    self.scope.define(Symbol {
+                        name: name.clone(),
+                        kind: SymbolKind::Import,
+                        ty: Type::Any,
+                        mutable: false,
+                        defined: true,
+                        used: false,
+                        span,
+                    });
                 }
             }
             ImportItems::Wildcard(alias) => {
-                self.scope.define(Symbol::variable(alias, Type::Any, false));
+                self.scope.define(Symbol {
+                    name: alias.clone(),
+                    kind: SymbolKind::Import,
+                    ty: Type::Any,
+                    mutable: false,
+                    defined: true,
+                    used: false,
+                    span,
+                });
             }
             ImportItems::Default(name) => {
-                self.scope.define(Symbol::variable(name, Type::Any, false));
+                self.scope.define(Symbol {
+                    name: name.clone(),
+                    kind: SymbolKind::Import,
+                    ty: Type::Any,
+                    mutable: false,
+                    defined: true,
+                    used: false,
+                    span,
+                });
             }
         }
     }

@@ -29,6 +29,8 @@ impl Analyzer {
             },
 
             ExprKind::Identifier(name) => {
+                // Mark the symbol as used for unused variable warnings
+                self.scope.mark_used(name);
                 if let Some(symbol) = self.scope.lookup(name) {
                     symbol.ty.clone()
                 } else {
@@ -438,7 +440,7 @@ impl Analyzer {
                         .unwrap_or(Type::Any)
                 };
                 self.scope
-                    .define(Symbol::variable(&p.name, ty.clone(), false));
+                    .define(Symbol::variable(&p.name, ty.clone(), false, p.span));
                 ty
             })
             .collect();
