@@ -15,6 +15,7 @@ mod expr_parser;
 mod stmt_parser;
 
 use super::ast::*;
+use crate::error::codes::{ERR_EXPECTED_SEMICOLON, ERR_UNEXPECTED_TOKEN};
 use crate::error::{Diagnostic, Span};
 use crate::lexer::{Lexer, Token, TokenKind};
 
@@ -328,7 +329,8 @@ impl Parser {
         if self.check(kind) {
             Ok(self.advance())
         } else {
-            Err(Diagnostic::error(en, ar, self.current_span()))
+            Err(Diagnostic::error(en, ar, self.current_span())
+                .with_code(ERR_UNEXPECTED_TOKEN.to_string()))
         }
     }
 
@@ -384,11 +386,12 @@ impl Parser {
                 self.advance();
                 Ok("أي".to_string())
             }
-            _ => Err(Diagnostic::error(
-                "Expected type name",
-                "متوقع اسم النوع",
-                self.current_span(),
-            )),
+            _ => {
+                Err(
+                    Diagnostic::error("Expected type name", "متوقع اسم النوع", self.current_span())
+                        .with_code(ERR_UNEXPECTED_TOKEN.to_string()),
+                )
+            }
         }
     }
 
@@ -399,7 +402,8 @@ impl Parser {
             self.advance();
             Ok(s)
         } else {
-            Err(Diagnostic::error(en, ar, self.current_span()))
+            Err(Diagnostic::error(en, ar, self.current_span())
+                .with_code(ERR_UNEXPECTED_TOKEN.to_string()))
         }
     }
 
@@ -428,11 +432,10 @@ impl Parser {
                 return Ok(());
             }
 
-            Err(Diagnostic::error(
-                "Expected ';'",
-                "متوقع '؛'",
-                self.current_span(),
-            ))
+            Err(
+                Diagnostic::error("Expected ';'", "متوقع '؛'", self.current_span())
+                    .with_code(ERR_EXPECTED_SEMICOLON.to_string()),
+            )
         }
     }
 

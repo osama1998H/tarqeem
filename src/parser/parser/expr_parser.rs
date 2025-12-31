@@ -3,6 +3,7 @@
 //! This module handles parsing of expressions using Pratt parsing
 //! for operator precedence.
 
+use crate::error::codes::ERR_UNEXPECTED_EXPRESSION;
 use crate::error::{Diagnostic, Span};
 use crate::lexer::TokenKind;
 
@@ -263,7 +264,8 @@ impl Parser {
                 format!("Unexpected token: {:?}", token.kind),
                 format!("رمز غير متوقع: {:?}", token.kind),
                 span,
-            )),
+            )
+            .with_code(ERR_UNEXPECTED_EXPRESSION.to_string())),
         }
     }
 

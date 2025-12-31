@@ -5,6 +5,10 @@
 
 use super::keywords::lookup_keyword;
 use super::token::{Token, TokenKind};
+use crate::error::codes::{
+    ErrorCode, ERR_INVALID_NUMBER_FORMAT, ERR_UNCLOSED_COMMENT, ERR_UNCLOSED_STRING,
+    ERR_UNKNOWN_CHARACTER,
+};
 use crate::error::Span;
 use crate::utils::StringInterner;
 use unicode_normalization::UnicodeNormalization;
@@ -186,9 +190,9 @@ impl<'a> Lexer<'a> {
         )
     }
 
-    fn make_error(&self, message: &str) -> Token {
+    fn make_error_with_code(&self, message: &str, code: &ErrorCode) -> Token {
         Token::new(
-            TokenKind::Error(message.to_string()),
+            TokenKind::Error(format!("[{}] {}", code, message)),
             Span::new(
                 self.token_start,
                 self.position,
@@ -297,6 +301,9 @@ impl<'a> Lexer<'a> {
                     {
                         return Some(self.scan_block_doc_comment());
                     }
+                    self.token_start = self.position;
+                    self.token_start_line = self.line;
+                    self.token_start_column = self.column;
                     self.advance(); // consume /
                     self.advance(); // consume *
                     let mut depth = 1;
@@ -312,6 +319,12 @@ impl<'a> Lexer<'a> {
                         } else {
                             self.advance();
                         }
+                    }
+                    if depth > 0 {
+                        return Some(self.make_error_with_code(
+                            "Unclosed comment / تعليق غير مغلق",
+                            &ERR_UNCLOSED_COMMENT,
+                        ));
                     }
                 }
                 _ => break,
@@ -485,9 +498,10 @@ impl<'a> Lexer<'a> {
         }
 
         if overflowed {
-            return self.make_token(TokenKind::Error(
-                "Integer literal too large / العدد الصحيح كبير جداً".to_string(),
-            ));
+            return self.make_error_with_code(
+                "Integer literal too large / العدد الصحيح كبير جداً",
+                &ERR_INVALID_NUMBER_FORMAT,
+            );
         }
 
         self.make_token(TokenKind::IntLiteral(value))
@@ -527,10 +541,13 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        self.make_error(&format!(
-            "English identifiers are not allowed. Use Arabic instead / المعرفات الإنجليزية غير مسموح بها. استخدم العربية بدلاً من '{}'"
-            , ident
-        ))
+        self.make_error_with_code(
+            &format!(
+                "English identifiers are not allowed. Use Arabic instead / المعرفات الإنجليزية غير مسموح بها. استخدم العربية بدلاً من '{}'"
+                , ident
+            ),
+            &ERR_UNKNOWN_CHARACTER,
+        )
     }
 
     fn scan_string(&mut self, quote: char) -> Token {
@@ -543,13 +560,19 @@ impl<'a> Lexer<'a> {
 
         while !self.is_at_end() && self.peek() != closing {
             if self.peek() == '\n' {
-                return self.make_error("Unterminated string / نص غير مكتمل");
+                return self.make_error_with_code(
+                    "Unterminated string / نص غير مكتمل",
+                    &ERR_UNCLOSED_STRING,
+                );
             }
 
             if self.peek() == '\\' {
                 self.advance(); // consume backslash
                 if self.is_at_end() {
-                    return self.make_error("Unterminated escape / تسلسل هروب غير مكتمل");
+                    return self.make_error_with_code(
+                        "Unterminated escape / تسلسل هروب غير مكتمل",
+                        &ERR_UNCLOSED_STRING,
+                    );
                 }
                 let escaped = self.advance();
                 value.push(match escaped {
@@ -568,7 +591,8 @@ impl<'a> Lexer<'a> {
         }
 
         if self.is_at_end() {
-            return self.make_error("Unterminated string / نص غير مكتمل");
+            return self
+                .make_error_with_code("Unterminated string / نص غير مكتمل", &ERR_UNCLOSED_STRING);
         }
 
         self.advance(); // consume closing quote
@@ -673,21 +697,21 @@ impl<'a> Lexer<'a> {
                 if self.match_char('&') {
                     self.make_token(TokenKind::And)
                 } else {
-                    self.make_error("Expected '&&' / متوقع '&&'")
+                    self.make_error_with_code("Expected '&&' / متوقع '&&'", &ERR_UNKNOWN_CHARACTER)
                 }
             }
             '|' => {
                 if self.match_char('|') {
                     self.make_token(TokenKind::Or)
                 } else {
-                    self.make_error("Expected '||' / متوقع '||'")
+                    self.make_error_with_code("Expected '||' / متوقع '||'", &ERR_UNKNOWN_CHARACTER)
                 }
             }
 
-            _ => self.make_error(&format!(
-                "Unexpected character '{}' / حرف غير متوقع '{}'",
-                c, c
-            )),
+            _ => self.make_error_with_code(
+                &format!("Unexpected character '{}' / حرف غير متوقع '{}'", c, c),
+                &ERR_UNKNOWN_CHARACTER,
+            ),
         }
     }
 }
