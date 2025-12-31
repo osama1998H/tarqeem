@@ -6,8 +6,8 @@ use crate::error::{Diagnostic, DiagnosticLevel, Language};
 use crate::lsp::analysis::DocumentState;
 use crate::lsp::utils::span_to_range;
 use tower_lsp::lsp_types::{
-    CodeDescription, Diagnostic as LspDiagnostic, DiagnosticRelatedInformation,
-    DiagnosticSeverity, Location, NumberOrString, PublishDiagnosticsParams, Url,
+    CodeDescription, Diagnostic as LspDiagnostic, DiagnosticRelatedInformation, DiagnosticSeverity,
+    Location, NumberOrString, PublishDiagnosticsParams, Url,
 };
 
 /// Valid category letters for error codes
