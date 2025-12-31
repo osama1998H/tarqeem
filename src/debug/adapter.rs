@@ -797,7 +797,7 @@ impl DapAdapter {
                         "variablesReference": 0
                     })),
                 ),
-                Err(e) => DapResponse::error(request, format!("{} / {}", e.message, e.message_ar)),
+                Err(e) => DapResponse::error(request, e.message.clone()),
             }
         } else {
             DapResponse::error(

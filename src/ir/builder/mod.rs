@@ -132,42 +132,26 @@ impl IrBuilder {
         // نوع (type) function returns string
         self.function_return_types
             .insert("نوع".to_string(), IrType::String);
-        self.function_return_types
-            .insert("type".to_string(), IrType::String);
 
         // نص (string conversion) function returns string
         self.function_return_types
             .insert("نص".to_string(), IrType::String);
-        self.function_return_types
-            .insert("str".to_string(), IrType::String);
-        self.function_return_types
-            .insert("string".to_string(), IrType::String);
 
         // طول (length) function returns int
         self.function_return_types
             .insert("طول".to_string(), IrType::Int);
-        self.function_return_types
-            .insert("len".to_string(), IrType::Int);
-        self.function_return_types
-            .insert("length".to_string(), IrType::Int);
 
         // عدد (int conversion) function returns int
         self.function_return_types
             .insert("عدد".to_string(), IrType::Int);
-        self.function_return_types
-            .insert("int".to_string(), IrType::Int);
 
         // عدد_عشري (float conversion) function returns float
         self.function_return_types
             .insert("عدد_عشري".to_string(), IrType::Float);
-        self.function_return_types
-            .insert("float".to_string(), IrType::Float);
 
         // منطقي (bool conversion) function returns bool
         self.function_return_types
             .insert("منطقي".to_string(), IrType::Bool);
-        self.function_return_types
-            .insert("bool".to_string(), IrType::Bool);
 
         // SHA-256 builtin functions
         self.function_return_types
@@ -209,17 +193,13 @@ impl IrBuilder {
         self.function_return_types
             .insert("فك_ضغط_ملف".to_string(), IrType::Bool);
 
-        // اقرأ_ملف (read_file) returns string
+        // اقرأ_ملف returns string
         self.function_return_types
             .insert("اقرأ_ملف".to_string(), IrType::String);
-        self.function_return_types
-            .insert("read_file".to_string(), IrType::String);
 
-        // اكتب_ملف (write_file) returns bool
+        // اكتب_ملف returns bool
         self.function_return_types
             .insert("اكتب_ملف".to_string(), IrType::Bool);
-        self.function_return_types
-            .insert("write_file".to_string(), IrType::Bool);
 
         // اقرأ_سطر (read_line) returns string
         self.function_return_types

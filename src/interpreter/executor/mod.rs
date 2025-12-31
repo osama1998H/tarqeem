@@ -876,7 +876,6 @@ impl Interpreter {
                 (Value::Int(a), Value::Int(b)) => {
                     if *b < 0 || *b >= 64 {
                         return Err(RuntimeError::invalid_operation(
-                            format!("Shift amount {} is out of range (0-63)", b),
                             format!("مقدار الإزاحة {} خارج النطاق (0-63)", b),
                         ));
                     }
@@ -888,7 +887,6 @@ impl Interpreter {
                 (Value::Int(a), Value::Int(b)) => {
                     if *b < 0 || *b >= 64 {
                         return Err(RuntimeError::invalid_operation(
-                            format!("Shift amount {} is out of range (0-63)", b),
                             format!("مقدار الإزاحة {} خارج النطاق (0-63)", b),
                         ));
                     }

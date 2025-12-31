@@ -108,7 +108,6 @@ impl DebugInterpreter {
         let func_id = {
             let Some(frame) = self.call_stack.last() else {
                 return Err(DebugError::new(
-                    "No active call frame",
                     "لا يوجد إطار استدعاء نشط",
                 ));
             };
@@ -121,7 +120,6 @@ impl DebugInterpreter {
             .find_variable_by_name(&func_id, name)
             .ok_or_else(|| {
                 DebugError::new(
-                    format!("Variable '{}' not found", name),
                     format!("المتغير '{}' غير موجود", name),
                 )
             })?;
@@ -138,7 +136,6 @@ impl DebugInterpreter {
     pub fn set_global_variable(&mut self, name: &str, value_str: &str) -> DebugResult<Value> {
         if !self.globals.contains_key(name) {
             return Err(DebugError::new(
-                format!("Global variable '{}' not found", name),
                 format!("المتغير العام '{}' غير موجود", name),
             ));
         }
@@ -220,9 +217,8 @@ impl DebugInterpreter {
             Err(e) => {
                 self.context.set_state(DebugState::Error {
                     message: e.message.clone(),
-                    message_ar: e.message_ar.clone(),
                 });
-                Err(DebugError::new(e.message, e.message_ar))
+                Err(DebugError::new(e.message))
             }
         }
     }
@@ -675,7 +671,6 @@ impl DebugInterpreter {
         }
 
         Err(DebugError::new(
-            format!("Cannot evaluate expression: {}", expression),
             format!("لا يمكن تقييم التعبير: {}", expression),
         ))
     }
@@ -706,7 +701,6 @@ impl DebugInterpreter {
         }
 
         Err(DebugError::new(
-            "Main function not found",
             "الدالة الرئيسية غير موجودة",
         ))
     }

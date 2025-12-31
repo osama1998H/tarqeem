@@ -92,29 +92,29 @@ impl<'a> MethodResolver<'a> {
 
     fn resolve_array_member(&self, member_name: &str) -> MemberResolution {
         match member_name {
-            "طول" | "length" => MemberResolution::BuiltinProperty {
+            "طول" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Int,
             },
-            "ألحق" | "push" | "أضف" | "add" => MemberResolution::BuiltinProperty {
+            "ألحق" | "أضف" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Function {
                     params: vec![Type::Any],
                     return_type: Box::new(Type::Void),
                 },
             },
-            "احذف" | "pop" | "remove" => MemberResolution::BuiltinProperty {
+            "احذف" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Function {
                     params: vec![],
                     return_type: Box::new(Type::Any),
                 },
             },
-            "اول" | "first" => MemberResolution::BuiltinProperty {
+            "اول" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Any,
             },
-            "اخر" | "last" => MemberResolution::BuiltinProperty {
+            "اخر" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Any,
             },
@@ -124,60 +124,60 @@ impl<'a> MethodResolver<'a> {
 
     fn resolve_string_member(&self, member_name: &str) -> MemberResolution {
         match member_name {
-            "طول" | "length" => MemberResolution::BuiltinProperty {
+            "طول" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Int,
             },
-            "قص" | "substring" | "slice" => MemberResolution::BuiltinProperty {
+            "قص" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Function {
                     params: vec![Type::Int, Type::Int],
                     return_type: Box::new(Type::String),
                 },
             },
-            "كبير" | "toUpperCase" | "upper" => MemberResolution::BuiltinProperty {
+            "كبير" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Function {
                     params: vec![],
                     return_type: Box::new(Type::String),
                 },
             },
-            "صغير" | "toLowerCase" | "lower" => MemberResolution::BuiltinProperty {
+            "صغير" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Function {
                     params: vec![],
                     return_type: Box::new(Type::String),
                 },
             },
-            "استبدل" | "replace" => MemberResolution::BuiltinProperty {
+            "استبدل" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Function {
                     params: vec![Type::String, Type::String],
                     return_type: Box::new(Type::String),
                 },
             },
-            "قسم" | "split" => MemberResolution::BuiltinProperty {
+            "قسم" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Function {
                     params: vec![Type::String],
                     return_type: Box::new(Type::Array(Box::new(Type::String))),
                 },
             },
-            "يحتوي" | "contains" | "includes" => MemberResolution::BuiltinProperty {
+            "يحتوي" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Function {
                     params: vec![Type::String],
                     return_type: Box::new(Type::Bool),
                 },
             },
-            "يبدأ_بـ" | "startsWith" => MemberResolution::BuiltinProperty {
+            "يبدأ_بـ" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Function {
                     params: vec![Type::String],
                     return_type: Box::new(Type::Bool),
                 },
             },
-            "ينتهي_بـ" | "endsWith" => MemberResolution::BuiltinProperty {
+            "ينتهي_بـ" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Function {
                     params: vec![Type::String],
@@ -190,26 +190,26 @@ impl<'a> MethodResolver<'a> {
 
     fn resolve_map_member(&self, member_name: &str) -> MemberResolution {
         match member_name {
-            "طول" | "size" | "length" => MemberResolution::BuiltinProperty {
+            "طول" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Int,
             },
-            "مفاتيح" | "keys" => MemberResolution::BuiltinProperty {
+            "مفاتيح" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Array(Box::new(Type::Any)),
             },
-            "قيم" | "values" => MemberResolution::BuiltinProperty {
+            "قيم" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Array(Box::new(Type::Any)),
             },
-            "يحتوي" | "has" | "contains" => MemberResolution::BuiltinProperty {
+            "يحتوي" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Function {
                     params: vec![Type::Any],
                     return_type: Box::new(Type::Bool),
                 },
             },
-            "احذف" | "delete" | "remove" => MemberResolution::BuiltinProperty {
+            "احذف" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Function {
                     params: vec![Type::Any],
@@ -407,7 +407,7 @@ mod tests {
         let resolver = ClassResolver::new();
         let mut method_resolver = MethodResolver::new(&resolver);
 
-        match method_resolver.resolve_member(&Type::String, "length") {
+        match method_resolver.resolve_member(&Type::String, "طول") {
             MemberResolution::BuiltinProperty { ty, .. } => {
                 assert_eq!(ty, Type::Int);
             }

@@ -88,13 +88,13 @@ fn generate_quick_fixes(
 
     // Fallback to message-based matching for backward compatibility
     if actions.is_empty() {
-        if message.contains("undefined") || message.contains("غير معرف") {
+        if message.contains("غير معرف") {
             if let Some(name) = extract_identifier_from_message(message) {
                 actions.push(create_declare_variable_action(uri, &name, range));
             }
         }
 
-        if message.contains("immutable") || message.contains("ثابت") || message.contains("غير قابل")
+        if message.contains("ثابت") || message.contains("غير قابل")
         {
             actions.push(create_change_to_mutable_action(uri, range));
         }
@@ -408,10 +408,9 @@ mod tests {
 
         let uri = Url::parse("file:///test.ترقيم").unwrap();
         let range = Range::default();
-        // No error code set - should fall back to message matching
-        // Using lowercase "undefined" to match the existing pattern
+        // No error code set - should fall back to Arabic message matching
         let diag = Diagnostic::error(
-            "undefined variable 'س'",
+            "المتغير 'س' غير معرف",
             "المتغير 'س' غير معرف",
             Span::new(0, 1, 1, 1),
         );

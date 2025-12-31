@@ -444,7 +444,7 @@ impl IrBuilder {
             .collect::<Result<Vec<_>>>()?;
 
         if let ExprKind::Identifier(name) = &callee.kind {
-            if name == "اطبع" || name == "print" {
+            if name == "اطبع" {
                 if let Some(arg) = arg_vars.first() {
                     self.emit(Instruction::Print { value: *arg });
                 }
@@ -459,7 +459,7 @@ impl IrBuilder {
             }
 
             // Handle طول (length) as a function call - generates ArrayLen instruction
-            if name == "طول" || name == "length" || name == "len" {
+            if name == "طول" {
                 if let Some(array_var) = arg_vars.first() {
                     let dest = self.new_var();
                     self.emit(Instruction::ArrayLen {
@@ -510,7 +510,7 @@ impl IrBuilder {
 
             if is_array {
                 match property.as_str() {
-                    "ألحق" | "push" | "أضف" | "add" => {
+                    "ألحق" | "أضف" => {
                         if let Some(value_var) = arg_vars.first() {
                             let elem_ty = match &obj_type {
                                 IrType::Array(inner, _) => (**inner).clone(),
@@ -537,7 +537,7 @@ impl IrBuilder {
                             return Ok(obj_var);
                         }
                     }
-                    "طول" | "length" | "len" => {
+                    "طول" => {
                         let dest = self.new_var();
                         self.emit(Instruction::ArrayLen {
                             dest,
