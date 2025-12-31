@@ -1,255 +1,444 @@
-# Tarqeem Architecture
+<div dir="rtl" align="right">
 
-This document describes the technical architecture of the Tarqeem compiler and runtime.
+# معمارية ترقيم
 
-## Technology Choice: Rust
+هذه الوثيقة تصف المعمارية التقنية لمترجم ترقيم ووقت التشغيل.
 
-Tarqeem is implemented in **Rust** for the following reasons:
+---
 
-1. **Performance**: Rust produces native binaries with C/C++ level performance
-2. **Memory Safety**: No garbage collector, yet memory-safe through ownership system
-3. **Excellent Tooling**: Cargo for package management, great testing framework
-4. **Parser Libraries**: Rich ecosystem (pest, nom, lalrpop) for building parsers
-5. **LLVM Bindings**: Mature `inkwell` crate for LLVM code generation
-6. **Unicode Support**: First-class Unicode/UTF-8 support essential for Arabic
-7. **Error Handling**: Result types make compiler error handling robust
+## فهرس المحتويات
 
-## Project Structure
+١. [لماذا رست؟](#لماذا-رست)
+٢. [هيكل المشروع](#هيكل-المشروع)
+٣. [خط أنابيب الترجمة](#خط-أنابيب-الترجمة)
+٤. [تفاصيل المكونات](#تفاصيل-المكونات)
+٥. [إدارة الذاكرة](#إدارة-الذاكرة)
+٦. [معالجة الأخطاء](#معالجة-الأخطاء)
+٧. [نموذج التزامن](#نموذج-التزامن)
+٨. [معمارية المكتبة القياسية](#معمارية-المكتبة-القياسية)
+٩. [نظام البناء](#نظام-البناء)
+١٠. [الاعتماديات](#الاعتماديات)
+١١. [استراتيجية الاختبار](#استراتيجية-الاختبار)
+١٢. [أهداف الأداء](#أهداف-الأداء)
+
+---
+
+## لماذا رست؟
+
+اخترنا **رست** لتنفيذ ترقيم للأسباب التالية:
+
+| السبب | الشرح |
+|-------|-------|
+| **الأداء** | تُنتج ثنائيات أصلية بأداء مستوى C/C++ |
+| **أمان الذاكرة** | آمنة للذاكرة بدون جامع قمامة عبر نظام الملكية |
+| **أدوات ممتازة** | كارجو لإدارة الحزم، إطار اختبار قوي |
+| **دعم يونيكود** | دعم UTF-8 من الدرجة الأولى ضروري للعربية |
+| **معالجة الأخطاء** | أنماط Result تجعل معالجة أخطاء المترجم قوية |
+
+---
+
+## هيكل المشروع
 
 ```
 tarqeem/
-├── Cargo.toml                 # Rust package manifest
-├── Cargo.lock                 # Dependency lock file
-├── README.md                  # Project overview
-├── ARCHITECTURE.md            # This file
-├── CLAUDE.md                  # Development guidelines
+├── Cargo.toml                 # بيان حزمة رست
+├── Cargo.lock                 # ملف قفل الاعتماديات
+├── README.md                  # نظرة عامة على المشروع
+├── ARCHITECTURE.md            # هذا الملف
+├── CLAUDE.md                  # إرشادات التطوير
+├── LANGUAGE_SPEC.md           # مواصفات اللغة
 │
-├── src/
-│   ├── main.rs               # CLI entry point
-│   ├── lib.rs                # Library root
+├── src/                       # الكود المصدري (~٣٤٬٠٠٠ سطر)
+│   ├── main.rs               # نقطة دخول واجهة سطر الأوامر
+│   ├── lib.rs                # جذر المكتبة
 │   │
-│   ├── lexer/                # Lexical analysis
+│   ├── lexer/                # التحليل اللغوي
 │   │   ├── mod.rs
-│   │   ├── token.rs          # Token definitions
-│   │   ├── scanner.rs        # Character scanner
-│   │   ├── lexer.rs          # Main lexer implementation
-│   │   └── keywords.rs       # Arabic/English keyword maps
+│   │   ├── token.rs          # تعريفات الرموز
+│   │   ├── lexer.rs          # المحلل اللغوي الرئيسي
+│   │   ├── keywords.rs       # خرائط الكلمات المفتاحية العربية
+│   │   └── token_tests.rs    # اختبارات الرموز
 │   │
-│   ├── parser/               # Syntax analysis
+│   ├── parser/               # التحليل النحوي
 │   │   ├── mod.rs
-│   │   ├── ast.rs            # AST node definitions
-│   │   ├── parser.rs         # Recursive descent parser
-│   │   ├── precedence.rs     # Operator precedence
-│   │   └── error.rs          # Parse error types
+│   │   ├── ast.rs            # تعريفات عُقد شجرة الصياغة
+│   │   ├── precedence.rs     # أولوية العوامل
+│   │   ├── parser/           # وحدات المحلل النحوي
+│   │   └── parser_tests.rs   # اختبارات المحلل
 │   │
-│   ├── semantic/             # Semantic analysis
+│   ├── semantic/             # التحليل الدلالي
 │   │   ├── mod.rs
-│   │   ├── analyzer.rs       # Main semantic analyzer
-│   │   ├── scope.rs          # Scope/symbol table
-│   │   ├── types.rs          # Type system
-│   │   ├── resolver.rs       # Name resolution
-│   │   └── type_checker.rs   # Type checking
+│   │   ├── analyzer/         # المحلل الدلالي الرئيسي
+│   │   ├── scope.rs          # جدول الرموز والنطاقات
+│   │   ├── types.rs          # نظام الأنماط
+│   │   ├── generics.rs       # الأنماط المعممة
+│   │   ├── modules.rs        # نظام الوحدات
+│   │   ├── class_resolver.rs # حل الأصناف
+│   │   ├── method_resolver.rs # حل الدوال
+│   │   ├── scope_tests.rs    # اختبارات النطاق
+│   │   └── types_tests.rs    # اختبارات الأنماط
 │   │
-│   ├── ir/                   # Intermediate representation
+│   ├── ir/                   # التمثيل الوسيط
 │   │   ├── mod.rs
-│   │   ├── instruction.rs    # IR instructions
-│   │   ├── builder.rs        # IR builder
-│   │   └── optimizer.rs      # IR-level optimizations
+│   │   ├── instruction.rs    # تعليمات التمثيل الوسيط
+│   │   ├── builder/          # بانٍ التمثيل الوسيط
+│   │   ├── opt/              # التحسينات
+│   │   │   ├── const_fold.rs # طي الثوابت
+│   │   │   ├── dce.rs        # حذف الكود الميت
+│   │   │   ├── cse.rs        # حذف التعبيرات الفرعية المشتركة
+│   │   │   ├── inline.rs     # التضمين
+│   │   │   └── loop_opt.rs   # تحسين الحلقات
+│   │   └── instruction_tests.rs
 │   │
-│   ├── codegen/              # Code generation
+│   ├── codegen/              # توليد الكود
 │   │   ├── mod.rs
-│   │   ├── llvm.rs           # LLVM code generator
-│   │   ├── target.rs         # Target machine config
-│   │   └── linker.rs         # Linking utilities
+│   │   ├── llvm/             # مولد كود LLVM
+│   │   │   ├── codegen.rs    # التوليد الرئيسي
+│   │   │   ├── types.rs      # تحويل الأنماط
+│   │   │   └── codegen_tests.rs
+│   │   ├── target.rs         # إعدادات الآلة المستهدفة
+│   │   └── linker.rs         # أدوات الربط
 │   │
-│   ├── runtime/              # Runtime library
+│   ├── interpreter/          # المفسر المتجول
 │   │   ├── mod.rs
-│   │   ├── gc.rs             # Garbage collector (optional)
-│   │   ├── string.rs         # String operations
-│   │   └── io.rs             # I/O operations
+│   │   ├── executor/         # المنفذ الرئيسي
+│   │   ├── value.rs          # تمثيل القيم
+│   │   ├── error.rs          # أخطاء التفسير
+│   │   └── executor_tests.rs
 │   │
-│   ├── stdlib/               # Standard library
+│   ├── jit/                  # الترجمة الفورية (اختياري)
 │   │   ├── mod.rs
-│   │   ├── collections.rs    # Data structures
-│   │   ├── math.rs           # Math functions
-│   │   ├── io.rs             # I/O module
-│   │   ├── string.rs         # String utilities
-│   │   ├── net.rs            # Networking
-│   │   └── fs.rs             # File system
+│   │   ├── baseline/         # مترجم أساسي سريع
+│   │   ├── optimizing/       # مترجم محسن
+│   │   ├── runtime/          # وقت تشغيل JIT
+│   │   ├── executor.rs       # منفذ JIT
+│   │   ├── cache.rs          # ذاكرة تخزين مؤقت
+│   │   ├── config.rs         # إعدادات JIT
+│   │   ├── memory.rs         # إدارة الذاكرة
+│   │   ├── profile.rs        # التنميط
+│   │   └── tests.rs
 │   │
-│   ├── error/                # Error handling
+│   ├── cli/                  # واجهة سطر الأوامر
 │   │   ├── mod.rs
-│   │   ├── diagnostic.rs     # Error diagnostics
-│   │   ├── reporter.rs       # Error reporter (Arabic/English)
-│   │   └── span.rs           # Source location spans
+│   │   ├── commands/         # أوامر CLI
+│   │   │   ├── compile.rs    # أمر الترجمة
+│   │   │   ├── debug.rs      # أمر التنقيح
+│   │   │   └── explain.rs    # أمر شرح الأخطاء
+│   │   └── pm/               # مدير الحزم
 │   │
-│   └── cli/                  # Command-line interface
+│   ├── lsp/                  # بروتوكول خادم اللغة
+│   │   ├── mod.rs
+│   │   ├── server.rs         # الخادم الرئيسي
+│   │   ├── capabilities.rs   # القدرات المدعومة
+│   │   ├── state.rs          # حالة الخادم
+│   │   ├── analysis/         # التحليل
+│   │   ├── handlers/         # معالجات الطلبات (+٢٠ معالج)
+│   │   │   ├── completion.rs    # الإكمال التلقائي
+│   │   │   ├── hover.rs         # معلومات التمرير
+│   │   │   ├── definition.rs    # الانتقال للتعريف
+│   │   │   ├── references.rs    # البحث عن المراجع
+│   │   │   ├── rename.rs        # إعادة التسمية
+│   │   │   ├── formatting.rs    # التنسيق
+│   │   │   ├── diagnostics.rs   # التشخيصات
+│   │   │   ├── code_actions.rs  # إجراءات الكود
+│   │   │   ├── folding.rs       # الطي
+│   │   │   ├── inlay_hints.rs   # تلميحات السياق
+│   │   │   ├── semantic_tokens.rs # الرموز الدلالية
+│   │   │   ├── signature_help.rs  # مساعدة التوقيع
+│   │   │   └── document_symbol.rs # رموز المستند
+│   │   └── utils/
+│   │
+│   ├── debug/                # بروتوكول محول التنقيح (DAP)
+│   │   ├── mod.rs
+│   │   ├── adapter.rs        # المحول الرئيسي
+│   │   ├── server.rs         # خادم DAP
+│   │   ├── commands.rs       # أوامر التنقيح
+│   │   ├── context.rs        # سياق التنفيذ
+│   │   ├── source_map.rs     # خريطة المصدر
+│   │   ├── state.rs          # حالة المنقح
+│   │   ├── interpreter/      # مفسر التنقيح
+│   │   └── tests.rs
+│   │
+│   ├── fmt/                  # منسق الكود
+│   │   ├── mod.rs
+│   │   ├── formatter.rs      # المنسق الرئيسي
+│   │   ├── config.rs         # إعدادات التنسيق
+│   │   └── printer.rs        # طابعة الكود
+│   │
+│   ├── doc/                  # مولد التوثيق
+│   │   ├── mod.rs
+│   │   ├── extractor.rs      # مستخرج التوثيق
+│   │   ├── comment.rs        # معالج التعليقات
+│   │   ├── model.rs          # نموذج التوثيق
+│   │   └── generator/        # مولد الإخراج
+│   │
+│   ├── package/              # مدير الحزم
+│   │   ├── mod.rs
+│   │   ├── manifest.rs       # بيان الحزمة (ترقيم.حزمة)
+│   │   ├── lockfile.rs       # ملف القفل (ترقيم.قفل)
+│   │   ├── resolver.rs       # حل الاعتماديات
+│   │   ├── cache.rs          # ذاكرة التخزين المؤقت
+│   │   ├── error.rs          # أخطاء الحزم
+│   │   └── format/           # صيغ الحزم
+│   │
+│   ├── error/                # معالجة الأخطاء
+│   │   ├── mod.rs
+│   │   ├── diagnostic.rs     # التشخيصات ثنائية اللغة
+│   │   ├── codes.rs          # رموز الأخطاء العربية
+│   │   ├── span.rs           # مواقع المصدر
+│   │   ├── diagnostic_tests.rs
+│   │   └── span_tests.rs
+│   │
+│   └── utils/                # أدوات مساعدة
 │       ├── mod.rs
-│       ├── commands.rs       # CLI commands
-│       ├── repl.rs           # Interactive REPL
-│       └── formatter.rs      # Code formatter
+│       ├── interner.rs       # احتباس النصوص
+│       ├── context.rs        # سياق الترجمة
+│       └── extensions.rs     # امتدادات الأنماط
 │
-├── stdlib_trq/               # Standard library (Tarqeem source)
-│   ├── مجموعات.ترقيم          # Collections (قائمة، قاموس، مجموعة)
-│   ├── رياضيات.ترقيم          # Math functions
-│   ├── نص.ترقيم               # String utilities
-│   ├── ملفات.ترقيم            # File operations
-│   └── شبكة.ترقيم             # Networking
+├── runtime/                  # مكتبة وقت التشغيل (C)
+│   ├── tarqeem_rt.h         # الترويسة الرئيسية
+│   ├── builtins.c           # الدوال المدمجة
+│   ├── string.c             # عمليات النصوص
+│   ├── array.c              # عمليات المصفوفات
+│   ├── memory.c             # إدارة الذاكرة
+│   ├── io.c                 # الإدخال/الإخراج
+│   ├── crypto.c             # التشفير
+│   ├── compress.c           # الضغط
+│   └── wasm/                # دعم ويب أسمبلي
+│       ├── runtime_wasm.c
+│       └── tarqeem_wasm.h
 │
-├── tests/                    # Test suites
-│   ├── lexer_tests.rs
-│   ├── parser_tests.rs
-│   ├── type_tests.rs
-│   ├── codegen_tests.rs
-│   └── integration/          # Integration tests
-│       └── *.ترقيم
+├── stdlib_trq/               # المكتبة القياسية (كود ترقيم)
+│   ├── README.md
+│   ├── مجموعات/             # هياكل البيانات
+│   │   ├── فهرس.ترقيم
+│   │   ├── قائمة.ترقيم      # القائمة المتغيرة
+│   │   ├── قاموس.ترقيم      # خريطة مفتاح-قيمة
+│   │   ├── مجموعة.ترقيم     # المجموعة
+│   │   ├── طابور.ترقيم      # الطابور
+│   │   ├── مكدس.ترقيم       # المكدس
+│   │   └── متكرر.ترقيم      # التكرار
+│   ├── رياضيات/             # الدوال الرياضية
+│   │   └── ...
+│   ├── نص/                  # أدوات النصوص
+│   │   └── ...
+│   ├── ملفات/               # نظام الملفات
+│   │   └── ...
+│   ├── شبكة/                # الشبكات
+│   │   └── ...
+│   ├── وقت/                 # التاريخ والوقت
+│   │   ├── فهرس.ترقيم
+│   │   ├── تاريخ.ترقيم
+│   │   └── وقت.ترقيم
+│   ├── طرفية/               # أدوات الطرفية
+│   │   ├── فهرس.ترقيم
+│   │   ├── اساسي.ترقيم
+│   │   └── الوان.ترقيم
+│   ├── أخطاء/               # معالجة الأخطاء
+│   │   └── ...
+│   └── اختبار/              # إطار الاختبار
+│       ├── فهرس.ترقيم
+│       ├── توكيدات.ترقيم
+│       ├── نتائج.ترقيم
+│       └── مشغل.ترقيم
 │
-├── examples/                 # Example programs
-│   ├── مرحبا.ترقيم             # Hello world
-│   ├── حاسبة.ترقيم             # Calculator
-│   ├── لعبة.ترقيم              # Simple game
-│   └── خادم.ترقيم              # HTTP server
+├── tests/                    # مجموعات الاختبار
+│   └── integration/          # اختبارات التكامل
 │
-└── docs/                     # Documentation
-    ├── language_spec.md      # Language specification
-    ├── grammar.md            # Formal grammar
-    └── stdlib.md             # Standard library docs
+├── examples/                 # برامج أمثلة (+١٧ مثال)
+│   ├── مرحبا.ترقيم           # مرحباً بالعالم
+│   ├── حاسبة.ترقيم           # آلة حاسبة
+│   ├── صنف.ترقيم             # البرمجة الكائنية
+│   ├── لعبة_الحياة.ترقيم     # لعبة الحياة لكونواي
+│   ├── تعداد.ترقيم           # التعدادات
+│   └── ...
+│
+├── benches/                  # اختبارات الأداء
+│   ├── lexer.rs
+│   ├── parser.rs
+│   ├── semantic.rs
+│   ├── ir_generation.rs
+│   ├── optimizer.rs
+│   ├── end_to_end.rs
+│   └── jit.rs
+│
+└── docs/                     # التوثيق
+    ├── AI_NOTES.md
+    ├── ROADMAP_V1.1-V1.5.md
+    ├── PROFILING.md
+    └── رموز_الأخطاء/
 ```
 
-## Compiler Pipeline
+---
+
+## خط أنابيب الترجمة
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                          TARQEEM COMPILER PIPELINE                       │
+│                       خط أنابيب مترجم ترقيم                             │
 └─────────────────────────────────────────────────────────────────────────┘
 
-Source Code (.ترقيم)
+الكود المصدري (.ترقيم)
       │
       ▼
-┌─────────────┐
-│   LEXER     │  Tokenization: Characters → Tokens
-│  (Scanner)  │  - Unicode-aware (Arabic + English)
-│             │  - Handles RTL text properly
-│             │  - Keyword mapping (Arabic ↔ English)
-└─────────────┘
+┌─────────────────┐
+│  المحلل اللغوي  │  التقسيم إلى رموز: أحرف ← رموز
+│    (Lexer)      │  - دعم يونيكود كامل (عربي)
+│                 │  - معالجة صحيحة للنص ثنائي الاتجاه
+│                 │  - تطبيع NFC للمعرِّفات
+└─────────────────┘
       │
-      │  Token Stream
+      │  تيار الرموز
       ▼
-┌─────────────┐
-│   PARSER    │  Syntax Analysis: Tokens → AST
-│ (Recursive  │  - Recursive descent parsing
-│  Descent)   │  - Operator precedence parsing
-│             │  - Error recovery
-└─────────────┘
+┌─────────────────┐
+│  المحلل النحوي  │  التحليل النحوي: رموز ← شجرة صياغة
+│    (Parser)     │  - تحليل تنازلي تكراري
+│                 │  - تحليل برات للتعبيرات
+│                 │  - استعادة الأخطاء
+└─────────────────┘
       │
-      │  Abstract Syntax Tree
+      │  شجرة الصياغة المجردة (AST)
       ▼
-┌─────────────┐
-│  SEMANTIC   │  Semantic Analysis: AST → Typed AST
-│  ANALYZER   │  - Name resolution
-│             │  - Type checking
-│             │  - Scope analysis
-└─────────────┘
+┌─────────────────┐
+│ المحلل الدلالي  │  التحليل الدلالي: شجرة ← شجرة منمطة
+│   (Semantic)    │  - حل الأسماء
+│                 │  - فحص الأنماط
+│                 │  - تحليل النطاقات
+│                 │  - حل الأصناف والمواثيق
+└─────────────────┘
       │
-      │  Typed AST
+      │  شجرة صياغة منمطة
       ▼
-┌─────────────┐
-│     IR      │  IR Generation: Typed AST → IR
-│  GENERATOR  │  - Three-address code style
-│             │  - SSA form
-│             │  - Control flow graph
-└─────────────┘
+┌─────────────────┐
+│ مولد التمثيل    │  توليد التمثيل الوسيط: شجرة ← IR
+│    الوسيط       │  - كود ثلاثي العناوين
+│     (IR)        │  - صيغة SSA
+│                 │  - رسم تدفق التحكم
+└─────────────────┘
       │
-      │  Intermediate Representation
+      │  التمثيل الوسيط
       ▼
-┌─────────────┐
-│  OPTIMIZER  │  Optimization: IR → Optimized IR
-│             │  - Constant folding
-│             │  - Dead code elimination
-│             │  - Inlining
-└─────────────┘
+┌─────────────────┐
+│    المحسِّن     │  التحسين: IR ← IR محسَّن
+│  (Optimizer)    │  - طي الثوابت
+│                 │  - حذف الكود الميت
+│                 │  - حذف التعبيرات المشتركة
+│                 │  - التضمين
+│                 │  - تحسين الحلقات
+└─────────────────┘
       │
-      │  Optimized IR
+      │  تمثيل وسيط محسَّن
       ▼
-┌─────────────┐
-│   CODEGEN   │  Code Generation: IR → LLVM IR
-│   (LLVM)    │  - LLVM IR generation
-│             │  - Target-specific optimization
-│             │  - Native code emission
-└─────────────┘
+┌─────────────────┐
+│  مولد الكود     │  توليد الكود: IR ← LLVM IR
+│    (LLVM)       │  - توليد LLVM IR
+│                 │  - تحسين خاص بالهدف
+│                 │  - إصدار كود أصلي
+└─────────────────┘
       │
-      │  Object Files (.o)
+      │  ملفات كائنية (.o)
       ▼
-┌─────────────┐
-│   LINKER    │  Linking: Objects → Executable
-│             │  - Runtime library linking
-│             │  - Standard library linking
-└─────────────┘
+┌─────────────────┐
+│    الرابط       │  الربط: ملفات ← تنفيذي
+│    (Linker)     │  - ربط مكتبة وقت التشغيل
+│                 │  - ربط المكتبة القياسية
+└─────────────────┘
       │
       ▼
-Executable Binary
+ملف تنفيذي أصلي
 ```
 
-## Component Details
+### المسارات البديلة
 
-### 1. Lexer (المحلل اللغوي)
+```
+شجرة الصياغة ────┐
+                 │
+                 ▼
+          ┌──────────────┐
+          │   المفسر     │  للتنقيح و REPL
+          │ (Interpreter)│
+          └──────────────┘
+                 │
+                 ▼
+            التنفيذ المباشر
 
-The lexer converts source code into tokens while handling:
+التمثيل الوسيط ──┐
+                 │
+                 ▼
+          ┌──────────────┐
+          │  مترجم JIT   │  ترجمة فورية (Cranelift)
+          │    (JIT)     │  - مترجم أساسي سريع
+          └──────────────┘  - مترجم محسن
+                 │
+                 ▼
+            تنفيذ فوري
+```
 
-- **Unicode Support**: Full UTF-8 support for Arabic characters
-- **Bidirectional Text**: Proper handling of RTL Arabic mixed with LTR (numbers, English)
-- **Keyword Mapping**: Dual Arabic/English keyword recognition
+---
+
+## تفاصيل المكونات
+
+### ١. المحلل اللغوي (Lexer)
+
+المحلل اللغوي يحول الكود المصدري إلى رموز مع معالجة:
+
+- **دعم يونيكود**: دعم UTF-8 كامل للأحرف العربية
+- **النص ثنائي الاتجاه**: معالجة صحيحة للعربية (يمين-يسار) مع الأرقام (يسار-يمين)
+- **تطبيع NFC**: تطبيع المعرِّفات قبل المقارنة
 
 ```rust
-// Token types
+// أنواع الرموز
 pub enum TokenKind {
-    // Literals
-    IntLiteral(i64),
-    FloatLiteral(f64),
-    StringLiteral(String),
-    BoolLiteral(bool),
+    // القيم الحرفية
+    Integer(i64),
+    Float(f64),
+    String(String),
+    Bool(bool),
 
-    // Identifiers
+    // المعرِّفات
     Identifier(String),
 
-    // Keywords (Arabic)
-    Mutaƣayir,      // متغير - let
-    Thabit,         // ثابت - const
-    Dalah,          // دالة - function
-    Irjiƣ,          // أرجع - return
-    Itha,           // إذا - if
-    WaIlla,         // وإلا - else
-    Talama,         // طالما - while
-    Likul,          // لكل - for
-    Sinf,           // صنف - class
-    // ... more keywords
+    // الكلمات المفتاحية العربية
+    Mutaghayir,     // متغير
+    Thabit,         // ثابت
+    Dalah,          // دالة
+    Irji,           // أرجع
+    Itha,           // إذا
+    WaIlla,         // وإلا
+    Talama,         // طالما
+    Likul,          // لكل
+    Sinf,           // صنف
+    Mithaq,         // ميثاق
+    // ... المزيد
 
-    // Operators
+    // العوامل
     Plus, Minus, Star, Slash,
     Equal, EqualEqual, BangEqual,
     Less, LessEqual, Greater, GreaterEqual,
-    // ... more operators
+    // ...
 
-    // Delimiters
-    LeftParen, RightParen,
-    LeftBrace, RightBrace,
-    LeftBracket, RightBracket,
-    Comma, Semicolon, Colon,
-    Arrow,      // ->
-    FatArrow,   // =>
+    // المحددات
+    LeftParen, RightParen,      // ( )
+    LeftBrace, RightBrace,      // { }
+    LeftBracket, RightBracket,  // [ ]
+    Comma,                      // , أو ،
+    Semicolon,                  // ; أو ؛
+    Colon,                      // :
+    Arrow,                      // ->
+    FatArrow,                   // =>
 
-    // Special
+    // خاص
     Newline, Whitespace, Comment,
     EOF, Error,
 }
 ```
 
-### 2. Parser (المحلل النحوي)
+### ٢. المحلل النحوي (Parser)
 
-Recursive descent parser with Pratt parsing for expressions:
+محلل تنازلي تكراري مع تحليل برات للتعبيرات:
 
 ```rust
-// AST nodes
+// عُقد التعبيرات
 pub enum Expr {
     Literal(Literal),
     Identifier(String),
@@ -261,8 +450,10 @@ pub enum Expr {
     Lambda { params: Vec<Param>, body: Box<Expr> },
     New { class: Box<Expr>, args: Vec<Expr> },
     Await(Box<Expr>),
+    Ternary { cond: Box<Expr>, then_expr: Box<Expr>, else_expr: Box<Expr> },
 }
 
+// عُقد الجمل
 pub enum Stmt {
     VarDecl { name: String, mutable: bool, ty: Option<Type>, init: Option<Expr> },
     FuncDecl { name: String, params: Vec<Param>, ret_ty: Option<Type>, body: Block },
@@ -282,70 +473,70 @@ pub enum Stmt {
 }
 ```
 
-### 3. Type System (نظام الأنماط)
+### ٣. نظام الأنماط
 
-Strong static typing with inference:
+كتابة ثابتة قوية مع استنتاج الأنماط:
 
 ```rust
 pub enum Type {
-    // Primitives
+    // الأنماط الأولية
     Int,            // عدد
     Float,          // عدد_عشري
     String,         // نص
     Bool,           // منطقي
-    Void,           // Internal: functions default to no return
 
-    // Compound types
+    // الأنماط المركبة
     Array(Box<Type>),               // مصفوفة<ن>
     Map(Box<Type>, Box<Type>),      // قاموس<م، ق>
     Function { params: Vec<Type>, ret: Box<Type> },
+    Optional(Box<Type>),            // ن?
 
-    // User-defined
+    // الأنماط المُعرَّفة من المستخدم
     Class(String),
     Interface(String),
     Generic { name: String, constraints: Vec<Type> },
 
-    // Special
+    // الأنماط الخاصة
     Any,            // أي
     Never,          // أبداً
-    Unknown,        // Inference placeholder
+    Unknown,        // مؤقت للاستنتاج
 }
 ```
 
-### 4. Intermediate Representation (التمثيل الوسيط)
+### ٤. التمثيل الوسيط (IR)
 
-SSA-based IR for optimization:
+تمثيل وسيط بصيغة SSA للتحسين:
 
 ```rust
 pub enum IRInstruction {
-    // Constants
+    // الثوابت
     Const { dest: VarId, value: Constant },
 
-    // Arithmetic
+    // الحساب
     Add { dest: VarId, left: VarId, right: VarId },
     Sub { dest: VarId, left: VarId, right: VarId },
     Mul { dest: VarId, left: VarId, right: VarId },
     Div { dest: VarId, left: VarId, right: VarId },
 
-    // Comparison
+    // المقارنة
     Eq { dest: VarId, left: VarId, right: VarId },
     Lt { dest: VarId, left: VarId, right: VarId },
     // ...
 
-    // Control flow
+    // تدفق التحكم
     Jump { target: BlockId },
     Branch { cond: VarId, then_block: BlockId, else_block: BlockId },
     Return { value: Option<VarId> },
 
-    // Functions
+    // الدوال
     Call { dest: Option<VarId>, func: FuncId, args: Vec<VarId> },
 
-    // Memory
+    // الذاكرة
     Alloc { dest: VarId, ty: Type },
     Load { dest: VarId, ptr: VarId },
     Store { ptr: VarId, value: VarId },
 
-    // Objects
+    // الكائنات
     NewObject { dest: VarId, class: ClassId },
     GetField { dest: VarId, object: VarId, field: FieldId },
     SetField { object: VarId, field: FieldId, value: VarId },
@@ -353,68 +544,73 @@ pub enum IRInstruction {
 }
 ```
 
-### 5. Code Generation (توليد الكود)
+### ٥. التحسينات المُنفَّذة
 
-Using LLVM via the `inkwell` crate:
+| التحسين | الوصف | الموقع |
+|---------|-------|--------|
+| **طي الثوابت** | حساب التعبيرات الثابتة وقت الترجمة | `ir/opt/const_fold.rs` |
+| **حذف الكود الميت** | إزالة الكود الذي لا يُنفَّذ | `ir/opt/dce.rs` |
+| **حذف التعبيرات المشتركة** | إعادة استخدام الحسابات المتكررة | `ir/opt/cse.rs` |
+| **التضمين** | استبدال استدعاءات الدوال الصغيرة بجسمها | `ir/opt/inline.rs` |
+| **تحسين الحلقات** | تحسينات متعددة للحلقات | `ir/opt/loop_opt.rs` |
+
+### ٦. توليد الكود (LLVM)
+
+استخدام واجهة C لـ LLVM:
 
 ```rust
-pub struct CodeGen<'ctx> {
-    context: &'ctx Context,
-    module: Module<'ctx>,
-    builder: Builder<'ctx>,
-    execution_engine: ExecutionEngine<'ctx>,
+pub struct CodeGen {
+    context: LLVMContextRef,
+    module: LLVMModuleRef,
+    builder: LLVMBuilderRef,
 
-    // Symbol tables
-    variables: HashMap<String, PointerValue<'ctx>>,
-    functions: HashMap<String, FunctionValue<'ctx>>,
-    classes: HashMap<String, StructType<'ctx>>,
+    // جداول الرموز
+    variables: HashMap<String, LLVMValueRef>,
+    functions: HashMap<String, LLVMValueRef>,
+    classes: HashMap<String, LLVMTypeRef>,
 }
 
-impl<'ctx> CodeGen<'ctx> {
+impl CodeGen {
     pub fn compile_program(&mut self, program: &Program) -> Result<(), CodeGenError> {
-        // 1. Forward declare all functions and classes
+        // ١. الإعلان المسبق عن جميع الدوال والأصناف
         self.forward_declare(program)?;
 
-        // 2. Generate function bodies
+        // ٢. توليد أجسام الدوال
         for func in &program.functions {
             self.compile_function(func)?;
         }
 
-        // 3. Generate class methods
+        // ٣. توليد دوال الأصناف
         for class in &program.classes {
             self.compile_class(class)?;
         }
 
-        // 4. Verify module
-        self.module.verify()?;
+        // ٤. التحقق من الوحدة
+        self.verify_module()?;
 
-        Ok(())
-    }
-
-    pub fn emit_object_file(&self, path: &Path) -> Result<(), CodeGenError> {
-        let target_machine = Target::from_triple(&TargetTriple::create("x86_64-unknown-linux-gnu"))
-            .create_target_machine(...);
-
-        target_machine.write_to_file(&self.module, FileType::Object, path)?;
         Ok(())
     }
 }
 ```
 
-## Memory Management
+---
 
-Tarqeem uses a hybrid approach:
+## إدارة الذاكرة
 
-1. **Stack Allocation**: Primitives and small structs
-2. **Reference Counting**: Default for heap objects
-3. **Optional GC**: For cyclic data structures
+ترقيم تستخدم نهجاً هجيناً:
+
+| الطريقة | الاستخدام |
+|---------|-----------|
+| **تخصيص المكدس** | الأوليات والقيم ثابتة الحجم الصغيرة |
+| **عد المراجع** | الافتراضي لكائنات الكومة |
+| **جامع القمامة** | اختياري للبيانات الدائرية |
 
 ```rust
-// Runtime reference counting
+// عد المراجع في وقت التشغيل
 pub struct TrqObject {
     ref_count: AtomicUsize,
     type_info: &'static TypeInfo,
-    data: [u8],  // Flexible array member
+    data: [u8],  // مصفوفة مرنة
 }
 
 impl TrqObject {
@@ -425,159 +621,223 @@ impl TrqObject {
     pub fn release(&self) {
         if self.ref_count.fetch_sub(1, Ordering::SeqCst) == 1 {
             self.drop_contents();
-            // Deallocate
+            // تحرير الذاكرة
         }
     }
 }
 ```
 
-## Error Handling
+---
 
-Comprehensive error reporting with Arabic support:
+## معالجة الأخطاء
+
+تقارير أخطاء شاملة مع دعم العربية:
 
 ```rust
 pub struct Diagnostic {
     pub level: DiagnosticLevel,
-    pub message: String,
-    pub message_ar: String,  // Arabic translation
+    pub code: ErrorCode,           // رمز الخطأ العربي (مثل: د٠٣٠١)
+    pub message: String,           // الرسالة بالإنجليزية
+    pub message_ar: String,        // الرسالة بالعربية
     pub span: Span,
     pub notes: Vec<Note>,
     pub suggestions: Vec<Suggestion>,
 }
+```
 
-impl Diagnostic {
-    pub fn emit(&self, source: &str, lang: Language) {
-        let msg = match lang {
-            Language::Arabic => &self.message_ar,
-            Language::English => &self.message,
-        };
+### نظام رموز الأخطاء
 
-        // Pretty print with source context
-        eprintln!("خطأ: {}", msg);
-        eprintln!("  --> {}:{}:{}", self.span.file, self.span.line, self.span.col);
-        // ...
-    }
+| الحرف | الفئة | الوصف |
+|-------|-------|-------|
+| ق | قراءة | أخطاء المحلل اللغوي |
+| ب | بناء | أخطاء المحلل النحوي |
+| د | دلالة | أخطاء دلالية |
+| ن | نوع | أخطاء الأنماط |
+| ص | صنف | أخطاء البرمجة الكائنية |
+| و | وحدة | أخطاء الاستيراد/التصدير |
+| ت | توليد | أخطاء توليد الكود |
+| ح | تحذير | تحذيرات |
+
+---
+
+## نموذج التزامن
+
+متوازي/انتظر مع حلقة أحداث:
+
+```tarqeem
+متوازي دالة احضر_بيانات(رابط: نص) -> نص {
+    متغير استجابة = انتظر طلب_شبكة(رابط)
+    أرجع استجابة.نص()
+}
+
+متوازي دالة رئيسية() {
+    متغير بيانات = انتظر احضر_بيانات("https://api.example.com")
+    اطبع(بيانات)
 }
 ```
 
-## Concurrency Model
+---
 
-Async/await with an event loop:
+## معمارية المكتبة القياسية
 
-```rust
-// Runtime async executor
-pub struct Executor {
-    ready_queue: VecDeque<Task>,
-    io_reactor: IoReactor,
-    timer_wheel: TimerWheel,
-}
-
-impl Executor {
-    pub fn spawn(&mut self, future: impl Future<Output = ()>) {
-        let task = Task::new(future);
-        self.ready_queue.push_back(task);
-    }
-
-    pub fn run(&mut self) {
-        loop {
-            // 1. Poll ready tasks
-            while let Some(task) = self.ready_queue.pop_front() {
-                if task.poll().is_pending() {
-                    // Re-queue when ready
-                }
-            }
-
-            // 2. Wait for I/O events
-            self.io_reactor.poll();
-
-            // 3. Check timers
-            self.timer_wheel.tick();
-        }
-    }
-}
-```
-
-## Standard Library Architecture
-
-The standard library is a mix of Rust runtime and Tarqeem source:
+المكتبة القياسية مزيج من وقت تشغيل C وكود ترقيم:
 
 ```
-stdlib/
-├── core/           # Rust: Low-level primitives
-│   ├── memory      # Memory allocation
-│   ├── string      # String internals
-│   └── io          # I/O primitives
-│
-└── std/            # Tarqeem: High-level APIs
-    ├── مجموعات     # Collections (List, Map, Set)
-    ├── رياضيات     # Math functions
-    ├── ملفات       # File system
-    ├── شبكة        # Networking
-    └── متزامن      # Async utilities
+runtime/                    # C: البدائيات منخفضة المستوى
+├── memory.c               # تخصيص الذاكرة
+├── string.c               # العمليات الداخلية للنصوص
+├── array.c                # عمليات المصفوفات
+├── io.c                   # الإدخال/الإخراج
+├── crypto.c               # التشفير
+└── compress.c             # الضغط
+
+stdlib_trq/                 # ترقيم: واجهات عالية المستوى
+├── مجموعات/               # قائمة، قاموس، مجموعة، طابور، مكدس
+├── رياضيات/               # الدوال الرياضية
+├── نص/                    # أدوات النصوص
+├── ملفات/                 # نظام الملفات
+├── شبكة/                  # الشبكات
+├── وقت/                   # التاريخ والوقت
+├── طرفية/                 # أدوات الطرفية
+├── أخطاء/                 # معالجة الأخطاء
+└── اختبار/                # إطار الاختبار
 ```
 
-## Build System
+---
+
+## نظام البناء
 
 ```bash
-# Development build
+# بناء التطوير
 cargo build
 
-# Release build with optimizations
+# بناء الإصدار مع التحسينات
 cargo build --release
 
-# Run tests
+# تشغيل الاختبارات (+٩٢١ اختبار)
 cargo test
 
-# Run specific test
+# تشغيل اختبار معين
 cargo test lexer
 
-# Generate docs
+# توليد التوثيق
 cargo doc --open
 
-# Format code
+# تنسيق الكود
 cargo fmt
 
-# Lint
+# التدقيق
 cargo clippy
+
+# اختبارات الأداء
+cargo bench
+
+# بناء مع JIT (اختياري)
+cargo build --features jit
 ```
 
-## Dependencies
+### أوامر ترقيم
+
+```bash
+# ترجمة ملف ترقيم
+tarqeem compile برنامج.ترقيم -o برنامج
+
+# ترجمة وتشغيل
+tarqeem run برنامج.ترقيم
+
+# فحص الصياغة فقط
+tarqeem check برنامج.ترقيم
+
+# تنسيق الكود
+tarqeem fmt برنامج.ترقيم
+
+# الوضع التفاعلي
+tarqeem repl
+
+# التنقيح مع DAP
+tarqeem debug برنامج.ترقيم
+
+# توليد التوثيق
+tarqeem doc برنامج.ترقيم
+
+# إدارة الحزم
+tarqeem pkg init              # إنشاء حزمة جديدة
+
+# شرح رمز خطأ
+tarqeem اشرح د٠٣٠١
+```
+
+---
+
+## الاعتماديات
 
 ```toml
 [dependencies]
-# CLI
-clap = { version = "4.0", features = ["derive"] }
-colored = "2.0"
+# واجهة سطر الأوامر
+clap = { version = "4.5", features = ["derive"] }
+colored = "3.0"
 
-# Parsing
-logos = "0.13"          # Lexer generator
-pest = "2.7"            # Alternative: PEG parser
+# معالجة يونيكود
+unicode-segmentation = "1.12"
+unicode-normalization = "0.1"
 
-# LLVM
-inkwell = "0.2"         # LLVM bindings
+# أدوات مساعدة
+indexmap = "2.12"
+phf = { version = "0.13", features = ["macros"] }
 
-# Unicode
-unicode-segmentation = "1.10"
-unicode-bidi = "0.3"
+# التسلسل (لمدير الحزم)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.9"
 
-# Error handling
-thiserror = "1.0"
-miette = "5.0"          # Pretty error reporting
+# إدارة الحزم
+semver = "1.0"
+sha2 = "0.10"
+hex = "0.4"
+flate2 = "1.0"
+tar = "0.4"
+dirs = "6.0"
+walkdir = "2.5"
 
-# Async runtime
-tokio = { version = "1.0", features = ["full"] }
+# معالجة الأخطاء
+thiserror = "2.0"
 
-# Utilities
-once_cell = "1.18"
-indexmap = "2.0"
+# بروتوكول خادم اللغة (LSP)
+tower-lsp = "0.20"
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+dashmap = "6.0"
+
+# الترجمة الفورية (اختياري)
+cranelift-codegen = { version = "0.113", optional = true }
+cranelift-frontend = { version = "0.113", optional = true }
+cranelift-jit = { version = "0.113", optional = true }
+cranelift-module = { version = "0.113", optional = true }
+cranelift-native = { version = "0.113", optional = true }
+target-lexicon = { version = "0.12", optional = true }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+tempfile = "3.14"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[features]
+profiling = []   # تمكين أدوات التنميط
+concurrent = []  # محتبس نصوص متزامن
+jit = [...]      # تمكين JIT
 ```
 
-## Testing Strategy
+---
 
-1. **Unit Tests**: Each module has inline tests
-2. **Integration Tests**: Full compilation of `.ترقيم` files
-3. **Snapshot Tests**: AST/IR output comparison
-4. **Fuzzing**: Property-based testing with `proptest`
+## استراتيجية الاختبار
+
+| النوع | الوصف | الموقع |
+|-------|-------|--------|
+| **اختبارات الوحدة** | كل وحدة لها اختبارات مضمنة | `*_tests.rs` |
+| **اختبارات التكامل** | ترجمة كاملة لملفات `.ترقيم` | `tests/integration/` |
+| **اختبارات اللقطات** | مقارنة مخرجات شجرة الصياغة/التمثيل الوسيط | متنوع |
+| **اختبارات الأداء** | قياس أداء المكونات | `benches/` |
 
 ```rust
 #[cfg(test)]
@@ -585,29 +845,80 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_lexer_arabic_keywords() {
-        let source = "متغير س = 5";
+    fn test_arabic_keywords() {
+        let source = "متغير س = ٥";
         let tokens = Lexer::new(source).collect::<Vec<_>>();
 
-        assert_eq!(tokens[0].kind, TokenKind::Mutaƣayir);
+        assert_eq!(tokens[0].kind, TokenKind::Mutaghayir);
         assert_eq!(tokens[1].kind, TokenKind::Identifier("س".into()));
         assert_eq!(tokens[2].kind, TokenKind::Equal);
-        assert_eq!(tokens[3].kind, TokenKind::IntLiteral(5));
+        assert_eq!(tokens[3].kind, TokenKind::Integer(5));
     }
 }
 ```
 
-## Performance Targets
+---
 
-- **Compilation Speed**: < 100ms for 10K lines
-- **Runtime Performance**: Within 2x of equivalent C code
-- **Memory Usage**: < 100MB for typical programs
-- **Startup Time**: < 10ms for hello world
+## أهداف الأداء
 
-## Future Considerations
+| المقياس | الهدف |
+|---------|-------|
+| **سرعة الترجمة** | < ١٠٠ مللي ثانية لـ ١٠ آلاف سطر |
+| **أداء وقت التشغيل** | ضمن ٢ ضعف أداء C المكافئ |
+| **استخدام الذاكرة** | < ١٠٠ ميغابايت للبرامج النموذجية |
+| **وقت البدء** | < ١٠ مللي ثانية لمرحباً بالعالم |
 
-1. **JIT Compilation**: Optional JIT for REPL and hot code
-2. **WebAssembly**: Compile to WASM for web deployment
-3. **LSP Server**: IDE support with full Arabic localization
-4. **Debugger**: Native debugging with Arabic variable names
-5. **Package Manager**: Similar to Cargo/npm with Arabic package names
+---
+
+## قرارات التصميم
+
+### لماذا محلل تنازلي تكراري؟
+
+- أسهل في التنفيذ والفهم
+- رسائل خطأ واستعادة أفضل
+- كافٍ لقواعدنا النحوية (ليست غامضة جداً)
+- موسَّع بتحليل برات للتعبيرات
+
+### لماذا LLVM؟
+
+- واجهة خلفية ناضجة ومُختبَرة
+- تمريرات تحسين ممتازة
+- توليد كود متعدد المنصات
+- واجهة C مستقرة
+
+### لماذا عد المراجع؟
+
+- أبسط من جامع القمامة المتتبع
+- تدمير حتمي
+- زمن انتقال منخفض (لا توقفات جامع القمامة)
+- يمكن تحسينه بواسطة المترجم
+
+### لماذا مفسر متجول للشجرة؟
+
+- يُستخدم لـ REPL والتنقيح
+- أسهل في تنفيذ تنقيح مستوى المصدر
+- يشغِّل خادم DAP لتنقيح VS Code
+
+---
+
+## ملاحظات إضافية
+
+### دعم ويب أسمبلي
+
+ملفات دعم ويب أسمبلي موجودة في:
+- `runtime/wasm/` - وقت تشغيل WASM بلغة C
+- `examples/wasm/` - أمثلة WASM
+
+### الميزات الاختيارية
+
+| الميزة | الوصف |
+|--------|-------|
+| `profiling` | أدوات التنميط |
+| `concurrent` | محتبس نصوص متزامن |
+| `jit` | الترجمة الفورية عبر Cranelift |
+
+---
+
+**ترقيم** - لغة البرمجة العربية الأصيلة
+
+</div>
