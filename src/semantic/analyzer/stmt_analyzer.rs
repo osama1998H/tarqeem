@@ -211,7 +211,15 @@ impl Analyzer {
 
         let symbol = Symbol::variable(name, var_type, mutable);
         if !self.scope.define(symbol) {
-            self.already_defined_error("Variable", "المتغير", name, span, None);
+            use crate::error::codes::ERR_VARIABLE_REDEFINITION;
+            self.already_defined_error(
+                "Variable",
+                "المتغير",
+                name,
+                span,
+                None,
+                &ERR_VARIABLE_REDEFINITION.to_string(),
+            );
         }
     }
 
@@ -240,7 +248,15 @@ impl Analyzer {
 
         let symbol = Symbol::function(name, param_types.clone(), ret_type.clone());
         if !self.scope.define(symbol) {
-            self.already_defined_error("Function", "الدالة", name, span, None);
+            use crate::error::codes::ERR_VARIABLE_REDEFINITION;
+            self.already_defined_error(
+                "Function",
+                "الدالة",
+                name,
+                span,
+                None,
+                &ERR_VARIABLE_REDEFINITION.to_string(),
+            );
         }
 
         self.push_function_scope(ret_type);
@@ -283,6 +299,7 @@ impl Analyzer {
                 && self.scope.lookup(parent_name).is_none()
             {
                 // Try to find similar class names
+                use crate::error::codes::ERR_UNDEFINED_CLASS;
                 let all_classes = self.class_resolver.all_class_names();
                 let similar: Vec<String> = all_classes
                     .iter()
@@ -294,7 +311,14 @@ impl Analyzer {
                     .take(3)
                     .cloned()
                     .collect();
-                self.undefined_error("superclass", "صنف أب", parent_name, span, &similar);
+                self.undefined_error(
+                    "superclass",
+                    "صنف أب",
+                    parent_name,
+                    span,
+                    &similar,
+                    &ERR_UNDEFINED_CLASS.to_string(),
+                );
             }
         }
 
@@ -303,6 +327,7 @@ impl Analyzer {
                 && self.scope.lookup(iface).is_none()
             {
                 // Try to find similar interface names
+                use crate::error::codes::ERR_UNDEFINED_CLASS;
                 let all_interfaces = self.class_resolver.all_interface_names();
                 let similar: Vec<String> = all_interfaces
                     .iter()
@@ -313,13 +338,28 @@ impl Analyzer {
                     .take(3)
                     .cloned()
                     .collect();
-                self.undefined_error("interface", "ميثاق", iface, span, &similar);
+                self.undefined_error(
+                    "interface",
+                    "ميثاق",
+                    iface,
+                    span,
+                    &similar,
+                    &ERR_UNDEFINED_CLASS.to_string(),
+                );
             }
         }
 
         let symbol = Symbol::class(name);
         if !self.scope.define(symbol) {
-            self.already_defined_error("Class", "الصنف", name, span, None);
+            use crate::error::codes::ERR_VARIABLE_REDEFINITION;
+            self.already_defined_error(
+                "Class",
+                "الصنف",
+                name,
+                span,
+                None,
+                &ERR_VARIABLE_REDEFINITION.to_string(),
+            );
         }
 
         let prev_class = self.current_class.take();
@@ -513,7 +553,15 @@ impl Analyzer {
         };
 
         if !self.scope.define(symbol) {
-            self.already_defined_error("Interface", "الميثاق", name, span, None);
+            use crate::error::codes::ERR_VARIABLE_REDEFINITION;
+            self.already_defined_error(
+                "Interface",
+                "الميثاق",
+                name,
+                span,
+                None,
+                &ERR_VARIABLE_REDEFINITION.to_string(),
+            );
         }
     }
 
@@ -534,7 +582,15 @@ impl Analyzer {
         };
 
         if !self.scope.define(symbol) {
-            self.already_defined_error("Enum", "التعداد", name, span, None);
+            use crate::error::codes::ERR_VARIABLE_REDEFINITION;
+            self.already_defined_error(
+                "Enum",
+                "التعداد",
+                name,
+                span,
+                None,
+                &ERR_VARIABLE_REDEFINITION.to_string(),
+            );
             return;
         }
 

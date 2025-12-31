@@ -31,8 +31,16 @@ impl Analyzer {
                 if let Some(symbol) = self.scope.lookup(name) {
                     symbol.ty.clone()
                 } else {
+                    use crate::error::codes::ERR_UNDEFINED_VARIABLE;
                     let similar_names = self.find_similar_names(name, 3);
-                    self.undefined_error("identifier", "معرّف", name, expr.span, &similar_names);
+                    self.undefined_error(
+                        "identifier",
+                        "معرّف",
+                        name,
+                        expr.span,
+                        &similar_names,
+                        &ERR_UNDEFINED_VARIABLE.to_string(),
+                    );
                     Type::Error
                 }
             }
@@ -297,10 +305,12 @@ impl Analyzer {
 
                 if let Some((mutable, ty)) = symbol_info {
                     if !mutable {
-                        self.error(
+                        use crate::error::codes::ERR_CONST_ASSIGNMENT;
+                        self.error_with_code(
                             &format!("Cannot assign to immutable variable '{}'", name),
                             &format!("لا يمكن تعيين قيمة لمتغير ثابت '{}'", name),
                             target.span,
+                            &ERR_CONST_ASSIGNMENT.to_string(),
                         );
                     }
                     if !value_type.is_compatible_with(&ty) {
@@ -313,8 +323,16 @@ impl Analyzer {
                         );
                     }
                 } else {
+                    use crate::error::codes::ERR_UNDEFINED_VARIABLE;
                     let similar_names = self.find_similar_names(name, 3);
-                    self.undefined_error("variable", "متغير", name, target.span, &similar_names);
+                    self.undefined_error(
+                        "variable",
+                        "متغير",
+                        name,
+                        target.span,
+                        &similar_names,
+                        &ERR_UNDEFINED_VARIABLE.to_string(),
+                    );
                 }
             }
             ExprKind::Member { object, .. } | ExprKind::Index { object, .. } => {
@@ -554,6 +572,7 @@ impl Analyzer {
             Type::Class(class_name)
         } else {
             // Try to find similar class names
+            use crate::error::codes::ERR_UNDEFINED_CLASS;
             let all_classes = self.class_resolver.all_class_names();
             let similar: Vec<String> = all_classes
                 .iter()
@@ -565,7 +584,14 @@ impl Analyzer {
                 .take(3)
                 .cloned()
                 .collect();
-            self.undefined_error("class", "صنف", &class_name, class.span, &similar);
+            self.undefined_error(
+                "class",
+                "صنف",
+                &class_name,
+                class.span,
+                &similar,
+                &ERR_UNDEFINED_CLASS.to_string(),
+            );
             Type::Error
         }
     }

@@ -412,13 +412,14 @@ impl Analyzer {
         name: &str,
         span: Span,
         similar_names: &[String],
+        code: &str,
     ) {
         use crate::error::Suggestion;
 
         let message = format!("Unknown {} '{}'", kind, name);
         let message_ar = format!("{} غير معروف '{}'", kind_ar, name);
 
-        let mut diag = Diagnostic::error(&message, &message_ar, span).with_code("E0425");
+        let mut diag = Diagnostic::error(&message, &message_ar, span).with_code(code);
 
         // Add suggestions for similar names
         if !similar_names.is_empty() {
@@ -442,13 +443,14 @@ impl Analyzer {
         name: &str,
         span: Span,
         original_span: Option<Span>,
+        code: &str,
     ) {
         use crate::error::Note;
 
         let message = format!("{} '{}' is already defined", kind, name);
         let message_ar = format!("{} '{}' معرّف مسبقاً", kind_ar, name);
 
-        let mut diag = Diagnostic::error(&message, &message_ar, span).with_code("E0428");
+        let mut diag = Diagnostic::error(&message, &message_ar, span).with_code(code);
 
         // Add note pointing to original definition
         if let Some(orig_span) = original_span {
