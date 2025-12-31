@@ -271,6 +271,7 @@ impl Analyzer {
                 ty: param_type.clone(),
                 mutable: false,
                 defined: true,
+                used: false,
             };
             self.scope.define(symbol);
         }
@@ -559,6 +560,7 @@ impl Analyzer {
             ty: Type::Interface(name.to_string()),
             mutable: false,
             defined: true,
+            used: false,
         };
 
         if !self.scope.define(symbol) {
@@ -588,6 +590,7 @@ impl Analyzer {
             ty: Type::Enum(name.to_string()),
             mutable: false,
             defined: true,
+            used: false,
         };
 
         if !self.scope.define(symbol) {

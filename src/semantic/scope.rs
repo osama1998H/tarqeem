@@ -15,6 +15,9 @@ pub struct Symbol {
     pub ty: Type,
     pub mutable: bool,
     pub defined: bool,
+    /// Whether the symbol has been accessed/used in the code.
+    /// Used for unused variable/function warnings.
+    pub used: bool,
 }
 
 impl Symbol {
@@ -25,6 +28,7 @@ impl Symbol {
             ty,
             mutable: true,
             defined: true,
+            used: false,
         }
     }
 
@@ -35,6 +39,7 @@ impl Symbol {
             ty,
             mutable,
             defined: true,
+            used: false,
         }
     }
 
@@ -48,6 +53,7 @@ impl Symbol {
             },
             mutable: false,
             defined: true,
+            used: false,
         }
     }
 
@@ -59,6 +65,7 @@ impl Symbol {
             ty: Type::Class(name),
             mutable: false,
             defined: true,
+            used: false,
         }
     }
 }
@@ -710,6 +717,20 @@ impl Scope {
             parent.lookup_mut(name)
         } else {
             None
+        }
+    }
+
+    /// Mark a symbol as used. Traverses parent scopes if not found locally.
+    /// Returns true if the symbol was found and marked, false otherwise.
+    pub fn mark_used(&mut self, name: &str) -> bool {
+        let normalized = normalize_name(name);
+        if let Some(symbol) = self.symbols.get_mut(&normalized) {
+            symbol.used = true;
+            true
+        } else if let Some(parent) = &mut self.parent {
+            parent.mark_used(name)
+        } else {
+            false
         }
     }
 

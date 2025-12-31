@@ -15,8 +15,10 @@ mod stmt_analyzer;
 use super::class_resolver::ClassResolver;
 use super::generics::{GenericContext, GenericParam, GenericResolver};
 use super::modules::ModuleLoader;
-use super::scope::{Scope, ScopeKind};
+use super::scope::{Scope, ScopeKind, SymbolKind};
 use super::types::{parse_type_name, Type};
+use crate::error::codes::{WARN_UNUSED_FUNCTION, WARN_UNUSED_VARIABLE};
+// Note: WARN_UNUSED_IMPORT will be used when import tracking is implemented
 use crate::error::{Diagnostic, Language, Span};
 use crate::parser::*;
 use std::collections::HashMap;
@@ -127,10 +129,16 @@ impl Analyzer {
             self.analyze_stmt(stmt);
         }
 
-        if self.diagnostics.is_empty() {
-            Ok(())
-        } else {
+        // Only return Err if there are actual errors (not just warnings)
+        let has_errors = self
+            .diagnostics
+            .iter()
+            .any(|d| d.level == crate::error::DiagnosticLevel::Error);
+
+        if has_errors {
             Err(self.diagnostics.clone())
+        } else {
+            Ok(())
         }
     }
 
@@ -244,8 +252,77 @@ impl Analyzer {
 
     /// Pop the current scope.
     pub(crate) fn pop_scope(&mut self) {
+        // Check for unused symbols before popping
+        self.check_unused_symbols();
+
         if let Some(parent) = std::mem::replace(&mut self.scope, Scope::new_global()).pop() {
             self.scope = parent;
+        }
+    }
+
+    /// Check for unused symbols in the current scope and emit warnings.
+    fn check_unused_symbols(&mut self) {
+        // Collect unused symbols first to avoid borrow issues
+        let unused_symbols: Vec<(String, SymbolKind)> = self
+            .scope
+            .symbols()
+            .filter(|symbol| {
+                // Skip if already used
+                if symbol.used {
+                    return false;
+                }
+
+                // Skip built-in functions (they're defined in global scope)
+                if self.scope.kind() == ScopeKind::Global {
+                    return false;
+                }
+
+                // Skip symbols that start with underscore (intentionally unused)
+                if symbol.name.starts_with('_') {
+                    return false;
+                }
+
+                // Skip special names
+                let name = &symbol.name;
+                if name == "هذا"
+                    || name == "this"
+                    || name == "الأصل"
+                    || name == "super"
+                    || name == "رئيسية"
+                    || name == "__main__"
+                {
+                    return false;
+                }
+
+                true
+            })
+            .map(|s| (s.name.clone(), s.kind.clone()))
+            .collect();
+
+        // Emit warnings for unused symbols
+        for (name, kind) in unused_symbols {
+            match kind {
+                SymbolKind::Variable | SymbolKind::Parameter => {
+                    self.warn_with_code(
+                        &format!("Variable '{}' is declared but never used", name),
+                        &format!("المتغير '{}' مُعرَّف لكن غير مستخدم", name),
+                        Span::default(),
+                        &WARN_UNUSED_VARIABLE.to_string(),
+                    );
+                }
+                SymbolKind::Function => {
+                    self.warn_with_code(
+                        &format!("Function '{}' is defined but never called", name),
+                        &format!("الدالة '{}' مُعرَّفة لكن غير مستدعاة", name),
+                        Span::default(),
+                        &WARN_UNUSED_FUNCTION.to_string(),
+                    );
+                }
+                SymbolKind::Class | SymbolKind::Interface | SymbolKind::Enum => {
+                    // Classes, interfaces, and enums are often defined for external use
+                    // Skip warnings for these
+                }
+            }
         }
     }
 
@@ -303,6 +380,18 @@ impl Analyzer {
     ) {
         self.diagnostics
             .push(Diagnostic::error(message, message_ar, span).with_code(code));
+    }
+
+    /// Report a warning with an error code.
+    pub(crate) fn warn_with_code(
+        &mut self,
+        message: &str,
+        message_ar: &str,
+        span: Span,
+        code: &str,
+    ) {
+        self.diagnostics
+            .push(Diagnostic::warning(message, message_ar, span).with_code(code));
     }
 
     /// Report a type mismatch error with a conversion suggestion.
