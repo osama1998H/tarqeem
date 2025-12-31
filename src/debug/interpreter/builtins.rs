@@ -10,38 +10,28 @@ impl DebugInterpreter {
     pub(crate) fn is_builtin(&self, name: &str) -> bool {
         matches!(
             name,
-            "print"
-                | "اطبع"
-                | "println"
-                | "input"
+            "اطبع"
                 | "ادخل"
-                | "len"
                 | "طول"
-                | "type"
                 | "نوع"
-                | "int"
                 | "عدد"
-                | "float"
                 | "عدد_عشري"
-                | "str"
                 | "نص"
-                | "bool"
                 | "منطقي"
-                | "abs"
-                | "sqrt"
+                | "مطلق"
                 | "جذر"
-                | "sin"
-                | "cos"
-                | "tan"
-                | "floor"
-                | "ceil"
-                | "round"
+                | "جيب"
+                | "جيب_التمام"
+                | "ظل"
+                | "أرضية"
+                | "سقف"
+                | "قرب"
         )
     }
 
     pub(crate) fn call_builtin(&mut self, name: &str, args: Vec<Value>) -> RuntimeResult<Value> {
         match name {
-            "print" | "اطبع" | "println" => {
+            "اطبع" => {
                 let output = args
                     .iter()
                     .map(|v| v.to_display_string())
@@ -54,7 +44,7 @@ impl DebugInterpreter {
                 Ok(Value::Null)
             }
 
-            "input" | "ادخل" => {
+            "ادخل" => {
                 if let Some(prompt) = args.first() {
                     print!("{}", prompt.to_display_string());
                     io::stdout().flush().ok();
@@ -68,13 +58,10 @@ impl DebugInterpreter {
                 Ok(Value::string(input.trim_end()))
             }
 
-            "len" | "طول" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "len() requires 1 argument",
-                        "طول() تتطلب معامل واحد",
-                    )
-                })?;
+            "طول" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("طول() تتطلب معامل واحد"))?;
 
                 match val {
                     Value::Array(arr) => Ok(Value::Int(arr.borrow().len() as i64)),
@@ -83,23 +70,17 @@ impl DebugInterpreter {
                 }
             }
 
-            "type" | "نوع" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "type() requires 1 argument",
-                        "نوع() تتطلب معامل واحد",
-                    )
-                })?;
+            "نوع" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("نوع() تتطلب معامل واحد"))?;
                 Ok(Value::string(val.type_name_ar()))
             }
 
-            "int" | "عدد" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "int() requires 1 argument",
-                        "عدد() تتطلب معامل واحد",
-                    )
-                })?;
+            "عدد" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("عدد() تتطلب معامل واحد"))?;
 
                 match val {
                     Value::Int(i) => Ok(Value::Int(*i)),
@@ -116,12 +97,9 @@ impl DebugInterpreter {
                 }
             }
 
-            "float" | "عدد_عشري" => {
+            "عدد_عشري" => {
                 let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "float() requires 1 argument",
-                        "عدد_عشري() تتطلب معامل واحد",
-                    )
+                    RuntimeError::invalid_operation("عدد_عشري() تتطلب معامل واحد")
                 })?;
 
                 match val {
@@ -138,33 +116,23 @@ impl DebugInterpreter {
                 }
             }
 
-            "str" | "نص" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "str() requires 1 argument",
-                        "نص() تتطلب معامل واحد",
-                    )
-                })?;
+            "نص" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("نص() تتطلب معامل واحد"))?;
                 Ok(Value::string(val.to_display_string()))
             }
 
-            "bool" | "منطقي" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "bool() requires 1 argument",
-                        "منطقي() تتطلب معامل واحد",
-                    )
-                })?;
+            "منطقي" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("منطقي() تتطلب معامل واحد"))?;
                 Ok(Value::Bool(val.is_truthy()))
             }
-
-            "abs" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "abs() requires 1 argument",
-                        "abs() تتطلب معامل واحد",
-                    )
-                })?;
+            "مطلق" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("مطلق() تتطلب معامل واحد"))?;
 
                 match val {
                     Value::Int(i) => Ok(Value::Int(i.abs())),
@@ -173,13 +141,10 @@ impl DebugInterpreter {
                 }
             }
 
-            "sqrt" | "جذر" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "sqrt() requires 1 argument",
-                        "جذر() تتطلب معامل واحد",
-                    )
-                })?;
+            "جذر" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("جذر() تتطلب معامل واحد"))?;
 
                 let f = val
                     .as_float()
@@ -187,25 +152,19 @@ impl DebugInterpreter {
                 Ok(Value::Float(f.sqrt()))
             }
 
-            "sin" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "sin() requires 1 argument",
-                        "sin() تتطلب معامل واحد",
-                    )
-                })?;
+            "جيب" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("جيب() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
                 Ok(Value::Float(f.sin()))
             }
 
-            "cos" => {
+            "جيب_التمام" => {
                 let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "cos() requires 1 argument",
-                        "cos() تتطلب معامل واحد",
-                    )
+                    RuntimeError::invalid_operation("جيب_التمام() تتطلب معامل واحد")
                 })?;
                 let f = val
                     .as_float()
@@ -213,52 +172,40 @@ impl DebugInterpreter {
                 Ok(Value::Float(f.cos()))
             }
 
-            "tan" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "tan() requires 1 argument",
-                        "tan() تتطلب معامل واحد",
-                    )
-                })?;
+            "ظل" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("ظل() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
                 Ok(Value::Float(f.tan()))
             }
 
-            "floor" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "floor() requires 1 argument",
-                        "floor() تتطلب معامل واحد",
-                    )
-                })?;
+            "أرضية" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("أرضية() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
                 Ok(Value::Float(f.floor()))
             }
 
-            "ceil" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "ceil() requires 1 argument",
-                        "ceil() تتطلب معامل واحد",
-                    )
-                })?;
+            "سقف" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("سقف() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
                 Ok(Value::Float(f.ceil()))
             }
 
-            "round" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "round() requires 1 argument",
-                        "round() تتطلب معامل واحد",
-                    )
-                })?;
+            "قرب" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("قرب() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;

@@ -67,35 +67,30 @@ impl DapMessage {
 #[derive(Debug)]
 pub struct TransportError {
     pub message: String,
-    pub message_ar: String,
 }
 
 impl TransportError {
-    pub fn new(message: impl Into<String>, message_ar: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            message_ar: message_ar.into(),
         }
     }
 
     pub fn io_error(err: io::Error) -> Self {
         Self {
-            message: format!("I/O error: {}", err),
-            message_ar: format!("خطأ في الإدخال/الإخراج: {}", err),
+            message: format!("خطأ في الإدخال/الإخراج: {}", err),
         }
     }
 
     pub fn parse_error(msg: &str) -> Self {
         Self {
-            message: format!("Parse error: {}", msg),
-            message_ar: format!("خطأ في التحليل: {}", msg),
+            message: format!("خطأ في التحليل: {}", msg),
         }
     }
 
     pub fn connection_closed() -> Self {
         Self {
-            message: "Connection closed".to_string(),
-            message_ar: "تم إغلاق الاتصال".to_string(),
+            message: "تم إغلاق الاتصال".to_string(),
         }
     }
 }
@@ -298,16 +293,10 @@ impl DapServer {
         let addr = format!("127.0.0.1:{}", port);
         let listener = TcpListener::bind(&addr)?;
 
-        println!(
-            "DAP server listening on {} | خادم التصحيح يستمع على {}",
-            addr, addr
-        );
+        println!("خادم التصحيح يستمع على {}", addr);
 
         let (stream, peer_addr) = listener.accept()?;
-        println!(
-            "Client connected from {} | عميل متصل من {}",
-            peer_addr, peer_addr
-        );
+        println!("عميل متصل من {}", peer_addr);
 
         self.handle_connection_sync(stream)
     }
@@ -345,7 +334,7 @@ impl DapServer {
             }
         }
 
-        println!("DAP session ended | انتهت جلسة التصحيح");
+        println!("انتهت جلسة التصحيح");
         Ok(())
     }
 
@@ -353,16 +342,10 @@ impl DapServer {
         let addr = format!("127.0.0.1:{}", port);
         let listener = TokioTcpListener::bind(&addr).await?;
 
-        println!(
-            "DAP server listening on {} | خادم التصحيح يستمع على {}",
-            addr, addr
-        );
+        println!("خادم التصحيح يستمع على {}", addr);
 
         let (stream, peer_addr) = listener.accept().await?;
-        println!(
-            "Client connected from {} | عميل متصل من {}",
-            peer_addr, peer_addr
-        );
+        println!("عميل متصل من {}", peer_addr);
 
         self.handle_connection_async(stream).await
     }
@@ -405,7 +388,7 @@ impl DapServer {
             }
         }
 
-        println!("DAP session ended | انتهت جلسة التصحيح");
+        println!("انتهت جلسة التصحيح");
         Ok(())
     }
 
@@ -582,10 +565,9 @@ mod tests {
     }
 
     #[test]
-    fn test_transport_error_bilingual() {
+    fn test_transport_error_arabic() {
         let err = TransportError::connection_closed();
-        assert_eq!(err.message, "Connection closed");
-        assert_eq!(err.message_ar, "تم إغلاق الاتصال");
+        assert_eq!(err.message, "تم إغلاق الاتصال");
     }
 
     #[test]

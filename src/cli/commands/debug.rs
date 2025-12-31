@@ -55,7 +55,7 @@ pub fn debug(args: DebugArgs, lang: Language) -> Result<(), String> {
     let ir_builder = IrBuilder::new(filename.clone());
     let ir_module = ir_builder
         .build(&ast)
-        .map_err(|e| format!("خطأ بناء التمثيل الوسيط: {}", e.message_ar))?;
+        .map_err(|e| format!("خطأ بناء التمثيل الوسيط: {}", e.message))?;
 
     if args.dap_stdio || args.dap_port.is_some() {
         use crate::debug::DapServer;
@@ -66,11 +66,11 @@ pub fn debug(args: DebugArgs, lang: Language) -> Result<(), String> {
         if args.dap_stdio {
             server
                 .run_stdio()
-                .map_err(|e| format!("خطأ خادم التصحيح: {}", e.message_ar))?;
+                .map_err(|e| format!("خطأ خادم التصحيح: {}", e.message))?;
         } else if let Some(port) = args.dap_port {
             server
                 .run_tcp(port)
-                .map_err(|e| format!("خطأ خادم التصحيح: {}", e.message_ar))?;
+                .map_err(|e| format!("خطأ خادم التصحيح: {}", e.message))?;
         }
 
         return Ok(());
@@ -85,7 +85,7 @@ pub fn debug(args: DebugArgs, lang: Language) -> Result<(), String> {
 
     debug_interpreter
         .start()
-        .map_err(|e| format!("فشل بدء المصحح: {}", e.message_ar))?;
+        .map_err(|e| format!("فشل بدء المصحح: {}", e.message))?;
 
     // Arabic-only: ترقيم لغة برمجة عربية
     println!("{}", "=== مصحح ترقيم ===".cyan().bold());
@@ -150,11 +150,8 @@ fn run_debug_loop(
                 );
                 break;
             }
-            DebugState::Error {
-                message: _,
-                message_ar,
-            } => {
-                println!("{}", format!("خطأ: {}", message_ar).red().bold());
+            DebugState::Error { message } => {
+                println!("{}", format!("خطأ: {}", message).red().bold());
                 break;
             }
             _ => {}
@@ -214,7 +211,7 @@ fn handle_debug_command(
             }
             Ok(_) => {}
             Err(e) => {
-                println!("{}", format!("خطأ: {}", e.message_ar).red());
+                println!("{}", format!("خطأ: {}", e.message).red());
             }
         },
         DebugCommand::StepOver
@@ -237,7 +234,7 @@ fn handle_debug_command(
                     }
                     Ok(_) => {}
                     Err(e) => {
-                        println!("{}", format!("خطأ: {}", e.message_ar).red());
+                        println!("{}", format!("خطأ: {}", e.message).red());
                     }
                 }
             }
@@ -258,7 +255,7 @@ fn handle_debug_command(
                     );
                 }
                 Err(e) => {
-                    println!("{}", format!("خطأ: {}", e.message_ar).red());
+                    println!("{}", format!("خطأ: {}", e.message).red());
                 }
             }
         }
@@ -268,7 +265,7 @@ fn handle_debug_command(
                     println!("تم حذف نقطة التوقف {}", id.0);
                 }
                 Err(e) => {
-                    println!("{}", format!("خطأ: {}", e.message_ar).red());
+                    println!("{}", format!("خطأ: {}", e.message).red());
                 }
             }
         }
@@ -318,7 +315,7 @@ fn handle_debug_command(
                 println!("{} = {}", expression, value.to_display_string().yellow());
             }
             Err(e) => {
-                println!("{}", format!("خطأ: {}", e.message_ar).red());
+                println!("{}", format!("خطأ: {}", e.message).red());
             }
         },
         DebugCommand::Backtrace => {
@@ -380,7 +377,7 @@ fn handle_debug_command(
             // Arabic-only: ترقيم لغة برمجة عربية
             debug_interpreter
                 .start()
-                .map_err(|e| format!("خطأ: {}", e.message_ar))?;
+                .map_err(|e| format!("خطأ: {}", e.message))?;
         }
         DebugCommand::Watch { expression } => {
             // Arabic-only: ترقيم لغة برمجة عربية

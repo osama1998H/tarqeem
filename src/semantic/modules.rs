@@ -131,7 +131,6 @@ impl ModuleLoader {
             Err(e) => {
                 self.diagnostics.push(
                     Diagnostic::error(
-                        format!("Cannot resolve module path '{}': {}", path.display(), e),
                         format!("لا يمكن تحديد مسار الوحدة '{}': {}", path.display(), e),
                         span,
                     )
@@ -154,11 +153,6 @@ impl ModuleLoader {
 
             self.diagnostics.push(
                 Diagnostic::error(
-                    format!(
-                        "Circular dependency detected: {} -> {}",
-                        cycle,
-                        canonical_path.display()
-                    ),
                     format!(
                         "تم اكتشاف اعتماد دائري: {} -> {}",
                         cycle,
@@ -198,7 +192,6 @@ impl ModuleLoader {
             Err(e) => {
                 self.diagnostics.push(
                     Diagnostic::error(
-                        format!("Cannot read module '{}': {}", path.display(), e),
                         format!("لا يمكن قراءة الوحدة '{}': {}", path.display(), e),
                         span,
                     )
@@ -215,14 +208,9 @@ impl ModuleLoader {
             Err(error) => {
                 self.diagnostics.push(Diagnostic::error(
                     format!(
-                        "Parse error in module '{}': {}",
-                        path.display(),
-                        error.message
-                    ),
-                    format!(
                         "خطأ تحليل في الوحدة '{}': {}",
                         path.display(),
-                        error.message_ar
+                        error.message
                     ),
                     error.span,
                 ));

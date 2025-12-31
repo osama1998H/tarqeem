@@ -63,7 +63,7 @@ impl Parser {
         self.advance(); // consume 'let' or 'const'
 
         let name = self
-            .expect_identifier("Expected variable name", "متوقع اسم المتغير")
+            .expect_identifier("متوقع اسم المتغير")
             .map_err(|e| e.with_code(ERR_EXPECTED_VARIABLE_NAME.to_string()))?;
 
         let ty = if self.match_token(&TokenKind::Colon) {
@@ -100,15 +100,15 @@ impl Parser {
         doc_comment: Option<String>,
     ) -> Result<Stmt, Diagnostic> {
         let start = self.current_span();
-        self.expect(&TokenKind::Function, "Expected 'function'", "متوقع 'دالة'")?;
+        self.expect(&TokenKind::Function, "متوقع 'دالة'")?;
 
         let name = self
-            .expect_identifier("Expected function name", "متوقع اسم الدالة")
+            .expect_identifier("متوقع اسم الدالة")
             .map_err(|e| e.with_code(ERR_EXPECTED_FUNCTION_NAME.to_string()))?;
 
-        self.expect(&TokenKind::LeftParen, "Expected '('", "متوقع '('")?;
+        self.expect(&TokenKind::LeftParen, "متوقع '('")?;
         let params = self.parse_parameters()?;
-        self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+        self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         let return_type = if self.match_token(&TokenKind::Arrow) {
             Some(self.parse_type_annotation()?)
@@ -141,14 +141,14 @@ impl Parser {
         self.advance(); // consume 'class'
 
         let name = self
-            .expect_identifier("Expected class name", "متوقع اسم الصنف")
+            .expect_identifier("متوقع اسم الصنف")
             .map_err(|e| e.with_code(ERR_EXPECTED_CLASS_NAME.to_string()))?;
 
         let type_params = self.parse_type_parameters()?;
 
         let extends = if self.check(&TokenKind::Extends) {
             self.advance();
-            Some(self.expect_identifier("Expected superclass name", "متوقع اسم الصنف الأب")?)
+            Some(self.expect_identifier("متوقع اسم الصنف الأب")?)
         } else {
             None
         };
@@ -157,8 +157,7 @@ impl Parser {
         if self.check(&TokenKind::Implements) {
             self.advance();
             loop {
-                let interface_name =
-                    self.expect_identifier("Expected interface name", "متوقع اسم الميثاق")?;
+                let interface_name = self.expect_identifier("متوقع اسم الميثاق")?;
                 implements.push(interface_name);
 
                 if self.check(&TokenKind::Less) {
@@ -171,7 +170,7 @@ impl Parser {
                             break;
                         }
                     }
-                    self.expect(&TokenKind::Greater, "Expected '>'", "متوقع '>'")?;
+                    self.expect(&TokenKind::Greater, "متوقع '>'")?;
                 }
 
                 if !self.match_token(&TokenKind::Comma)
@@ -182,9 +181,9 @@ impl Parser {
             }
         }
 
-        self.expect(&TokenKind::LeftBrace, "Expected '{'", "متوقع '{'")?;
+        self.expect(&TokenKind::LeftBrace, "متوقع '{'")?;
         let members = self.parse_class_members()?;
-        self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
+        self.expect(&TokenKind::RightBrace, "متوقع '}'")?;
 
         let span = start.merge(&self.previous_span());
         Ok(Stmt::new(
@@ -211,8 +210,7 @@ impl Parser {
         self.advance(); // consume '<'
 
         loop {
-            let param =
-                self.expect_identifier("Expected type parameter name", "متوقع اسم معامل النوع")?;
+            let param = self.expect_identifier("متوقع اسم معامل النوع")?;
             params.push(param);
 
             if !self.match_token(&TokenKind::Comma) && !self.match_token(&TokenKind::ArabicComma) {
@@ -220,7 +218,7 @@ impl Parser {
             }
         }
 
-        self.expect(&TokenKind::Greater, "Expected '>'", "متوقع '>'")?;
+        self.expect(&TokenKind::Greater, "متوقع '>'")?;
         Ok(params)
     }
 
@@ -256,9 +254,9 @@ impl Parser {
 
         if self.check(&TokenKind::Constructor) {
             self.advance();
-            self.expect(&TokenKind::LeftParen, "Expected '('", "متوقع '('")?;
+            self.expect(&TokenKind::LeftParen, "متوقع '('")?;
             let params = self.parse_parameters()?;
-            self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+            self.expect(&TokenKind::RightParen, "متوقع ')'")?;
             let body = self.parse_block()?;
             Ok(ClassMember::Constructor {
                 params,
@@ -267,11 +265,11 @@ impl Parser {
             })
         } else if self.check(&TokenKind::Function) || self.check(&TokenKind::Async) {
             let is_async = self.match_token(&TokenKind::Async);
-            self.expect(&TokenKind::Function, "Expected 'function'", "متوقع 'دالة'")?;
-            let name = self.expect_identifier("Expected method name", "متوقع اسم الدالة")?;
-            self.expect(&TokenKind::LeftParen, "Expected '('", "متوقع '('")?;
+            self.expect(&TokenKind::Function, "متوقع 'دالة'")?;
+            let name = self.expect_identifier("متوقع اسم الدالة")?;
+            self.expect(&TokenKind::LeftParen, "متوقع '('")?;
             let params = self.parse_parameters()?;
-            self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+            self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
             let return_type = if self.match_token(&TokenKind::Arrow) {
                 Some(self.parse_type_annotation()?)
@@ -293,13 +291,13 @@ impl Parser {
             })
         } else if self.check(&TokenKind::Property) {
             self.advance();
-            let name = self.expect_identifier("Expected property name", "متوقع اسم الخاصية")?;
-            self.expect(&TokenKind::Colon, "Expected ':'", "متوقع ':'")?;
+            let name = self.expect_identifier("متوقع اسم الخاصية")?;
+            self.expect(&TokenKind::Colon, "متوقع ':'")?;
             let ty = self.parse_type_annotation()?;
 
             let (accessors, default_value) = if self.match_token(&TokenKind::LeftBrace) {
                 let accessors = self.parse_property_accessors()?;
-                self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
+                self.expect(&TokenKind::RightBrace, "متوقع '}'")?;
                 (accessors, None)
             } else if self.match_token(&TokenKind::Equal) {
                 let default = self.parse_expression()?;
@@ -320,7 +318,7 @@ impl Parser {
                 doc_comment: member_doc,
             })
         } else {
-            let name = self.expect_identifier("Expected field name", "متوقع اسم الحقل")?;
+            let name = self.expect_identifier("متوقع اسم الحقل")?;
             let ty = if self.match_token(&TokenKind::Colon) {
                 Some(self.parse_type_annotation()?)
             } else {
@@ -369,9 +367,8 @@ impl Parser {
                 });
             } else if self.match_token(&TokenKind::Set) {
                 let param_name = if self.match_token(&TokenKind::LeftParen) {
-                    let name =
-                        self.expect_identifier("Expected parameter name", "متوقع اسم المعامل")?;
-                    self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+                    let name = self.expect_identifier("متوقع اسم المعامل")?;
+                    self.expect(&TokenKind::RightParen, "متوقع ')'")?;
                     name
                 } else {
                     "قيمة".to_string() // Default parameter name
@@ -386,7 +383,6 @@ impl Parser {
                 });
             } else {
                 return Err(Diagnostic::error(
-                    "Expected 'احصل' (get) or 'عيّن' (set)",
                     "متوقع 'احصل' أو 'عيّن'",
                     self.current_span(),
                 ));
@@ -419,11 +415,11 @@ impl Parser {
         let start = self.current_span();
         self.advance(); // consume 'interface'
 
-        let name = self.expect_identifier("Expected interface name", "متوقع اسم الميثاق")?;
+        let name = self.expect_identifier("متوقع اسم الميثاق")?;
 
         let type_params = self.parse_type_parameters()?;
 
-        self.expect(&TokenKind::LeftBrace, "Expected '{'", "متوقع '{'")?;
+        self.expect(&TokenKind::LeftBrace, "متوقع '{'")?;
 
         // Skip initial newlines
         self.skip_newlines();
@@ -438,11 +434,11 @@ impl Parser {
             }
             let method_doc = self.consume_doc_comment();
 
-            self.expect(&TokenKind::Function, "Expected 'function'", "متوقع 'دالة'")?;
-            let method_name = self.expect_identifier("Expected method name", "متوقع اسم الدالة")?;
-            self.expect(&TokenKind::LeftParen, "Expected '('", "متوقع '('")?;
+            self.expect(&TokenKind::Function, "متوقع 'دالة'")?;
+            let method_name = self.expect_identifier("متوقع اسم الدالة")?;
+            self.expect(&TokenKind::LeftParen, "متوقع '('")?;
             let params = self.parse_parameters()?;
-            self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+            self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
             let return_type = if self.match_token(&TokenKind::Arrow) {
                 Some(self.parse_type_annotation()?)
@@ -460,7 +456,7 @@ impl Parser {
             self.skip_newlines();
         }
 
-        self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
+        self.expect(&TokenKind::RightBrace, "متوقع '}'")?;
 
         let span = start.merge(&self.previous_span());
         Ok(Stmt::new(
@@ -482,11 +478,11 @@ impl Parser {
         let start = self.current_span();
         self.advance(); // consume 'تعداد'
 
-        let name = self.expect_identifier("Expected enum name", "متوقع اسم التعداد")?;
+        let name = self.expect_identifier("متوقع اسم التعداد")?;
 
         let type_params = self.parse_type_parameters()?;
 
-        self.expect(&TokenKind::LeftBrace, "Expected '{'", "متوقع '{'")?;
+        self.expect(&TokenKind::LeftBrace, "متوقع '{'")?;
 
         // Skip initial newlines
         self.skip_newlines();
@@ -508,7 +504,7 @@ impl Parser {
             self.skip_newlines();
         }
 
-        self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
+        self.expect(&TokenKind::RightBrace, "متوقع '}'")?;
 
         let span = start.merge(&self.previous_span());
         Ok(Stmt::new(
@@ -528,7 +524,7 @@ impl Parser {
 
         let variant_doc = self.consume_doc_comment();
 
-        let name = self.expect_identifier("Expected variant name", "متوقع اسم الحالة")?;
+        let name = self.expect_identifier("متوقع اسم الحالة")?;
 
         let discriminant = if self.match_token(&TokenKind::Equal) {
             let is_negative = self.match_token(&TokenKind::Minus);
@@ -541,7 +537,6 @@ impl Parser {
                 }
                 _ => {
                     return Err(Diagnostic::error(
-                        "Expected integer value for discriminant",
                         "متوقع قيمة عددية للمميز",
                         self.current_span(),
                     ))
@@ -580,10 +575,7 @@ impl Parser {
                 let field_start = self.current_span();
 
                 let (name, ty) = if self.check_identifier() {
-                    let first = self.expect_identifier(
-                        "Expected field name or type",
-                        "متوقع اسم الحقل أو النوع",
-                    )?;
+                    let first = self.expect_identifier("متوقع اسم الحقل أو النوع")?;
 
                     if self.match_token(&TokenKind::Colon) {
                         let ty = self.parse_type_annotation()?;
@@ -608,7 +600,7 @@ impl Parser {
             }
         }
 
-        self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+        self.expect(&TokenKind::RightParen, "متوقع ')'")?;
         Ok(fields)
     }
 
@@ -618,15 +610,15 @@ impl Parser {
         self.advance(); // consume 'import'
 
         let items = if self.match_token(&TokenKind::Star) {
-            self.expect(&TokenKind::As, "Expected 'as'", "متوقع 'كـ'")?;
-            let alias = self.expect_identifier("Expected alias", "متوقع اسم مستعار")?;
+            self.expect(&TokenKind::As, "متوقع 'كـ'")?;
+            let alias = self.expect_identifier("متوقع اسم مستعار")?;
             ImportItems::Wildcard(alias)
         } else if self.match_token(&TokenKind::LeftBrace) {
             let mut items = Vec::new();
             loop {
-                let name = self.expect_identifier("Expected import name", "متوقع اسم")?;
+                let name = self.expect_identifier("متوقع اسم")?;
                 let alias = if self.match_token(&TokenKind::As) {
-                    Some(self.expect_identifier("Expected alias", "متوقع اسم مستعار")?)
+                    Some(self.expect_identifier("متوقع اسم مستعار")?)
                 } else {
                     None
                 };
@@ -638,16 +630,15 @@ impl Parser {
                     break;
                 }
             }
-            self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
+            self.expect(&TokenKind::RightBrace, "متوقع '}'")?;
             ImportItems::Named(items)
         } else {
-            let name =
-                self.expect_identifier("Expected default import", "متوقع استيراد افتراضي")?;
+            let name = self.expect_identifier("متوقع استيراد افتراضي")?;
             ImportItems::Default(name)
         };
 
-        self.expect(&TokenKind::From, "Expected 'from'", "متوقع 'من'")?;
-        let from = self.expect_string("Expected module path", "متوقع مسار الوحدة")?;
+        self.expect(&TokenKind::From, "متوقع 'من'")?;
+        let from = self.expect_string("متوقع مسار الوحدة")?;
 
         self.consume_semicolon()?;
 
@@ -681,7 +672,7 @@ impl Parser {
                     break;
                 }
             }
-            self.expect(&TokenKind::Greater, "Expected '>'", "متوقع '>'")?;
+            self.expect(&TokenKind::Greater, "متوقع '>'")?;
             let span = start.merge(&self.previous_span());
             return Ok(TypeAnnotation::new(
                 TypeKind::Generic { base: name, args },
@@ -706,8 +697,7 @@ impl Parser {
         if !self.check(&TokenKind::RightParen) {
             loop {
                 let start = self.current_span();
-                let name =
-                    self.expect_identifier("Expected parameter name", "متوقع اسم المعامل")?;
+                let name = self.expect_identifier("متوقع اسم المعامل")?;
 
                 let ty = if self.match_token(&TokenKind::Colon) {
                     Some(self.parse_type_annotation()?)

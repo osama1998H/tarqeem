@@ -577,8 +577,7 @@ All compiler errors are bilingual:
 ```rust
 pub struct Diagnostic {
     pub level: Level,
-    pub message: String,      // English
-    pub message_ar: String,   // Arabic
+    pub message: String,   // Arabic
     pub span: Span,
     pub notes: Vec<Note>,
 }

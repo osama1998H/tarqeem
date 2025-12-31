@@ -30,7 +30,6 @@ pub enum DebugState {
 
     Error {
         message: String,
-        message_ar: String,
     },
 }
 

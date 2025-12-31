@@ -82,7 +82,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     if args.dump_tokens {
         let lexer_start = Instant::now();
         let mut lexer = Lexer::with_interner(&source, ctx.interner_mut());
-        println!("{}", "=== Tokens / الرموز ===".cyan().bold());
+        println!("{}", "=== الرموز ===".cyan().bold());
         for token in lexer.tokenize() {
             println!("  {:?} @ {}", token.kind, token.span);
         }
@@ -99,12 +99,12 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     let mut parser = Parser::new(&source);
     let ast = parser.parse().map_err(|e| {
         e.emit(&source, &filename, lang);
-        "Parse error / خطأ في التحليل".to_string()
+        "خطأ في التحليل".to_string()
     })?;
     timing.parser = parser_start.elapsed();
 
     if args.dump_ast {
-        println!("{}", "=== AST / الشجرة النحوية ===".cyan().bold());
+        println!("{}", "=== الشجرة النحوية ===".cyan().bold());
         println!("{:#?}", ast);
         timing.total = total_start.elapsed();
         if args.timing {
@@ -121,11 +121,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
         for diag in &diagnostics {
             diag.emit(&source, &filename, lang);
         }
-        return Err(format!(
-            "{} error(s) found / وُجد {} خطأ/أخطاء",
-            diagnostics.len(),
-            diagnostics.len()
-        ));
+        return Err(format!("وُجد {} خطأ/أخطاء", diagnostics.len(),));
     }
     timing.semantic = semantic_start.elapsed();
 
@@ -139,12 +135,9 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     // IR generation timing
     let ir_start = Instant::now();
     let ir_builder = IrBuilder::new(module_name);
-    let mut ir_module = ir_builder.build(&ast).map_err(|e| {
-        format!(
-            "IR generation error: {} / خطأ في توليد التمثيل الوسيط: {}",
-            e.message, e.message_ar
-        )
-    })?;
+    let mut ir_module = ir_builder
+        .build(&ast)
+        .map_err(|e| format!("خطأ في توليد التمثيل الوسيط: {}", e.message))?;
     timing.ir_build = ir_start.elapsed();
 
     let opt = match args.opt_level {
@@ -161,17 +154,12 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     timing.optimize = opt_start.elapsed();
 
     if args.dump_opt_stats && optimizer.stats().any_changes() {
-        println!(
-            "{}",
-            "=== Optimization Stats / إحصائيات التحسين ==="
-                .cyan()
-                .bold()
-        );
+        println!("{}", "=== إحصائيات التحسين ===".cyan().bold());
         println!("{}", optimizer.stats());
     }
 
     if args.dump_ir {
-        println!("{}", "=== IR / التمثيل الوسيط ===".cyan().bold());
+        println!("{}", "=== التمثيل الوسيط ===".cyan().bold());
         println!("{}", ir_module);
         timing.total = total_start.elapsed();
         if args.timing {
@@ -184,12 +172,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     let target_config = if let Some(ref triple_str) = args.target {
         TargetTriple::parse(triple_str)
             .map(Target::from_triple)
-            .ok_or_else(|| {
-                format!(
-                    "Invalid target triple: {} / هدف غير صالح: {}",
-                    triple_str, triple_str
-                )
-            })?
+            .ok_or_else(|| format!("هدف غير صالح: {}", triple_str))?
     } else if args.emit_wasm {
         // Default to wasm32-unknown-unknown for browser use
         Target::wasm32()
@@ -200,12 +183,9 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     // Code generation timing
     let codegen_start = Instant::now();
     let mut codegen = LlvmCodegen::new(target_config.clone());
-    let llvm_ir = codegen.generate(&ir_module).map_err(|e| {
-        format!(
-            "Code generation error: {} / خطأ في توليد الكود: {}",
-            e.message, e.message_ar
-        )
-    })?;
+    let llvm_ir = codegen
+        .generate(&ir_module)
+        .map_err(|e| format!("خطأ في توليد الكود: {}", e.message))?;
     timing.codegen = codegen_start.elapsed();
 
     let output_path = args.output.unwrap_or_else(|| {
@@ -228,16 +208,10 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     });
 
     if args.emit_llvm {
-        fs::write(&output_path, &llvm_ir)
-            .map_err(|e| format!("Could not write output: {} / لا يمكن كتابة الملف: {}", e, e))?;
+        fs::write(&output_path, &llvm_ir).map_err(|e| format!("لا يمكن كتابة الملف: {}", e))?;
         println!(
             "{}",
-            format!(
-                "LLVM IR written to: {} / تم كتابة التمثيل الوسيط إلى: {}",
-                output_path.display(),
-                output_path.display()
-            )
-            .green()
+            format!("تم كتابة التمثيل الوسيط إلى: {}", output_path.display(),).green()
         );
     } else if args.emit_asm || args.emit_obj {
         let linker = Linker::new(target_config)
@@ -245,44 +219,26 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
             .verbose(args.verbose);
 
         if !linker.is_available() {
-            return Err("No compiler (clang/llc) found. Install LLVM or use --emit-llvm / لم يتم العثور على مترجم. ثبّت مترجم clang أو استخدم --emit-llvm".to_string());
+            return Err(
+                "لم يتم العثور على مترجم. ثبّت مترجم clang أو استخدم --emit-llvm".to_string(),
+            );
         }
 
         if args.emit_asm {
             linker
                 .compile_to_assembly(&llvm_ir, &output_path)
-                .map_err(|e| {
-                    format!(
-                        "Assembly generation failed: {} / فشل توليد التجميع: {}",
-                        e.message, e.message_ar
-                    )
-                })?;
+                .map_err(|e| format!("فشل توليد التجميع: {}", e.message))?;
             println!(
                 "{}",
-                format!(
-                    "Assembly written to: {} / تم كتابة التجميع إلى: {}",
-                    output_path.display(),
-                    output_path.display()
-                )
-                .green()
+                format!("تم كتابة التجميع إلى: {}", output_path.display(),).green()
             );
         } else {
             linker
                 .compile_to_object(&llvm_ir, &output_path)
-                .map_err(|e| {
-                    format!(
-                        "Object compilation failed: {} / فشل ترجمة الكائن: {}",
-                        e.message, e.message_ar
-                    )
-                })?;
+                .map_err(|e| format!("فشل ترجمة الكائن: {}", e.message))?;
             println!(
                 "{}",
-                format!(
-                    "Object file written to: {} / تم كتابة ملف الكائن إلى: {}",
-                    output_path.display(),
-                    output_path.display()
-                )
-                .green()
+                format!("تم كتابة ملف الكائن إلى: {}", output_path.display(),).green()
             );
         }
     } else if args.emit_wasm || target_config.is_wasm() {
@@ -305,7 +261,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
             .wasm_config(wasm_config);
 
         if !linker.is_wasm_available() {
-            return Err("WASM compilation not available. Install LLVM with WebAssembly support. / ترجمة WebAssembly غير متاحة. ثبّت LLVM مع دعم WebAssembly.".to_string());
+            return Err("ترجمة WebAssembly غير متاحة. ثبّت LLVM مع دعم WebAssembly.".to_string());
         }
 
         // Find WASM runtime if available
@@ -313,46 +269,25 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
 
         linker
             .compile_to_wasm(&llvm_ir, &output_path, wasm_runtime.as_deref())
-            .map_err(|e| {
-                format!(
-                    "WASM compilation failed: {} / فشل ترجمة WebAssembly: {}",
-                    e.message, e.message_ar
-                )
-            })?;
+            .map_err(|e| format!(" ترجمة WebAssembly: {}", e.message))?;
 
         println!(
             "{}",
-            format!(
-                "WebAssembly created: {} / تم إنشاء WebAssembly: {}",
-                output_path.display(),
-                output_path.display()
-            )
-            .green()
+            format!("تم إنشاء WebAssembly: {}", output_path.display(),).green()
         );
 
         if args.wasm_js_bindings {
             let js_path = output_path.with_extension("js");
             println!(
                 "{}",
-                format!(
-                    "JavaScript bindings: {} / روابط JavaScript: {}",
-                    js_path.display(),
-                    js_path.display()
-                )
-                .green()
+                format!("روابط JavaScript: {}", js_path.display(),).green()
             );
         }
 
         if args.verbose {
+            println!("الهدف: {}", target_config.llvm_triple(),);
             println!(
-                "  Target: {} / الهدف: {}",
-                target_config.llvm_triple(),
-                target_config.llvm_triple()
-            );
-            println!(
-                "  Memory: {} pages ({} KB) / الذاكرة: {} صفحة ({} كيلوبايت)",
-                args.wasm_memory_pages,
-                args.wasm_memory_pages * 64,
+                "الذاكرة: {} صفحة ({} كيلوبايت)",
                 args.wasm_memory_pages,
                 args.wasm_memory_pages * 64
             );
@@ -365,41 +300,27 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
         if linker.is_available() {
             let runtime_path = find_runtime();
             if runtime_path.is_none() && args.verbose {
-                eprintln!("{}", "Warning: Runtime library not found. Executable may not link correctly. / تحذير: لم يتم العثور على مكتبة التشغيل.".yellow());
+                eprintln!("{}", "تحذير: لم يتم العثور على مكتبة التشغيل.".yellow());
             }
 
             linker
                 .compile_to_executable(&llvm_ir, &output_path, runtime_path.as_deref())
-                .map_err(|e| {
-                    format!(
-                        "Linking failed: {} / فشل الربط: {}",
-                        e.message, e.message_ar
-                    )
-                })?;
+                .map_err(|e| format!("فشل الربط: {}", e.message))?;
             println!(
                 "{}",
-                format!(
-                    "Executable created: {} / تم إنشاء الملف التنفيذي: {}",
-                    output_path.display(),
-                    output_path.display()
-                )
-                .green()
+                format!(" إنشاء الملف التنفيذي: {}", output_path.display(),).green()
             );
         } else {
             let ll_path = output_path.with_extension("ll");
-            fs::write(&ll_path, &llvm_ir).map_err(|e| {
-                format!("Could not write output: {} / لا يمكن كتابة الملف: {}", e, e)
-            })?;
+            fs::write(&ll_path, &llvm_ir).map_err(|e| format!("لا يمكن كتابة الملف: {}", e))?;
             println!(
                 "{}",
-                "Note: No compiler found. LLVM IR written instead. / ملاحظة: لم يتم العثور على مترجم. تم كتابة التمثيل الوسيط بدلاً من ذلك.".yellow()
+                "ملاحظة: لم يتم العثور على مترجم. تم كتابة التمثيل الوسيط بدلاً من ذلك.".yellow()
             );
             println!(
-                "  You can compile with: clang {} -o {} / يمكنك الترجمة بـ: clang {} -o {}",
+                "يمكنك الترجمة بـ: clang {} -o {}",
                 ll_path.display(),
                 output_path.display(),
-                ll_path.display(),
-                output_path.display()
             );
         }
     }
@@ -413,24 +334,11 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     }
 
     if args.verbose {
-        println!(
-            "{}",
-            "Compilation successful! / تمت الترجمة بنجاح!"
-                .green()
-                .bold()
-        );
-        println!(
-            "  Functions: {} / الدوال: {}",
-            ir_module.functions.len(),
-            ir_module.functions.len()
-        );
-        println!(
-            "  Classes: {} / الأصناف: {}",
-            ir_module.classes.len(),
-            ir_module.classes.len()
-        );
+        println!("{}", "تمت الترجمة بنجاح!".green().bold());
+        println!("  الدوال: {}", ir_module.functions.len(),);
+        println!("  الأصناف: {}", ir_module.classes.len(),);
         if opt != OptLevel::O0 {
-            println!("  Optimization level: {} / مستوى التحسين: {}", opt, opt);
+            println!("  مستوى التحسين: {}", opt);
         }
     }
 

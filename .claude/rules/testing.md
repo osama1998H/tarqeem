@@ -83,8 +83,7 @@ fn test_undefined_variable_error() {
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.message.contains("undefined"));
-    assert!(err.message_ar.contains("غير معرف"));
+    assert!(err.message.contains("غير معرف"));
 }
 ```
 

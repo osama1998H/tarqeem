@@ -223,36 +223,19 @@ fn is_builtin_function(name: &str) -> bool {
     matches!(
         name,
         "اطبع"
-            | "print"
-            | "println"
             | "اطبع_سطر"
             | "ادخل"
-            | "input"
             | "طول"
-            | "len"
-            | "length"
             | "نوع"
-            | "type"
-            | "typeof"
             | "عدد"
-            | "int"
             | "عدد_عشري"
-            | "float"
             | "نص"
-            | "str"
-            | "string"
             | "منطقي"
-            | "bool"
             | "مطلق"
-            | "abs"
             | "جذر"
-            | "sqrt"
             | "قوة"
-            | "pow"
             | "اقرأ_ملف"
-            | "read_file"
             | "اكتب_ملف"
-            | "write_file"
     )
 }
 
@@ -339,10 +322,10 @@ mod tests {
     #[test]
     fn test_is_builtin_function() {
         assert!(is_builtin_function("اطبع"));
-        assert!(is_builtin_function("print"));
         assert!(is_builtin_function("طول"));
-        assert!(is_builtin_function("len"));
-        assert!(!is_builtin_function("custom_func"));
+        assert!(is_builtin_function("جذر"));
+        assert!(is_builtin_function("نوع"));
+        assert!(!is_builtin_function("دالة_مخصصة"));
     }
 
     #[test]

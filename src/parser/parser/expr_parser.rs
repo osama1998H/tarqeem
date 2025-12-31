@@ -66,15 +66,12 @@ impl Parser {
                 // Check for enum variant access: Identifier::Variant or Identifier<T>::Variant
                 if self.check(&TokenKind::ColonColon) {
                     self.advance(); // consume '::'
-                    let variant_name = self.expect_identifier(
-                        "Expected variant name after '::'",
-                        "متوقع اسم الحالة بعد '::'",
-                    )?;
+                    let variant_name = self.expect_identifier("متوقع اسم الحالة بعد '::'")?;
 
                     // Check for variant arguments: Variant(args)
                     let args = if self.match_token(&TokenKind::LeftParen) {
                         let args = self.parse_arguments()?;
-                        self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+                        self.expect(&TokenKind::RightParen, "متوقع ')'")?;
                         args
                     } else {
                         Vec::new()
@@ -115,7 +112,7 @@ impl Parser {
                     return Ok(lambda);
                 }
                 let expr = self.parse_expression()?;
-                self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+                self.expect(&TokenKind::RightParen, "متوقع ')'")?;
                 let end_span = self.previous_span();
                 Ok(Expr::new(
                     ExprKind::Grouping(Box::new(expr)),
@@ -139,7 +136,7 @@ impl Parser {
                     }
                 }
                 self.skip_newlines();
-                self.expect(&TokenKind::RightBracket, "Expected ']'", "متوقع ']'")?;
+                self.expect(&TokenKind::RightBracket, "متوقع ']'")?;
                 let end_span = self.previous_span();
                 Ok(Expr::new(ExprKind::Array(elements), span.merge(&end_span)))
             }
@@ -150,8 +147,8 @@ impl Parser {
                 if !self.check(&TokenKind::RightBrace) {
                     loop {
                         self.skip_newlines();
-                        let key = self.expect_identifier("Expected key", "متوقع مفتاح")?;
-                        self.expect(&TokenKind::Colon, "Expected ':'", "متوقع ':'")?;
+                        let key = self.expect_identifier("متوقع مفتاح")?;
+                        self.expect(&TokenKind::Colon, "متوقع ':'")?;
                         let value = self.parse_expression()?;
                         pairs.push((key, value));
                         self.skip_newlines();
@@ -163,7 +160,7 @@ impl Parser {
                     }
                 }
                 self.skip_newlines();
-                self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
+                self.expect(&TokenKind::RightBrace, "متوقع '}'")?;
                 let end_span = self.previous_span();
                 Ok(Expr::new(ExprKind::Object(pairs), span.merge(&end_span)))
             }
@@ -227,7 +224,7 @@ impl Parser {
                             break;
                         }
                     }
-                    self.expect(&TokenKind::Greater, "Expected '>'", "متوقع '>'")?;
+                    self.expect(&TokenKind::Greater, "متوقع '>'")?;
                     args
                 } else {
                     Vec::new()
@@ -235,7 +232,7 @@ impl Parser {
 
                 let args = if self.match_token(&TokenKind::LeftParen) {
                     let args = self.parse_arguments()?;
-                    self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+                    self.expect(&TokenKind::RightParen, "متوقع ')'")?;
                     args
                 } else {
                     Vec::new()
@@ -260,12 +257,10 @@ impl Parser {
                 ))
             }
 
-            _ => Err(Diagnostic::error(
-                format!("Unexpected token: {:?}", token.kind),
-                format!("رمز غير متوقع: {:?}", token.kind),
-                span,
-            )
-            .with_code(ERR_UNEXPECTED_EXPRESSION.to_string())),
+            _ => Err(
+                Diagnostic::error(format!("رمز غير متوقع: {:?}", token.kind), span)
+                    .with_code(ERR_UNEXPECTED_EXPRESSION.to_string()),
+            ),
         }
     }
 
@@ -343,7 +338,7 @@ impl Parser {
             TokenKind::LeftParen => {
                 self.advance();
                 let args = self.parse_arguments()?;
-                self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+                self.expect(&TokenKind::RightParen, "متوقع ')'")?;
                 let span = left.span.merge(&self.previous_span());
                 Ok(Expr::new(
                     ExprKind::Call {
@@ -357,7 +352,7 @@ impl Parser {
             TokenKind::LeftBracket => {
                 self.advance();
                 let index = self.parse_expression()?;
-                self.expect(&TokenKind::RightBracket, "Expected ']'", "متوقع ']'")?;
+                self.expect(&TokenKind::RightBracket, "متوقع ']'")?;
                 let span = left.span.merge(&self.previous_span());
                 Ok(Expr::new(
                     ExprKind::Index {
@@ -370,8 +365,7 @@ impl Parser {
 
             TokenKind::Dot => {
                 self.advance();
-                let property =
-                    self.expect_identifier("Expected property name", "متوقع اسم الخاصية")?;
+                let property = self.expect_identifier("متوقع اسم الخاصية")?;
                 let span = left.span.merge(&self.previous_span());
                 Ok(Expr::new(
                     ExprKind::Member {
@@ -385,7 +379,7 @@ impl Parser {
             TokenKind::Question => {
                 self.advance();
                 let then_expr = self.parse_expression()?;
-                self.expect(&TokenKind::Colon, "Expected ':'", "متوقع ':'")?;
+                self.expect(&TokenKind::Colon, "متوقع ':'")?;
                 let else_expr = self.parse_precedence(Precedence::Ternary)?;
                 let span = left.span.merge(&else_expr.span);
                 Ok(Expr::new(

@@ -448,7 +448,7 @@ fn run_command(
     let ir_module = ir_builder.build(&ast).map_err(|e| {
         format!(
             "IR build error: {} / خطأ بناء التمثيل الوسيط: {}",
-            e.message, e.message_ar
+            e.message, e.message
         )
     })?;
 

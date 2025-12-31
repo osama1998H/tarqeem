@@ -126,8 +126,7 @@ ALL user-facing messages need both Arabic and English versions.
 ```rust
 // REQUIRED format
 Diagnostic {
-    message: "Cannot find variable 'x'",
-    message_ar: "لا يمكن إيجاد المتغير 'x'",
+    message: "لا يمكن إيجاد المتغير 'x'",
     // ...
 }
 ```
