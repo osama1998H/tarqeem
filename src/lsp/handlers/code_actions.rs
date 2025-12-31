@@ -2,6 +2,7 @@
 //!
 //! Provides quick fixes and refactorings for common issues.
 
+use crate::error::codes::{ERR_CONST_ASSIGNMENT, ERR_UNDEFINED_VARIABLE, WARN_UNUSED_VARIABLE};
 use crate::error::Language;
 use crate::lsp::analysis::DocumentState;
 use crate::lsp::utils::span_to_range;
@@ -60,76 +61,43 @@ fn generate_quick_fixes(
 ) -> Option<Vec<CodeActionOrCommand>> {
     let mut actions = Vec::new();
     let message = &diagnostic.message;
+    let _ = language; // Mark as used
 
-    // Arabic-only: ترقيم لغة برمجة عربية
-    if message.contains("undefined") || message.contains("غير معرف") {
-        let var_name = extract_identifier_from_message(message);
-        if let Some(name) = var_name {
-            let title = format!("إضافة تعريف لـ '{}'", name);
-            let new_text = format!("متغير {} = ", name);
-            let _ = language; // Mark as used
-
-            let insert_position = tower_lsp::lsp_types::Position {
-                line: range.start.line,
-                character: 0,
-            };
-
-            let mut changes = HashMap::new();
-            changes.insert(
-                uri.clone(),
-                vec![TextEdit {
-                    range: Range {
-                        start: insert_position,
-                        end: insert_position,
-                    },
-                    new_text: format!("{}\n", new_text),
-                }],
-            );
-
-            actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                title,
-                kind: Some(CodeActionKind::QUICKFIX),
-                diagnostics: None,
-                edit: Some(WorkspaceEdit {
-                    changes: Some(changes),
-                    ..Default::default()
-                }),
-                command: None,
-                is_preferred: Some(false),
-                disabled: None,
-                data: None,
-            }));
+    // Match on error code first for precise action matching
+    if let Some(code) = &diagnostic.code {
+        match code.as_str() {
+            // د٠٠٠١: Undefined variable
+            c if c == ERR_UNDEFINED_VARIABLE.to_string() => {
+                if let Some(name) = extract_identifier_from_message(message) {
+                    actions.push(create_declare_variable_action(uri, &name, range));
+                }
+            }
+            // د٠١٠٢: Assignment to constant
+            c if c == ERR_CONST_ASSIGNMENT.to_string() => {
+                actions.push(create_change_to_mutable_action(uri, range));
+            }
+            // ح٠٠٠١: Unused variable
+            c if c == WARN_UNUSED_VARIABLE.to_string() => {
+                if let Some(name) = extract_identifier_from_message(message) {
+                    actions.push(create_prefix_underscore_action(uri, &name, range));
+                }
+            }
+            _ => {}
         }
     }
 
-    // Arabic-only: ترقيم لغة برمجة عربية
-    if message.contains("immutable") || message.contains("ثابت") || message.contains("غير قابل")
-    {
-        let title = "تحويل إلى متغير قابل للتعديل";
-        let new_keyword = "متغير";
+    // Fallback to message-based matching for backward compatibility
+    if actions.is_empty() {
+        if message.contains("undefined") || message.contains("غير معرف") {
+            if let Some(name) = extract_identifier_from_message(message) {
+                actions.push(create_declare_variable_action(uri, &name, range));
+            }
+        }
 
-        let mut changes = HashMap::new();
-        changes.insert(
-            uri.clone(),
-            vec![TextEdit {
-                range: *range,
-                new_text: new_keyword.to_string(),
-            }],
-        );
-
-        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-            title: title.to_string(),
-            kind: Some(CodeActionKind::QUICKFIX),
-            diagnostics: None,
-            edit: Some(WorkspaceEdit {
-                changes: Some(changes),
-                ..Default::default()
-            }),
-            command: None,
-            is_preferred: Some(true),
-            disabled: None,
-            data: None,
-        }));
+        if message.contains("immutable") || message.contains("ثابت") || message.contains("غير قابل")
+        {
+            actions.push(create_change_to_mutable_action(uri, range));
+        }
     }
 
     if actions.is_empty() {
@@ -137,6 +105,98 @@ fn generate_quick_fixes(
     } else {
         Some(actions)
     }
+}
+
+fn create_declare_variable_action(uri: &Url, name: &str, range: &Range) -> CodeActionOrCommand {
+    let title = format!("إضافة تعريف لـ '{}'", name);
+    let new_text = format!("متغير {} = ", name);
+
+    let insert_position = tower_lsp::lsp_types::Position {
+        line: range.start.line,
+        character: 0,
+    };
+
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: Range {
+                start: insert_position,
+                end: insert_position,
+            },
+            new_text: format!("{}\n", new_text),
+        }],
+    );
+
+    CodeActionOrCommand::CodeAction(CodeAction {
+        title,
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: None,
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        }),
+        command: None,
+        is_preferred: Some(false),
+        disabled: None,
+        data: None,
+    })
+}
+
+fn create_change_to_mutable_action(uri: &Url, range: &Range) -> CodeActionOrCommand {
+    let title = "تحويل إلى متغير قابل للتعديل";
+    let new_keyword = "متغير";
+
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: *range,
+            new_text: new_keyword.to_string(),
+        }],
+    );
+
+    CodeActionOrCommand::CodeAction(CodeAction {
+        title: title.to_string(),
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: None,
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        }),
+        command: None,
+        is_preferred: Some(true),
+        disabled: None,
+        data: None,
+    })
+}
+
+fn create_prefix_underscore_action(uri: &Url, name: &str, range: &Range) -> CodeActionOrCommand {
+    let title = format!("إضافة بادئة '_' لـ '{}'", name);
+    let new_name = format!("_{}", name);
+
+    let mut changes = HashMap::new();
+    changes.insert(
+        uri.clone(),
+        vec![TextEdit {
+            range: *range,
+            new_text: new_name,
+        }],
+    );
+
+    CodeActionOrCommand::CodeAction(CodeAction {
+        title,
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: None,
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        }),
+        command: None,
+        is_preferred: Some(false),
+        disabled: None,
+        data: None,
+    })
 }
 
 fn generate_refactorings(
@@ -269,5 +329,94 @@ mod tests {
             Some("س".to_string())
         );
         assert_eq!(extract_identifier_from_message("Some other message"), None);
+    }
+
+    #[test]
+    fn test_code_action_for_undefined_variable() {
+        use crate::error::{Diagnostic, Span};
+
+        let uri = Url::parse("file:///test.ترقيم").unwrap();
+        let range = Range::default();
+        let mut diag = Diagnostic::error(
+            "Undefined variable 'س'",
+            "المتغير 'س' غير معرف",
+            Span::new(0, 1, 1, 1),
+        );
+        diag.code = Some(ERR_UNDEFINED_VARIABLE.to_string());
+
+        let actions = generate_quick_fixes(&uri, &diag, &range, Language::Arabic);
+        assert!(actions.is_some());
+        let actions = actions.unwrap();
+        assert!(!actions.is_empty());
+
+        // Check action title contains variable name
+        if let CodeActionOrCommand::CodeAction(action) = &actions[0] {
+            assert!(action.title.contains("س"));
+        }
+    }
+
+    #[test]
+    fn test_code_action_for_const_assignment() {
+        use crate::error::{Diagnostic, Span};
+
+        let uri = Url::parse("file:///test.ترقيم").unwrap();
+        let range = Range::default();
+        let mut diag = Diagnostic::error(
+            "Cannot assign to constant",
+            "لا يمكن تعيين قيمة لثابت",
+            Span::new(0, 5, 1, 1),
+        );
+        diag.code = Some(ERR_CONST_ASSIGNMENT.to_string());
+
+        let actions = generate_quick_fixes(&uri, &diag, &range, Language::Arabic);
+        assert!(actions.is_some());
+        let actions = actions.unwrap();
+        assert!(!actions.is_empty());
+
+        if let CodeActionOrCommand::CodeAction(action) = &actions[0] {
+            assert!(action.title.contains("متغير"));
+        }
+    }
+
+    #[test]
+    fn test_code_action_for_unused_variable() {
+        use crate::error::{Diagnostic, Span};
+
+        let uri = Url::parse("file:///test.ترقيم").unwrap();
+        let range = Range::default();
+        let mut diag = Diagnostic::warning(
+            "Unused variable 'س'",
+            "المتغير 'س' غير مستخدم",
+            Span::new(0, 1, 1, 1),
+        );
+        diag.code = Some(WARN_UNUSED_VARIABLE.to_string());
+
+        let actions = generate_quick_fixes(&uri, &diag, &range, Language::Arabic);
+        assert!(actions.is_some());
+        let actions = actions.unwrap();
+        assert!(!actions.is_empty());
+
+        // Check action suggests adding underscore prefix
+        if let CodeActionOrCommand::CodeAction(action) = &actions[0] {
+            assert!(action.title.contains("_"));
+        }
+    }
+
+    #[test]
+    fn test_code_action_fallback_without_code() {
+        use crate::error::{Diagnostic, Span};
+
+        let uri = Url::parse("file:///test.ترقيم").unwrap();
+        let range = Range::default();
+        // No error code set - should fall back to message matching
+        // Using lowercase "undefined" to match the existing pattern
+        let diag = Diagnostic::error(
+            "undefined variable 'س'",
+            "المتغير 'س' غير معرف",
+            Span::new(0, 1, 1, 1),
+        );
+
+        let actions = generate_quick_fixes(&uri, &diag, &range, Language::Arabic);
+        assert!(actions.is_some());
     }
 }
