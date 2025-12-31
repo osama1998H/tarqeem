@@ -50,7 +50,12 @@ impl Symbol {
         }
     }
 
-    pub fn function(name: impl Into<String>, params: Vec<Type>, return_type: Type, span: Span) -> Self {
+    pub fn function(
+        name: impl Into<String>,
+        params: Vec<Type>,
+        return_type: Type,
+        span: Span,
+    ) -> Self {
         Self {
             name: name.into(),
             kind: SymbolKind::Function,
@@ -190,7 +195,11 @@ impl Scope {
         scope.define(builtin("باقي", vec![Type::Int, Type::Int], Type::Int));
 
         scope.define(builtin("قاسم_مشترك", vec![Type::Int, Type::Int], Type::Int));
-        scope.define(builtin("مضاعف_مشترك", vec![Type::Int, Type::Int], Type::Int));
+        scope.define(builtin(
+            "مضاعف_مشترك",
+            vec![Type::Int, Type::Int],
+            Type::Int,
+        ));
 
         scope.define(builtin("عاملي", vec![Type::Int], Type::Int));
 
@@ -255,7 +264,11 @@ impl Scope {
             vec![Type::String, Type::Int, Type::Int],
             Type::String,
         ));
-        scope.define(builtin("حرف_في", vec![Type::String, Type::Int], Type::String));
+        scope.define(builtin(
+            "حرف_في",
+            vec![Type::String, Type::Int],
+            Type::String,
+        ));
 
         scope.define(builtin(
             "يحتوي",
@@ -315,7 +328,11 @@ impl Scope {
             Type::String,
         ));
 
-        scope.define(builtin("كرر_نص", vec![Type::String, Type::Int], Type::String));
+        scope.define(builtin(
+            "كرر_نص",
+            vec![Type::String, Type::Int],
+            Type::String,
+        ));
         scope.define(builtin("كرر", vec![Type::String, Type::Int], Type::String));
         scope.define(builtin(
             "احشو_يسار",
@@ -335,7 +352,11 @@ impl Scope {
         scope.define(builtin("حروف_فقط", vec![Type::String], Type::Bool));
         scope.define(builtin("عربي", vec![Type::String], Type::Bool));
 
-        scope.define(builtin("قارن_نص", vec![Type::String, Type::String], Type::Int));
+        scope.define(builtin(
+            "قارن_نص",
+            vec![Type::String, Type::String],
+            Type::Int,
+        ));
         scope.define(builtin(
             "نصوص_متساوية",
             vec![Type::String, Type::String],

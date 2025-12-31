@@ -32,7 +32,12 @@ fn test_symbol_variable_mutable() {
 
 #[test]
 fn test_symbol_function() {
-    let symbol = Symbol::function("add", vec![Type::Int, Type::Int], Type::Int, Span::default());
+    let symbol = Symbol::function(
+        "add",
+        vec![Type::Int, Type::Int],
+        Type::Int,
+        Span::default(),
+    );
     assert_eq!(symbol.name, "add");
     assert_eq!(symbol.kind, SymbolKind::Function);
     assert!(!symbol.mutable);
@@ -225,7 +230,12 @@ fn test_child_scope_creation() {
 #[test]
 fn test_child_scope_inherits_parent() {
     let mut global = Scope::new_global();
-    global.define(Symbol::variable("parentVar", Type::Int, true, Span::default()));
+    global.define(Symbol::variable(
+        "parentVar",
+        Type::Int,
+        true,
+        Span::default(),
+    ));
 
     let child = Scope::new_child(global, ScopeKind::Block);
 
@@ -434,7 +444,12 @@ fn test_unicode_normalization_lookup() {
 
     assert_ne!(nfc_name.as_bytes(), nfd_name.as_bytes());
 
-    scope.define(Symbol::variable(&nfc_name, Type::Int, true, Span::default()));
+    scope.define(Symbol::variable(
+        &nfc_name,
+        Type::Int,
+        true,
+        Span::default(),
+    ));
 
     assert!(scope.lookup(&nfd_name).is_some());
 }
@@ -448,7 +463,12 @@ fn test_unicode_normalization_define() {
     let nfc_name: String = "متغير".nfc().collect();
     let nfd_name: String = "متغير".nfd().collect();
 
-    scope.define(Symbol::variable(&nfd_name, Type::Int, true, Span::default()));
+    scope.define(Symbol::variable(
+        &nfd_name,
+        Type::Int,
+        true,
+        Span::default(),
+    ));
 
     assert!(scope.lookup(&nfc_name).is_some());
 }
@@ -462,9 +482,19 @@ fn test_unicode_normalization_prevents_duplicate() {
     let nfc_name: String = "س".nfc().collect();
     let nfd_name: String = "س".nfd().collect();
 
-    assert!(scope.define(Symbol::variable(&nfc_name, Type::Int, true, Span::default())));
+    assert!(scope.define(Symbol::variable(
+        &nfc_name,
+        Type::Int,
+        true,
+        Span::default()
+    )));
 
-    assert!(!scope.define(Symbol::variable(&nfd_name, Type::String, true, Span::default())));
+    assert!(!scope.define(Symbol::variable(
+        &nfd_name,
+        Type::String,
+        true,
+        Span::default()
+    )));
 }
 
 #[test]
@@ -476,7 +506,12 @@ fn test_unicode_normalization_lookup_local() {
     let nfc_name: String = "محلي".nfc().collect();
     let nfd_name: String = "محلي".nfd().collect();
 
-    scope.define(Symbol::variable(&nfc_name, Type::Bool, true, Span::default()));
+    scope.define(Symbol::variable(
+        &nfc_name,
+        Type::Bool,
+        true,
+        Span::default(),
+    ));
 
     assert!(scope.lookup_local(&nfd_name).is_some());
 }
@@ -490,7 +525,12 @@ fn test_unicode_normalization_lookup_mut() {
     let nfc_name: String = "قابل_للتغيير".nfc().collect();
     let nfd_name: String = "قابل_للتغيير".nfd().collect();
 
-    scope.define(Symbol::variable(&nfc_name, Type::Int, true, Span::default()));
+    scope.define(Symbol::variable(
+        &nfc_name,
+        Type::Int,
+        true,
+        Span::default(),
+    ));
 
     let symbol = scope.lookup_mut(&nfd_name).unwrap();
     symbol.ty = Type::String;

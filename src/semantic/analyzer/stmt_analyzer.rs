@@ -429,8 +429,12 @@ impl Analyzer {
                 }
 
                 // Class fields use default span (internal to class analysis)
-                self.scope
-                    .define(Symbol::variable(field_name, field_type, true, Span::default()));
+                self.scope.define(Symbol::variable(
+                    field_name,
+                    field_type,
+                    true,
+                    Span::default(),
+                ));
             }
 
             ClassMember::Method {
@@ -539,8 +543,12 @@ impl Analyzer {
                 } => {
                     self.push_function_scope(Type::Void);
                     // Setter param is internal, use default span
-                    self.scope
-                        .define(Symbol::variable(param_name, prop_type.clone(), false, Span::default()));
+                    self.scope.define(Symbol::variable(
+                        param_name,
+                        prop_type.clone(),
+                        false,
+                        Span::default(),
+                    ));
                     for stmt in &body.statements {
                         self.analyze_stmt(stmt);
                     }
@@ -550,8 +558,12 @@ impl Analyzer {
         }
 
         // Property is internal to class, use default span
-        self.scope
-            .define(Symbol::variable(prop_name, prop_type, true, Span::default()));
+        self.scope.define(Symbol::variable(
+            prop_name,
+            prop_type,
+            true,
+            Span::default(),
+        ));
     }
 
     /// Analyze an interface declaration.
@@ -837,8 +849,12 @@ impl Analyzer {
     fn add_pattern_bindings(&mut self, pattern: &Pattern, match_type: &Type) {
         match &pattern.kind {
             PatternKind::Identifier(name) => {
-                self.scope
-                    .define(Symbol::variable(name, match_type.clone(), false, pattern.span));
+                self.scope.define(Symbol::variable(
+                    name,
+                    match_type.clone(),
+                    false,
+                    pattern.span,
+                ));
             }
             PatternKind::EnumVariant {
                 enum_name,
@@ -856,8 +872,12 @@ impl Analyzer {
                                 Type::Unknown
                             };
                             // Bindings use pattern span (individual binding spans not available)
-                            self.scope
-                                .define(Symbol::variable(binding, field_type, false, pattern.span));
+                            self.scope.define(Symbol::variable(
+                                binding,
+                                field_type,
+                                false,
+                                pattern.span,
+                            ));
                         }
                     }
                 }
