@@ -177,6 +177,13 @@ pub enum Commands {
         #[arg(long)]
         single_file: bool,
     },
+
+    /// Explain an error code / اشرح رمز خطأ
+    #[command(aliases = ["اشرح"])]
+    Explain {
+        /// Error code (e.g., د٠٣٠١) / رمز الخطأ
+        code: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
