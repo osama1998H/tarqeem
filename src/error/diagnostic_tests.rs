@@ -1,8 +1,6 @@
 //! Comprehensive tests for the Diagnostic module
 //!
 //! These tests verify that diagnostics are created correctly with
-//! Arabic-only messages and proper formatting.
-//! ترقيم لغة برمجة عربية - جميع الرسائل بالعربية فقط
 
 use super::diagnostic::*;
 use super::span::Span;

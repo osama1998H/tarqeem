@@ -71,33 +71,25 @@ impl OptimizingCompiler {
         let mut flag_builder = settings::builder();
 
         // Use speed-optimized settings
-        flag_builder.set("opt_level", "speed").map_err(|e| {
-            JitError::compilation(e.to_string(), format!("خطأ في إعداد مستوى التحسين: {}", e))
-        })?;
+        flag_builder
+            .set("opt_level", "speed")
+            .map_err(|e| JitError::compilation(format!("خطأ في إعداد مستوى التحسين: {}", e)))?;
 
         flag_builder
             .set("use_colocated_libcalls", "false")
-            .map_err(|e| {
-                JitError::compilation(e.to_string(), format!("خطأ في إعداد Cranelift: {}", e))
-            })?;
+            .map_err(|e| JitError::compilation(format!("خطأ في إعداد Cranelift: {}", e)))?;
 
-        flag_builder.set("is_pic", "false").map_err(|e| {
-            JitError::compilation(e.to_string(), format!("خطأ في إعداد Cranelift: {}", e))
-        })?;
+        flag_builder
+            .set("is_pic", "false")
+            .map_err(|e| JitError::compilation(format!("خطأ في إعداد Cranelift: {}", e)))?;
 
         // Use the native target with speed optimization
-        let isa_builder = cranelift_native::builder().map_err(|e| {
-            JitError::compilation(
-                e.to_string(),
-                format!("فشل في الحصول على الهدف الأصلي: {}", e),
-            )
-        })?;
+        let isa_builder = cranelift_native::builder()
+            .map_err(|e| JitError::compilation(format!("فشل في الحصول على الهدف الأصلي: {}", e)))?;
 
         let isa = isa_builder
             .finish(settings::Flags::new(flag_builder))
-            .map_err(|e| {
-                JitError::compilation(e.to_string(), format!("فشل في إنشاء ISA: {}", e))
-            })?;
+            .map_err(|e| JitError::compilation(format!("فشل في إنشاء ISA: {}", e)))?;
 
         // Create JIT module
         let jit_builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
@@ -148,9 +140,7 @@ impl OptimizingCompiler {
         let func_id = self
             .jit_module
             .declare_function(&func_to_compile.name, Linkage::Local, &sig)
-            .map_err(|e| {
-                JitError::compilation(e.to_string(), format!("فشل في التصريح عن الدالة: {}", e))
-            })?;
+            .map_err(|e| JitError::compilation(format!("فشل في التصريح عن الدالة: {}", e)))?;
 
         // Clear and set up context
         self.ctx.func =
@@ -162,15 +152,15 @@ impl OptimizingCompiler {
         // Compile the function
         self.jit_module
             .define_function(func_id, &mut self.ctx)
-            .map_err(|e| JitError::codegen(e.to_string(), format!("فشل في تعريف الدالة: {}", e)))?;
+            .map_err(|e| JitError::codegen(format!("فشل في تعريف الدالة: {}", e)))?;
 
         // Clear context for reuse
         self.jit_module.clear_context(&mut self.ctx);
 
         // Finalize the function
-        self.jit_module.finalize_definitions().map_err(|e| {
-            JitError::codegen(e.to_string(), format!("فشل في إنهاء التعريفات: {}", e))
-        })?;
+        self.jit_module
+            .finalize_definitions()
+            .map_err(|e| JitError::codegen(format!("فشل في إنهاء التعريفات: {}", e)))?;
 
         // Get code size (estimate)
         let code_size = self.estimate_code_size(&func_to_compile);
@@ -391,18 +381,12 @@ fn compile_optimized_instruction(
             let cranelift_ty = ir_type_to_cranelift(ty)?;
             let dest_var = get_or_create_var(builder, dest.0, cranelift_ty, var_map, var_counter);
 
-            let left_var = var_map.get(&left.0).ok_or_else(|| {
-                JitError::compilation(
-                    format!("Undefined variable: {}", left),
-                    format!("متغير غير معرّف: {}", left),
-                )
-            })?;
-            let right_var = var_map.get(&right.0).ok_or_else(|| {
-                JitError::compilation(
-                    format!("Undefined variable: {}", right),
-                    format!("متغير غير معرّف: {}", right),
-                )
-            })?;
+            let left_var = var_map
+                .get(&left.0)
+                .ok_or_else(|| JitError::compilation(format!("متغير غير معرّف: {}", left)))?;
+            let right_var = var_map
+                .get(&right.0)
+                .ok_or_else(|| JitError::compilation(format!("متغير غير معرّف: {}", right)))?;
 
             let left_val = builder.use_var(*left_var);
             let right_val = builder.use_var(*right_var);
@@ -496,12 +480,9 @@ fn compile_optimized_instruction(
             let cranelift_ty = ir_type_to_cranelift(ty)?;
             let dest_var = get_or_create_var(builder, dest.0, cranelift_ty, var_map, var_counter);
 
-            let operand_var = var_map.get(&operand.0).ok_or_else(|| {
-                JitError::compilation(
-                    format!("Undefined variable: {}", operand),
-                    format!("متغير غير معرّف: {}", operand),
-                )
-            })?;
+            let operand_var = var_map
+                .get(&operand.0)
+                .ok_or_else(|| JitError::compilation(format!("متغير غير معرّف: {}", operand)))?;
             let operand_val = builder.use_var(*operand_var);
 
             let result = match (op, ty) {
@@ -525,12 +506,9 @@ fn compile_optimized_instruction(
 
         Instruction::Return { value } => {
             if let Some(var_id) = value {
-                let var = var_map.get(&var_id.0).ok_or_else(|| {
-                    JitError::compilation(
-                        format!("Undefined variable: {}", var_id),
-                        format!("متغير غير معرّف: {}", var_id),
-                    )
-                })?;
+                let var = var_map
+                    .get(&var_id.0)
+                    .ok_or_else(|| JitError::compilation(format!("متغير غير معرّف: {}", var_id)))?;
                 let val = builder.use_var(*var);
                 builder.ins().return_(&[val]);
             } else {
@@ -539,12 +517,9 @@ fn compile_optimized_instruction(
         }
 
         Instruction::Jump { target } => {
-            let target_block = block_map.get(&target.0).ok_or_else(|| {
-                JitError::compilation(
-                    format!("Unknown block: {}", target),
-                    format!("كتلة غير معروفة: {}", target),
-                )
-            })?;
+            let target_block = block_map
+                .get(&target.0)
+                .ok_or_else(|| JitError::compilation(format!("كتلة غير معروفة: {}", target)))?;
             builder.ins().jump(*target_block, &[]);
         }
 
@@ -553,26 +528,17 @@ fn compile_optimized_instruction(
             then_block,
             else_block,
         } => {
-            let cond_var = var_map.get(&cond.0).ok_or_else(|| {
-                JitError::compilation(
-                    format!("Undefined variable: {}", cond),
-                    format!("متغير غير معرّف: {}", cond),
-                )
-            })?;
+            let cond_var = var_map
+                .get(&cond.0)
+                .ok_or_else(|| JitError::compilation(format!("متغير غير معرّف: {}", cond)))?;
             let cond_val = builder.use_var(*cond_var);
 
-            let then_blk = block_map.get(&then_block.0).ok_or_else(|| {
-                JitError::compilation(
-                    format!("Unknown block: {}", then_block),
-                    format!("كتلة غير معروفة: {}", then_block),
-                )
-            })?;
-            let else_blk = block_map.get(&else_block.0).ok_or_else(|| {
-                JitError::compilation(
-                    format!("Unknown block: {}", else_block),
-                    format!("كتلة غير معروفة: {}", else_block),
-                )
-            })?;
+            let then_blk = block_map
+                .get(&then_block.0)
+                .ok_or_else(|| JitError::compilation(format!("كتلة غير معروفة: {}", then_block)))?;
+            let else_blk = block_map
+                .get(&else_block.0)
+                .ok_or_else(|| JitError::compilation(format!("كتلة غير معروفة: {}", else_block)))?;
 
             // Truncate to i8 for comparison
             let cond_i8 = builder.ins().ireduce(types::I8, cond_val);
