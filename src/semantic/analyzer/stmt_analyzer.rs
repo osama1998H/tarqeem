@@ -199,12 +199,14 @@ impl Analyzer {
             self.expected_type = None;
 
             if !init_type.is_compatible_with(expected) {
+                use crate::error::codes::ERR_TYPE_MISMATCH;
                 self.type_mismatch_error(
                     expected,
                     &init_type,
                     init_expr.span,
                     "variable initialization",
                     "تهيئة المتغير",
+                    &ERR_TYPE_MISMATCH.to_string(),
                 );
             }
         }
@@ -408,12 +410,14 @@ impl Analyzer {
                 if let Some(init_expr) = init {
                     let init_type = self.infer_type(init_expr);
                     if !init_type.is_compatible_with(&field_type) {
+                        use crate::error::codes::ERR_TYPE_MISMATCH;
                         self.type_mismatch_error(
                             &field_type,
                             &init_type,
                             init_expr.span,
                             &format!("field '{}'", field_name),
                             &format!("الحقل '{}'", field_name),
+                            &ERR_TYPE_MISMATCH.to_string(),
                         );
                     }
                 }
@@ -484,12 +488,14 @@ impl Analyzer {
         if let Some(init_expr) = default_value {
             let init_type = self.infer_type(init_expr);
             if !init_type.is_compatible_with(&prop_type) {
+                use crate::error::codes::ERR_TYPE_MISMATCH;
                 self.type_mismatch_error(
                     &prop_type,
                     &init_type,
                     init_expr.span,
                     &format!("property '{}'", prop_name),
                     &format!("الخاصية '{}'", prop_name),
+                    &ERR_TYPE_MISMATCH.to_string(),
                 );
             }
         }
@@ -507,12 +513,14 @@ impl Analyzer {
                         PropertyAccessorBody::Expr(expr) => {
                             let expr_type = self.infer_type(expr);
                             if !expr_type.is_compatible_with(&prop_type) {
+                                use crate::error::codes::ERR_TYPE_MISMATCH;
                                 self.type_mismatch_error(
                                     &prop_type,
                                     &expr_type,
                                     expr.span,
                                     "getter return type",
                                     "نوع إرجاع القارئ",
+                                    &ERR_TYPE_MISMATCH.to_string(),
                                 );
                             }
                         }
@@ -1097,12 +1105,14 @@ impl Analyzer {
                 {
                     let arg_type = self.infer_type(arg);
                     if !arg_type.is_compatible_with(param_type) {
+                        use crate::error::codes::ERR_TYPE_MISMATCH;
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
                             arg.span,
                             &format!("super() argument {}", i + 1),
                             &format!("معامل الأصل() {}", i + 1),
+                            &ERR_TYPE_MISMATCH.to_string(),
                         );
                     }
                 }
