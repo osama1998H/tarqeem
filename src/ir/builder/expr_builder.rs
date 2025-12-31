@@ -156,10 +156,7 @@ impl IrBuilder {
             self.var_types.insert(dest.0, var_ty);
             Ok(dest)
         } else {
-            Err(IrError::new(
-                format!("Undefined identifier: '{}'", name),
-                format!("معرّف غير معرّف: '{}'", name),
-            ))
+            Err(IrError::new(format!("معرّف غير معرّف: '{}'", name)))
         }
     }
 
@@ -336,12 +333,7 @@ impl IrBuilder {
     ) -> Result<VarId> {
         let name = match &operand.kind {
             ExprKind::Identifier(name) => name.clone(),
-            _ => {
-                return Err(IrError::new(
-                    "Increment/decrement requires a variable",
-                    "الزيادة/النقصان تتطلب متغيراً",
-                ))
-            }
+            _ => return Err(IrError::new("الزيادة/النقصان تتطلب متغيراً")),
         };
 
         // Store the lookup result to avoid redundant lookups and unwrap() calls
@@ -349,10 +341,10 @@ impl IrBuilder {
         let is_global = self.global_variables.contains(&name);
 
         if local_ptr.is_none() && !is_global {
-            return Err(IrError::new(
-                format!("Cannot modify undefined variable '{}'", name),
-                format!("لا يمكن تعديل متغير غير معرّف '{}'", name),
-            ));
+            return Err(IrError::new(format!(
+                "لا يمكن تعديل متغير غير معرّف '{}'",
+                name
+            )));
         }
 
         let result_ty = if let Some(ptr) = local_ptr {
@@ -711,10 +703,10 @@ impl IrBuilder {
                         value: value_var,
                     });
                 } else {
-                    return Err(IrError::new(
-                        format!("Cannot assign to undefined variable: '{}'", name),
-                        format!("لا يمكن التعيين لمتغير غير معرّف: '{}'", name),
-                    ));
+                    return Err(IrError::new(format!(
+                        "لا يمكن التعيين لمتغير غير معرّف: '{}'",
+                        name
+                    )));
                 }
             }
             ExprKind::Member { object, property } => {
@@ -788,10 +780,7 @@ impl IrBuilder {
                 });
             }
             _ => {
-                return Err(IrError::new(
-                    "Unsupported assignment target",
-                    "هدف التعيين غير مدعوم",
-                ));
+                return Err(IrError::new("هدف التعيين غير مدعوم"));
             }
         }
 
@@ -836,10 +825,10 @@ impl IrBuilder {
                         value: result,
                     });
                 } else {
-                    return Err(IrError::new(
-                        format!("Cannot assign to undefined variable: '{}'", name),
-                        format!("لا يمكن التعيين لمتغير غير معرّف: '{}'", name),
-                    ));
+                    return Err(IrError::new(format!(
+                        "لا يمكن التعيين لمتغير غير معرّف: '{}'",
+                        name
+                    )));
                 }
             }
             ExprKind::Member { object, property } => {
@@ -864,10 +853,7 @@ impl IrBuilder {
                 });
             }
             _ => {
-                return Err(IrError::new(
-                    "Unsupported compound assignment target",
-                    "هدف التعيين المركب غير مدعوم",
-                ));
+                return Err(IrError::new("هدف التعيين المركب غير مدعوم"));
             }
         }
 
@@ -1096,10 +1082,7 @@ impl IrBuilder {
         if let Some(var) = self.lookup_var("هذا").or_else(|| self.lookup_var("this")) {
             Ok(var)
         } else {
-            Err(IrError::new(
-                "'this' can only be used inside a method",
-                "'هذا' يمكن استخدامه فقط داخل دالة",
-            ))
+            Err(IrError::new("'هذا' يمكن استخدامه فقط داخل دالة"))
         }
     }
 
@@ -1108,10 +1091,7 @@ impl IrBuilder {
         if let Some(var) = self.lookup_var("هذا").or_else(|| self.lookup_var("this")) {
             Ok(var)
         } else {
-            Err(IrError::new(
-                "'super' can only be used inside a method",
-                "'الأصل' يمكن استخدامه فقط داخل دالة",
-            ))
+            Err(IrError::new("'الأصل' يمكن استخدامه فقط داخل دالة"))
         }
     }
 
@@ -1120,29 +1100,18 @@ impl IrBuilder {
         let this_var = self
             .lookup_var("هذا")
             .or_else(|| self.lookup_var("this"))
-            .ok_or_else(|| {
-                IrError::new(
-                    "'super()' can only be used inside a constructor",
-                    "'الأصل()' يمكن استخدامه فقط داخل منشئ",
-                )
-            })?;
+            .ok_or_else(|| IrError::new("'الأصل()' يمكن استخدامه فقط داخل منشئ"))?;
 
         let current_class_name = match &self.current_function {
             Some(func) => {
                 if let Some(idx) = func.name.find("::") {
                     func.name[..idx].to_string()
                 } else {
-                    return Err(IrError::new(
-                        "'super()' can only be used inside a class constructor",
-                        "'الأصل()' يمكن استخدامه فقط داخل منشئ صنف",
-                    ));
+                    return Err(IrError::new("'الأصل()' يمكن استخدامه فقط داخل منشئ صنف"));
                 }
             }
             None => {
-                return Err(IrError::new(
-                    "'super()' can only be used inside a function",
-                    "'الأصل()' يمكن استخدامه فقط داخل دالة",
-                ));
+                return Err(IrError::new("'الأصل()' يمكن استخدامه فقط داخل دالة"));
             }
         };
 
@@ -1153,12 +1122,7 @@ impl IrBuilder {
             .find(|c| c.name == current_class_name)
             .and_then(|c| c.parent.as_ref())
             .map(|p| p.0.clone())
-            .ok_or_else(|| {
-                IrError::new(
-                    format!("Class '{}' has no parent class", current_class_name),
-                    format!("الصنف '{}' ليس له صنف أب", current_class_name),
-                )
-            })?;
+            .ok_or_else(|| IrError::new(format!("الصنف '{}' ليس له صنف أب", current_class_name)))?;
 
         let arg_vars: Vec<VarId> = args
             .iter()

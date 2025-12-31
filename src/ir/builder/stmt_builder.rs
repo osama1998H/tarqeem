@@ -1090,7 +1090,7 @@ impl IrBuilder {
             });
             Ok(())
         } else {
-            Err(IrError::new("break outside of loop", "كسر خارج حلقة"))
+            Err(IrError::new("'أوقف' خارج حلقة"))
         }
     }
 
@@ -1102,7 +1102,7 @@ impl IrBuilder {
             });
             Ok(())
         } else {
-            Err(IrError::new("continue outside of loop", "استمر خارج حلقة"))
+            Err(IrError::new("'استمر' خارج حلقة"))
         }
     }
 

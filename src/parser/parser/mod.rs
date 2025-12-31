@@ -195,7 +195,6 @@ impl Parser {
         // Check for the start marker (بسم_الله)
         if !self.check(&TokenKind::Bismillah) {
             return Err(Diagnostic::error(
-                "Expected 'بسم_الله' (bismillah) at the start of the file",
                 "متوقع 'بسم_الله' في بداية الملف",
                 self.current_span(),
             ));
@@ -231,7 +230,6 @@ impl Parser {
         // Check for the end marker (الحمد_لله)
         if !self.check(&TokenKind::Alhamdulillah) {
             return Err(Diagnostic::error(
-                "Expected 'الحمد_لله' (alhamdulillah) at the end of the file",
                 "متوقع 'الحمد_لله' في نهاية الملف",
                 self.current_span(),
             ));
@@ -247,7 +245,6 @@ impl Parser {
         // Check if there's any code after الحمد_لله
         if !self.is_at_end() {
             return Err(Diagnostic::error(
-                "No code allowed after 'الحمد_لله' marker",
                 "لا يُسمح بأي كود بعد علامة 'الحمد_لله'",
                 self.current_span(),
             ));
@@ -320,28 +317,23 @@ impl Parser {
     }
 
     /// Expect a specific token kind or error.
-    pub(crate) fn expect(
-        &mut self,
-        kind: &TokenKind,
-        en: &str,
-        ar: &str,
-    ) -> Result<Token, Diagnostic> {
+    pub(crate) fn expect(&mut self, kind: &TokenKind, message: &str) -> Result<Token, Diagnostic> {
         if self.check(kind) {
             Ok(self.advance())
         } else {
-            Err(Diagnostic::error(en, ar, self.current_span())
+            Err(Diagnostic::error(message, self.current_span())
                 .with_code(ERR_UNEXPECTED_TOKEN.to_string()))
         }
     }
 
     /// Expect an identifier or error.
-    pub(crate) fn expect_identifier(&mut self, en: &str, ar: &str) -> Result<String, Diagnostic> {
+    pub(crate) fn expect_identifier(&mut self, message: &str) -> Result<String, Diagnostic> {
         if let TokenKind::Identifier(name) = &self.peek().kind {
             let name = name.clone();
             self.advance();
             Ok(name)
         } else {
-            Err(Diagnostic::error(en, ar, self.current_span()))
+            Err(Diagnostic::error(message, self.current_span()))
         }
     }
 
@@ -386,23 +378,19 @@ impl Parser {
                 self.advance();
                 Ok("أي".to_string())
             }
-            _ => {
-                Err(
-                    Diagnostic::error("Expected type name", "متوقع اسم النوع", self.current_span())
-                        .with_code(ERR_UNEXPECTED_TOKEN.to_string()),
-                )
-            }
+            _ => Err(Diagnostic::error("متوقع اسم النوع", self.current_span())
+                .with_code(ERR_UNEXPECTED_TOKEN.to_string())),
         }
     }
 
     /// Expect a string literal or error.
-    pub(crate) fn expect_string(&mut self, en: &str, ar: &str) -> Result<String, Diagnostic> {
+    pub(crate) fn expect_string(&mut self, message: &str) -> Result<String, Diagnostic> {
         if let TokenKind::StringLiteral(s) = &self.peek().kind {
             let s = s.clone();
             self.advance();
             Ok(s)
         } else {
-            Err(Diagnostic::error(en, ar, self.current_span())
+            Err(Diagnostic::error(message, self.current_span())
                 .with_code(ERR_UNEXPECTED_TOKEN.to_string()))
         }
     }
@@ -432,10 +420,8 @@ impl Parser {
                 return Ok(());
             }
 
-            Err(
-                Diagnostic::error("Expected ';'", "متوقع '؛'", self.current_span())
-                    .with_code(ERR_EXPECTED_SEMICOLON.to_string()),
-            )
+            Err(Diagnostic::error("متوقع '؛'", self.current_span())
+                .with_code(ERR_EXPECTED_SEMICOLON.to_string()))
         }
     }
 

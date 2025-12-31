@@ -42,79 +42,40 @@ pub enum FormatErrorKind {
 pub struct FormatError {
     pub kind: FormatErrorKind,
     pub location: Location,
-    pub message_ar: String,
-    pub message_en: String,
+    pub message: String,
 }
 
 impl FormatError {
     pub fn new(kind: FormatErrorKind, location: Location) -> Self {
-        let (message_ar, message_en) = match &kind {
-            FormatErrorKind::UnexpectedChar(c) => (
-                format!("حرف غير متوقع: '{}'", c),
-                format!("Unexpected character: '{}'", c),
-            ),
-            FormatErrorKind::UnexpectedEof => (
-                "نهاية ملف غير متوقعة".to_string(),
-                "Unexpected end of file".to_string(),
-            ),
-            FormatErrorKind::InvalidIndentation => (
-                "مسافة بادئة غير صالحة".to_string(),
-                "Invalid indentation".to_string(),
-            ),
-            FormatErrorKind::InvalidValue(v) => (
-                format!("قيمة غير صالحة: '{}'", v),
-                format!("Invalid value: '{}'", v),
-            ),
-            FormatErrorKind::InvalidNumber(n) => (
-                format!("رقم غير صالح: '{}'", n),
-                format!("Invalid number: '{}'", n),
-            ),
-            FormatErrorKind::UnterminatedString => (
-                "نص غير مغلق - متوقع علامة اقتباس".to_string(),
-                "Unterminated string - expected closing quote".to_string(),
-            ),
-            FormatErrorKind::ExpectedColon => (
-                "متوقع ':' بعد المفتاح".to_string(),
-                "Expected ':' after key".to_string(),
-            ),
-            FormatErrorKind::ExpectedValue => {
-                ("متوقع قيمة".to_string(), "Expected value".to_string())
+        let message = match &kind {
+            FormatErrorKind::UnexpectedChar(c) => format!("حرف غير متوقع: '{}'", c),
+            FormatErrorKind::UnexpectedEof => "نهاية ملف غير متوقعة".to_string(),
+            FormatErrorKind::InvalidIndentation => "مسافة بادئة غير صالحة".to_string(),
+            FormatErrorKind::InvalidValue(v) => format!("قيمة غير صالحة: '{}'", v),
+            FormatErrorKind::InvalidNumber(n) => format!("رقم غير صالح: '{}'", n),
+            FormatErrorKind::UnterminatedString => "نص غير مغلق - متوقع علامة اقتباس".to_string(),
+            FormatErrorKind::ExpectedColon => "متوقع ':' بعد المفتاح".to_string(),
+            FormatErrorKind::ExpectedValue => "متوقع قيمة".to_string(),
+            FormatErrorKind::ExpectedKey => "متوقع مفتاح".to_string(),
+            FormatErrorKind::DuplicateKey(k) => format!("مفتاح مكرر: '{}'", k),
+            FormatErrorKind::UnknownSection(s) => format!("قسم غير معروف: '{}'", s),
+            FormatErrorKind::MissingField(f) => format!("حقل مفقود: '{}'", f),
+            FormatErrorKind::TypeError { expected, found } => {
+                format!("نوع غير صحيح: متوقع {} وجد {}", expected, found)
             }
-            FormatErrorKind::ExpectedKey => ("متوقع مفتاح".to_string(), "Expected key".to_string()),
-            FormatErrorKind::DuplicateKey(k) => (
-                format!("مفتاح مكرر: '{}'", k),
-                format!("Duplicate key: '{}'", k),
-            ),
-            FormatErrorKind::UnknownSection(s) => (
-                format!("قسم غير معروف: '{}'", s),
-                format!("Unknown section: '{}'", s),
-            ),
-            FormatErrorKind::MissingField(f) => (
-                format!("حقل مفقود: '{}'", f),
-                format!("Missing field: '{}'", f),
-            ),
-            FormatErrorKind::TypeError { expected, found } => (
-                format!("نوع غير صحيح: متوقع {} وجد {}", expected, found),
-                format!("Type error: expected {} found {}", expected, found),
-            ),
         };
 
         Self {
             kind,
             location,
-            message_ar,
-            message_en,
+            message,
         }
     }
 }
 
 impl fmt::Display for FormatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "[{}] {} / {}",
-            self.location, self.message_ar, self.message_en
-        )
+        write!(f, "[{}] {}", self.location, self.message)
     }
 }
 

@@ -55,7 +55,7 @@ pub fn debug(args: DebugArgs, lang: Language) -> Result<(), String> {
     let ir_builder = IrBuilder::new(filename.clone());
     let ir_module = ir_builder
         .build(&ast)
-        .map_err(|e| format!("خطأ بناء التمثيل الوسيط: {}", e.message_ar))?;
+        .map_err(|e| format!("خطأ بناء التمثيل الوسيط: {}", e.message))?;
 
     if args.dap_stdio || args.dap_port.is_some() {
         use crate::debug::DapServer;
@@ -66,11 +66,11 @@ pub fn debug(args: DebugArgs, lang: Language) -> Result<(), String> {
         if args.dap_stdio {
             server
                 .run_stdio()
-                .map_err(|e| format!("خطأ خادم التصحيح: {}", e.message_ar))?;
+                .map_err(|e| format!("خطأ خادم التصحيح: {}", e.message))?;
         } else if let Some(port) = args.dap_port {
             server
                 .run_tcp(port)
-                .map_err(|e| format!("خطأ خادم التصحيح: {}", e.message_ar))?;
+                .map_err(|e| format!("خطأ خادم التصحيح: {}", e.message))?;
         }
 
         return Ok(());

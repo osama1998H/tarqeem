@@ -303,7 +303,6 @@ impl Analyzer {
             match kind {
                 SymbolKind::Variable | SymbolKind::Parameter => {
                     self.warn_with_code(
-                        &format!("Variable '{}' is declared but never used", name),
                         &format!("المتغير '{}' مُعرَّف لكن غير مستخدم", name),
                         span,
                         &WARN_UNUSED_VARIABLE.to_string(),
@@ -311,7 +310,6 @@ impl Analyzer {
                 }
                 SymbolKind::Function => {
                     self.warn_with_code(
-                        &format!("Function '{}' is defined but never called", name),
                         &format!("الدالة '{}' مُعرَّفة لكن غير مستدعاة", name),
                         span,
                         &WARN_UNUSED_FUNCTION.to_string(),
@@ -319,7 +317,6 @@ impl Analyzer {
                 }
                 SymbolKind::Import => {
                     self.warn_with_code(
-                        &format!("Import '{}' is never used", name),
                         &format!("الاستيراد '{}' غير مستخدم", name),
                         span,
                         &WARN_UNUSED_IMPORT.to_string(),
@@ -358,72 +355,46 @@ impl Analyzer {
 
     // Error reporting
 
-    /// Report an error.
-    pub(crate) fn error(&mut self, message: &str, message_ar: &str, span: Span) {
-        self.diagnostics
-            .push(Diagnostic::error(message, message_ar, span));
+    /// Report an error (Arabic-only).
+    pub(crate) fn error(&mut self, message: &str, span: Span) {
+        self.diagnostics.push(Diagnostic::error(message, span));
     }
 
-    /// Report a warning.
+    /// Report a warning (Arabic-only).
     #[allow(dead_code)]
-    pub(crate) fn warning(&mut self, message: &str, message_ar: &str, span: Span) {
-        self.diagnostics
-            .push(Diagnostic::warning(message, message_ar, span));
+    pub(crate) fn warning(&mut self, message: &str, span: Span) {
+        self.diagnostics.push(Diagnostic::warning(message, span));
     }
 
-    /// Report a warning (alias).
-    pub(crate) fn warn(&mut self, message: &str, message_ar: &str, span: Span) {
-        self.diagnostics
-            .push(Diagnostic::warning(message, message_ar, span));
+    /// Report a warning (alias, Arabic-only).
+    pub(crate) fn warn(&mut self, message: &str, span: Span) {
+        self.diagnostics.push(Diagnostic::warning(message, span));
     }
 
-    /// Report an error with an error code.
-    pub(crate) fn error_with_code(
-        &mut self,
-        message: &str,
-        message_ar: &str,
-        span: Span,
-        code: &str,
-    ) {
+    /// Report an error with an error code (Arabic-only).
+    pub(crate) fn error_with_code(&mut self, message: &str, span: Span, code: &str) {
         self.diagnostics
-            .push(Diagnostic::error(message, message_ar, span).with_code(code));
+            .push(Diagnostic::error(message, span).with_code(code));
     }
 
-    /// Report a warning with an error code.
-    pub(crate) fn warn_with_code(
-        &mut self,
-        message: &str,
-        message_ar: &str,
-        span: Span,
-        code: &str,
-    ) {
+    /// Report a warning with an error code (Arabic-only).
+    pub(crate) fn warn_with_code(&mut self, message: &str, span: Span, code: &str) {
         self.diagnostics
-            .push(Diagnostic::warning(message, message_ar, span).with_code(code));
+            .push(Diagnostic::warning(message, span).with_code(code));
     }
 
-    /// Report a type mismatch error with a conversion suggestion.
+    /// Report a type mismatch error with a conversion suggestion (Arabic-only).
     pub(crate) fn type_mismatch_error(
         &mut self,
         expected: &Type,
         found: &Type,
         span: Span,
-        context: &str,
         context_ar: &str,
         code: &str,
     ) {
         use crate::error::{Note, Suggestion};
 
         let message = format!(
-            "Type mismatch{}: expected {}, got {}",
-            if context.is_empty() {
-                String::new()
-            } else {
-                format!(" in {}", context)
-            },
-            expected,
-            found
-        );
-        let message_ar = format!(
             "عدم تطابق الأنواع{}: متوقع {}، وُجد {}",
             if context_ar.is_empty() {
                 String::new()
@@ -434,66 +405,47 @@ impl Analyzer {
             found.arabic_name()
         );
 
-        let mut diag = Diagnostic::error(&message, &message_ar, span).with_code(code);
+        let mut diag = Diagnostic::error(&message, span).with_code(code);
 
         // Add conversion suggestion based on types
-        if let Some((suggestion, suggestion_ar, replacement)) =
-            Self::get_conversion_suggestion(expected, found)
-        {
-            diag = diag.with_suggestion(Suggestion::new(
-                suggestion,
-                suggestion_ar,
-                replacement,
-                span,
-            ));
+        if let Some((suggestion, replacement)) = Self::get_conversion_suggestion(expected, found) {
+            diag = diag.with_suggestion(Suggestion::new(suggestion, replacement, span));
         }
 
         // Add note about type compatibility
-        diag = diag.with_note(Note::new(
-            format!("Expected type '{}' but found '{}'", expected, found),
-            format!(
-                "النوع المتوقع '{}' لكن وُجد '{}'",
-                expected.arabic_name(),
-                found.arabic_name()
-            ),
-        ));
+        diag = diag.with_note(Note::new(format!(
+            "النوع المتوقع '{}' لكن وُجد '{}'",
+            expected.arabic_name(),
+            found.arabic_name()
+        )));
 
         self.diagnostics.push(diag);
     }
 
-    /// Get a conversion suggestion for common type mismatches.
-    fn get_conversion_suggestion(
-        expected: &Type,
-        found: &Type,
-    ) -> Option<(String, String, String)> {
+    /// Get a conversion suggestion for common type mismatches (Arabic-only).
+    fn get_conversion_suggestion(expected: &Type, found: &Type) -> Option<(String, String)> {
         match (expected, found) {
             (Type::String, Type::Int) => Some((
-                "Convert the integer to string using نص()".to_string(),
                 "حوّل العدد إلى نص باستخدام نص()".to_string(),
                 "نص(<value>)".to_string(),
             )),
             (Type::String, Type::Float) => Some((
-                "Convert the float to string using نص()".to_string(),
                 "حوّل العدد العشري إلى نص باستخدام نص()".to_string(),
                 "نص(<value>)".to_string(),
             )),
             (Type::String, Type::Bool) => Some((
-                "Convert the boolean to string using نص()".to_string(),
                 "حوّل القيمة المنطقية إلى نص باستخدام نص()".to_string(),
                 "نص(<value>)".to_string(),
             )),
             (Type::Int, Type::Float) => Some((
-                "Use عدد() to convert float to integer (truncates decimal)".to_string(),
                 "استخدم عدد() لتحويل العدد العشري إلى صحيح (يحذف الكسر)".to_string(),
                 "عدد(<value>)".to_string(),
             )),
             (Type::Float, Type::Int) => Some((
-                "Integer will be automatically promoted to float".to_string(),
                 "سيُرقّى العدد الصحيح تلقائياً إلى عشري".to_string(),
                 "<value>.0".to_string(),
             )),
             (Type::Bool, Type::Int) => Some((
-                "Use a comparison to get a boolean: <value> != 0".to_string(),
                 "استخدم مقارنة للحصول على قيمة منطقية: <value> != 0".to_string(),
                 "<value> != 0".to_string(),
             )),
@@ -501,10 +453,9 @@ impl Analyzer {
         }
     }
 
-    /// Report an undefined identifier error with similar name suggestions.
+    /// Report an undefined identifier error with similar name suggestions (Arabic-only).
     pub(crate) fn undefined_error(
         &mut self,
-        kind: &str,
         kind_ar: &str,
         name: &str,
         span: Span,
@@ -513,16 +464,14 @@ impl Analyzer {
     ) {
         use crate::error::Suggestion;
 
-        let message = format!("Unknown {} '{}'", kind, name);
-        let message_ar = format!("{} غير معروف '{}'", kind_ar, name);
+        let message = format!("{} غير معروف '{}'", kind_ar, name);
 
-        let mut diag = Diagnostic::error(&message, &message_ar, span).with_code(code);
+        let mut diag = Diagnostic::error(&message, span).with_code(code);
 
         // Add suggestions for similar names
         if !similar_names.is_empty() {
             let closest = &similar_names[0];
             diag = diag.with_suggestion(Suggestion::new(
-                format!("Did you mean '{}'?", closest),
                 format!("هل تقصد '{}'؟", closest),
                 closest.clone(),
                 span,
@@ -532,10 +481,9 @@ impl Analyzer {
         self.diagnostics.push(diag);
     }
 
-    /// Report an "already defined" error with a note pointing to the original definition.
+    /// Report an "already defined" error with a note pointing to the original definition (Arabic-only).
     pub(crate) fn already_defined_error(
         &mut self,
-        kind: &str,
         kind_ar: &str,
         name: &str,
         span: Span,
@@ -544,20 +492,14 @@ impl Analyzer {
     ) {
         use crate::error::Note;
 
-        let message = format!("{} '{}' is already defined", kind, name);
-        let message_ar = format!("{} '{}' معرّف مسبقاً", kind_ar, name);
+        let message = format!("{} '{}' معرّف مسبقاً", kind_ar, name);
 
-        let mut diag = Diagnostic::error(&message, &message_ar, span).with_code(code);
+        let mut diag = Diagnostic::error(&message, span).with_code(code);
 
         // Add note pointing to original definition
         if let Some(orig_span) = original_span {
-            diag = diag.with_note(
-                Note::new(
-                    format!("'{}' was first defined here", name),
-                    format!("'{}' تم تعريفه هنا أولاً", name),
-                )
-                .with_span(orig_span),
-            );
+            diag = diag
+                .with_note(Note::new(format!("'{}' تم تعريفه هنا أولاً", name)).with_span(orig_span));
         }
 
         self.diagnostics.push(diag);
@@ -955,7 +897,9 @@ mod tests {
         );
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("non-error type")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("لا يمكن رمي نوع غير خطأ")));
     }
 
     #[test]
@@ -969,7 +913,7 @@ mod tests {
         );
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("non-error type")));
+        assert!(errors.iter().any(|e| e.message.contains("غير خطأ")));
     }
 
     #[test]
@@ -986,7 +930,7 @@ mod tests {
         );
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("non-error type")));
+        assert!(errors.iter().any(|e| e.message.contains("غير خطأ")));
     }
 
     #[test]

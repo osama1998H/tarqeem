@@ -336,11 +336,7 @@ mod tests {
 
         let uri = Url::parse("file:///test.ترقيم").unwrap();
         let range = Range::default();
-        let mut diag = Diagnostic::error(
-            "Undefined variable 'س'",
-            "المتغير 'س' غير معرف",
-            Span::new(0, 1, 1, 1),
-        );
+        let mut diag = Diagnostic::error("المتغير 'س' غير معرف", Span::new(0, 1, 1, 1));
         diag.code = Some(ERR_UNDEFINED_VARIABLE.to_string());
 
         let actions = generate_quick_fixes(&uri, &diag, &range, Language::Arabic);
@@ -360,11 +356,7 @@ mod tests {
 
         let uri = Url::parse("file:///test.ترقيم").unwrap();
         let range = Range::default();
-        let mut diag = Diagnostic::error(
-            "Cannot assign to constant",
-            "لا يمكن تعيين قيمة لثابت",
-            Span::new(0, 5, 1, 1),
-        );
+        let mut diag = Diagnostic::error("لا يمكن تعيين قيمة لثابت", Span::new(0, 5, 1, 1));
         diag.code = Some(ERR_CONST_ASSIGNMENT.to_string());
 
         let actions = generate_quick_fixes(&uri, &diag, &range, Language::Arabic);
@@ -383,11 +375,7 @@ mod tests {
 
         let uri = Url::parse("file:///test.ترقيم").unwrap();
         let range = Range::default();
-        let mut diag = Diagnostic::warning(
-            "Unused variable 'س'",
-            "المتغير 'س' غير مستخدم",
-            Span::new(0, 1, 1, 1),
-        );
+        let mut diag = Diagnostic::warning("المتغير 'س' غير مستخدم", Span::new(0, 1, 1, 1));
         diag.code = Some(WARN_UNUSED_VARIABLE.to_string());
 
         let actions = generate_quick_fixes(&uri, &diag, &range, Language::Arabic);
@@ -408,11 +396,7 @@ mod tests {
         let uri = Url::parse("file:///test.ترقيم").unwrap();
         let range = Range::default();
         // No error code set - should fall back to Arabic message matching
-        let diag = Diagnostic::error(
-            "المتغير 'س' غير معرف",
-            "المتغير 'س' غير معرف",
-            Span::new(0, 1, 1, 1),
-        );
+        let diag = Diagnostic::error("المتغير 'س' غير معرف", Span::new(0, 1, 1, 1));
 
         let actions = generate_quick_fixes(&uri, &diag, &range, Language::Arabic);
         assert!(actions.is_some());

@@ -1,4 +1,4 @@
-//! Diagnostic messages with Arabic/English support
+//! رسائل التشخيص - ترقيم لغة عربية فقط
 
 use super::{Language, Span};
 use colored::Colorize;
@@ -13,7 +13,7 @@ pub enum DiagnosticLevel {
 }
 
 impl DiagnosticLevel {
-    pub fn arabic(&self) -> &'static str {
+    pub fn name(&self) -> &'static str {
         match self {
             DiagnosticLevel::Error => "خطأ",
             DiagnosticLevel::Warning => "تحذير",
@@ -21,29 +21,24 @@ impl DiagnosticLevel {
             DiagnosticLevel::Hint => "تلميح",
         }
     }
+}
 
-    pub fn english(&self) -> &'static str {
-        match self {
-            DiagnosticLevel::Error => "error",
-            DiagnosticLevel::Warning => "warning",
-            DiagnosticLevel::Info => "info",
-            DiagnosticLevel::Hint => "hint",
-        }
+impl fmt::Display for DiagnosticLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name())
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Note {
     pub message: String,
-    pub message_ar: String,
     pub span: Option<Span>,
 }
 
 impl Note {
-    pub fn new(message: impl Into<String>, message_ar: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            message_ar: message_ar.into(),
             span: None,
         }
     }
@@ -57,21 +52,14 @@ impl Note {
 #[derive(Debug, Clone)]
 pub struct Suggestion {
     pub message: String,
-    pub message_ar: String,
     pub replacement: String,
     pub span: Span,
 }
 
 impl Suggestion {
-    pub fn new(
-        message: impl Into<String>,
-        message_ar: impl Into<String>,
-        replacement: impl Into<String>,
-        span: Span,
-    ) -> Self {
+    pub fn new(message: impl Into<String>, replacement: impl Into<String>, span: Span) -> Self {
         Self {
             message: message.into(),
-            message_ar: message_ar.into(),
             replacement: replacement.into(),
             span,
         }
@@ -82,7 +70,6 @@ impl Suggestion {
 pub struct Diagnostic {
     pub level: DiagnosticLevel,
     pub message: String,
-    pub message_ar: String,
     pub span: Span,
     pub notes: Vec<Note>,
     pub suggestions: Vec<Suggestion>,
@@ -90,11 +77,10 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    pub fn error(message: impl Into<String>, message_ar: impl Into<String>, span: Span) -> Self {
+    pub fn error(message: impl Into<String>, span: Span) -> Self {
         Self {
             level: DiagnosticLevel::Error,
             message: message.into(),
-            message_ar: message_ar.into(),
             span,
             notes: Vec::new(),
             suggestions: Vec::new(),
@@ -102,11 +88,10 @@ impl Diagnostic {
         }
     }
 
-    pub fn warning(message: impl Into<String>, message_ar: impl Into<String>, span: Span) -> Self {
+    pub fn warning(message: impl Into<String>, span: Span) -> Self {
         Self {
             level: DiagnosticLevel::Warning,
             message: message.into(),
-            message_ar: message_ar.into(),
             span,
             notes: Vec::new(),
             suggestions: Vec::new(),
@@ -129,16 +114,8 @@ impl Diagnostic {
         self
     }
 
-    pub fn emit(&self, source: &str, filename: &str, lang: Language) {
-        let level_str = match lang {
-            Language::Arabic => self.level.arabic(),
-            Language::English => self.level.english(),
-        };
-
-        let message = match lang {
-            Language::Arabic => &self.message_ar,
-            Language::English => &self.message,
-        };
+    pub fn emit(&self, source: &str, filename: &str, _lang: Language) {
+        let level_str = self.level.name();
 
         let level_colored = match self.level {
             DiagnosticLevel::Error => level_str.red().bold(),
@@ -153,10 +130,10 @@ impl Diagnostic {
                 level_colored,
                 "[".dimmed(),
                 code.dimmed(),
-                message.bold()
+                self.message.bold()
             );
         } else {
-            eprintln!("{}: {}", level_colored, message.bold());
+            eprintln!("{}: {}", level_colored, self.message.bold());
         }
 
         eprintln!(
@@ -185,19 +162,21 @@ impl Diagnostic {
         }
 
         for note in &self.notes {
-            let note_msg = match lang {
-                Language::Arabic => &note.message_ar,
-                Language::English => &note.message,
-            };
-            eprintln!("   {} {}: {}", "=".blue().bold(), "note".cyan(), note_msg);
+            eprintln!(
+                "   {} {}: {}",
+                "=".blue().bold(),
+                "ملاحظة".cyan(),
+                note.message
+            );
         }
 
         for suggestion in &self.suggestions {
-            let sugg_msg = match lang {
-                Language::Arabic => &suggestion.message_ar,
-                Language::English => &suggestion.message,
-            };
-            eprintln!("   {} {}: {}", "=".blue().bold(), "help".green(), sugg_msg);
+            eprintln!(
+                "   {} {}: {}",
+                "=".blue().bold(),
+                "مساعدة".green(),
+                suggestion.message
+            );
             eprintln!(
                 "   {} `{}`",
                 "=".blue().bold(),
@@ -211,14 +190,7 @@ impl Diagnostic {
 
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}: {} | {}: {}",
-            self.level.english(),
-            self.message,
-            self.level.arabic(),
-            self.message_ar
-        )
+        write!(f, "{}: {}", self.level.name(), self.message)
     }
 }
 

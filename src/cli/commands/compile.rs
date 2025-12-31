@@ -142,7 +142,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     let mut ir_module = ir_builder.build(&ast).map_err(|e| {
         format!(
             "IR generation error: {} / خطأ في توليد التمثيل الوسيط: {}",
-            e.message, e.message_ar
+            e.message, e.message
         )
     })?;
     timing.ir_build = ir_start.elapsed();
@@ -203,7 +203,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     let llvm_ir = codegen.generate(&ir_module).map_err(|e| {
         format!(
             "Code generation error: {} / خطأ في توليد الكود: {}",
-            e.message, e.message_ar
+            e.message, e.message
         )
     })?;
     timing.codegen = codegen_start.elapsed();
@@ -254,7 +254,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
                 .map_err(|e| {
                     format!(
                         "Assembly generation failed: {} / فشل توليد التجميع: {}",
-                        e.message, e.message_ar
+                        e.message, e.message
                     )
                 })?;
             println!(
@@ -272,7 +272,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
                 .map_err(|e| {
                     format!(
                         "Object compilation failed: {} / فشل ترجمة الكائن: {}",
-                        e.message, e.message_ar
+                        e.message, e.message
                     )
                 })?;
             println!(
@@ -316,7 +316,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
             .map_err(|e| {
                 format!(
                     "WASM compilation failed: {} / فشل ترجمة WebAssembly: {}",
-                    e.message, e.message_ar
+                    e.message, e.message
                 )
             })?;
 
@@ -370,12 +370,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
 
             linker
                 .compile_to_executable(&llvm_ir, &output_path, runtime_path.as_deref())
-                .map_err(|e| {
-                    format!(
-                        "Linking failed: {} / فشل الربط: {}",
-                        e.message, e.message_ar
-                    )
-                })?;
+                .map_err(|e| format!("Linking failed: {} / فشل الربط: {}", e.message, e.message))?;
             println!(
                 "{}",
                 format!(

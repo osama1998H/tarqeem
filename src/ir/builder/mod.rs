@@ -28,14 +28,12 @@ use std::collections::{HashMap, HashSet};
 #[derive(Debug, Clone)]
 pub struct IrError {
     pub message: String,
-    pub message_ar: String,
 }
 
 impl IrError {
-    pub fn new(message: impl Into<String>, message_ar: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            message_ar: message_ar.into(),
         }
     }
 }
@@ -292,18 +290,11 @@ impl IrBuilder {
 
         // ERROR: Cannot have both Script mode and Program mode in the same file
         if has_user_main && has_top_level_executable {
-            return Err(IrError::new(
-                format!(
-                    "[{}] Cannot have both top-level executable statements and دالة رئيسية() in the same file. \
-                     Use either Script mode (top-level code) or Program mode (دالة رئيسية).",
-                    ERR_ENTRY_POINT_CONFLICT
-                ),
-                format!(
-                    "[{}] لا يمكن وجود جمل تنفيذية عليا ودالة رئيسية() في نفس الملف. \
+            return Err(IrError::new(format!(
+                "[{}] لا يمكن وجود جمل تنفيذية عليا ودالة رئيسية() في نفس الملف. \
                      استخدم إما وضع السكربت (كود علوي) أو وضع البرنامج (دالة رئيسية).",
-                    ERR_ENTRY_POINT_CONFLICT
-                ),
-            ));
+                ERR_ENTRY_POINT_CONFLICT
+            )));
         }
 
         // Collect global variables that need runtime initialization (non-constant initializers)
@@ -926,7 +917,7 @@ mod tests {
         );
         let err = result.unwrap_err();
         assert!(
-            err.message.contains("Cannot have both"),
+            err.message.contains("لا يمكن وجود"),
             "Error should mention the conflict"
         );
         // Verify error code is included
@@ -935,7 +926,7 @@ mod tests {
             "Error should include error code ت٠٢٠١"
         );
         assert!(
-            err.message_ar.contains("ت٠٢٠١"),
+            err.message.contains("ت٠٢٠١"),
             "Arabic error should include error code ت٠٢٠١"
         );
     }

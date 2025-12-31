@@ -1226,7 +1226,7 @@ fn test_error_messages_are_bilingual() {
         "English message should not be empty"
     );
     assert!(
-        !err.message_ar.is_empty(),
+        !err.message.is_empty(),
         "Arabic message should not be empty"
     );
 }

@@ -37,7 +37,6 @@ impl Analyzer {
                     use crate::error::codes::ERR_UNDEFINED_VARIABLE;
                     let similar_names = self.find_similar_names(name, 3);
                     self.undefined_error(
-                        "identifier",
                         "معرّف",
                         name,
                         expr.span,
@@ -103,7 +102,6 @@ impl Analyzer {
                 if !self.scope.is_in_class() {
                     use crate::error::codes::ERR_THIS_OUTSIDE_CLASS;
                     self.error_with_code(
-                        "'this' can only be used inside a class",
                         "'هذا' يمكن استخدامها فقط داخل صنف",
                         expr.span,
                         &ERR_THIS_OUTSIDE_CLASS.to_string(),
@@ -154,10 +152,6 @@ impl Analyzer {
         } else {
             self.error(
                 &format!(
-                    "Cannot apply operator '{}' to {} and {}",
-                    op_str, left_type, right_type
-                ),
-                &format!(
                     "لا يمكن تطبيق العامل '{}' على {} و {}",
                     op_str,
                     left_type.arabic_name(),
@@ -184,7 +178,6 @@ impl Analyzer {
             result_type
         } else {
             self.error(
-                &format!("Cannot apply operator '{}' to {}", op_str, operand_type),
                 &format!(
                     "لا يمكن تطبيق العامل '{}' على {}",
                     op_str,
@@ -211,7 +204,6 @@ impl Analyzer {
             } => {
                 if args.len() != params.len() {
                     self.error(
-                        &format!("Expected {} arguments, got {}", params.len(), args.len()),
                         &format!("متوقع {} معاملات، وُجد {}", params.len(), args.len()),
                         span,
                     );
@@ -225,7 +217,6 @@ impl Analyzer {
                             param_type,
                             &arg_type,
                             arg.span,
-                            &format!("argument {}", i + 1),
                             &format!("المعامل {}", i + 1),
                             &ERR_TYPE_MISMATCH.to_string(),
                         );
@@ -242,7 +233,6 @@ impl Analyzer {
             }
             _ => {
                 self.error(
-                    &format!("Cannot call non-function type {}", callee_type),
                     &format!("لا يمكن استدعاء نوع غير دالة {}", callee_type.arabic_name()),
                     callee.span,
                 );
@@ -259,11 +249,7 @@ impl Analyzer {
         match object_type {
             Type::Array(inner) => {
                 if !index_type.is_compatible_with(&Type::Int) {
-                    self.error(
-                        "Array index must be an integer",
-                        "فهرس المصفوفة يجب أن يكون عدداً صحيحاً",
-                        index.span,
-                    );
+                    self.error("فهرس المصفوفة يجب أن يكون عدداً صحيحاً", index.span);
                 }
                 *inner
             }
@@ -274,7 +260,6 @@ impl Analyzer {
                         &k,
                         &index_type,
                         index.span,
-                        "map key",
                         "مفتاح القاموس",
                         &ERR_TYPE_MISMATCH.to_string(),
                     );
@@ -283,17 +268,12 @@ impl Analyzer {
             }
             Type::String => {
                 if !index_type.is_compatible_with(&Type::Int) {
-                    self.error(
-                        "String index must be an integer",
-                        "فهرس النص يجب أن يكون عدداً صحيحاً",
-                        index.span,
-                    );
+                    self.error("فهرس النص يجب أن يكون عدداً صحيحاً", index.span);
                 }
                 Type::String
             }
             _ => {
                 self.error(
-                    &format!("Cannot index into {}", object_type),
                     &format!("لا يمكن الفهرسة في {}", object_type.arabic_name()),
                     object.span,
                 );
@@ -314,7 +294,6 @@ impl Analyzer {
                     if !mutable {
                         use crate::error::codes::ERR_CONST_ASSIGNMENT;
                         self.error_with_code(
-                            &format!("Cannot assign to immutable variable '{}'", name),
                             &format!("لا يمكن تعيين قيمة لمتغير ثابت '{}'", name),
                             target.span,
                             &ERR_CONST_ASSIGNMENT.to_string(),
@@ -326,7 +305,6 @@ impl Analyzer {
                             &ty,
                             &value_type,
                             value.span,
-                            "assignment",
                             "التعيين",
                             &ERR_TYPE_MISMATCH.to_string(),
                         );
@@ -335,7 +313,6 @@ impl Analyzer {
                     use crate::error::codes::ERR_UNDEFINED_VARIABLE;
                     let similar_names = self.find_similar_names(name, 3);
                     self.undefined_error(
-                        "variable",
                         "متغير",
                         name,
                         target.span,
@@ -348,11 +325,7 @@ impl Analyzer {
                 self.infer_type(object);
             }
             _ => {
-                self.error(
-                    "Invalid assignment target",
-                    "هدف تعيين غير صالح",
-                    target.span,
-                );
+                self.error("هدف تعيين غير صالح", target.span);
             }
         }
 
@@ -377,7 +350,6 @@ impl Analyzer {
                         &first_type,
                         &elem_type,
                         elem.span,
-                        "array element",
                         "عنصر المصفوفة",
                         &ERR_TYPE_MISMATCH.to_string(),
                     );
@@ -474,11 +446,7 @@ impl Analyzer {
         let class_name = match &class.kind {
             ExprKind::Identifier(name) => name.clone(),
             _ => {
-                self.error(
-                    "New expression requires a class name",
-                    "تعبير جديد يتطلب اسم صنف",
-                    class.span,
-                );
+                self.error("تعبير جديد يتطلب اسم صنف", class.span);
                 return Type::Error;
             }
         };
@@ -489,17 +457,11 @@ impl Analyzer {
             if class_info.is_generic() {
                 if type_args.is_empty() {
                     self.error(
-                        &format!("Generic class '{}' requires type arguments", class_name),
                         &format!("الصنف المعمم '{}' يتطلب معاملات نوع", class_name),
                         span,
                     );
                 } else if type_args.len() != class_info.type_params.len() {
                     self.error(
-                        &format!(
-                            "Wrong number of type arguments: expected {}, got {}",
-                            class_info.type_params.len(),
-                            type_args.len()
-                        ),
                         &format!(
                             "عدد خاطئ لمعاملات النوع: متوقع {}، وُجد {}",
                             class_info.type_params.len(),
@@ -531,10 +493,6 @@ impl Analyzer {
                 }
             } else if !type_args.is_empty() {
                 self.error(
-                    &format!(
-                        "Class '{}' is not generic but type arguments were provided",
-                        class_name
-                    ),
                     &format!("الصنف '{}' ليس معمماً لكن تم تقديم معاملات نوع", class_name),
                     span,
                 );
@@ -544,11 +502,6 @@ impl Analyzer {
                 let expected_params = &ctor.params;
                 if args.len() != expected_params.len() {
                     self.error(
-                        &format!(
-                            "Constructor expects {} arguments, got {}",
-                            expected_params.len(),
-                            args.len()
-                        ),
                         &format!(
                             "المنشئ يتوقع {} معاملات، وُجد {}",
                             expected_params.len(),
@@ -568,18 +521,13 @@ impl Analyzer {
                             param_type,
                             &arg_type,
                             arg.span,
-                            &format!("constructor argument {}", i + 1),
                             &format!("معامل المنشئ {}", i + 1),
                             &ERR_TYPE_MISMATCH.to_string(),
                         );
                     }
                 }
             } else if !args.is_empty() {
-                self.error(
-                    &format!("Class '{}' has no constructor", class_name),
-                    &format!("الصنف '{}' ليس له منشئ", class_name),
-                    span,
-                );
+                self.error(&format!("الصنف '{}' ليس له منشئ", class_name), span);
             }
 
             Type::Class(class_name)
@@ -598,7 +546,6 @@ impl Analyzer {
                 .cloned()
                 .collect();
             self.undefined_error(
-                "class",
                 "صنف",
                 &class_name,
                 class.span,
@@ -619,11 +566,7 @@ impl Analyzer {
     ) -> Type {
         let cond_type = self.infer_type(condition);
         if !cond_type.is_compatible_with(&Type::Bool) {
-            self.error(
-                "Ternary condition must be boolean",
-                "شرط العامل الثلاثي يجب أن يكون منطقياً",
-                condition.span,
-            );
+            self.error("شرط العامل الثلاثي يجب أن يكون منطقياً", condition.span);
         }
 
         let then_type = self.infer_type(then_expr);
@@ -633,10 +576,6 @@ impl Analyzer {
             then_type
         } else {
             self.error(
-                &format!(
-                    "Ternary branches have incompatible types: {} and {}",
-                    then_type, else_type
-                ),
                 &format!(
                     "فروع العامل الثلاثي غير متوافقة: {} و {}",
                     then_type.arabic_name(),
@@ -653,7 +592,6 @@ impl Analyzer {
         if !self.scope.is_in_class() {
             use crate::error::codes::ERR_SUPER_OUTSIDE_CLASS;
             self.error_with_code(
-                "'super' can only be used inside a class",
                 "'الأصل' يمكن استخدامها فقط داخل صنف",
                 span,
                 &ERR_SUPER_OUTSIDE_CLASS.to_string(),
@@ -664,11 +602,7 @@ impl Analyzer {
                 if let Some(ref parent_name) = class.parent {
                     Type::Class(parent_name.clone())
                 } else {
-                    self.error(
-                        "Cannot use 'super' in a class without a parent",
-                        "لا يمكن استخدام 'الأصل' في صنف بدون أب",
-                        span,
-                    );
+                    self.error("لا يمكن استخدام 'الأصل' في صنف بدون أب", span);
                     Type::Error
                 }
             } else {
@@ -698,13 +632,6 @@ impl Analyzer {
                 if args.len() != variant.fields.len() {
                     self.error(
                         &format!(
-                            "Variant '{}::{}' expects {} argument(s), got {}",
-                            enum_name,
-                            variant_name,
-                            variant.fields.len(),
-                            args.len()
-                        ),
-                        &format!(
                             "الحالة '{}::{}' تتوقع {} معامل(ات)، وُجد {}",
                             enum_name,
                             variant_name,
@@ -725,12 +652,6 @@ impl Analyzer {
                                 arg_ty,
                                 args[i].span,
                                 &format!(
-                                    "enum variant '{}::{}' argument {}",
-                                    enum_name,
-                                    variant_name,
-                                    i + 1
-                                ),
-                                &format!(
                                     "معامل {} للحالة '{}::{}'",
                                     i + 1,
                                     enum_name,
@@ -745,10 +666,6 @@ impl Analyzer {
             } else {
                 // Variant not found
                 self.error(
-                    &format!(
-                        "Variant '{}' not found in enum '{}'",
-                        variant_name, enum_name
-                    ),
                     &format!(
                         "الحالة '{}' غير موجودة في التعداد '{}'",
                         variant_name, enum_name
@@ -805,10 +722,6 @@ impl Analyzer {
                     if self.class_resolver.get_class(class_name).is_some() {
                         self.error_with_code(
                             &format!(
-                                "Property '{}' not found on class '{}'",
-                                property, class_name
-                            ),
-                            &format!(
                                 "الخاصية '{}' غير موجودة في الصنف '{}'",
                                 property, class_name
                             ),
@@ -848,10 +761,6 @@ impl Analyzer {
                 }
                 self.error_with_code(
                     &format!(
-                        "Cannot access private member '{}' of class '{}'",
-                        member_name, member_class
-                    ),
-                    &format!(
                         "لا يمكن الوصول للعضو الخاص '{}' من الصنف '{}'",
                         member_name, member_class
                     ),
@@ -873,10 +782,6 @@ impl Analyzer {
                     }
                 }
                 self.error_with_code(
-                    &format!(
-                        "Cannot access protected member '{}' of class '{}' from outside its hierarchy",
-                        member_name, member_class
-                    ),
                     &format!(
                         "لا يمكن الوصول للعضو المحمي '{}' من الصنف '{}' من خارج تسلسله الهرمي",
                         member_name, member_class

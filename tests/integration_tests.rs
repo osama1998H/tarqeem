@@ -45,7 +45,7 @@ fn interpret_source(source: &str) -> Result<String, String> {
     let ir_builder = IrBuilder::new("test".to_string());
     let ir_module = ir_builder
         .build(&ast)
-        .map_err(|e| format!("{}: {}", e.message, e.message_ar))?;
+        .map_err(|e| format!("{}", e.message))?;
 
     let mut interpreter = Interpreter::new(ir_module);
     let result = interpreter.run().map_err(|e| format!("{:?}", e))?;

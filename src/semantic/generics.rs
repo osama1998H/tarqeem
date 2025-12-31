@@ -183,11 +183,6 @@ impl GenericResolver {
             let min_args = params.iter().filter(|p| p.default.is_none()).count();
             if args.len() < min_args || args.len() > params.len() {
                 self.diagnostics.push(Diagnostic::error(
-                    format!(
-                        "Expected {} type arguments, got {}",
-                        params.len(),
-                        args.len()
-                    ),
                     format!("متوقع {} معاملات نوع، وُجد {}", params.len(), args.len()),
                     span,
                 ));
@@ -204,7 +199,6 @@ impl GenericResolver {
                 default
             } else {
                 self.diagnostics.push(Diagnostic::error(
-                    format!("Missing type argument for '{}'", param.name),
                     format!("معامل نوع مفقود لـ '{}'", param.name),
                     span,
                 ));
@@ -213,10 +207,6 @@ impl GenericResolver {
 
             if !param.satisfies(arg) {
                 self.diagnostics.push(Diagnostic::error(
-                    format!(
-                        "Type '{}' does not satisfy constraint for '{}'",
-                        arg, param.name
-                    ),
                     format!(
                         "النوع '{}' لا يستوفي القيد لـ '{}'",
                         arg.arabic_name(),

@@ -343,7 +343,7 @@ mod error_tests {
 
     #[test]
     fn test_error_kinds() {
-        let comp_err = JitError::compilation("test", "اختبار");
+        let comp_err = JitError::compilation("اختبار");
         assert_eq!(comp_err.kind, JitErrorKind::Compilation);
 
         let unsupported = JitError::unsupported_instruction("CallVirtual");
@@ -363,11 +363,10 @@ mod error_tests {
     }
 
     #[test]
-    fn test_bilingual_error_messages() {
-        let err = JitError::memory("out of memory");
+    fn test_arabic_error_messages() {
+        let err = JitError::memory("نفاد الذاكرة");
 
-        assert!(err.message.contains("Memory allocation failed"));
-        assert!(err.message_ar.contains("فشل في تخصيص الذاكرة"));
+        assert!(err.message.contains("فشل في تخصيص الذاكرة"));
     }
 }
 

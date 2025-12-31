@@ -115,8 +115,7 @@
 
 ```rust
 pub struct Diagnostic {
-    pub message: String,      // English (required)
-    pub message_ar: String,   // Arabic (required)
+    pub message: String,   // Arabic (required)
     pub span: Span,
     pub level: DiagnosticLevel,
 }

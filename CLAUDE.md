@@ -294,8 +294,7 @@ Always provide both Arabic and English error messages:
 
 ```rust
 Diagnostic {
-    message: "Cannot assign to immutable variable",
-    message_ar: "لا يمكن تعيين قيمة لمتغير ثابت",
+    message: "لا يمكن تعيين قيمة لمتغير ثابت",
     // ...
 }
 ```
