@@ -41,28 +41,47 @@ pub(super) fn warn_invalid_extension(file: &Path) {
 }
 
 pub(super) fn find_runtime() -> Option<PathBuf> {
-    // Build search paths, filtering out None values
+    // Build search paths in priority order
     let mut search_paths: Vec<PathBuf> = Vec::new();
 
-    // Relative to executable
+    // 1. TARQEEM_HOME environment variable (highest priority)
+    if let Ok(tarqeem_home) = std::env::var("TARQEEM_HOME") {
+        search_paths.push(PathBuf::from(&tarqeem_home).join("lib/libtrq.a"));
+    }
+
+    // 2. Relative to executable (for development)
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             search_paths.push(parent.join("runtime/libtrq.a"));
             search_paths.push(parent.join("../runtime/libtrq.a"));
+            // Also check lib/ next to executable (installed layout)
+            search_paths.push(parent.join("../lib/libtrq.a"));
         }
     }
 
-    // Relative to current directory
+    // 3. Relative to current directory (for development)
     search_paths.push(PathBuf::from("runtime/libtrq.a"));
 
-    // User-local path (~/.tarqeem/lib/libtrq.a)
+    // 4. User-local path (~/.tarqeem/lib/libtrq.a)
     if let Some(home) = dirs::home_dir() {
         search_paths.push(home.join(".tarqeem/lib/libtrq.a"));
     }
 
-    // System paths
-    search_paths.push(PathBuf::from("/usr/local/lib/tarqeem/libtrq.a"));
-    search_paths.push(PathBuf::from("/usr/lib/tarqeem/libtrq.a"));
+    // 5. System paths (Unix)
+    #[cfg(unix)]
+    {
+        search_paths.push(PathBuf::from("/usr/local/lib/tarqeem/libtrq.a"));
+        search_paths.push(PathBuf::from("/usr/lib/tarqeem/libtrq.a"));
+    }
+
+    // 5. System paths (Windows)
+    #[cfg(windows)]
+    {
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            search_paths.push(PathBuf::from(&local_app_data).join("Tarqeem/lib/libtrq.a"));
+        }
+        search_paths.push(PathBuf::from("C:/Program Files/Tarqeem/lib/libtrq.a"));
+    }
 
     for path in &search_paths {
         if path.exists() {
@@ -75,42 +94,95 @@ pub(super) fn find_runtime() -> Option<PathBuf> {
 
 /// Find the WebAssembly runtime library
 pub(super) fn find_wasm_runtime() -> Option<PathBuf> {
-    let search_paths: Vec<Option<PathBuf>> = vec![
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.join("runtime/wasm/libtrq_wasm.a"))),
-        std::env::current_exe().ok().and_then(|p| {
-            p.parent()
-                .and_then(|p| p.parent().map(|p| p.join("runtime/wasm/libtrq_wasm.a")))
-        }),
-        Some(PathBuf::from("runtime/wasm/libtrq_wasm.a")),
-        Some(PathBuf::from("/usr/local/lib/tarqeem/libtrq_wasm.a")),
-        Some(PathBuf::from("/usr/lib/tarqeem/libtrq_wasm.a")),
-    ];
+    let mut search_paths: Vec<PathBuf> = Vec::new();
 
-    search_paths
-        .into_iter()
-        .flatten()
-        .find(|path| path.exists())
+    // 1. TARQEEM_HOME environment variable (highest priority)
+    if let Ok(tarqeem_home) = std::env::var("TARQEEM_HOME") {
+        search_paths.push(PathBuf::from(&tarqeem_home).join("lib/libtrq_wasm.a"));
+    }
+
+    // 2. Relative to executable
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            search_paths.push(parent.join("runtime/wasm/libtrq_wasm.a"));
+            if let Some(grandparent) = parent.parent() {
+                search_paths.push(grandparent.join("runtime/wasm/libtrq_wasm.a"));
+                search_paths.push(grandparent.join("lib/libtrq_wasm.a"));
+            }
+        }
+    }
+
+    // 3. Relative to current directory
+    search_paths.push(PathBuf::from("runtime/wasm/libtrq_wasm.a"));
+
+    // 4. User-local path
+    if let Some(home) = dirs::home_dir() {
+        search_paths.push(home.join(".tarqeem/lib/libtrq_wasm.a"));
+    }
+
+    // 5. System paths (Unix)
+    #[cfg(unix)]
+    {
+        search_paths.push(PathBuf::from("/usr/local/lib/tarqeem/libtrq_wasm.a"));
+        search_paths.push(PathBuf::from("/usr/lib/tarqeem/libtrq_wasm.a"));
+    }
+
+    // 5. System paths (Windows)
+    #[cfg(windows)]
+    {
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            search_paths.push(PathBuf::from(&local_app_data).join("Tarqeem/lib/libtrq_wasm.a"));
+        }
+        search_paths.push(PathBuf::from("C:/Program Files/Tarqeem/lib/libtrq_wasm.a"));
+    }
+
+    search_paths.into_iter().find(|path| path.exists())
 }
 
 fn find_stdlib_path() -> Option<PathBuf> {
-    let search_paths: Vec<Option<PathBuf>> = vec![
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.join("stdlib_trq"))),
-        std::env::current_exe().ok().and_then(|p| {
-            p.parent()
-                .and_then(|p| p.parent().map(|p| p.join("stdlib_trq")))
-        }),
-        Some(PathBuf::from("stdlib_trq")),
-        Some(PathBuf::from("/usr/local/lib/tarqeem/stdlib_trq")),
-        Some(PathBuf::from("/usr/lib/tarqeem/stdlib_trq")),
-    ];
+    let mut search_paths: Vec<PathBuf> = Vec::new();
+
+    // 1. TARQEEM_HOME environment variable (highest priority)
+    if let Ok(tarqeem_home) = std::env::var("TARQEEM_HOME") {
+        search_paths.push(PathBuf::from(&tarqeem_home).join("stdlib_trq"));
+    }
+
+    // 2. Relative to executable
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            search_paths.push(parent.join("stdlib_trq"));
+            if let Some(grandparent) = parent.parent() {
+                search_paths.push(grandparent.join("stdlib_trq"));
+            }
+        }
+    }
+
+    // 3. Relative to current directory
+    search_paths.push(PathBuf::from("stdlib_trq"));
+
+    // 4. User-local path
+    if let Some(home) = dirs::home_dir() {
+        search_paths.push(home.join(".tarqeem/stdlib_trq"));
+    }
+
+    // 5. System paths (Unix)
+    #[cfg(unix)]
+    {
+        search_paths.push(PathBuf::from("/usr/local/lib/tarqeem/stdlib_trq"));
+        search_paths.push(PathBuf::from("/usr/lib/tarqeem/stdlib_trq"));
+    }
+
+    // 5. System paths (Windows)
+    #[cfg(windows)]
+    {
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            search_paths.push(PathBuf::from(&local_app_data).join("Tarqeem/stdlib_trq"));
+        }
+        search_paths.push(PathBuf::from("C:/Program Files/Tarqeem/stdlib_trq"));
+    }
 
     search_paths
         .into_iter()
-        .flatten()
         .find(|path| path.exists() && path.is_dir())
 }
 
