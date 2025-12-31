@@ -1,92 +1,106 @@
 <div dir="rtl" align="right">
 
-# دليل البداية السريعة | Getting Started
+# دليل البداية السريعة
 
-ابدأ مع ترقيم في 5 دقائق!
+ابدأ مع ترقيم في ٥ دقائق!
 
-</div>
+---
 
-## Prerequisites | المتطلبات
+## المتطلبات
 
-- [Rust](https://rustup.rs/) (1.70+)
-- Git
+- [رَست](https://rustup.rs/) (الإصدار ١.٧٠ أو أحدث)
+- جِت (Git)
 
-## Installation | التثبيت
+---
+
+## التثبيت
 
 ```bash
-# Clone the repository
+# استنساخ المستودع
 git clone https://github.com/osama1998H/tarqeem.git
 cd tarqeem
 
-# Build
+# البناء
 cargo build --release
 
-# Verify installation
+# التحقق من التثبيت
 cargo run -- --version
 ```
 
-## Hello World | مرحباً بالعالم
+---
 
-Create a file named `مرحبا.ترقيم`:
+## مرحباً بالعالم
+
+أنشئ ملفاً باسم `مرحبا.ترقيم`:
 
 ```tarqeem
-اطبع("مرحباً بالعالم!");
+اطبع("مرحباً بالعالم!")
 ```
 
-## Run Your Program | تشغيل البرنامج
+---
+
+## تشغيل البرنامج
 
 ```bash
-# Run directly
+# التشغيل المباشر
 cargo run -- run مرحبا.ترقيم
 
-# Or compile first
+# أو الترجمة أولاً ثم التشغيل
 cargo run -- compile مرحبا.ترقيم -o مرحبا
 ./مرحبا
 ```
 
-## Quick Examples | أمثلة سريعة
+---
 
-### Variables | المتغيرات
+## أمثلة سريعة
+
+### المتغيرات
 
 ```tarqeem
-متغير اسم = "أحمد";
-ثابت عمر = 25;
-اطبع(اسم);
+متغير اسم = "أحمد"
+ثابت عمر = ٢٥
+اطبع(اسم)
 ```
 
-### Functions | الدوال
+### الدوال
 
 ```tarqeem
 دالة جمع(أ: عدد، ب: عدد) -> عدد {
-    أرجع أ + ب;
+    أرجع أ + ب
 }
 
-اطبع(جمع(5، 3));  // 8
+اطبع(جمع(٥، ٣))  // ٨
 ```
 
-### Conditionals | الشروط
+### الشروط
 
 ```tarqeem
-متغير س = 10;
+متغير س = ١٠
 
-إذا (س > 5) {
-    اطبع("أكبر من خمسة");
+إذا (س > ٥) {
+    اطبع("أكبر من خمسة")
 } وإلا {
-    اطبع("خمسة أو أقل");
+    اطبع("خمسة أو أقل")
 }
 ```
 
-## Common Commands | الأوامر الشائعة
+---
 
-| Command                           | Description            |
-|-----------------------------------|------------------------|
-| `cargo run -- run file.ترقيم`     | Run a program          |
-| `cargo run -- compile file.ترقيم` | Compile to binary      |
-| `cargo run -- check file.ترقيم`   | Check for errors       |
-| `cargo run -- repl`               | Start interactive mode |
+## الأوامر الشائعة
 
-## Next Steps | الخطوات التالية
+| الأمر | الوصف |
+|-------|-------|
+| `cargo run -- run ملف.ترقيم` | تشغيل البرنامج |
+| `cargo run -- compile ملف.ترقيم` | ترجمة إلى ملف تنفيذي |
+| `cargo run -- check ملف.ترقيم` | فحص الأخطاء |
+| `cargo run -- repl` | الوضع التفاعلي |
 
-- See [examples/](examples/) for more code samples
-- Read [README.md](README.md) for full language reference
-- Check [ARCHITECTURE.md](ARCHITECTURE.md) for technical details
+---
+
+## الخطوات التالية
+
+- اطلع على [أمثلة/](examples/) لمزيد من نماذج الكود
+- اقرأ [README.md](README.md) للمرجع الكامل للغة
+- راجع [ARCHITECTURE.md](ARCHITECTURE.md) للتفاصيل التقنية
+
+</div>
