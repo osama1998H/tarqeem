@@ -24,9 +24,10 @@ fn value_to_byte(v: &Value) -> Result<u8, RuntimeError> {
     if (0..=255).contains(&i) {
         Ok(i as u8)
     } else {
-        Err(RuntimeError::invalid_operation(
-            format!("قيمة البايت يجب أن تكون 0-255، حصلنا على {}", i),
-        ))
+        Err(RuntimeError::invalid_operation(format!(
+            "قيمة البايت يجب أن تكون 0-255، حصلنا على {}",
+            i
+        )))
     }
 }
 
@@ -206,11 +207,9 @@ impl Interpreter {
             }
 
             "طول" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "طول() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("طول() تتطلب معامل واحد"))?;
 
                 match val {
                     Value::Array(arr) => Ok(Value::Int(arr.borrow().len() as i64)),
@@ -220,20 +219,16 @@ impl Interpreter {
             }
 
             "نوع" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "نوع() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("نوع() تتطلب معامل واحد"))?;
                 Ok(Value::string(val.type_name_ar()))
             }
 
             "عدد" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "عدد() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("عدد() تتطلب معامل واحد"))?;
 
                 match val {
                     Value::Int(i) => Ok(Value::Int(*i)),
@@ -252,9 +247,7 @@ impl Interpreter {
 
             "عدد_عشري" => {
                 let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "عدد_عشري() تتطلب معامل واحد",
-                    )
+                    RuntimeError::invalid_operation("عدد_عشري() تتطلب معامل واحد")
                 })?;
 
                 match val {
@@ -272,29 +265,23 @@ impl Interpreter {
             }
 
             "نص" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "نص() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("نص() تتطلب معامل واحد"))?;
                 Ok(Value::string(val.to_display_string()))
             }
 
             "منطقي" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "منطقي() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("منطقي() تتطلب معامل واحد"))?;
                 Ok(Value::Bool(val.is_truthy()))
             }
 
             "مطلق" | "مطلق_عدد" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "مطلق() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("مطلق() تتطلب معامل واحد"))?;
 
                 match val {
                     Value::Int(i) => Ok(Value::Int(i.abs())),
@@ -304,16 +291,12 @@ impl Interpreter {
             }
 
             "قوة" | "قوة_عدد" => {
-                let base = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "قوة() تتطلب معاملين",
-                    )
-                })?;
-                let exp = args.get(1).ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "قوة() تتطلب معاملين",
-                    )
-                })?;
+                let base = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("قوة() تتطلب معاملين"))?;
+                let exp = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::invalid_operation("قوة() تتطلب معاملين"))?;
 
                 match (base, exp) {
                     (Value::Int(b), Value::Int(e)) if *e >= 0 => Ok(Value::Int(b.pow(*e as u32))),
@@ -331,11 +314,9 @@ impl Interpreter {
             }
 
             "جذر" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "جذر() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("جذر() تتطلب معامل واحد"))?;
 
                 let f = val
                     .as_float()
@@ -345,9 +326,7 @@ impl Interpreter {
 
             "جذر_تكعيبي" => {
                 let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "جذر_تكعيبي() تتطلب معامل واحد",
-                    )
+                    RuntimeError::invalid_operation("جذر_تكعيبي() تتطلب معامل واحد")
                 })?;
 
                 let f = val
@@ -358,9 +337,7 @@ impl Interpreter {
 
             "لوغاريتم" => {
                 let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "لوغاريتم() تتطلب معامل واحد",
-                    )
+                    RuntimeError::invalid_operation("لوغاريتم() تتطلب معامل واحد")
                 })?;
                 let f = val
                     .as_float()
@@ -369,11 +346,9 @@ impl Interpreter {
             }
 
             "لوغ10" | "لوغاريتم10" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "لوغ10() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("لوغ10() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
@@ -381,11 +356,9 @@ impl Interpreter {
             }
 
             "لوغ2" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "لوغ2() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("لوغ2() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
@@ -393,11 +366,9 @@ impl Interpreter {
             }
 
             "أس" | "أسي" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "أس() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("أس() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
@@ -405,11 +376,9 @@ impl Interpreter {
             }
 
             "أرضية" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "أرضية() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("أرضية() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
@@ -417,11 +386,9 @@ impl Interpreter {
             }
 
             "سقف" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "سقف() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("سقف() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
@@ -429,11 +396,9 @@ impl Interpreter {
             }
 
             "قرب" | "قرّب" | "تقريب" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "قرب() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("قرب() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
@@ -441,11 +406,9 @@ impl Interpreter {
             }
 
             "اقتطع" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "اقتطع() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("اقتطع() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
@@ -453,16 +416,12 @@ impl Interpreter {
             }
 
             "أقل" | "أدنى" | "أقل_عدد" => {
-                let a = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "أقل() تتطلب معاملين",
-                    )
-                })?;
-                let b = args.get(1).ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "أقل() تتطلب معاملين",
-                    )
-                })?;
+                let a = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("أقل() تتطلب معاملين"))?;
+                let b = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::invalid_operation("أقل() تتطلب معاملين"))?;
 
                 match (a, b) {
                     (Value::Int(x), Value::Int(y)) => Ok(Value::Int(*x.min(y))),
@@ -474,16 +433,12 @@ impl Interpreter {
             }
 
             "أكبر" | "أقصى" | "أكبر_عدد" => {
-                let a = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "أكبر() تتطلب معاملين",
-                    )
-                })?;
-                let b = args.get(1).ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "أكبر() تتطلب معاملين",
-                    )
-                })?;
+                let a = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("أكبر() تتطلب معاملين"))?;
+                let b = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::invalid_operation("أكبر() تتطلب معاملين"))?;
 
                 match (a, b) {
                     (Value::Int(x), Value::Int(y)) => Ok(Value::Int(*x.max(y))),
@@ -495,21 +450,15 @@ impl Interpreter {
             }
 
             "حصر" | "حصر_عدد" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "حصر() تتطلب ثلاثة معاملات",
-                    )
-                })?;
-                let min_val = args.get(1).ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "حصر() تتطلب ثلاثة معاملات",
-                    )
-                })?;
-                let max_val = args.get(2).ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "حصر() تتطلب ثلاثة معاملات",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("حصر() تتطلب ثلاثة معاملات"))?;
+                let min_val = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::invalid_operation("حصر() تتطلب ثلاثة معاملات"))?;
+                let max_val = args
+                    .get(2)
+                    .ok_or_else(|| RuntimeError::invalid_operation("حصر() تتطلب ثلاثة معاملات"))?;
 
                 match (val, min_val, max_val) {
                     (Value::Int(v), Value::Int(mn), Value::Int(mx)) => {
@@ -531,11 +480,9 @@ impl Interpreter {
             }
 
             "علامة" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "علامة() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("علامة() تتطلب معامل واحد"))?;
 
                 match val {
                     Value::Int(i) => Ok(Value::Int(i.signum())),
@@ -555,16 +502,12 @@ impl Interpreter {
             }
 
             "قاسم_مشترك" => {
-                let a = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "قاسم_مشترك() تتطلب معاملين",
-                    )
-                })?;
-                let b = args.get(1).ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "قاسم_مشترك() تتطلب معاملين",
-                    )
-                })?;
+                let a = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("قاسم_مشترك() تتطلب معاملين"))?;
+                let b = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::invalid_operation("قاسم_مشترك() تتطلب معاملين"))?;
 
                 let x = a
                     .as_int()
@@ -589,14 +532,10 @@ impl Interpreter {
 
             "مضاعف_مشترك" => {
                 let a = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "مضاعف_مشترك() تتطلب معاملين",
-                    )
+                    RuntimeError::invalid_operation("مضاعف_مشترك() تتطلب معاملين")
                 })?;
                 let b = args.get(1).ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "مضاعف_مشترك() تتطلب معاملين",
-                    )
+                    RuntimeError::invalid_operation("مضاعف_مشترك() تتطلب معاملين")
                 })?;
 
                 let x = a
@@ -625,11 +564,9 @@ impl Interpreter {
             }
 
             "عاملي" => {
-                let n = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "عاملي() تتطلب معامل واحد",
-                    )
-                })?;
+                let n = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("عاملي() تتطلب معامل واحد"))?;
 
                 let n = n
                     .as_int()
@@ -649,11 +586,9 @@ impl Interpreter {
             }
 
             "جا" | "جيب" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "جيب() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("جيب() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
@@ -662,9 +597,7 @@ impl Interpreter {
 
             "جتا" | "جيب_التمام" => {
                 let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "جيب_التمام() تتطلب معامل واحد",
-                    )
+                    RuntimeError::invalid_operation("جيب_التمام() تتطلب معامل واحد")
                 })?;
                 let f = val
                     .as_float()
@@ -673,11 +606,9 @@ impl Interpreter {
             }
 
             "ظا" | "ظل" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "ظل() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("ظل() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
@@ -686,9 +617,7 @@ impl Interpreter {
 
             "ظتا" | "ظل_التمام" => {
                 let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "ظل_التمام() تتطلب معامل واحد",
-                    )
+                    RuntimeError::invalid_operation("ظل_التمام() تتطلب معامل واحد")
                 })?;
                 let f = val
                     .as_float()
@@ -697,11 +626,9 @@ impl Interpreter {
             }
 
             "قا" | "قاطع" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "قاطع() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("قاطع() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
@@ -710,9 +637,7 @@ impl Interpreter {
 
             "قتا" | "قاطع_التمام" => {
                 let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "قاطع_التمام() تتطلب معامل واحد",
-                    )
+                    RuntimeError::invalid_operation("قاطع_التمام() تتطلب معامل واحد")
                 })?;
                 let f = val
                     .as_float()
@@ -741,9 +666,9 @@ impl Interpreter {
             }
 
             "ظا_عكسي" | "ظل_عكسي" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation("ظل_عكسي() تتطلب معامل واحد")
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("ظل_عكسي() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
@@ -751,12 +676,12 @@ impl Interpreter {
             }
 
             "ظا_عكسي2" | "ظل_عكسي2" => {
-                let y = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation("ظل_عكسي2() تتطلب معاملين")
-                })?;
-                let x = args.get(1).ok_or_else(|| {
-                    RuntimeError::invalid_operation("ظل_عكسي2() تتطلب معاملين")
-                })?;
+                let y = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("ظل_عكسي2() تتطلب معاملين"))?;
+                let x = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::invalid_operation("ظل_عكسي2() تتطلب معاملين"))?;
 
                 let y = y
                     .as_float()
@@ -829,12 +754,12 @@ impl Interpreter {
             }
 
             "عشوائي_بين" | "عشوائي_عدد_بين" => {
-                let min_val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation("عشوائي_بين() تتطلب معاملين")
-                })?;
-                let max_val = args.get(1).ok_or_else(|| {
-                    RuntimeError::invalid_operation("عشوائي_بين() تتطلب معاملين")
-                })?;
+                let min_val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("عشوائي_بين() تتطلب معاملين"))?;
+                let max_val = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::invalid_operation("عشوائي_بين() تتطلب معاملين"))?;
 
                 let min = min_val
                     .as_int()
@@ -876,9 +801,9 @@ impl Interpreter {
             }
 
             "تأكد" => {
-                let cond = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation("تأكد() تتطلب معامل واحد")
-                })?;
+                let cond = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("تأكد() تتطلب معامل واحد"))?;
 
                 if !cond.is_truthy() {
                     return Err(RuntimeError::invalid_operation("فشل التأكيد"));
@@ -887,12 +812,12 @@ impl Interpreter {
             }
 
             "تأكد_رسالة" => {
-                let cond = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation("تأكد_رسالة() تتطلب معاملين")
-                })?;
-                let msg = args.get(1).ok_or_else(|| {
-                    RuntimeError::invalid_operation("تأكد_رسالة() تتطلب معاملين")
-                })?;
+                let cond = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("تأكد_رسالة() تتطلب معاملين"))?;
+                let msg = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::invalid_operation("تأكد_رسالة() تتطلب معاملين"))?;
 
                 if !cond.is_truthy() {
                     let msg_str = msg.to_display_string();
@@ -981,12 +906,12 @@ impl Interpreter {
             }
 
             "نص_يحتوي" => {
-                let haystack = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation("نص_يحتوي() تتطلب معاملين")
-                })?;
-                let needle = args.get(1).ok_or_else(|| {
-                    RuntimeError::invalid_operation("نص_يحتوي() تتطلب معاملين")
-                })?;
+                let haystack = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("نص_يحتوي() تتطلب معاملين"))?;
+                let needle = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::invalid_operation("نص_يحتوي() تتطلب معاملين"))?;
 
                 match (haystack, needle) {
                     (Value::String(h), Value::String(n)) => Ok(Value::Bool(h.contains(n.as_str()))),
@@ -995,12 +920,12 @@ impl Interpreter {
             }
 
             "نص_يبدأ_بـ" => {
-                let text = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation("نص_يبدأ_بـ() تتطلب معاملين")
-                })?;
-                let prefix = args.get(1).ok_or_else(|| {
-                    RuntimeError::invalid_operation("نص_يبدأ_بـ() تتطلب معاملين")
-                })?;
+                let text = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("نص_يبدأ_بـ() تتطلب معاملين"))?;
+                let prefix = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::invalid_operation("نص_يبدأ_بـ() تتطلب معاملين"))?;
 
                 match (text, prefix) {
                     (Value::String(t), Value::String(p)) => {
@@ -1027,9 +952,9 @@ impl Interpreter {
             }
 
             "عدد_لنص" | "trq_int_to_string" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation("عدد_لنص() تتطلب معامل واحد")
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("عدد_لنص() تتطلب معامل واحد"))?;
                 match val {
                     Value::Int(n) => Ok(Value::string(n.to_string())),
                     Value::Float(f) => Ok(Value::string((*f as i64).to_string())),
@@ -1127,12 +1052,12 @@ impl Interpreter {
 
             "طابق_بصمة" => {
                 // Compare two SHA256 hashes (constant-time comparison)
-                let hash1 = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation("طابق_بصمة() تتطلب معاملين")
-                })?;
-                let hash2 = args.get(1).ok_or_else(|| {
-                    RuntimeError::invalid_operation("طابق_بصمة() تتطلب معاملين")
-                })?;
+                let hash1 = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("طابق_بصمة() تتطلب معاملين"))?;
+                let hash2 = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::invalid_operation("طابق_بصمة() تتطلب معاملين"))?;
 
                 let h1 = match hash1 {
                     Value::String(s) => s.clone(),
@@ -1239,9 +1164,9 @@ impl Interpreter {
             // ============================================================
             "اضغط" => {
                 // GZIP compress a string, returns byte array
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation("اضغط() تتطلب معامل واحد")
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("اضغط() تتطلب معامل واحد"))?;
 
                 let text = match val {
                     Value::String(s) => s.clone(),
@@ -1249,12 +1174,12 @@ impl Interpreter {
                 };
 
                 let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-                encoder.write_all(text.as_bytes()).map_err(|e| {
-                    RuntimeError::invalid_operation(format!("فشل الضغط: {}", e))
-                })?;
-                let compressed = encoder.finish().map_err(|e| {
-                    RuntimeError::invalid_operation(format!("فشل الضغط: {}", e))
-                })?;
+                encoder
+                    .write_all(text.as_bytes())
+                    .map_err(|e| RuntimeError::invalid_operation(format!("فشل الضغط: {}", e)))?;
+                let compressed = encoder
+                    .finish()
+                    .map_err(|e| RuntimeError::invalid_operation(format!("فشل الضغط: {}", e)))?;
 
                 let values: Vec<Value> = compressed
                     .into_iter()
@@ -1281,9 +1206,9 @@ impl Interpreter {
 
                 let mut decoder = GzDecoder::new(&bytes[..]);
                 let mut decompressed = String::new();
-                decoder.read_to_string(&mut decompressed).map_err(|e| {
-                    RuntimeError::invalid_operation(format!("فشل فك الضغط: {}", e))
-                })?;
+                decoder
+                    .read_to_string(&mut decompressed)
+                    .map_err(|e| RuntimeError::invalid_operation(format!("فشل فك الضغط: {}", e)))?;
 
                 Ok(Value::string(decompressed))
             }
@@ -1305,12 +1230,12 @@ impl Interpreter {
                 };
 
                 let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-                encoder.write_all(&bytes).map_err(|e| {
-                    RuntimeError::invalid_operation(format!("فشل الضغط: {}", e))
-                })?;
-                let compressed = encoder.finish().map_err(|e| {
-                    RuntimeError::invalid_operation(format!("فشل الضغط: {}", e))
-                })?;
+                encoder
+                    .write_all(&bytes)
+                    .map_err(|e| RuntimeError::invalid_operation(format!("فشل الضغط: {}", e)))?;
+                let compressed = encoder
+                    .finish()
+                    .map_err(|e| RuntimeError::invalid_operation(format!("فشل الضغط: {}", e)))?;
 
                 let values: Vec<Value> = compressed
                     .into_iter()
@@ -1337,9 +1262,9 @@ impl Interpreter {
 
                 let mut decoder = GzDecoder::new(&bytes[..]);
                 let mut decompressed = Vec::new();
-                decoder.read_to_end(&mut decompressed).map_err(|e| {
-                    RuntimeError::invalid_operation(format!("فشل فك الضغط: {}", e))
-                })?;
+                decoder
+                    .read_to_end(&mut decompressed)
+                    .map_err(|e| RuntimeError::invalid_operation(format!("فشل فك الضغط: {}", e)))?;
 
                 let values: Vec<Value> = decompressed
                     .into_iter()
@@ -1375,12 +1300,12 @@ impl Interpreter {
                 })?;
 
                 let mut encoder = GzEncoder::new(output_file, Compression::default());
-                encoder.write_all(&content).map_err(|e| {
-                    RuntimeError::invalid_operation(format!("فشل الضغط: {}", e))
-                })?;
-                encoder.finish().map_err(|e| {
-                    RuntimeError::invalid_operation(format!("فشل الضغط: {}", e))
-                })?;
+                encoder
+                    .write_all(&content)
+                    .map_err(|e| RuntimeError::invalid_operation(format!("فشل الضغط: {}", e)))?;
+                encoder
+                    .finish()
+                    .map_err(|e| RuntimeError::invalid_operation(format!("فشل الضغط: {}", e)))?;
 
                 Ok(Value::Bool(true))
             }
@@ -1409,9 +1334,9 @@ impl Interpreter {
 
                 let mut decoder = GzDecoder::new(&compressed[..]);
                 let mut decompressed = Vec::new();
-                decoder.read_to_end(&mut decompressed).map_err(|e| {
-                    RuntimeError::invalid_operation(format!("فشل فك الضغط: {}", e))
-                })?;
+                decoder
+                    .read_to_end(&mut decompressed)
+                    .map_err(|e| RuntimeError::invalid_operation(format!("فشل فك الضغط: {}", e)))?;
 
                 std::fs::write(output.as_str(), &decompressed).map_err(|e| {
                     RuntimeError::invalid_operation(format!("فشل كتابة الملف '{}': {}", output, e))
@@ -1444,10 +1369,14 @@ impl Interpreter {
             "اكتب_ملف" => {
                 // Write string to file
                 let path = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation("اكتب_ملف() تتطلب معاملين (مسار الملف، المحتوى)")
+                    RuntimeError::invalid_operation(
+                        "اكتب_ملف() تتطلب معاملين (مسار الملف، المحتوى)",
+                    )
                 })?;
                 let content = args.get(1).ok_or_else(|| {
-                    RuntimeError::invalid_operation("اكتب_ملف() تتطلب معاملين (مسار الملف، المحتوى)")
+                    RuntimeError::invalid_operation(
+                        "اكتب_ملف() تتطلب معاملين (مسار الملف، المحتوى)",
+                    )
                 })?;
 
                 let path_str = match path {

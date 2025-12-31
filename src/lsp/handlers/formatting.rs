@@ -48,9 +48,7 @@ fn format_content(content: &str) -> String {
         }
 
         if trimmed.starts_with('}')
-            && (trimmed.contains("وإلا")
-                || trimmed.contains("التقط")
-                || trimmed.contains("أخيراً"))
+            && (trimmed.contains("وإلا") || trimmed.contains("التقط") || trimmed.contains("أخيراً"))
         {
             result.push_str(&indent_str.repeat(indent_level as usize));
             result.push_str(trimmed);

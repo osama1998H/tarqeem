@@ -94,8 +94,7 @@ fn generate_quick_fixes(
             }
         }
 
-        if message.contains("ثابت") || message.contains("غير قابل")
-        {
+        if message.contains("ثابت") || message.contains("غير قابل") {
             actions.push(create_change_to_mutable_action(uri, range));
         }
     }

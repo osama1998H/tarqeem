@@ -107,9 +107,7 @@ impl DebugInterpreter {
     pub fn set_local_variable(&mut self, name: &str, value_str: &str) -> DebugResult<Value> {
         let func_id = {
             let Some(frame) = self.call_stack.last() else {
-                return Err(DebugError::new(
-                    "لا يوجد إطار استدعاء نشط",
-                ));
+                return Err(DebugError::new("لا يوجد إطار استدعاء نشط"));
             };
             frame.func_id.clone()
         };
@@ -118,11 +116,7 @@ impl DebugInterpreter {
             .context
             .source_map()
             .find_variable_by_name(&func_id, name)
-            .ok_or_else(|| {
-                DebugError::new(
-                    format!("المتغير '{}' غير موجود", name),
-                )
-            })?;
+            .ok_or_else(|| DebugError::new(format!("المتغير '{}' غير موجود", name)))?;
 
         let new_value = self.parse_value_string(value_str)?;
 
@@ -135,9 +129,10 @@ impl DebugInterpreter {
 
     pub fn set_global_variable(&mut self, name: &str, value_str: &str) -> DebugResult<Value> {
         if !self.globals.contains_key(name) {
-            return Err(DebugError::new(
-                format!("المتغير العام '{}' غير موجود", name),
-            ));
+            return Err(DebugError::new(format!(
+                "المتغير العام '{}' غير موجود",
+                name
+            )));
         }
 
         let new_value = self.parse_value_string(value_str)?;
@@ -670,9 +665,10 @@ impl DebugInterpreter {
             return Ok(value.clone());
         }
 
-        Err(DebugError::new(
-            format!("لا يمكن تقييم التعبير: {}", expression),
-        ))
+        Err(DebugError::new(format!(
+            "لا يمكن تقييم التعبير: {}",
+            expression
+        )))
     }
 
     fn init_globals(&mut self) -> DebugResult<()> {
@@ -700,9 +696,7 @@ impl DebugInterpreter {
             return Ok(func.id.clone());
         }
 
-        Err(DebugError::new(
-            "الدالة الرئيسية غير موجودة",
-        ))
+        Err(DebugError::new("الدالة الرئيسية غير موجودة"))
     }
 
     fn call_function(&mut self, func_id: &FuncId, args: Vec<Value>) -> RuntimeResult<Value> {

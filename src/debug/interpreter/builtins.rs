@@ -53,11 +53,9 @@ impl DebugInterpreter {
             }
 
             "طول" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "طول() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("طول() تتطلب معامل واحد"))?;
 
                 match val {
                     Value::Array(arr) => Ok(Value::Int(arr.borrow().len() as i64)),
@@ -67,20 +65,16 @@ impl DebugInterpreter {
             }
 
             "نوع" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "نوع() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("نوع() تتطلب معامل واحد"))?;
                 Ok(Value::string(val.type_name_ar()))
             }
 
-             "عدد" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "عدد() تتطلب معامل واحد",
-                    )
-                })?;
+            "عدد" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("عدد() تتطلب معامل واحد"))?;
 
                 match val {
                     Value::Int(i) => Ok(Value::Int(*i)),
@@ -99,9 +93,7 @@ impl DebugInterpreter {
 
             "عدد_عشري" => {
                 let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "عدد_عشري() تتطلب معامل واحد",
-                    )
+                    RuntimeError::invalid_operation("عدد_عشري() تتطلب معامل واحد")
                 })?;
 
                 match val {
@@ -119,29 +111,23 @@ impl DebugInterpreter {
             }
 
             "نص" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "نص() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("نص() تتطلب معامل واحد"))?;
                 Ok(Value::string(val.to_display_string()))
             }
 
             "منطقي" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "منطقي() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("منطقي() تتطلب معامل واحد"))?;
                 Ok(Value::Bool(val.is_truthy()))
             }
             //TODO: this need to convert to arabic مطلق
             "abs" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "abs() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("abs() تتطلب معامل واحد"))?;
 
                 match val {
                     Value::Int(i) => Ok(Value::Int(i.abs())),
@@ -151,77 +137,65 @@ impl DebugInterpreter {
             }
 
             "جذر" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "جذر() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("جذر() تتطلب معامل واحد"))?;
 
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
                 Ok(Value::Float(f.sqrt()))
             }
-            
-            //TODO: this need to convert to arabic 
+
+            //TODO: this need to convert to arabic
             "sin" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "sin() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("sin() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
                 Ok(Value::Float(f.sin()))
             }
-            
-            //TODO: this need to convert to arabic 
+
+            //TODO: this need to convert to arabic
             "cos" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "cos() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("cos() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
                 Ok(Value::Float(f.cos()))
             }
-            
-            //TODO: this need to convert to arabic 
+
+            //TODO: this need to convert to arabic
             "tan" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "tan() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("tan() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
                 Ok(Value::Float(f.tan()))
             }
 
-            //TODO: this need to convert to arabic 
+            //TODO: this need to convert to arabic
             "floor" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "floor() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("floor() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
                 Ok(Value::Float(f.floor()))
             }
 
-            //TODO: this need to convert to arabic 
+            //TODO: this need to convert to arabic
             "ceil" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "ceil() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("ceil() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;
@@ -230,11 +204,9 @@ impl DebugInterpreter {
 
             //TODO: this need to convert to arabic
             "round" => {
-                let val = args.first().ok_or_else(|| {
-                    RuntimeError::invalid_operation(
-                        "round() تتطلب معامل واحد",
-                    )
-                })?;
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("round() تتطلب معامل واحد"))?;
                 let f = val
                     .as_float()
                     .ok_or_else(|| RuntimeError::type_error("numeric", val.type_name()))?;

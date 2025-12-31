@@ -40,10 +40,7 @@ impl RuntimeError {
     }
 
     pub fn division_by_zero() -> Self {
-        Self::new(
-            ErrorKind::DivisionByZero,
-            "القسمة على صفر",
-        )
+        Self::new(ErrorKind::DivisionByZero, "القسمة على صفر")
     }
 
     pub fn index_out_of_bounds(index: i64, len: usize) -> Self {
@@ -68,10 +65,7 @@ impl RuntimeError {
     }
 
     pub fn null_pointer() -> Self {
-        Self::new(
-            ErrorKind::NullPointer,
-            "محاولة الوصول لمؤشر فارغ",
-        )
+        Self::new(ErrorKind::NullPointer, "محاولة الوصول لمؤشر فارغ")
     }
 
     pub fn stack_overflow() -> Self {
@@ -94,10 +88,7 @@ impl RuntimeError {
 
     pub fn internal(msg: impl Into<String>) -> Self {
         let msg = msg.into();
-        Self::new(
-            ErrorKind::Internal,
-            format!("خطأ داخلي: {}", msg),
-        )
+        Self::new(ErrorKind::Internal, format!("خطأ داخلي: {}", msg))
     }
 }
 

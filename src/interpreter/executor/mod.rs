@@ -875,9 +875,10 @@ impl Interpreter {
             BinaryOp::Shl => match (&left, &right) {
                 (Value::Int(a), Value::Int(b)) => {
                     if *b < 0 || *b >= 64 {
-                        return Err(RuntimeError::invalid_operation(
-                            format!("مقدار الإزاحة {} خارج النطاق (0-63)", b),
-                        ));
+                        return Err(RuntimeError::invalid_operation(format!(
+                            "مقدار الإزاحة {} خارج النطاق (0-63)",
+                            b
+                        )));
                     }
                     Ok(Value::Int(*a << *b))
                 }
@@ -886,9 +887,10 @@ impl Interpreter {
             BinaryOp::Shr => match (&left, &right) {
                 (Value::Int(a), Value::Int(b)) => {
                     if *b < 0 || *b >= 64 {
-                        return Err(RuntimeError::invalid_operation(
-                            format!("مقدار الإزاحة {} خارج النطاق (0-63)", b),
-                        ));
+                        return Err(RuntimeError::invalid_operation(format!(
+                            "مقدار الإزاحة {} خارج النطاق (0-63)",
+                            b
+                        )));
                     }
                     Ok(Value::Int(*a >> *b))
                 }
