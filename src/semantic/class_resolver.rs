@@ -87,18 +87,29 @@ impl ClassInfo {
         name: &str,
         resolver: &'a ClassResolver,
     ) -> Option<&'a FieldInfo> {
-        let mut visited = HashSet::new();
-        self.get_field_with_cycle_check(name, resolver, &mut visited)
+        self.get_field_with_defining_class(name, resolver)
+            .map(|(field, _)| field)
     }
 
-    fn get_field_with_cycle_check<'a>(
+    /// Get a field and the name of the class that defines it.
+    /// Returns (field, defining_class_name).
+    pub fn get_field_with_defining_class<'a>(
+        &'a self,
+        name: &str,
+        resolver: &'a ClassResolver,
+    ) -> Option<(&'a FieldInfo, &'a str)> {
+        let mut visited = HashSet::new();
+        self.get_field_with_class_cycle_check(name, resolver, &mut visited)
+    }
+
+    fn get_field_with_class_cycle_check<'a>(
         &'a self,
         name: &str,
         resolver: &'a ClassResolver,
         visited: &mut HashSet<String>,
-    ) -> Option<&'a FieldInfo> {
+    ) -> Option<(&'a FieldInfo, &'a str)> {
         if let Some(field) = self.fields.get(name) {
-            return Some(field);
+            return Some((field, &self.name));
         }
 
         if let Some(parent_name) = &self.parent {
@@ -107,7 +118,7 @@ impl ClassInfo {
             }
             visited.insert(parent_name.clone());
             if let Some(parent) = resolver.get_class(parent_name) {
-                return parent.get_field_with_cycle_check(name, resolver, visited);
+                return parent.get_field_with_class_cycle_check(name, resolver, visited);
             }
         }
 
@@ -119,18 +130,29 @@ impl ClassInfo {
         name: &str,
         resolver: &'a ClassResolver,
     ) -> Option<&'a MethodInfo> {
-        let mut visited = HashSet::new();
-        self.get_method_with_cycle_check(name, resolver, &mut visited)
+        self.get_method_with_defining_class(name, resolver)
+            .map(|(method, _)| method)
     }
 
-    fn get_method_with_cycle_check<'a>(
+    /// Get a method and the name of the class that defines it.
+    /// Returns (method, defining_class_name).
+    pub fn get_method_with_defining_class<'a>(
+        &'a self,
+        name: &str,
+        resolver: &'a ClassResolver,
+    ) -> Option<(&'a MethodInfo, &'a str)> {
+        let mut visited = HashSet::new();
+        self.get_method_with_class_cycle_check(name, resolver, &mut visited)
+    }
+
+    fn get_method_with_class_cycle_check<'a>(
         &'a self,
         name: &str,
         resolver: &'a ClassResolver,
         visited: &mut HashSet<String>,
-    ) -> Option<&'a MethodInfo> {
+    ) -> Option<(&'a MethodInfo, &'a str)> {
         if let Some(method) = self.methods.get(name) {
-            return Some(method);
+            return Some((method, &self.name));
         }
 
         if let Some(parent_name) = &self.parent {
@@ -139,7 +161,7 @@ impl ClassInfo {
             }
             visited.insert(parent_name.clone());
             if let Some(parent) = resolver.get_class(parent_name) {
-                return parent.get_method_with_cycle_check(name, resolver, visited);
+                return parent.get_method_with_class_cycle_check(name, resolver, visited);
             }
         }
 
