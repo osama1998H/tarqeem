@@ -401,7 +401,7 @@ impl DapAdapter {
             Err(e) => {
                 return DapResponse::error(
                     request,
-                    format!("IR error: {} / {}", e.message, e.message),
+                    format!("IR error: {}", e.message),
                 )
             }
         };
