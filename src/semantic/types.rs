@@ -61,7 +61,7 @@ impl Type {
 
             (Type::Int, Type::Float) => true,
 
-            (Type::Null, Type::Optional(_)) => true,
+            (Type::Null, Type::Optional(_)) | (Type::Optional(_), Type::Null) => true,
 
             (t, Type::Optional(inner)) | (Type::Optional(inner), t) => t.is_compatible_with(inner),
 
