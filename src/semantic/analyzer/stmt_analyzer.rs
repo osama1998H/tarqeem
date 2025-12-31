@@ -7,7 +7,7 @@ use super::super::modules::ExportKind;
 use super::super::scope::{ScopeKind, Symbol, SymbolKind};
 use super::super::types::Type;
 use super::{Analyzer, EnumInfo, EnumVariantInfo};
-use crate::error::codes::ERR_CLASS_NOT_FOUND;
+use crate::error::codes::{ERR_CLASS_NOT_FOUND, ERR_NOT_EXPORTED};
 use crate::error::Span;
 use crate::parser::*;
 use std::path::PathBuf;
@@ -964,10 +964,11 @@ impl Analyzer {
                         let ty = self.export_kind_to_type(&exported.kind, &import.name);
                         self.scope.define(Symbol::variable(name, ty, false));
                     } else {
-                        self.error(
+                        self.error_with_code(
                             &format!("Module '{}' has no export named '{}'", from, import.name),
                             &format!("الوحدة '{}' لا تحتوي على تصدير باسم '{}'", from, import.name),
                             span,
+                            &ERR_NOT_EXPORTED.to_string(),
                         );
                         self.scope.define(Symbol::variable(name, Type::Any, false));
                     }

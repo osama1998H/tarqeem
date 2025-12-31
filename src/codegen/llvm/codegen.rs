@@ -4,6 +4,7 @@
 
 use super::{mangle_name, TypeMapper};
 use crate::codegen::Target;
+use crate::error::codes::ERR_LLVM_INTERNAL;
 use crate::ir::{
     BasicBlock, BinaryOp, BlockId, Class, Constant, Function, Instruction, IrType, Module, UnaryOp,
     VarId,
@@ -13,16 +14,18 @@ use std::fmt::Write as FmtWrite;
 
 macro_rules! emit {
     ($self:expr) => {
-        writeln!($self.output).map_err(|e| CodegenError {
-            message: format!("Failed to write LLVM output: {}", e),
-            message_ar: format!("فشل في كتابة مخرجات LLVM: {}", e),
-        })?
+        writeln!($self.output).map_err(|e| CodegenError::with_code(
+            format!("Failed to write LLVM output: {}", e),
+            format!("فشل في كتابة مخرجات LLVM: {}", e),
+            ERR_LLVM_INTERNAL.to_string(),
+        ))?
     };
     ($self:expr, $($arg:tt)*) => {
-        writeln!($self.output, $($arg)*).map_err(|e| CodegenError {
-            message: format!("Failed to write LLVM output: {}", e),
-            message_ar: format!("فشل في كتابة مخرجات LLVM: {}", e),
-        })?
+        writeln!($self.output, $($arg)*).map_err(|e| CodegenError::with_code(
+            format!("Failed to write LLVM output: {}", e),
+            format!("فشل في كتابة مخرجات LLVM: {}", e),
+            ERR_LLVM_INTERNAL.to_string(),
+        ))?
     };
 }
 
@@ -1909,10 +1912,11 @@ impl LlvmCodegen {
             (BinaryOp::Shr, IrType::Int) => "ashr i64",
 
             _ => {
-                return Err(CodegenError {
-                    message: format!("Unsupported binary operation: {:?} on {:?}", op, ty),
-                    message_ar: format!("عملية ثنائية غير مدعومة: {:?} على {:?}", op, ty),
-                });
+                return Err(CodegenError::with_code(
+                    format!("Unsupported binary operation: {:?} on {:?}", op, ty),
+                    format!("عملية ثنائية غير مدعومة: {:?} على {:?}", op, ty),
+                    ERR_LLVM_INTERNAL.to_string(),
+                ));
             }
         };
 
@@ -1950,10 +1954,11 @@ impl LlvmCodegen {
                 emit!(self, "  {} = xor i64 {}, -1", dest_name, operand_name);
             }
             _ => {
-                return Err(CodegenError {
-                    message: format!("Unsupported unary operation: {:?} on {:?}", op, ty),
-                    message_ar: format!("عملية أحادية غير مدعومة: {:?} على {:?}", op, ty),
-                });
+                return Err(CodegenError::with_code(
+                    format!("Unsupported unary operation: {:?} on {:?}", op, ty),
+                    format!("عملية أحادية غير مدعومة: {:?} على {:?}", op, ty),
+                    ERR_LLVM_INTERNAL.to_string(),
+                ));
             }
         }
 
@@ -1977,23 +1982,23 @@ impl LlvmCodegen {
     }
 
     fn get_var(&self, var: VarId) -> Result<String, CodegenError> {
-        self.var_map
-            .get(&var.0)
-            .cloned()
-            .ok_or_else(|| CodegenError {
-                message: format!("Unknown variable: {}", var),
-                message_ar: format!("متغير غير معروف: {}", var),
-            })
+        self.var_map.get(&var.0).cloned().ok_or_else(|| {
+            CodegenError::with_code(
+                format!("Unknown variable: {}", var),
+                format!("متغير غير معروف: {}", var),
+                ERR_LLVM_INTERNAL.to_string(),
+            )
+        })
     }
 
     fn get_block(&self, block: BlockId) -> Result<String, CodegenError> {
-        self.block_map
-            .get(&block.0)
-            .cloned()
-            .ok_or_else(|| CodegenError {
-                message: format!("Unknown block: {}", block),
-                message_ar: format!("كتلة غير معروفة: {}", block),
-            })
+        self.block_map.get(&block.0).cloned().ok_or_else(|| {
+            CodegenError::with_code(
+                format!("Unknown block: {}", block),
+                format!("كتلة غير معروفة: {}", block),
+                ERR_LLVM_INTERNAL.to_string(),
+            )
+        })
     }
 
     fn fresh_name(&mut self, prefix: &str) -> String {
@@ -2006,11 +2011,34 @@ impl LlvmCodegen {
 pub struct CodegenError {
     pub message: String,
     pub message_ar: String,
+    pub code: Option<String>,
+}
+
+impl CodegenError {
+    pub fn new(message: String, message_ar: String) -> Self {
+        Self {
+            message,
+            message_ar,
+            code: None,
+        }
+    }
+
+    pub fn with_code(message: String, message_ar: String, code: String) -> Self {
+        Self {
+            message,
+            message_ar,
+            code: Some(code),
+        }
+    }
 }
 
 impl std::fmt::Display for CodegenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
+        if let Some(ref code) = self.code {
+            write!(f, "[{}] {}", code, self.message)
+        } else {
+            write!(f, "{}", self.message)
+        }
     }
 }
 
