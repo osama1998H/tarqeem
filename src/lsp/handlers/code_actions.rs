@@ -88,14 +88,13 @@ fn generate_quick_fixes(
 
     // Fallback to message-based matching for backward compatibility
     if actions.is_empty() {
-        if message.contains("undefined") || message.contains("غير معرف") {
+        if message.contains("غير معرف") {
             if let Some(name) = extract_identifier_from_message(message) {
                 actions.push(create_declare_variable_action(uri, &name, range));
             }
         }
 
-        if message.contains("immutable") || message.contains("ثابت") || message.contains("غير قابل")
-        {
+        if message.contains("ثابت") || message.contains("غير قابل") {
             actions.push(create_change_to_mutable_action(uri, range));
         }
     }
@@ -337,11 +336,7 @@ mod tests {
 
         let uri = Url::parse("file:///test.ترقيم").unwrap();
         let range = Range::default();
-        let mut diag = Diagnostic::error(
-            "Undefined variable 'س'",
-            "المتغير 'س' غير معرف",
-            Span::new(0, 1, 1, 1),
-        );
+        let mut diag = Diagnostic::error("المتغير 'س' غير معرف", Span::new(0, 1, 1, 1));
         diag.code = Some(ERR_UNDEFINED_VARIABLE.to_string());
 
         let actions = generate_quick_fixes(&uri, &diag, &range, Language::Arabic);
@@ -361,11 +356,7 @@ mod tests {
 
         let uri = Url::parse("file:///test.ترقيم").unwrap();
         let range = Range::default();
-        let mut diag = Diagnostic::error(
-            "Cannot assign to constant",
-            "لا يمكن تعيين قيمة لثابت",
-            Span::new(0, 5, 1, 1),
-        );
+        let mut diag = Diagnostic::error("لا يمكن تعيين قيمة لثابت", Span::new(0, 5, 1, 1));
         diag.code = Some(ERR_CONST_ASSIGNMENT.to_string());
 
         let actions = generate_quick_fixes(&uri, &diag, &range, Language::Arabic);
@@ -384,11 +375,7 @@ mod tests {
 
         let uri = Url::parse("file:///test.ترقيم").unwrap();
         let range = Range::default();
-        let mut diag = Diagnostic::warning(
-            "Unused variable 'س'",
-            "المتغير 'س' غير مستخدم",
-            Span::new(0, 1, 1, 1),
-        );
+        let mut diag = Diagnostic::warning("المتغير 'س' غير مستخدم", Span::new(0, 1, 1, 1));
         diag.code = Some(WARN_UNUSED_VARIABLE.to_string());
 
         let actions = generate_quick_fixes(&uri, &diag, &range, Language::Arabic);
@@ -408,13 +395,8 @@ mod tests {
 
         let uri = Url::parse("file:///test.ترقيم").unwrap();
         let range = Range::default();
-        // No error code set - should fall back to message matching
-        // Using lowercase "undefined" to match the existing pattern
-        let diag = Diagnostic::error(
-            "undefined variable 'س'",
-            "المتغير 'س' غير معرف",
-            Span::new(0, 1, 1, 1),
-        );
+        // No error code set - should fall back to Arabic message matching
+        let diag = Diagnostic::error("المتغير 'س' غير معرف", Span::new(0, 1, 1, 1));
 
         let actions = generate_quick_fixes(&uri, &diag, &range, Language::Arabic);
         assert!(actions.is_some());

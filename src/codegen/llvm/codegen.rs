@@ -15,14 +15,12 @@ use std::fmt::Write as FmtWrite;
 macro_rules! emit {
     ($self:expr) => {
         writeln!($self.output).map_err(|e| CodegenError::with_code(
-            format!("Failed to write LLVM output: {}", e),
             format!("فشل في كتابة مخرجات LLVM: {}", e),
             ERR_LLVM_INTERNAL.to_string(),
         ))?
     };
     ($self:expr, $($arg:tt)*) => {
         writeln!($self.output, $($arg)*).map_err(|e| CodegenError::with_code(
-            format!("Failed to write LLVM output: {}", e),
             format!("فشل في كتابة مخرجات LLVM: {}", e),
             ERR_LLVM_INTERNAL.to_string(),
         ))?
@@ -1913,7 +1911,6 @@ impl LlvmCodegen {
 
             _ => {
                 return Err(CodegenError::with_code(
-                    format!("Unsupported binary operation: {:?} on {:?}", op, ty),
                     format!("عملية ثنائية غير مدعومة: {:?} على {:?}", op, ty),
                     ERR_LLVM_INTERNAL.to_string(),
                 ));
@@ -1955,7 +1952,6 @@ impl LlvmCodegen {
             }
             _ => {
                 return Err(CodegenError::with_code(
-                    format!("Unsupported unary operation: {:?} on {:?}", op, ty),
                     format!("عملية أحادية غير مدعومة: {:?} على {:?}", op, ty),
                     ERR_LLVM_INTERNAL.to_string(),
                 ));
@@ -1984,7 +1980,6 @@ impl LlvmCodegen {
     fn get_var(&self, var: VarId) -> Result<String, CodegenError> {
         self.var_map.get(&var.0).cloned().ok_or_else(|| {
             CodegenError::with_code(
-                format!("Unknown variable: {}", var),
                 format!("متغير غير معروف: {}", var),
                 ERR_LLVM_INTERNAL.to_string(),
             )
@@ -1994,7 +1989,6 @@ impl LlvmCodegen {
     fn get_block(&self, block: BlockId) -> Result<String, CodegenError> {
         self.block_map.get(&block.0).cloned().ok_or_else(|| {
             CodegenError::with_code(
-                format!("Unknown block: {}", block),
                 format!("كتلة غير معروفة: {}", block),
                 ERR_LLVM_INTERNAL.to_string(),
             )
@@ -2010,23 +2004,20 @@ impl LlvmCodegen {
 #[derive(Debug)]
 pub struct CodegenError {
     pub message: String,
-    pub message_ar: String,
     pub code: Option<String>,
 }
 
 impl CodegenError {
-    pub fn new(message: String, message_ar: String) -> Self {
+    pub fn new(message: String) -> Self {
         Self {
             message,
-            message_ar,
             code: None,
         }
     }
 
-    pub fn with_code(message: String, message_ar: String, code: String) -> Self {
+    pub fn with_code(message: String, code: String) -> Self {
         Self {
             message,
-            message_ar,
             code: Some(code),
         }
     }

@@ -1,134 +1,115 @@
-//! JIT Error Types
+//! أخطاء الترجمة الفورية (JIT)
 //!
-//! This module defines error types for the JIT compilation system.
+//! ترقيم لغة برمجة عربية - جميع الرسائل بالعربية فقط
 
 use std::fmt;
 
-/// Result type for JIT operations
+/// نتيجة عمليات JIT
 pub type JitResult<T> = Result<T, JitError>;
 
-/// JIT compilation and execution errors
+/// أخطاء الترجمة الفورية والتنفيذ
 #[derive(Debug, Clone)]
 pub struct JitError {
-    /// Error kind
+    /// نوع الخطأ
     pub kind: JitErrorKind,
 
-    /// Error message (English)
+    /// رسالة الخطأ (بالعربية)
     pub message: String,
 
-    /// Error message (Arabic)
-    pub message_ar: String,
-
-    /// Optional function name where the error occurred
+    /// اسم الدالة (اختياري)
     pub function: Option<String>,
 }
 
 impl JitError {
-    /// Create a new JIT error
-    pub fn new(
-        kind: JitErrorKind,
-        message: impl Into<String>,
-        message_ar: impl Into<String>,
-    ) -> Self {
+    /// إنشاء خطأ JIT جديد
+    pub fn new(kind: JitErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
             message: message.into(),
-            message_ar: message_ar.into(),
             function: None,
         }
     }
 
-    /// Add function context to the error
+    /// إضافة سياق الدالة للخطأ
     pub fn with_function(mut self, function: impl Into<String>) -> Self {
         self.function = Some(function.into());
         self
     }
 
-    /// Create a compilation error
-    pub fn compilation(message: impl Into<String>, message_ar: impl Into<String>) -> Self {
-        Self::new(JitErrorKind::Compilation, message, message_ar)
+    /// إنشاء خطأ ترجمة
+    pub fn compilation(message: impl Into<String>) -> Self {
+        Self::new(JitErrorKind::Compilation, message)
     }
 
-    /// Create an unsupported instruction error
+    /// إنشاء خطأ تعليمة غير مدعومة
     pub fn unsupported_instruction(inst: impl Into<String>) -> Self {
         let inst = inst.into();
         Self::new(
             JitErrorKind::UnsupportedInstruction,
-            format!("Unsupported instruction for JIT compilation: {}", inst),
             format!("تعليمة غير مدعومة للترجمة الفورية: {}", inst),
         )
     }
 
-    /// Create a code generation error
-    pub fn codegen(message: impl Into<String>, message_ar: impl Into<String>) -> Self {
-        Self::new(JitErrorKind::CodeGeneration, message, message_ar)
+    /// إنشاء خطأ توليد الكود
+    pub fn codegen(message: impl Into<String>) -> Self {
+        Self::new(JitErrorKind::CodeGeneration, message)
     }
 
-    /// Create a memory allocation error
+    /// إنشاء خطأ تخصيص الذاكرة
     pub fn memory(message: impl Into<String>) -> Self {
         let msg = message.into();
         Self::new(
             JitErrorKind::MemoryAllocation,
-            format!("Memory allocation failed: {}", msg),
             format!("فشل في تخصيص الذاكرة: {}", msg),
         )
     }
 
-    /// Create a code cache error
+    /// إنشاء خطأ ذاكرة التخزين ممتلئة
     pub fn cache_full() -> Self {
         Self::new(
             JitErrorKind::CacheFull,
-            "Code cache is full, cannot compile more functions",
             "ذاكرة التخزين ممتلئة، لا يمكن ترجمة المزيد من الدوال",
         )
     }
 
-    /// Create a deoptimization error
+    /// إنشاء خطأ إعادة التفسير
     pub fn deoptimization(reason: impl Into<String>) -> Self {
         let reason = reason.into();
         Self::new(
             JitErrorKind::Deoptimization,
-            format!("Deoptimization required: {}", reason),
             format!("مطلوب إعادة التفسير: {}", reason),
         )
     }
 
-    /// Create an internal error
+    /// إنشاء خطأ داخلي
     pub fn internal(message: impl Into<String>) -> Self {
         let msg = message.into();
         Self::new(
             JitErrorKind::Internal,
-            format!("Internal JIT error: {}", msg),
             format!("خطأ داخلي في الترجمة الفورية: {}", msg),
         )
     }
 
-    /// Create an LLVM error
+    /// إنشاء خطأ LLVM
     pub fn llvm(message: impl Into<String>) -> Self {
         let msg = message.into();
-        Self::new(
-            JitErrorKind::LlvmError,
-            format!("LLVM error: {}", msg),
-            format!("خطأ LLVM: {}", msg),
-        )
+        Self::new(JitErrorKind::LlvmError, format!("خطأ LLVM: {}", msg))
     }
 
-    /// Create a tier-up failure error
+    /// إنشاء خطأ فشل الترقية
     pub fn tier_up_failed(from: &str, to: &str, reason: impl Into<String>) -> Self {
         let reason = reason.into();
         Self::new(
             JitErrorKind::TierUpFailed,
-            format!("Failed to tier up from {} to {}: {}", from, to, reason),
             format!("فشل الترقية من {} إلى {}: {}", from, to, reason),
         )
     }
 
-    /// Create a "feature not available" error
+    /// إنشاء خطأ ميزة غير متوفرة
     pub fn not_available(feature: impl Into<String>) -> Self {
         let feature = feature.into();
         Self::new(
             JitErrorKind::NotAvailable,
-            format!("JIT feature not available: {}", feature),
             format!("ميزة الترجمة الفورية غير متوفرة: {}", feature),
         )
     }
@@ -139,61 +120,59 @@ impl fmt::Display for JitError {
         if let Some(ref func) = self.function {
             write!(f, "[{}] ", func)?;
         }
-        write!(f, "{} / {}", self.message, self.message_ar)
+        write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for JitError {}
 
-/// Kind of JIT error
+/// نوع خطأ JIT
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum JitErrorKind {
-    /// Error during compilation
+    /// خطأ أثناء الترجمة
     Compilation,
 
-    /// Unsupported instruction for JIT
+    /// تعليمة غير مدعومة
     UnsupportedInstruction,
 
-    /// Error generating native code
+    /// خطأ توليد الكود
     CodeGeneration,
 
-    /// Memory allocation failed
+    /// فشل تخصيص الذاكرة
     MemoryAllocation,
 
-    /// Code cache is full
+    /// ذاكرة التخزين ممتلئة
     CacheFull,
 
-    /// Deoptimization required
+    /// مطلوب إعادة التفسير
     Deoptimization,
 
-    /// Internal JIT error
+    /// خطأ داخلي
     Internal,
 
-    /// LLVM-specific error
+    /// خطأ LLVM
     LlvmError,
 
-    /// Tier-up failed
+    /// فشل الترقية
     TierUpFailed,
 
-    /// Feature not available
+    /// ميزة غير متوفرة
     NotAvailable,
 }
 
 impl fmt::Display for JitErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            JitErrorKind::Compilation => write!(f, "Compilation / ترجمة"),
-            JitErrorKind::UnsupportedInstruction => {
-                write!(f, "Unsupported Instruction / تعليمة غير مدعومة")
-            }
-            JitErrorKind::CodeGeneration => write!(f, "Code Generation / توليد الكود"),
-            JitErrorKind::MemoryAllocation => write!(f, "Memory Allocation / تخصيص الذاكرة"),
-            JitErrorKind::CacheFull => write!(f, "Cache Full / ذاكرة التخزين ممتلئة"),
-            JitErrorKind::Deoptimization => write!(f, "Deoptimization / إعادة التفسير"),
-            JitErrorKind::Internal => write!(f, "Internal / داخلي"),
-            JitErrorKind::LlvmError => write!(f, "LLVM Error / خطأ LLVM"),
-            JitErrorKind::TierUpFailed => write!(f, "Tier-Up Failed / فشل الترقية"),
-            JitErrorKind::NotAvailable => write!(f, "Not Available / غير متوفر"),
+            JitErrorKind::Compilation => write!(f, "ترجمة"),
+            JitErrorKind::UnsupportedInstruction => write!(f, "تعليمة غير مدعومة"),
+            JitErrorKind::CodeGeneration => write!(f, "توليد الكود"),
+            JitErrorKind::MemoryAllocation => write!(f, "تخصيص الذاكرة"),
+            JitErrorKind::CacheFull => write!(f, "ذاكرة التخزين ممتلئة"),
+            JitErrorKind::Deoptimization => write!(f, "إعادة التفسير"),
+            JitErrorKind::Internal => write!(f, "داخلي"),
+            JitErrorKind::LlvmError => write!(f, "خطأ LLVM"),
+            JitErrorKind::TierUpFailed => write!(f, "فشل الترقية"),
+            JitErrorKind::NotAvailable => write!(f, "غير متوفر"),
         }
     }
 }
@@ -204,16 +183,15 @@ mod tests {
 
     #[test]
     fn test_jit_error_creation() {
-        let err = JitError::compilation("Test error", "خطأ تجريبي");
+        let err = JitError::compilation("خطأ تجريبي");
 
         assert_eq!(err.kind, JitErrorKind::Compilation);
-        assert!(err.message.contains("Test error"));
-        assert!(err.message_ar.contains("خطأ تجريبي"));
+        assert!(err.message.contains("خطأ تجريبي"));
     }
 
     #[test]
     fn test_jit_error_with_function() {
-        let err = JitError::compilation("Test", "تجربة").with_function("my_func");
+        let err = JitError::compilation("تجربة").with_function("my_func");
 
         assert_eq!(err.function, Some("my_func".to_string()));
         let display = format!("{}", err);
@@ -230,7 +208,7 @@ mod tests {
 
     #[test]
     fn test_memory_error() {
-        let err = JitError::memory("out of executable memory");
+        let err = JitError::memory("نفاد الذاكرة");
 
         assert_eq!(err.kind, JitErrorKind::MemoryAllocation);
     }
@@ -244,10 +222,9 @@ mod tests {
 
     #[test]
     fn test_error_display() {
-        let err = JitError::internal("test");
+        let err = JitError::internal("اختبار");
         let display = format!("{}", err);
 
-        assert!(display.contains("Internal JIT error"));
         assert!(display.contains("خطأ داخلي"));
     }
 }

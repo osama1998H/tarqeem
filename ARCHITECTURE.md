@@ -579,12 +579,26 @@ tarqeem/
 كل رسالة خطأ تتوفر بالعربية والإنجليزية:
 
 ```rust
-Diagnostic {
-    message: "Cannot assign to immutable variable",
-    message_ar: "لا يمكن تعيين قيمة لمتغير ثابت",
-    span: Span { ... },
-    notes: vec![...],
-    suggestions: vec![...],
+pub struct Diagnostic {
+    pub level: DiagnosticLevel,
+    pub message: String,
+    pub span: Span,
+    pub notes: Vec<Note>,
+    pub suggestions: Vec<Suggestion>,
+}
+
+impl Diagnostic {
+    pub fn emit(&self, source: &str, lang: Language) {
+        let msg = match lang {
+            Language::Arabic => &self.message_ar,
+            Language::English => &self.message,
+        };
+
+        // Pretty print with source context
+        eprintln!("خطأ: {}", msg);
+        eprintln!("  --> {}:{}:{}", self.span.file, self.span.line, self.span.col);
+        // ...
+    }
 }
 ```
 

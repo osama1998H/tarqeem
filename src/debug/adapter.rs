@@ -382,12 +382,7 @@ impl DapAdapter {
         let mut parser = crate::parser::Parser::new(&source);
         let ast = match parser.parse() {
             Ok(ast) => ast,
-            Err(e) => {
-                return DapResponse::error(
-                    request,
-                    format!("Parse error: {} / {}", e.message, e.message_ar),
-                )
-            }
+            Err(e) => return DapResponse::error(request, format!("خطأ في التحليل: {}", e.message)),
         };
 
         let mut analyzer = crate::semantic::Analyzer::new();
@@ -406,7 +401,7 @@ impl DapAdapter {
             Err(e) => {
                 return DapResponse::error(
                     request,
-                    format!("IR error: {} / {}", e.message, e.message_ar),
+                    format!("IR error: {}", e.message),
                 )
             }
         };
@@ -587,7 +582,7 @@ impl DapAdapter {
             Some(serde_json::json!({
                 "threads": [{
                     "id": self.thread_id,
-                    "name": "Main Thread / الخيط الرئيسي"
+                    "name": "الخيط الرئيسي"
                 }]
             })),
         )
@@ -629,12 +624,12 @@ impl DapAdapter {
             Some(serde_json::json!({
                 "scopes": [
                     {
-                        "name": "Locals / محليات",
+                        "name": "محليات",
                         "variablesReference": locals_ref,
                         "expensive": false
                     },
                     {
-                        "name": "Globals / عالميات",
+                        "name": "عالميات",
                         "variablesReference": globals_ref,
                         "expensive": false
                     }
@@ -760,10 +755,7 @@ impl DapAdapter {
             interpreter.request_pause();
             DapResponse::success(request, None)
         } else {
-            DapResponse::error(
-                request,
-                "No active debug session / لا توجد جلسة تصحيح نشطة".to_string(),
-            )
+            DapResponse::error(request, "لا توجد جلسة تصحيح نشطة".to_string())
         }
     }
 
@@ -781,10 +773,7 @@ impl DapAdapter {
             .unwrap_or("");
 
         if name.is_empty() {
-            return DapResponse::error(
-                request,
-                "Variable name is required / اسم المتغير مطلوب".to_string(),
-            );
+            return DapResponse::error(request, "اسم المتغير مطلوب".to_string());
         }
 
         if let Some(ref mut interpreter) = self.interpreter {
@@ -797,13 +786,10 @@ impl DapAdapter {
                         "variablesReference": 0
                     })),
                 ),
-                Err(e) => DapResponse::error(request, format!("{} / {}", e.message, e.message_ar)),
+                Err(e) => DapResponse::error(request, e.message.clone()),
             }
         } else {
-            DapResponse::error(
-                request,
-                "No active debug session / لا توجد جلسة تصحيح نشطة".to_string(),
-            )
+            DapResponse::error(request, "لا توجد جلسة تصحيح نشطة".to_string())
         }
     }
 
@@ -909,10 +895,7 @@ impl DapAdapter {
                 })),
             )
         } else {
-            DapResponse::error(
-                request,
-                "No active debug session / لا توجد جلسة تصحيح نشطة".to_string(),
-            )
+            DapResponse::error(request, "لا توجد جلسة تصحيح نشطة".to_string())
         }
     }
 
@@ -951,10 +934,7 @@ impl DapAdapter {
                 })),
             )
         } else {
-            DapResponse::error(
-                request,
-                "No active debug session / لا توجد جلسة تصحيح نشطة".to_string(),
-            )
+            DapResponse::error(request, "لا توجد جلسة تصحيح نشطة".to_string())
         }
     }
 
@@ -968,15 +948,11 @@ impl DapAdapter {
                 request,
                 Some(serde_json::json!({
                     "events": [],
-                    "message": "Memory timeline tracking not yet implemented",
-                    "message_ar": "تتبع الخط الزمني للذاكرة لم يُنفَّذ بعد"
+                    "message": "تتبع الخط الزمني للذاكرة لم يُنفَّذ بعد"
                 })),
             )
         } else {
-            DapResponse::error(
-                request,
-                "No active debug session / لا توجد جلسة تصحيح نشطة".to_string(),
-            )
+            DapResponse::error(request, "لا توجد جلسة تصحيح نشطة".to_string())
         }
     }
 }

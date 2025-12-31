@@ -655,7 +655,6 @@ impl ClassResolver {
                 if visited.contains(class_name) {
                     self.diagnostics.push(
                         Diagnostic::error(
-                            format!("Circular inheritance detected for class '{}'", name),
                             format!("وراثة دائرية مكتشفة للصنف '{}'", name),
                             class.span,
                         )
@@ -685,10 +684,6 @@ impl ClassResolver {
                         if !has_method {
                             violations.push((
                                 format!(
-                                    "Class '{}' does not implement method '{}' from interface '{}'",
-                                    class_name, method_name, interface_name
-                                ),
-                                format!(
                                     "الصنف '{}' لا يُنفذ الدالة '{}' من الميثاق '{}'",
                                     class_name, method_name, interface_name
                                 ),
@@ -697,10 +692,6 @@ impl ClassResolver {
                         } else if let Some(method) = class.get_method(method_name, self) {
                             if method.params.len() != sig.params.len() {
                                 violations.push((
-                                    format!(
-                                        "Method '{}' in class '{}' has wrong number of parameters (expected {}, got {})",
-                                        method_name, class_name, sig.params.len(), method.params.len()
-                                    ),
                                     format!(
                                         "الدالة '{}' في الصنف '{}' لديها عدد خاطئ من المعاملات (متوقع {}، وجد {})",
                                         method_name, class_name, sig.params.len(), method.params.len()
@@ -714,10 +705,6 @@ impl ClassResolver {
                                     if expected_ty != actual_ty {
                                         violations.push((
                                             format!(
-                                                "Parameter {} of method '{}' in class '{}' has wrong type (expected '{}', got '{}')",
-                                                i + 1, method_name, class_name, expected_ty, actual_ty
-                                            ),
-                                            format!(
                                                 "المعامل {} للدالة '{}' في الصنف '{}' له نوع خاطئ (متوقع '{}'، وجد '{}')",
                                                 i + 1, method_name, class_name, expected_ty.arabic_name(), actual_ty.arabic_name()
                                             ),
@@ -729,10 +716,6 @@ impl ClassResolver {
 
                             if method.return_type != sig.return_type {
                                 violations.push((
-                                    format!(
-                                        "Method '{}' in class '{}' has wrong return type (expected '{}', got '{}')",
-                                        method_name, class_name, sig.return_type, method.return_type
-                                    ),
                                     format!(
                                         "الدالة '{}' في الصنف '{}' لديها نوع إرجاع خاطئ (متوقع '{}'، وجد '{}')",
                                         method_name, class_name, sig.return_type.arabic_name(), method.return_type.arabic_name()
@@ -746,9 +729,9 @@ impl ClassResolver {
             }
         }
 
-        for (msg, msg_ar, span) in violations {
+        for (msg_ar, span) in violations {
             self.diagnostics.push(
-                Diagnostic::error(&msg, &msg_ar, span)
+                Diagnostic::error(&msg_ar, span)
                     .with_code(ERR_INTERFACE_NOT_IMPLEMENTED.to_string()),
             );
         }
@@ -768,11 +751,6 @@ impl ClassResolver {
                             {
                                 private_override_violations.push((
                                     format!(
-                                        "Cannot override {} method '{}' with private visibility",
-                                        format_visibility(parent_method.visibility),
-                                        method_name
-                                    ),
-                                    format!(
                                         "لا يمكن تجاوز الدالة {} '{}' بخصوصية خاصة",
                                         format_visibility_ar(parent_method.visibility),
                                         method_name
@@ -783,12 +761,6 @@ impl ClassResolver {
 
                             if method.params.len() != parent_method.params.len() {
                                 violations.push((
-                                    format!(
-                                        "Override of '{}' has {} parameters, but parent has {}",
-                                        method_name,
-                                        method.params.len(),
-                                        parent_method.params.len()
-                                    ),
                                     format!(
                                         "تجاوز الدالة '{}' لديه {} معاملات، لكن الأب لديه {}",
                                         method_name,
@@ -809,10 +781,6 @@ impl ClassResolver {
                                     {
                                         violations.push((
                                             format!(
-                                                "Parameter {} of '{}' has incompatible type '{}', expected '{}'",
-                                                i + 1, method_name, child_ty, parent_ty
-                                            ),
-                                            format!(
                                                 "المعامل {} للدالة '{}' له نوع غير متوافق '{}', المتوقع '{}'",
                                                 i + 1, method_name, child_ty.arabic_name(), parent_ty.arabic_name()
                                             ),
@@ -828,10 +796,6 @@ impl ClassResolver {
                             {
                                 violations.push((
                                     format!(
-                                        "Return type of '{}' is not compatible with parent",
-                                        method_name
-                                    ),
-                                    format!(
                                         "نوع الإرجاع للدالة '{}' غير متوافق مع الأب",
                                         method_name
                                     ),
@@ -844,15 +808,13 @@ impl ClassResolver {
             }
         }
 
-        for (msg, msg_ar, span) in private_override_violations {
-            self.diagnostics.push(
-                Diagnostic::error(&msg, &msg_ar, span).with_code(ERR_PRIVATE_ACCESS.to_string()),
-            );
+        for (msg_ar, span) in private_override_violations {
+            self.diagnostics
+                .push(Diagnostic::error(&msg_ar, span).with_code(ERR_PRIVATE_ACCESS.to_string()));
         }
 
-        for (msg, msg_ar, span) in violations {
-            self.diagnostics
-                .push(Diagnostic::error(&msg, &msg_ar, span));
+        for (msg_ar, span) in violations {
+            self.diagnostics.push(Diagnostic::error(&msg_ar, span));
         }
     }
 
@@ -896,10 +858,6 @@ impl ClassResolver {
                 if !is_implemented {
                     violations.push((
                         format!(
-                            "Class '{}' must implement abstract method '{}' from '{}'",
-                            class_name, method_name, defining_class
-                        ),
-                        format!(
                             "الصنف '{}' يجب أن يُطبّق الدالة المجردة '{}' من '{}'",
                             class_name, method_name, defining_class
                         ),
@@ -909,9 +867,8 @@ impl ClassResolver {
             }
         }
 
-        for (msg, msg_ar, span) in violations {
-            self.diagnostics
-                .push(Diagnostic::error(&msg, &msg_ar, span));
+        for (msg_ar, span) in violations {
+            self.diagnostics.push(Diagnostic::error(&msg_ar, span));
         }
     }
 
@@ -985,14 +942,6 @@ impl ClassResolver {
 impl Default for ClassResolver {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-fn format_visibility(vis: Visibility) -> &'static str {
-    match vis {
-        Visibility::Public => "public",
-        Visibility::Private => "private",
-        Visibility::Protected => "protected",
     }
 }
 

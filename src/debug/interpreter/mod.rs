@@ -107,10 +107,7 @@ impl DebugInterpreter {
     pub fn set_local_variable(&mut self, name: &str, value_str: &str) -> DebugResult<Value> {
         let func_id = {
             let Some(frame) = self.call_stack.last() else {
-                return Err(DebugError::new(
-                    "No active call frame",
-                    "لا يوجد إطار استدعاء نشط",
-                ));
+                return Err(DebugError::new("لا يوجد إطار استدعاء نشط"));
             };
             frame.func_id.clone()
         };
@@ -119,12 +116,7 @@ impl DebugInterpreter {
             .context
             .source_map()
             .find_variable_by_name(&func_id, name)
-            .ok_or_else(|| {
-                DebugError::new(
-                    format!("Variable '{}' not found", name),
-                    format!("المتغير '{}' غير موجود", name),
-                )
-            })?;
+            .ok_or_else(|| DebugError::new(format!("المتغير '{}' غير موجود", name)))?;
 
         let new_value = self.parse_value_string(value_str)?;
 
@@ -137,10 +129,10 @@ impl DebugInterpreter {
 
     pub fn set_global_variable(&mut self, name: &str, value_str: &str) -> DebugResult<Value> {
         if !self.globals.contains_key(name) {
-            return Err(DebugError::new(
-                format!("Global variable '{}' not found", name),
-                format!("المتغير العام '{}' غير موجود", name),
-            ));
+            return Err(DebugError::new(format!(
+                "المتغير العام '{}' غير موجود",
+                name
+            )));
         }
 
         let new_value = self.parse_value_string(value_str)?;
@@ -220,9 +212,8 @@ impl DebugInterpreter {
             Err(e) => {
                 self.context.set_state(DebugState::Error {
                     message: e.message.clone(),
-                    message_ar: e.message_ar.clone(),
                 });
-                Err(DebugError::new(e.message, e.message_ar))
+                Err(DebugError::new(e.message))
             }
         }
     }
@@ -674,10 +665,10 @@ impl DebugInterpreter {
             return Ok(value.clone());
         }
 
-        Err(DebugError::new(
-            format!("Cannot evaluate expression: {}", expression),
-            format!("لا يمكن تقييم التعبير: {}", expression),
-        ))
+        Err(DebugError::new(format!(
+            "لا يمكن تقييم التعبير: {}",
+            expression
+        )))
     }
 
     fn init_globals(&mut self) -> DebugResult<()> {
@@ -705,10 +696,7 @@ impl DebugInterpreter {
             return Ok(func.id.clone());
         }
 
-        Err(DebugError::new(
-            "Main function not found",
-            "الدالة الرئيسية غير موجودة",
-        ))
+        Err(DebugError::new("الدالة الرئيسية غير موجودة"))
     }
 
     fn call_function(&mut self, func_id: &FuncId, args: Vec<Value>) -> RuntimeResult<Value> {

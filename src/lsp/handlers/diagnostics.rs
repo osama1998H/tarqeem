@@ -63,7 +63,7 @@ fn convert_diagnostic(
 
     // Arabic-only: ترقيم لغة برمجة عربية
     let _language = language; // Mark as used
-    let message = &diag.message_ar;
+    let message = &diag.message;
 
     let range = span_to_range(content, &diag.span);
 
@@ -76,7 +76,7 @@ fn convert_diagnostic(
                 .filter_map(|note| {
                     note.span.as_ref().map(|span| {
                         // Arabic-only
-                        let note_message = &note.message_ar;
+                        let note_message = &note.message;
                         DiagnosticRelatedInformation {
                             location: Location {
                                 uri: uri.clone(),
@@ -122,11 +122,7 @@ mod tests {
     #[test]
     fn test_convert_diagnostic() {
         // Arabic-only: ترقيم لغة برمجة عربية
-        let diag = Diagnostic::error(
-            "Undefined variable 'x'",
-            "المتغير 'x' غير معرف",
-            Span::new(0, 1, 1, 1),
-        );
+        let diag = Diagnostic::error("المتغير 'x' غير معرف", Span::new(0, 1, 1, 1));
 
         let content = "x";
         let uri = test_uri();
@@ -147,8 +143,8 @@ mod tests {
         let span = Span::new(0, 1, 1, 1);
         let uri = test_uri();
 
-        let error = Diagnostic::error("error", "خطأ", span);
-        let warning = Diagnostic::warning("warning", "تحذير", span);
+        let error = Diagnostic::error("خطأ", span);
+        let warning = Diagnostic::warning("تحذير", span);
 
         let lsp_error = convert_diagnostic(&error, content, &uri, Language::Arabic);
         let lsp_warning = convert_diagnostic(&warning, content, &uri, Language::Arabic);
@@ -194,7 +190,7 @@ mod tests {
     fn test_diagnostic_with_code_description() {
         let content = "x";
         let uri = test_uri();
-        let mut diag = Diagnostic::error("error", "خطأ", Span::new(0, 1, 1, 1));
+        let mut diag = Diagnostic::error("خطأ", Span::new(0, 1, 1, 1));
         diag.code = Some("ح٠٠٠١".to_string());
 
         let lsp_diag = convert_diagnostic(&diag, content, &uri, Language::Arabic);
@@ -209,7 +205,7 @@ mod tests {
     fn test_diagnostic_without_code_no_description() {
         let content = "x";
         let uri = test_uri();
-        let diag = Diagnostic::error("error", "خطأ", Span::new(0, 1, 1, 1));
+        let diag = Diagnostic::error("خطأ", Span::new(0, 1, 1, 1));
 
         let lsp_diag = convert_diagnostic(&diag, content, &uri, Language::Arabic);
 

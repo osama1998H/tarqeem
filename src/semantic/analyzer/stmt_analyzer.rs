@@ -120,7 +120,6 @@ impl Analyzer {
                 if !self.scope.is_in_loop() {
                     use crate::error::codes::ERR_BREAK_OUTSIDE_LOOP;
                     self.error_with_code(
-                        "'break' can only be used inside a loop",
                         "'أوقف' يمكن استخدامها فقط داخل حلقة",
                         stmt.span,
                         &ERR_BREAK_OUTSIDE_LOOP.to_string(),
@@ -132,7 +131,6 @@ impl Analyzer {
                 if !self.scope.is_in_loop() {
                     use crate::error::codes::ERR_CONTINUE_OUTSIDE_LOOP;
                     self.error_with_code(
-                        "'continue' can only be used inside a loop",
                         "'استمر' يمكن استخدامها فقط داخل حلقة",
                         stmt.span,
                         &ERR_CONTINUE_OUTSIDE_LOOP.to_string(),
@@ -186,11 +184,7 @@ impl Analyzer {
         } else if let Some(init_expr) = init {
             self.infer_type(init_expr)
         } else {
-            self.error(
-                "Variable must have a type annotation or initializer",
-                "المتغير يجب أن يحتوي على نوع أو قيمة ابتدائية",
-                span,
-            );
+            self.error("المتغير يجب أن يحتوي على نوع أو قيمة ابتدائية", span);
             Type::Error
         };
 
@@ -205,7 +199,6 @@ impl Analyzer {
                     expected,
                     &init_type,
                     init_expr.span,
-                    "variable initialization",
                     "تهيئة المتغير",
                     &ERR_TYPE_MISMATCH.to_string(),
                 );
@@ -216,7 +209,6 @@ impl Analyzer {
         if !self.scope.define(symbol) {
             use crate::error::codes::ERR_VARIABLE_REDEFINITION;
             self.already_defined_error(
-                "Variable",
                 "المتغير",
                 name,
                 span,
@@ -253,7 +245,6 @@ impl Analyzer {
         if !self.scope.define(symbol) {
             use crate::error::codes::ERR_VARIABLE_REDEFINITION;
             self.already_defined_error(
-                "Function",
                 "الدالة",
                 name,
                 span,
@@ -317,7 +308,6 @@ impl Analyzer {
                     .cloned()
                     .collect();
                 self.undefined_error(
-                    "superclass",
                     "صنف أب",
                     parent_name,
                     span,
@@ -344,7 +334,6 @@ impl Analyzer {
                     .cloned()
                     .collect();
                 self.undefined_error(
-                    "interface",
                     "ميثاق",
                     iface,
                     span,
@@ -358,7 +347,6 @@ impl Analyzer {
         if !self.scope.define(symbol) {
             use crate::error::codes::ERR_VARIABLE_REDEFINITION;
             self.already_defined_error(
-                "Class",
                 "الصنف",
                 name,
                 span,
@@ -421,7 +409,6 @@ impl Analyzer {
                             &field_type,
                             &init_type,
                             init_expr.span,
-                            &format!("field '{}'", field_name),
                             &format!("الحقل '{}'", field_name),
                             &ERR_TYPE_MISMATCH.to_string(),
                         );
@@ -504,7 +491,6 @@ impl Analyzer {
                     &prop_type,
                     &init_type,
                     init_expr.span,
-                    &format!("property '{}'", prop_name),
                     &format!("الخاصية '{}'", prop_name),
                     &ERR_TYPE_MISMATCH.to_string(),
                 );
@@ -529,7 +515,6 @@ impl Analyzer {
                                     &prop_type,
                                     &expr_type,
                                     expr.span,
-                                    "getter return type",
                                     "نوع إرجاع القارئ",
                                     &ERR_TYPE_MISMATCH.to_string(),
                                 );
@@ -586,7 +571,6 @@ impl Analyzer {
         if !self.scope.define(symbol) {
             use crate::error::codes::ERR_VARIABLE_REDEFINITION;
             self.already_defined_error(
-                "Interface",
                 "الميثاق",
                 name,
                 span,
@@ -617,7 +601,6 @@ impl Analyzer {
         if !self.scope.define(symbol) {
             use crate::error::codes::ERR_VARIABLE_REDEFINITION;
             self.already_defined_error(
-                "Enum",
                 "التعداد",
                 name,
                 span,
@@ -658,7 +641,6 @@ impl Analyzer {
         let cond_type = self.infer_type(condition);
         if !cond_type.is_compatible_with(&Type::Bool) {
             self.error(
-                &format!("Condition must be boolean, got {}", cond_type),
                 &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
                 condition.span,
             );
@@ -676,7 +658,6 @@ impl Analyzer {
         let cond_type = self.infer_type(condition);
         if !cond_type.is_compatible_with(&Type::Bool) {
             self.error(
-                &format!("Condition must be boolean, got {}", cond_type),
                 &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
                 condition.span,
             );
@@ -692,7 +673,6 @@ impl Analyzer {
         let cond_type = self.infer_type(condition);
         if !cond_type.is_compatible_with(&Type::Bool) {
             self.error(
-                &format!("Condition must be boolean, got {}", cond_type),
                 &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
                 condition.span,
             );
@@ -717,7 +697,6 @@ impl Analyzer {
             let cond_type = self.infer_type(cond_expr);
             if !cond_type.is_compatible_with(&Type::Bool) {
                 self.error(
-                    &format!("Condition must be boolean, got {}", cond_type),
                     &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
                     cond_expr.span,
                 );
@@ -751,7 +730,6 @@ impl Analyzer {
             Type::Map(_, v) => *v,
             _ => {
                 self.error(
-                    &format!("Cannot iterate over {}", iter_type),
                     &format!("لا يمكن التكرار على {}", iter_type.arabic_name()),
                     iterable.span,
                 );
@@ -781,10 +759,6 @@ impl Analyzer {
                 let pattern_type = self.infer_pattern_type(pattern, &match_type);
                 if !pattern_type.is_compatible_with(&match_type) {
                     self.error(
-                        &format!(
-                            "Pattern type {} does not match {}",
-                            pattern_type, match_type
-                        ),
                         &format!(
                             "نوع النمط {} لا يتطابق مع {}",
                             pattern_type.arabic_name(),
@@ -822,10 +796,6 @@ impl Analyzer {
                     } else {
                         self.error(
                             &format!(
-                                "Variant '{}' not found in enum '{}'",
-                                variant_name, enum_name
-                            ),
-                            &format!(
                                 "الحالة '{}' غير موجودة في التعداد '{}'",
                                 variant_name, enum_name
                             ),
@@ -834,11 +804,7 @@ impl Analyzer {
                         Type::Unknown
                     }
                 } else {
-                    self.error(
-                        &format!("Enum '{}' not found", enum_name),
-                        &format!("التعداد '{}' غير موجود", enum_name),
-                        pattern.span,
-                    );
+                    self.error(&format!("التعداد '{}' غير موجود", enum_name), pattern.span);
                     Type::Unknown
                 }
             }
@@ -891,7 +857,6 @@ impl Analyzer {
         if !self.scope.is_in_function() {
             use crate::error::codes::ERR_RETURN_OUTSIDE_FUNCTION;
             self.error_with_code(
-                "'return' can only be used inside a function",
                 "'أرجع' يمكن استخدامها فقط داخل دالة",
                 span,
                 &ERR_RETURN_OUTSIDE_FUNCTION.to_string(),
@@ -942,10 +907,6 @@ impl Analyzer {
         if !self.is_error_type(&expr_type) {
             self.error(
                 &format!(
-                    "Cannot throw non-error type '{}'. Only error objects (خطأ or subclasses) can be thrown",
-                    expr_type
-                ),
-                &format!(
                     "لا يمكن رمي نوع غير خطأ '{}'. يمكن رمي كائنات الخطأ (خطأ أو أصنافه الفرعية) فقط",
                     expr_type.arabic_name()
                 ),
@@ -965,10 +926,6 @@ impl Analyzer {
             Some(path) => path,
             None => {
                 self.warn(
-                    &format!(
-                        "Module '{}' not found, imports will be typed as 'any'",
-                        from
-                    ),
                     &format!(
                         "الوحدة '{}' غير موجودة، سيتم تصنيف الاستيرادات كـ 'أي'",
                         from
@@ -1008,7 +965,6 @@ impl Analyzer {
                         });
                     } else {
                         self.error_with_code(
-                            &format!("Module '{}' has no export named '{}'", from, import.name),
                             &format!("الوحدة '{}' لا تحتوي على تصدير باسم '{}'", from, import.name),
                             span,
                             &ERR_NOT_EXPORTED.to_string(),
@@ -1050,7 +1006,6 @@ impl Analyzer {
                     });
                 } else {
                     self.warn(
-                        &format!("Module '{}' has no default export", from),
                         &format!("الوحدة '{}' لا تحتوي على تصدير افتراضي", from),
                         span,
                     );
@@ -1126,22 +1081,14 @@ impl Analyzer {
     /// Analyze a super constructor call.
     pub(crate) fn analyze_super_constructor_call(&mut self, args: &[Expr], span: Span) -> Type {
         if !self.scope.is_in_class() {
-            self.error(
-                "'super()' can only be used inside a class constructor",
-                "'الأصل()' يمكن استخدامه فقط داخل منشئ صنف",
-                span,
-            );
+            self.error("'الأصل()' يمكن استخدامه فقط داخل منشئ صنف", span);
             return Type::Error;
         }
 
         let current_class_name = match &self.current_class {
             Some(name) => name.clone(),
             None => {
-                self.error(
-                    "'super()' can only be used inside a class",
-                    "'الأصل()' يمكن استخدامه فقط داخل صنف",
-                    span,
-                );
+                self.error("'الأصل()' يمكن استخدامه فقط داخل صنف", span);
                 return Type::Error;
             }
         };
@@ -1151,10 +1098,6 @@ impl Analyzer {
                 Some(parent) => parent.clone(),
                 None => {
                     self.error(
-                        &format!(
-                            "Cannot use 'super()' in class '{}' which has no parent class",
-                            current_class_name
-                        ),
                         &format!(
                             "لا يمكن استخدام 'الأصل()' في الصنف '{}' الذي ليس له صنف أب",
                             current_class_name
@@ -1173,7 +1116,6 @@ impl Analyzer {
             Some(parent_info) => parent_info.constructor.clone(),
             None => {
                 self.error_with_code(
-                    &format!("Parent class '{}' not found", parent_name),
                     &format!("الصنف الأب '{}' غير موجود", parent_name),
                     span,
                     &ERR_CLASS_NOT_FOUND.to_string(),
@@ -1188,11 +1130,6 @@ impl Analyzer {
 
                 if args.len() != params.len() {
                     self.error(
-                        &format!(
-                            "Parent constructor expects {} arguments, got {}",
-                            params.len(),
-                            args.len()
-                        ),
                         &format!(
                             "منشئ الصنف الأب يتوقع {} معاملات، وُجد {}",
                             params.len(),
@@ -1212,7 +1149,6 @@ impl Analyzer {
                             param_type,
                             &arg_type,
                             arg.span,
-                            &format!("super() argument {}", i + 1),
                             &format!("معامل الأصل() {}", i + 1),
                             &ERR_TYPE_MISMATCH.to_string(),
                         );
@@ -1222,11 +1158,6 @@ impl Analyzer {
             None => {
                 if !args.is_empty() {
                     self.error(
-                        &format!(
-                            "Parent class '{}' has no constructor, but {} arguments were passed",
-                            parent_name,
-                            args.len()
-                        ),
                         &format!(
                             "الصنف الأب '{}' ليس له منشئ، لكن تم تمرير {} معاملات",
                             parent_name,

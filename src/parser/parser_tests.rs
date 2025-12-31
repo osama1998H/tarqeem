@@ -1788,6 +1788,6 @@ fn test_error_recovery_get_errors_returns_all() {
     );
     for err in errors {
         assert!(!err.message.is_empty());
-        assert!(!err.message_ar.is_empty());
+        assert!(!err.message.is_empty());
     }
 }

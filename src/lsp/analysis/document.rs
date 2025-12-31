@@ -134,7 +134,7 @@ impl DocumentState {
         for token in &tokens {
             if let TokenKind::Error(msg) = &token.kind {
                 let arabic_msg = translate_lexer_error(msg);
-                diagnostics.push(Diagnostic::error(msg.clone(), arabic_msg, token.span));
+                diagnostics.push(Diagnostic::error(arabic_msg, token.span));
                 has_errors = true;
             }
         }
@@ -214,20 +214,16 @@ impl DocumentState {
             return Some(Diagnostic {
                 level: DiagnosticLevel::Error,
                 message: format!(
-                    "[{}] Cannot have both top-level executable statements and دالة رئيسية() in the same file. \
-                     Use either Script mode (top-level code) or Program mode (دالة رئيسية).",
-                    ERR_ENTRY_POINT_CONFLICT
-                ),
-                message_ar: format!(
                     "[{}] لا يمكن وجود جمل تنفيذية عليا ودالة رئيسية() في نفس الملف. \
                      استخدم إما وضع السكربت (كود علوي) أو وضع البرنامج (دالة رئيسية).",
                     ERR_ENTRY_POINT_CONFLICT
                 ),
                 span: main_span,
-                notes: vec![crate::error::Note::new(
-                    format!("First top-level executable statement is at line {}", exec_span.line),
-                    format!("أول جملة تنفيذية عليا في السطر {}", exec_span.line),
-                ).with_span(exec_span)],
+                notes: vec![crate::error::Note::new(format!(
+                    "أول جملة تنفيذية عليا في السطر {}",
+                    exec_span.line
+                ))
+                .with_span(exec_span)],
                 suggestions: vec![],
                 code: Some(ERR_ENTRY_POINT_CONFLICT.to_string()),
             });
@@ -626,7 +622,7 @@ mod tests {
 
         // Verify at least one diagnostic has an Arabic message
         let has_arabic_error = analysis.diagnostics.iter().any(|d| {
-            d.message_ar
+            d.message
                 .chars()
                 .any(|c| matches!(c, '\u{0600}'..='\u{06FF}'))
         });

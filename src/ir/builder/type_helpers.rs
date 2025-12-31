@@ -42,11 +42,10 @@ impl IrBuilder {
     /// Convert a simple type name to an IR type.
     pub(crate) fn convert_simple_type(&self, name: &str) -> IrType {
         match name {
-            "عدد" | "int" => IrType::Int,
-            "عدد_عشري" | "float" => IrType::Float,
-            "نص" | "string" => IrType::String,
-            "منطقي" | "bool" => IrType::Bool,
-            "void" => IrType::Void, // فراغ eliminated - functions default to no return
+            "عدد" => IrType::Int,
+            "عدد_عشري" => IrType::Float,
+            "نص" => IrType::String,
+            "منطقي" => IrType::Bool,
             _ => IrType::Struct(ClassId(name.to_string())),
         }
     }

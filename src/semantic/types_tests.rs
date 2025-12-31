@@ -512,18 +512,6 @@ fn test_parse_type_name_arabic() {
 }
 
 #[test]
-fn test_parse_type_name_english() {
-    assert_eq!(parse_type_name("int"), Type::Int);
-    assert_eq!(parse_type_name("float"), Type::Float);
-    assert_eq!(parse_type_name("string"), Type::String);
-    assert_eq!(parse_type_name("bool"), Type::Bool);
-    assert_eq!(parse_type_name("void"), Type::Void);
-    assert_eq!(parse_type_name("null"), Type::Null);
-    assert_eq!(parse_type_name("none"), Type::Null);
-    assert_eq!(parse_type_name("any"), Type::Any);
-}
-
-#[test]
 fn test_parse_type_name_class() {
     assert_eq!(
         parse_type_name("MyClass"),

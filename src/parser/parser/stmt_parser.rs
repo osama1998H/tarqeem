@@ -45,9 +45,9 @@ impl Parser {
         let start = self.current_span();
         self.advance(); // consume 'if'
 
-        self.expect(&TokenKind::LeftParen, "Expected '('", "متوقع '('")?;
+        self.expect(&TokenKind::LeftParen, "متوقع '('")?;
         let condition = self.parse_expression()?;
-        self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+        self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         let then_branch = self.parse_block()?;
 
@@ -78,9 +78,9 @@ impl Parser {
         let start = self.current_span();
         self.advance(); // consume 'while'
 
-        self.expect(&TokenKind::LeftParen, "Expected '('", "متوقع '('")?;
+        self.expect(&TokenKind::LeftParen, "متوقع '('")?;
         let condition = self.parse_expression()?;
-        self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+        self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         let body = self.parse_block()?;
 
@@ -95,10 +95,10 @@ impl Parser {
 
         let body = self.parse_block()?;
 
-        self.expect(&TokenKind::While, "Expected 'while'", "متوقع 'طالما'")?;
-        self.expect(&TokenKind::LeftParen, "Expected '('", "متوقع '('")?;
+        self.expect(&TokenKind::While, "متوقع 'طالما'")?;
+        self.expect(&TokenKind::LeftParen, "متوقع '('")?;
         let condition = self.parse_expression()?;
-        self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+        self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         let _ = self.match_token(&TokenKind::Semicolon)
             || self.match_token(&TokenKind::ArabicSemicolon);
@@ -113,7 +113,7 @@ impl Parser {
         self.advance(); // consume 'for'
 
         if self.check_identifier() {
-            let var_name = self.expect_identifier("Expected variable name", "متوقع اسم المتغير")?;
+            let var_name = self.expect_identifier("متوقع اسم المتغير")?;
             if self.check(&TokenKind::In) {
                 self.advance();
                 let iterable = self.parse_expression()?;
@@ -133,7 +133,7 @@ impl Parser {
             }
         }
 
-        self.expect(&TokenKind::LeftParen, "Expected '('", "متوقع '('")?;
+        self.expect(&TokenKind::LeftParen, "متوقع '('")?;
 
         let init = if self.check(&TokenKind::Semicolon) || self.check(&TokenKind::ArabicSemicolon) {
             None
@@ -166,7 +166,7 @@ impl Parser {
             Some(self.parse_expression()?)
         };
 
-        self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+        self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         let body = self.parse_block()?;
 
@@ -187,11 +187,11 @@ impl Parser {
         let start = self.current_span();
         self.advance(); // consume 'match'
 
-        self.expect(&TokenKind::LeftParen, "Expected '('", "متوقع '('")?;
+        self.expect(&TokenKind::LeftParen, "متوقع '('")?;
         let expr = self.parse_expression()?;
-        self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+        self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
-        self.expect(&TokenKind::LeftBrace, "Expected '{'", "متوقع '{'")?;
+        self.expect(&TokenKind::LeftBrace, "متوقع '{'")?;
 
         // Skip initial newlines
         self.skip_newlines();
@@ -215,7 +215,7 @@ impl Parser {
             self.skip_newlines();
         }
 
-        self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
+        self.expect(&TokenKind::RightBrace, "متوقع '}'")?;
 
         let span = start.merge(&self.previous_span());
         Ok(Stmt::new(StmtKind::Match { expr, arms }, span))
@@ -231,7 +231,7 @@ impl Parser {
         if is_default {
             patterns.push(Pattern::new(PatternKind::Wildcard, arm_start));
         } else {
-            self.expect(&TokenKind::Case, "Expected 'case'", "متوقع 'حالة'")?;
+            self.expect(&TokenKind::Case, "متوقع 'حالة'")?;
             loop {
                 patterns.push(self.parse_pattern()?);
                 if !self.match_token(&TokenKind::Comma)
@@ -242,7 +242,7 @@ impl Parser {
             }
         }
 
-        self.expect(&TokenKind::FatArrow, "Expected '=>'", "متوقع '=>'")?;
+        self.expect(&TokenKind::FatArrow, "متوقع '=>'")?;
 
         let body = if self.check(&TokenKind::LeftBrace) {
             self.parse_block()?
@@ -282,18 +282,14 @@ impl Parser {
                 self.advance(); // consume ::
 
                 // Get variant name
-                let variant_name = self.expect_identifier(
-                    "Expected variant name after '::'",
-                    "متوقع اسم الحالة بعد '::'",
-                )?;
+                let variant_name = self.expect_identifier("متوقع اسم الحالة بعد '::'")?;
 
                 // Check for bindings
                 let bindings = if self.match_token(&TokenKind::LeftParen) {
                     let mut bindings = Vec::new();
                     if !self.check(&TokenKind::RightParen) {
                         loop {
-                            let binding =
-                                self.expect_identifier("Expected binding name", "متوقع اسم الربط")?;
+                            let binding = self.expect_identifier("متوقع اسم الربط")?;
                             bindings.push(binding);
                             if !self.match_token(&TokenKind::Comma)
                                 && !self.match_token(&TokenKind::ArabicComma)
@@ -302,7 +298,7 @@ impl Parser {
                             }
                         }
                     }
-                    self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+                    self.expect(&TokenKind::RightParen, "متوقع ')'")?;
                     bindings
                 } else {
                     Vec::new()
@@ -370,9 +366,9 @@ impl Parser {
         let body = self.parse_block()?;
 
         let catch = if self.match_token(&TokenKind::Catch) {
-            self.expect(&TokenKind::LeftParen, "Expected '('", "متوقع '('")?;
-            let param = self.expect_identifier("Expected error name", "متوقع اسم الخطأ")?;
-            self.expect(&TokenKind::RightParen, "Expected ')'", "متوقع ')'")?;
+            self.expect(&TokenKind::LeftParen, "متوقع '('")?;
+            let param = self.expect_identifier("متوقع اسم الخطأ")?;
+            self.expect(&TokenKind::RightParen, "متوقع ')'")?;
             let catch_body = self.parse_block()?;
             Some(CatchClause {
                 param,
@@ -422,7 +418,7 @@ impl Parser {
     /// Parse a block of statements.
     pub(crate) fn parse_block(&mut self) -> Result<Block, Diagnostic> {
         let start = self.current_span();
-        self.expect(&TokenKind::LeftBrace, "Expected '{'", "متوقع '{'")?;
+        self.expect(&TokenKind::LeftBrace, "متوقع '{'")?;
 
         // Skip newlines after opening brace
         self.skip_newlines();
@@ -440,7 +436,7 @@ impl Parser {
             self.skip_newlines();
         }
 
-        self.expect(&TokenKind::RightBrace, "Expected '}'", "متوقع '}'")?;
+        self.expect(&TokenKind::RightBrace, "متوقع '}'")?;
 
         let span = start.merge(&self.previous_span());
         Ok(Block::new(statements, span))

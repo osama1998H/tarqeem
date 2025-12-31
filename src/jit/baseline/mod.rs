@@ -43,7 +43,6 @@ mod stub {
             _func: &Function,
         ) -> JitResult<CompiledFunction> {
             Err(crate::jit::error::JitError::compilation(
-                "JIT compilation is not enabled. Build with --features jit",
                 "الترجمة الفورية غير مُفعَّلة. ابنِ مع --features jit",
             ))
         }
