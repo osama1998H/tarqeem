@@ -2,10 +2,11 @@
 
 use super::scope::*;
 use super::types::Type;
+use crate::error::Span;
 
 #[test]
 fn test_symbol_new() {
-    let symbol = Symbol::new("test", SymbolKind::Variable, Type::Int);
+    let symbol = Symbol::new("test", SymbolKind::Variable, Type::Int, Span::default());
     assert_eq!(symbol.name, "test");
     assert_eq!(symbol.kind, SymbolKind::Variable);
     assert_eq!(symbol.ty, Type::Int);
@@ -15,7 +16,7 @@ fn test_symbol_new() {
 
 #[test]
 fn test_symbol_variable() {
-    let symbol = Symbol::variable("x", Type::Float, false);
+    let symbol = Symbol::variable("x", Type::Float, false, Span::default());
     assert_eq!(symbol.name, "x");
     assert_eq!(symbol.kind, SymbolKind::Variable);
     assert_eq!(symbol.ty, Type::Float);
@@ -25,13 +26,13 @@ fn test_symbol_variable() {
 
 #[test]
 fn test_symbol_variable_mutable() {
-    let symbol = Symbol::variable("count", Type::Int, true);
+    let symbol = Symbol::variable("count", Type::Int, true, Span::default());
     assert!(symbol.mutable);
 }
 
 #[test]
 fn test_symbol_function() {
-    let symbol = Symbol::function("add", vec![Type::Int, Type::Int], Type::Int);
+    let symbol = Symbol::function("add", vec![Type::Int, Type::Int], Type::Int, Span::default());
     assert_eq!(symbol.name, "add");
     assert_eq!(symbol.kind, SymbolKind::Function);
     assert!(!symbol.mutable);
@@ -52,7 +53,7 @@ fn test_symbol_function() {
 
 #[test]
 fn test_symbol_function_no_params() {
-    let symbol = Symbol::function("greet", vec![], Type::Void);
+    let symbol = Symbol::function("greet", vec![], Type::Void, Span::default());
     match symbol.ty {
         Type::Function {
             params,
@@ -67,7 +68,7 @@ fn test_symbol_function_no_params() {
 
 #[test]
 fn test_symbol_class() {
-    let symbol = Symbol::class("Person");
+    let symbol = Symbol::class("Person", Span::default());
     assert_eq!(symbol.name, "Person");
     assert_eq!(symbol.kind, SymbolKind::Class);
     assert_eq!(symbol.ty, Type::Class("Person".to_string()));
@@ -76,7 +77,7 @@ fn test_symbol_class() {
 
 #[test]
 fn test_symbol_class_arabic() {
-    let symbol = Symbol::class("شخص");
+    let symbol = Symbol::class("شخص", Span::default());
     assert_eq!(symbol.name, "شخص");
     assert_eq!(symbol.ty, Type::Class("شخص".to_string()));
 }
@@ -180,7 +181,7 @@ fn test_global_scope_has_random_functions() {
 #[test]
 fn test_scope_define() {
     let mut scope = Scope::new_global();
-    let symbol = Symbol::variable("myVar", Type::Int, true);
+    let symbol = Symbol::variable("myVar", Type::Int, true, Span::default());
 
     assert!(scope.define(symbol));
     assert!(scope.lookup("myVar").is_some());
@@ -190,8 +191,8 @@ fn test_scope_define() {
 fn test_scope_define_duplicate() {
     let mut scope = Scope::new_global();
 
-    let symbol1 = Symbol::variable("x", Type::Int, true);
-    let symbol2 = Symbol::variable("x", Type::String, true);
+    let symbol1 = Symbol::variable("x", Type::Int, true, Span::default());
+    let symbol2 = Symbol::variable("x", Type::String, true, Span::default());
 
     assert!(scope.define(symbol1));
     assert!(!scope.define(symbol2)); // Should fail - duplicate
@@ -206,7 +207,7 @@ fn test_scope_lookup_nonexistent() {
 #[test]
 fn test_scope_lookup_local() {
     let mut scope = Scope::new_global();
-    scope.define(Symbol::variable("local", Type::Int, true));
+    scope.define(Symbol::variable("local", Type::Int, true, Span::default()));
 
     assert!(scope.lookup_local("local").is_some());
     assert!(scope.lookup_local("اطبع").is_some()); // builtin is also local to global
@@ -224,7 +225,7 @@ fn test_child_scope_creation() {
 #[test]
 fn test_child_scope_inherits_parent() {
     let mut global = Scope::new_global();
-    global.define(Symbol::variable("parentVar", Type::Int, true));
+    global.define(Symbol::variable("parentVar", Type::Int, true, Span::default()));
 
     let child = Scope::new_child(global, ScopeKind::Block);
 
@@ -235,10 +236,10 @@ fn test_child_scope_inherits_parent() {
 #[test]
 fn test_child_scope_local_shadows_parent() {
     let mut global = Scope::new_global();
-    global.define(Symbol::variable("x", Type::Int, true));
+    global.define(Symbol::variable("x", Type::Int, true, Span::default()));
 
     let mut child = Scope::new_child(global, ScopeKind::Block);
-    child.define(Symbol::variable("x", Type::String, true));
+    child.define(Symbol::variable("x", Type::String, true, Span::default()));
 
     let symbol = child.lookup("x").unwrap();
     assert_eq!(symbol.ty, Type::String); // Child's version shadows parent
@@ -247,13 +248,13 @@ fn test_child_scope_local_shadows_parent() {
 #[test]
 fn test_nested_child_scopes() {
     let mut global = Scope::new_global();
-    global.define(Symbol::variable("a", Type::Int, true));
+    global.define(Symbol::variable("a", Type::Int, true, Span::default()));
 
     let mut level1 = Scope::new_child(global, ScopeKind::Function);
-    level1.define(Symbol::variable("b", Type::String, true));
+    level1.define(Symbol::variable("b", Type::String, true, Span::default()));
 
     let mut level2 = Scope::new_child(level1, ScopeKind::Block);
-    level2.define(Symbol::variable("c", Type::Bool, true));
+    level2.define(Symbol::variable("c", Type::Bool, true, Span::default()));
 
     assert!(level2.lookup("a").is_some());
     assert!(level2.lookup("b").is_some());
@@ -338,7 +339,7 @@ fn test_is_not_in_class() {
 #[test]
 fn test_lookup_mut_local() {
     let mut scope = Scope::new_global();
-    scope.define(Symbol::variable("x", Type::Int, true));
+    scope.define(Symbol::variable("x", Type::Int, true, Span::default()));
 
     let symbol = scope.lookup_mut("x").unwrap();
     symbol.ty = Type::String;
@@ -350,7 +351,7 @@ fn test_lookup_mut_local() {
 #[test]
 fn test_lookup_mut_parent() {
     let mut global = Scope::new_global();
-    global.define(Symbol::variable("x", Type::Int, true));
+    global.define(Symbol::variable("x", Type::Int, true, Span::default()));
 
     let mut child = Scope::new_child(global, ScopeKind::Block);
 
@@ -370,7 +371,7 @@ fn test_lookup_mut_nonexistent() {
 #[test]
 fn test_scope_pop() {
     let mut global = Scope::new_global();
-    global.define(Symbol::variable("x", Type::Int, true));
+    global.define(Symbol::variable("x", Type::Int, true, Span::default()));
 
     let child = Scope::new_child(global, ScopeKind::Block);
 
@@ -388,8 +389,8 @@ fn test_scope_pop_global() {
 #[test]
 fn test_scope_symbols_iterator() {
     let mut scope = Scope::new_global();
-    scope.define(Symbol::variable("a", Type::Int, true));
-    scope.define(Symbol::variable("b", Type::String, true));
+    scope.define(Symbol::variable("a", Type::Int, true, Span::default()));
+    scope.define(Symbol::variable("b", Type::String, true, Span::default()));
 
     let symbols: Vec<_> = scope.symbols().collect();
 
@@ -402,7 +403,7 @@ fn test_scope_symbols_iterator() {
 
 #[test]
 fn test_symbol_clone() {
-    let symbol = Symbol::function("test", vec![Type::Int], Type::Bool);
+    let symbol = Symbol::function("test", vec![Type::Int], Type::Bool, Span::default());
     let cloned = symbol.clone();
 
     assert_eq!(symbol.name, cloned.name);
@@ -413,7 +414,7 @@ fn test_symbol_clone() {
 
 #[test]
 fn test_symbol_debug() {
-    let symbol = Symbol::variable("debug_test", Type::Float, true);
+    let symbol = Symbol::variable("debug_test", Type::Float, true, Span::default());
     let debug_str = format!("{:?}", symbol);
 
     assert!(debug_str.contains("debug_test"));
@@ -433,7 +434,7 @@ fn test_unicode_normalization_lookup() {
 
     assert_ne!(nfc_name.as_bytes(), nfd_name.as_bytes());
 
-    scope.define(Symbol::variable(&nfc_name, Type::Int, true));
+    scope.define(Symbol::variable(&nfc_name, Type::Int, true, Span::default()));
 
     assert!(scope.lookup(&nfd_name).is_some());
 }
@@ -447,7 +448,7 @@ fn test_unicode_normalization_define() {
     let nfc_name: String = "متغير".nfc().collect();
     let nfd_name: String = "متغير".nfd().collect();
 
-    scope.define(Symbol::variable(&nfd_name, Type::Int, true));
+    scope.define(Symbol::variable(&nfd_name, Type::Int, true, Span::default()));
 
     assert!(scope.lookup(&nfc_name).is_some());
 }
@@ -461,9 +462,9 @@ fn test_unicode_normalization_prevents_duplicate() {
     let nfc_name: String = "س".nfc().collect();
     let nfd_name: String = "س".nfd().collect();
 
-    assert!(scope.define(Symbol::variable(&nfc_name, Type::Int, true)));
+    assert!(scope.define(Symbol::variable(&nfc_name, Type::Int, true, Span::default())));
 
-    assert!(!scope.define(Symbol::variable(&nfd_name, Type::String, true)));
+    assert!(!scope.define(Symbol::variable(&nfd_name, Type::String, true, Span::default())));
 }
 
 #[test]
@@ -475,7 +476,7 @@ fn test_unicode_normalization_lookup_local() {
     let nfc_name: String = "محلي".nfc().collect();
     let nfd_name: String = "محلي".nfd().collect();
 
-    scope.define(Symbol::variable(&nfc_name, Type::Bool, true));
+    scope.define(Symbol::variable(&nfc_name, Type::Bool, true, Span::default()));
 
     assert!(scope.lookup_local(&nfd_name).is_some());
 }
@@ -489,7 +490,7 @@ fn test_unicode_normalization_lookup_mut() {
     let nfc_name: String = "قابل_للتغيير".nfc().collect();
     let nfd_name: String = "قابل_للتغيير".nfd().collect();
 
-    scope.define(Symbol::variable(&nfc_name, Type::Int, true));
+    scope.define(Symbol::variable(&nfc_name, Type::Int, true, Span::default()));
 
     let symbol = scope.lookup_mut(&nfd_name).unwrap();
     symbol.ty = Type::String;

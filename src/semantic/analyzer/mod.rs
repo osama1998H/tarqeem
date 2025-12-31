@@ -17,8 +17,7 @@ use super::generics::{GenericContext, GenericParam, GenericResolver};
 use super::modules::ModuleLoader;
 use super::scope::{Scope, ScopeKind, SymbolKind};
 use super::types::{parse_type_name, Type};
-use crate::error::codes::{WARN_UNUSED_FUNCTION, WARN_UNUSED_VARIABLE};
-// Note: WARN_UNUSED_IMPORT will be used when import tracking is implemented
+use crate::error::codes::{WARN_UNUSED_FUNCTION, WARN_UNUSED_IMPORT, WARN_UNUSED_VARIABLE};
 use crate::error::{Diagnostic, Language, Span};
 use crate::parser::*;
 use std::collections::HashMap;
@@ -263,7 +262,7 @@ impl Analyzer {
     /// Check for unused symbols in the current scope and emit warnings.
     fn check_unused_symbols(&mut self) {
         // Collect unused symbols first to avoid borrow issues
-        let unused_symbols: Vec<(String, SymbolKind)> = self
+        let unused_symbols: Vec<(String, SymbolKind, Span)> = self
             .scope
             .symbols()
             .filter(|symbol| {
@@ -272,8 +271,8 @@ impl Analyzer {
                     return false;
                 }
 
-                // Skip built-in functions (they're defined in global scope)
-                if self.scope.kind() == ScopeKind::Global {
+                // Skip symbols without real source locations (built-ins use Span::default())
+                if symbol.span == Span::default() {
                     return false;
                 }
 
@@ -296,17 +295,17 @@ impl Analyzer {
 
                 true
             })
-            .map(|s| (s.name.clone(), s.kind.clone()))
+            .map(|s| (s.name.clone(), s.kind.clone(), s.span))
             .collect();
 
         // Emit warnings for unused symbols
-        for (name, kind) in unused_symbols {
+        for (name, kind, span) in unused_symbols {
             match kind {
                 SymbolKind::Variable | SymbolKind::Parameter => {
                     self.warn_with_code(
                         &format!("Variable '{}' is declared but never used", name),
                         &format!("المتغير '{}' مُعرَّف لكن غير مستخدم", name),
-                        Span::default(),
+                        span,
                         &WARN_UNUSED_VARIABLE.to_string(),
                     );
                 }
@@ -314,8 +313,16 @@ impl Analyzer {
                     self.warn_with_code(
                         &format!("Function '{}' is defined but never called", name),
                         &format!("الدالة '{}' مُعرَّفة لكن غير مستدعاة", name),
-                        Span::default(),
+                        span,
                         &WARN_UNUSED_FUNCTION.to_string(),
+                    );
+                }
+                SymbolKind::Import => {
+                    self.warn_with_code(
+                        &format!("Import '{}' is never used", name),
+                        &format!("الاستيراد '{}' غير مستخدم", name),
+                        span,
+                        &WARN_UNUSED_IMPORT.to_string(),
                     );
                 }
                 SymbolKind::Class | SymbolKind::Interface | SymbolKind::Enum => {

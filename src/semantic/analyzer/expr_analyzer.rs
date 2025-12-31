@@ -440,7 +440,7 @@ impl Analyzer {
                         .unwrap_or(Type::Any)
                 };
                 self.scope
-                    .define(Symbol::variable(&p.name, ty.clone(), false));
+                    .define(Symbol::variable(&p.name, ty.clone(), false, p.span));
                 ty
             })
             .collect();
