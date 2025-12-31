@@ -7,7 +7,7 @@ use super::super::method_resolver::{MemberResolution, MethodResolver};
 use super::super::scope::Symbol;
 use super::super::types::Type;
 use super::Analyzer;
-use crate::error::codes::ERR_PROPERTY_NOT_FOUND;
+use crate::error::codes::{ERR_PRIVATE_ACCESS, ERR_PROPERTY_NOT_FOUND, ERR_PROTECTED_ACCESS};
 use crate::error::Span;
 use crate::parser::*;
 
@@ -772,11 +772,31 @@ impl Analyzer {
         let mut method_resolver = MethodResolver::new(&self.class_resolver);
 
         match method_resolver.resolve_member(object_type, property) {
-            MemberResolution::Field(field) => field.ty.clone(),
-            MemberResolution::Method(method) => Type::Function {
-                params: method.params.iter().map(|(_, ty)| ty.clone()).collect(),
-                return_type: Box::new(method.return_type.clone()),
-            },
+            MemberResolution::Field {
+                field,
+                defining_class,
+            } => {
+                // Check visibility for field access using the defining class
+                if !self.check_member_visibility(&defining_class, field.visibility, property, span)
+                {
+                    return Type::Error;
+                }
+                field.ty.clone()
+            }
+            MemberResolution::Method {
+                method,
+                defining_class,
+            } => {
+                // Check visibility for method access using the defining class
+                if !self.check_member_visibility(&defining_class, method.visibility, property, span)
+                {
+                    return Type::Error;
+                }
+                Type::Function {
+                    params: method.params.iter().map(|(_, ty)| ty.clone()).collect(),
+                    return_type: Box::new(method.return_type.clone()),
+                }
+            }
             MemberResolution::BuiltinProperty { ty, .. } => ty,
             MemberResolution::NotFound => {
                 if let Type::Class(class_name) = object_type {
@@ -796,6 +816,73 @@ impl Analyzer {
                     }
                 }
                 Type::Any
+            }
+        }
+    }
+
+    /// Check if member access is allowed based on visibility rules.
+    ///
+    /// Visibility rules:
+    /// - `عام` (Public): Accessible everywhere
+    /// - `خاص` (Private): Accessible only within the same class
+    /// - `محمي` (Protected): Accessible in the class and its subclasses
+    ///
+    /// Returns `true` if access is allowed, `false` if denied (and reports error).
+    fn check_member_visibility(
+        &mut self,
+        member_class: &str,
+        visibility: Visibility,
+        member_name: &str,
+        span: Span,
+    ) -> bool {
+        match visibility {
+            Visibility::Public => true,
+            Visibility::Private => {
+                // Private: only accessible within the same class
+                if let Some(ref current_class) = self.current_class {
+                    if current_class == member_class {
+                        return true;
+                    }
+                }
+                self.error_with_code(
+                    &format!(
+                        "Cannot access private member '{}' of class '{}'",
+                        member_name, member_class
+                    ),
+                    &format!(
+                        "لا يمكن الوصول للعضو الخاص '{}' من الصنف '{}'",
+                        member_name, member_class
+                    ),
+                    span,
+                    &ERR_PRIVATE_ACCESS.to_string(),
+                );
+                false
+            }
+            Visibility::Protected => {
+                // Protected: accessible in the class and its subclasses
+                if let Some(ref current_class) = self.current_class {
+                    // Same class - allowed
+                    if current_class == member_class {
+                        return true;
+                    }
+                    // Subclass - allowed
+                    if self.class_resolver.is_subclass(current_class, member_class) {
+                        return true;
+                    }
+                }
+                self.error_with_code(
+                    &format!(
+                        "Cannot access protected member '{}' of class '{}' from outside its hierarchy",
+                        member_name, member_class
+                    ),
+                    &format!(
+                        "لا يمكن الوصول للعضو المحمي '{}' من الصنف '{}' من خارج تسلسله الهرمي",
+                        member_name, member_class
+                    ),
+                    span,
+                    &ERR_PROTECTED_ACCESS.to_string(),
+                );
+                false
             }
         }
     }

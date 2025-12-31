@@ -14,9 +14,20 @@ use crate::error::{Diagnostic, Span};
 
 #[derive(Debug, Clone)]
 pub enum MemberResolution {
-    Field(FieldInfo),
-    Method(MethodInfo),
-    BuiltinProperty { name: String, ty: Type },
+    /// A field from a class, with the name of the class that defines it.
+    Field {
+        field: FieldInfo,
+        defining_class: String,
+    },
+    /// A method from a class, with the name of the class that defines it.
+    Method {
+        method: MethodInfo,
+        defining_class: String,
+    },
+    BuiltinProperty {
+        name: String,
+        ty: Type,
+    },
     NotFound,
 }
 
@@ -57,12 +68,22 @@ impl<'a> MethodResolver<'a> {
 
     fn resolve_class_member(&self, class_name: &str, member_name: &str) -> MemberResolution {
         if let Some(class) = self.class_resolver.get_class(class_name) {
-            if let Some(method) = class.get_method(member_name, self.class_resolver) {
-                return MemberResolution::Method(method.clone());
+            if let Some((method, defining_class)) =
+                class.get_method_with_defining_class(member_name, self.class_resolver)
+            {
+                return MemberResolution::Method {
+                    method: method.clone(),
+                    defining_class: defining_class.to_string(),
+                };
             }
 
-            if let Some(field) = class.get_field(member_name, self.class_resolver) {
-                return MemberResolution::Field(field.clone());
+            if let Some((field, defining_class)) =
+                class.get_field_with_defining_class(member_name, self.class_resolver)
+            {
+                return MemberResolution::Field {
+                    field: field.clone(),
+                    defining_class: defining_class.to_string(),
+                };
             }
         }
 
@@ -421,7 +442,7 @@ mod tests {
         let person_type = Type::Class("شخص".to_string());
 
         match method_resolver.resolve_member(&person_type, "تحية") {
-            MemberResolution::Method(method) => {
+            MemberResolution::Method { method, .. } => {
                 assert_eq!(method.name, "تحية");
                 assert_eq!(method.return_type, Type::String);
             }

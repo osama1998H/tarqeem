@@ -935,4 +935,206 @@ mod tests {
         );
         assert!(result.is_ok());
     }
+
+    // ==========================================================================
+    // Visibility Tests (ص٠٤٠١ - ص٠٤٠٢)
+    // ==========================================================================
+
+    #[test]
+    fn test_public_field_access_allowed() {
+        let result = analyze(
+            r#"
+            صنف شخص {
+                عام الاسم: نص;
+            }
+            متغير ش = جديد شخص();
+            متغير ا = ش.الاسم;
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_private_field_access_from_outside_fails() {
+        let result = analyze(
+            r#"
+            صنف حساب {
+                خاص الرصيد: عدد;
+            }
+            متغير ح = جديد حساب();
+            متغير ر = ح.الرصيد;
+        "#,
+        );
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.code.as_ref().is_some_and(|c| c == "ص٠٤٠١")));
+    }
+
+    #[test]
+    fn test_private_field_access_from_same_class_allowed() {
+        let result = analyze(
+            r#"
+            صنف حساب {
+                خاص الرصيد: عدد;
+
+                عام دالة احصل_رصيد() -> عدد {
+                    أرجع هذا.الرصيد;
+                }
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_private_field_access_from_subclass_fails() {
+        let result = analyze(
+            r#"
+            صنف أب {
+                خاص سر: نص;
+            }
+            صنف ابن يرث أب {
+                عام دالة اكشف() -> نص {
+                    أرجع هذا.سر;
+                }
+            }
+        "#,
+        );
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.code.as_ref().is_some_and(|c| c == "ص٠٤٠١")));
+    }
+
+    #[test]
+    fn test_protected_field_access_from_outside_fails() {
+        let result = analyze(
+            r#"
+            صنف كائن_حي {
+                محمي العمر: عدد;
+            }
+            متغير كائن = جديد كائن_حي();
+            متغير عمر = كائن.العمر;
+        "#,
+        );
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.code.as_ref().is_some_and(|c| c == "ص٠٤٠٢")));
+    }
+
+    #[test]
+    fn test_protected_field_access_from_same_class_allowed() {
+        let result = analyze(
+            r#"
+            صنف كائن_حي {
+                محمي العمر: عدد;
+
+                عام دالة احصل_عمر() -> عدد {
+                    أرجع هذا.العمر;
+                }
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_protected_field_access_from_subclass_allowed() {
+        let result = analyze(
+            r#"
+            صنف كائن_حي {
+                محمي العمر: عدد;
+            }
+            صنف حيوان يرث كائن_حي {
+                عام دالة تقدم_بالعمر() {
+                    هذا.العمر = هذا.العمر + 1;
+                }
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_protected_field_access_from_grandchild_allowed() {
+        let result = analyze(
+            r#"
+            صنف جد {
+                محمي القيمة: عدد;
+            }
+            صنف أب يرث جد {
+            }
+            صنف ابن يرث أب {
+                عام دالة احصل_قيمة() -> عدد {
+                    أرجع هذا.القيمة;
+                }
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_private_method_access_from_outside_fails() {
+        let result = analyze(
+            r#"
+            صنف معالج {
+                خاص دالة تحقق_داخلي() -> منطقي {
+                    أرجع صحيح;
+                }
+            }
+            متغير م = جديد معالج();
+            م.تحقق_داخلي();
+        "#,
+        );
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.code.as_ref().is_some_and(|c| c == "ص٠٤٠١")));
+    }
+
+    #[test]
+    fn test_protected_method_access_from_subclass_allowed() {
+        let result = analyze(
+            r#"
+            صنف آلة {
+                محمي دالة صيانة() {
+                    متغير س = 1;
+                }
+            }
+            صنف سيارة يرث آلة {
+                عام دالة فحص() {
+                    هذا.صيانة();
+                }
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_protected_method_access_from_outside_fails() {
+        let result = analyze(
+            r#"
+            صنف آلة {
+                محمي دالة صيانة() {
+                    متغير س = 1;
+                }
+            }
+            متغير آ = جديد آلة();
+            آ.صيانة();
+        "#,
+        );
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.code.as_ref().is_some_and(|c| c == "ص٠٤٠٢")));
+    }
 }
