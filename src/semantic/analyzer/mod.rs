@@ -313,6 +313,7 @@ impl Analyzer {
         span: Span,
         context: &str,
         context_ar: &str,
+        code: &str,
     ) {
         use crate::error::{Note, Suggestion};
 
@@ -337,7 +338,7 @@ impl Analyzer {
             found.arabic_name()
         );
 
-        let mut diag = Diagnostic::error(&message, &message_ar, span).with_code("E0308");
+        let mut diag = Diagnostic::error(&message, &message_ar, span).with_code(code);
 
         // Add conversion suggestion based on types
         if let Some((suggestion, suggestion_ar, replacement)) =

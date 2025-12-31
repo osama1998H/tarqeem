@@ -217,12 +217,14 @@ impl Analyzer {
                 for (i, (arg, param_type)) in args.iter().zip(params.iter()).enumerate() {
                     let arg_type = self.infer_type(arg);
                     if !arg_type.is_compatible_with(param_type) {
+                        use crate::error::codes::ERR_TYPE_MISMATCH;
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
                             arg.span,
                             &format!("argument {}", i + 1),
                             &format!("المعامل {}", i + 1),
+                            &ERR_TYPE_MISMATCH.to_string(),
                         );
                     }
                 }
@@ -264,12 +266,14 @@ impl Analyzer {
             }
             Type::Map(k, v) => {
                 if !index_type.is_compatible_with(&k) {
+                    use crate::error::codes::ERR_TYPE_MISMATCH;
                     self.type_mismatch_error(
                         &k,
                         &index_type,
                         index.span,
                         "map key",
                         "مفتاح القاموس",
+                        &ERR_TYPE_MISMATCH.to_string(),
                     );
                 }
                 *v
@@ -314,12 +318,14 @@ impl Analyzer {
                         );
                     }
                     if !value_type.is_compatible_with(&ty) {
+                        use crate::error::codes::ERR_TYPE_MISMATCH;
                         self.type_mismatch_error(
                             &ty,
                             &value_type,
                             value.span,
                             "assignment",
                             "التعيين",
+                            &ERR_TYPE_MISMATCH.to_string(),
                         );
                     }
                 } else {
@@ -363,12 +369,14 @@ impl Analyzer {
             for elem in elements.iter().skip(1) {
                 let elem_type = self.infer_type(elem);
                 if !elem_type.is_compatible_with(&first_type) {
+                    use crate::error::codes::ERR_TYPE_MISMATCH;
                     self.type_mismatch_error(
                         &first_type,
                         &elem_type,
                         elem.span,
                         "array element",
                         "عنصر المصفوفة",
+                        &ERR_TYPE_MISMATCH.to_string(),
                     );
                 }
             }
@@ -552,12 +560,14 @@ impl Analyzer {
                 {
                     let arg_type = self.infer_type(arg);
                     if !arg_type.is_compatible_with(param_type) {
+                        use crate::error::codes::ERR_TYPE_MISMATCH;
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
                             arg.span,
                             &format!("constructor argument {}", i + 1),
                             &format!("معامل المنشئ {}", i + 1),
+                            &ERR_TYPE_MISMATCH.to_string(),
                         );
                     }
                 }
@@ -706,6 +716,7 @@ impl Analyzer {
                         arg_types.iter().zip(&variant.fields).enumerate()
                     {
                         if !arg_ty.is_compatible_with(expected_ty) {
+                            use crate::error::codes::ERR_TYPE_MISMATCH;
                             self.type_mismatch_error(
                                 expected_ty,
                                 arg_ty,
@@ -722,6 +733,7 @@ impl Analyzer {
                                     enum_name,
                                     variant_name
                                 ),
+                                &ERR_TYPE_MISMATCH.to_string(),
                             );
                         }
                     }
