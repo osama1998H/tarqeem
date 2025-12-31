@@ -4,6 +4,7 @@
 //! to create executables. Supports native targets and WebAssembly.
 
 use super::Target;
+use crate::error::codes::{ERR_LINKING_FAILED, ERR_LLVM_INTERNAL};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -120,9 +121,15 @@ impl Linker {
 
     pub fn compile_to_object(&self, llvm_ir: &str, output: &Path) -> Result<(), LinkerError> {
         let ir_path = output.with_extension("ll");
-        fs::write(&ir_path, llvm_ir).map_err(|e| LinkerError {
-            message: format!("Failed to write LLVM IR: {}", e),
-            message_ar: format!("فشل في كتابة LLVM IR: {}", e),
+        fs::write(&ir_path, llvm_ir).map_err(|e| {
+            LinkerError::with_code(
+                format!("Failed to write LLVM IR: {}", e),
+                format!(
+                    "فشل في كتابة التمثيل الوسيط الخاص بالآلة الافتراضية منخفضة المستوى: {}",
+                    e
+                ),
+                ERR_LLVM_INTERNAL.to_string(),
+            )
         })?;
 
         if let Some(ref clang) = self.clang_path {
@@ -130,10 +137,11 @@ impl Linker {
         } else if let Some(ref llc) = self.llc_path {
             self.compile_with_llc(llc, &ir_path, output)?;
         } else {
-            return Err(LinkerError {
-                message: "No compiler found. Install clang or llc.".to_string(),
-                message_ar: "لم يتم العثور على مترجم. ثبّت clang أو llc.".to_string(),
-            });
+            return Err(LinkerError::with_code(
+                "No compiler found. Install clang or llc.".to_string(),
+                "لم يتم العثور على مترجم. ثبّت clang أو llc.".to_string(),
+                ERR_LLVM_INTERNAL.to_string(),
+            ));
         }
 
         if !self.verbose {
@@ -150,9 +158,15 @@ impl Linker {
         runtime_path: Option<&Path>,
     ) -> Result<(), LinkerError> {
         let ir_path = output.with_extension("ll");
-        fs::write(&ir_path, llvm_ir).map_err(|e| LinkerError {
-            message: format!("Failed to write LLVM IR: {}", e),
-            message_ar: format!("فشل في كتابة LLVM IR: {}", e),
+        fs::write(&ir_path, llvm_ir).map_err(|e| {
+            LinkerError::with_code(
+                format!("Failed to write LLVM IR: {}", e),
+                format!(
+                    "فشل في كتابة التمثيل الوسيط الخاص بالآلة الافتراضية منخفضة المستوى: {}",
+                    e
+                ),
+                ERR_LLVM_INTERNAL.to_string(),
+            )
         })?;
 
         if let Some(ref clang) = self.clang_path {
@@ -176,9 +190,15 @@ impl Linker {
 
     pub fn compile_to_assembly(&self, llvm_ir: &str, output: &Path) -> Result<(), LinkerError> {
         let ir_path = output.with_extension("ll");
-        fs::write(&ir_path, llvm_ir).map_err(|e| LinkerError {
-            message: format!("Failed to write LLVM IR: {}", e),
-            message_ar: format!("فشل في كتابة LLVM IR: {}", e),
+        fs::write(&ir_path, llvm_ir).map_err(|e| {
+            LinkerError::with_code(
+                format!("Failed to write LLVM IR: {}", e),
+                format!(
+                    "فشل في كتابة التمثيل الوسيط الخاص بالآلة الافتراضية منخفضة المستوى: {}",
+                    e
+                ),
+                ERR_LLVM_INTERNAL.to_string(),
+            )
         })?;
 
         if let Some(ref clang) = self.clang_path {
@@ -207,10 +227,11 @@ impl Linker {
 
             self.run_command(cmd, "llc")?;
         } else {
-            return Err(LinkerError {
-                message: "No compiler found. Install clang or llc.".to_string(),
-                message_ar: "لم يتم العثور على مترجم. ثبّت clang أو llc.".to_string(),
-            });
+            return Err(LinkerError::with_code(
+                "No compiler found. Install clang or llc.".to_string(),
+                "لم يتم العثور على مترجم. ثبّت clang أو llc.".to_string(),
+                ERR_LLVM_INTERNAL.to_string(),
+            ));
         }
 
         if !self.verbose {
@@ -231,28 +252,34 @@ impl Linker {
         runtime_path: Option<&Path>,
     ) -> Result<(), LinkerError> {
         if !self.target.is_wasm() {
-            return Err(LinkerError {
-                message: "Target is not WebAssembly. Use --target wasm32-unknown-unknown"
-                    .to_string(),
-                message_ar: "الهدف ليس WebAssembly. استخدم --target wasm32-unknown-unknown"
-                    .to_string(),
-            });
+            return Err(LinkerError::with_code(
+                "Target is not WebAssembly. Use --target wasm32-unknown-unknown".to_string(),
+                "الهدف ليس WebAssembly. استخدم --target wasm32-unknown-unknown".to_string(),
+                ERR_LLVM_INTERNAL.to_string(),
+            ));
         }
 
         let ir_path = output.with_extension("ll");
-        fs::write(&ir_path, llvm_ir).map_err(|e| LinkerError {
-            message: format!("Failed to write LLVM IR: {}", e),
-            message_ar: format!("فشل في كتابة LLVM IR: {}", e),
+        fs::write(&ir_path, llvm_ir).map_err(|e| {
+            LinkerError::with_code(
+                format!("Failed to write LLVM IR: {}", e),
+                format!(
+                    "فشل في كتابة التمثيل الوسيط الخاص بالآلة الافتراضية منخفضة المستوى: {}",
+                    e
+                ),
+                ERR_LLVM_INTERNAL.to_string(),
+            )
         })?;
 
         // Use clang for WASM compilation (it handles the full pipeline)
         if let Some(ref clang) = self.clang_path {
             self.compile_wasm_with_clang(clang, &ir_path, output, runtime_path)?;
         } else {
-            return Err(LinkerError {
-                message: "clang not found. Install LLVM with WebAssembly support.".to_string(),
-                message_ar: "لم يتم العثور على clang. ثبّت LLVM مع دعم WebAssembly.".to_string(),
-            });
+            return Err(LinkerError::with_code(
+                "clang not found. Install LLVM with WebAssembly support.".to_string(),
+                "لم يتم العثور على clang. ثبّت LLVM مع دعم WebAssembly.".to_string(),
+                ERR_LLVM_INTERNAL.to_string(),
+            ));
         }
 
         // Generate JavaScript bindings if requested
@@ -336,9 +363,12 @@ impl Linker {
 
         let js_bindings = generate_tarqeem_js_bindings(wasm_filename, &self.wasm_config);
 
-        fs::write(&js_path, js_bindings).map_err(|e| LinkerError {
-            message: format!("Failed to write JavaScript bindings: {}", e),
-            message_ar: format!("فشل في كتابة روابط JavaScript: {}", e),
+        fs::write(&js_path, js_bindings).map_err(|e| {
+            LinkerError::with_code(
+                format!("Failed to write JavaScript bindings: {}", e),
+                format!("فشل في كتابة روابط JavaScript: {}", e),
+                ERR_LLVM_INTERNAL.to_string(),
+            )
         })?;
 
         if self.verbose {
@@ -426,9 +456,12 @@ impl Linker {
         output: &Path,
         runtime_path: Option<&Path>,
     ) -> Result<(), LinkerError> {
-        let ld = self.ld_path.as_ref().ok_or_else(|| LinkerError {
-            message: "No linker found.".to_string(),
-            message_ar: "لم يتم العثور على رابط.".to_string(),
+        let ld = self.ld_path.as_ref().ok_or_else(|| {
+            LinkerError::with_code(
+                "No linker found.".to_string(),
+                "لم يتم العثور على رابط.".to_string(),
+                ERR_LINKING_FAILED.to_string(),
+            )
         })?;
 
         let mut cmd = Command::new(ld);
@@ -456,17 +489,21 @@ impl Linker {
             eprintln!("Running: {:?}", cmd);
         }
 
-        let output = cmd.output().map_err(|e| LinkerError {
-            message: format!("Failed to run {}: {}", name, e),
-            message_ar: format!("فشل في تشغيل {}: {}", name, e),
+        let output = cmd.output().map_err(|e| {
+            LinkerError::with_code(
+                format!("Failed to run {}: {}", name, e),
+                format!("فشل في تشغيل {}: {}", name, e),
+                ERR_LINKING_FAILED.to_string(),
+            )
         })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(LinkerError {
-                message: format!("{} failed: {}", name, stderr),
-                message_ar: format!("فشل {}: {}", name, stderr),
-            });
+            return Err(LinkerError::with_code(
+                format!("{} failed: {}", name, stderr),
+                format!("فشل {}: {}", name, stderr),
+                ERR_LINKING_FAILED.to_string(),
+            ));
         }
 
         Ok(())
@@ -488,11 +525,34 @@ impl Linker {
 pub struct LinkerError {
     pub message: String,
     pub message_ar: String,
+    pub code: Option<String>,
+}
+
+impl LinkerError {
+    pub fn new(message: String, message_ar: String) -> Self {
+        Self {
+            message,
+            message_ar,
+            code: None,
+        }
+    }
+
+    pub fn with_code(message: String, message_ar: String, code: String) -> Self {
+        Self {
+            message,
+            message_ar,
+            code: Some(code),
+        }
+    }
 }
 
 impl std::fmt::Display for LinkerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
+        if let Some(ref code) = self.code {
+            write!(f, "[{}] {}", code, self.message)
+        } else {
+            write!(f, "{}", self.message)
+        }
     }
 }
 

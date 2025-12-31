@@ -6,6 +6,7 @@
 //! - Circular dependency detection
 //! - Export/import symbol tracking
 
+use crate::error::codes::{ERR_CIRCULAR_DEPENDENCY, ERR_MODULE_NOT_FOUND};
 use crate::error::{Diagnostic, Span};
 use crate::parser::{Ast, Parser};
 use std::collections::HashMap;
@@ -128,11 +129,14 @@ impl ModuleLoader {
         let canonical_path = match path.canonicalize() {
             Ok(p) => p,
             Err(e) => {
-                self.diagnostics.push(Diagnostic::error(
-                    format!("Cannot resolve module path '{}': {}", path.display(), e),
-                    format!("لا يمكن تحديد مسار الوحدة '{}': {}", path.display(), e),
-                    span,
-                ));
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        format!("Cannot resolve module path '{}': {}", path.display(), e),
+                        format!("لا يمكن تحديد مسار الوحدة '{}': {}", path.display(), e),
+                        span,
+                    )
+                    .with_code(ERR_MODULE_NOT_FOUND.to_string()),
+                );
                 return Err(());
             }
         };
@@ -148,19 +152,22 @@ impl ModuleLoader {
                 .collect::<Vec<_>>()
                 .join(" -> ");
 
-            self.diagnostics.push(Diagnostic::error(
-                format!(
-                    "Circular dependency detected: {} -> {}",
-                    cycle,
-                    canonical_path.display()
-                ),
-                format!(
-                    "تم اكتشاف اعتماد دائري: {} -> {}",
-                    cycle,
-                    canonical_path.display()
-                ),
-                span,
-            ));
+            self.diagnostics.push(
+                Diagnostic::error(
+                    format!(
+                        "Circular dependency detected: {} -> {}",
+                        cycle,
+                        canonical_path.display()
+                    ),
+                    format!(
+                        "تم اكتشاف اعتماد دائري: {} -> {}",
+                        cycle,
+                        canonical_path.display()
+                    ),
+                    span,
+                )
+                .with_code(ERR_CIRCULAR_DEPENDENCY.to_string()),
+            );
             return Err(());
         }
 
@@ -189,11 +196,14 @@ impl ModuleLoader {
         let source = match std::fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) => {
-                self.diagnostics.push(Diagnostic::error(
-                    format!("Cannot read module '{}': {}", path.display(), e),
-                    format!("لا يمكن قراءة الوحدة '{}': {}", path.display(), e),
-                    span,
-                ));
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        format!("Cannot read module '{}': {}", path.display(), e),
+                        format!("لا يمكن قراءة الوحدة '{}': {}", path.display(), e),
+                        span,
+                    )
+                    .with_code(ERR_MODULE_NOT_FOUND.to_string()),
+                );
                 return Err(());
             }
         };
