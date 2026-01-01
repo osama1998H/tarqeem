@@ -1,4 +1,7 @@
 <div dir="rtl" align="right">
+    <div style="text-align: center;">
+  <h1>وَقُلِ اعْمَلُوا فَسَيَرَى اللَّهُ عَمَلَكُمْ وَرَسُولُهُ وَالْمُؤْمِنُونَ ۖ وَسَتُرَدُّونَ إِلَىٰ عَالِمِ الْغَيْبِ وَالشَّهَادَةِ فَيُنَبِّئُكُم بِمَا كُنتُمْ تَعْمَلُونَ (105)</h1>
+</div>
 <img width="592" height="634" alt="Tarqeem programming language overview diagram" src="https://github.com/user-attachments/assets/04c5d884-7bcd-496a-a4d1-cfd67a2d9708" />
 
 
