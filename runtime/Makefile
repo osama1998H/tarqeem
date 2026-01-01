@@ -15,7 +15,7 @@ ifdef DEBUG
 endif
 
 # Source files
-SRCS = memory.c string.c array.c io.c builtins.c crypto.c compress.c
+SRCS = memory.c string.c array.c io.c builtins.c crypto.c compress.c network.c
 OBJS = $(SRCS:.c=.o)
 
 # Output

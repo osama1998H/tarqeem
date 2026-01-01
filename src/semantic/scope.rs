@@ -505,6 +505,133 @@ impl Scope {
             vec![Type::String, Type::String],
             Type::Bool,
         ));
+
+        // =======================================================================
+        // Networking - الشبكة
+        // Following Arabic philosophy: full descriptive names, not abbreviations
+        // =======================================================================
+
+        // TCP Operations - عمليات بروتوكول التحكم بالنقل
+        // اتصل_خادم = connect to server (address, port, timeout) -> handle
+        scope.define(builtin(
+            "اتصل_خادم",
+            vec![Type::String, Type::Int, Type::Int],
+            Type::Int,
+        ));
+
+        // أغلق_اتصال = close connection (handle)
+        scope.define(builtin("أغلق_اتصال", vec![Type::Int], Type::Void));
+
+        // أرسل = send data (handle, data) -> success
+        scope.define(builtin("أرسل", vec![Type::Int, Type::String], Type::Bool));
+
+        // أرسل_بايتات = send bytes (handle, bytes) -> success
+        scope.define(builtin(
+            "أرسل_بايتات",
+            vec![Type::Int, Type::Array(Box::new(Type::Int))],
+            Type::Bool,
+        ));
+
+        // استقبل = receive data (handle, timeout) -> data
+        scope.define(builtin(
+            "استقبل",
+            vec![Type::Int, Type::Int],
+            Type::String,
+        ));
+
+        // استقبل_بايتات = receive bytes (handle, size, timeout) -> bytes
+        scope.define(builtin(
+            "استقبل_بايتات",
+            vec![Type::Int, Type::Int, Type::Int],
+            Type::Array(Box::new(Type::Int)),
+        ));
+
+        // استقبل_حتى = receive until delimiter (handle, delimiter, timeout) -> data
+        scope.define(builtin(
+            "استقبل_حتى",
+            vec![Type::Int, Type::String, Type::Int],
+            Type::String,
+        ));
+
+        // هل_متاح = is data available (handle) -> bool
+        scope.define(builtin("هل_متاح", vec![Type::Int], Type::Bool));
+
+        // استمع = listen for connections (address, port, backlog) -> server_handle
+        scope.define(builtin(
+            "استمع",
+            vec![Type::String, Type::Int, Type::Int],
+            Type::Int,
+        ));
+
+        // اقبل_اتصال = accept connection (server_handle) -> client_handle
+        scope.define(builtin("اقبل_اتصال", vec![Type::Int], Type::Int));
+
+        // عنوان_محلي = get local address (handle) -> address
+        scope.define(builtin("عنوان_محلي", vec![Type::Int], Type::String));
+
+        // منفذ_محلي = get local port (handle) -> port
+        scope.define(builtin("منفذ_محلي", vec![Type::Int], Type::Int));
+
+        // UDP Operations - عمليات بروتوكول حزم المستخدم
+        // ارتبط_منفذ = bind UDP socket (port) -> handle
+        scope.define(builtin("ارتبط_منفذ", vec![Type::Int], Type::Int));
+
+        // أرسل_إلى = send to address (handle, address, port, data) -> success
+        scope.define(builtin(
+            "أرسل_إلى",
+            vec![Type::Int, Type::String, Type::Int, Type::String],
+            Type::Bool,
+        ));
+
+        // استقبل_من = receive from any (handle, timeout) -> data
+        scope.define(builtin(
+            "استقبل_من",
+            vec![Type::Int, Type::Int],
+            Type::String,
+        ));
+
+        // رد = reply to last sender (handle, data) -> success
+        scope.define(builtin("رد", vec![Type::Int, Type::String], Type::Bool));
+
+        // DNS and utilities - النطاقات
+        // حل_اسم_نطاق = resolve hostname (hostname) -> ip
+        scope.define(builtin("حل_اسم_نطاق", vec![Type::String], Type::String));
+
+        // عنوان_محلي_للجهاز = get local IP () -> ip
+        scope.define(builtin("عنوان_محلي_للجهاز", vec![], Type::String));
+
+        // HTTP Operations - عمليات بروتوكول نقل النص الفائق
+        // طلب_ويب = HTTP request (method, url, headers, body, timeout, follow_redirects) -> response_body
+        // Note: simplified return type for now
+        scope.define(builtin(
+            "طلب_ويب",
+            vec![
+                Type::String,
+                Type::String,
+                Type::Array(Box::new(Type::String)),
+                Type::String,
+                Type::Int,
+                Type::Bool,
+            ],
+            Type::String,
+        ));
+
+        // احصل_ويب = simple HTTP GET (url) -> body
+        scope.define(builtin("احصل_ويب", vec![Type::String], Type::String));
+
+        // حمّل_ملف = download file (url, path) -> success
+        scope.define(builtin(
+            "حمّل_ملف",
+            vec![Type::String, Type::String],
+            Type::Bool,
+        ));
+
+        // URL encoding - ترميز الروابط
+        // رمّز_رابط = URL encode (string) -> encoded
+        scope.define(builtin("رمّز_رابط", vec![Type::String], Type::String));
+
+        // فك_ترميز_رابط = URL decode (encoded) -> string
+        scope.define(builtin("فك_ترميز_رابط", vec![Type::String], Type::String));
     }
 
     pub fn new_child(parent: Scope, kind: ScopeKind) -> Self {
