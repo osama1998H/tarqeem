@@ -533,11 +533,7 @@ impl Scope {
         ));
 
         // استقبل = receive data (handle, timeout) -> data
-        scope.define(builtin(
-            "استقبل",
-            vec![Type::Int, Type::Int],
-            Type::String,
-        ));
+        scope.define(builtin("استقبل", vec![Type::Int, Type::Int], Type::String));
 
         // استقبل_بايتات = receive bytes (handle, size, timeout) -> bytes
         scope.define(builtin(
