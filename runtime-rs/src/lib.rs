@@ -53,12 +53,13 @@ pub mod array;
 pub mod io;
 pub mod math;
 pub mod memory;
+pub mod network;
 pub mod runtime;
 pub mod string;
 pub mod types;
 
 // Re-export all public types
-pub use types::{RefCountHeader, TrqArray, TrqString, HEADER_SIZE};
+pub use types::{RefCountHeader, TrqArray, TrqHttpResponse, TrqString, TrqTcpInfo, HEADER_SIZE};
 
 // Re-export all memory functions
 pub use memory::{trq_alloc, trq_free, trq_realloc, trq_refcount, trq_release, trq_retain};
@@ -203,4 +204,40 @@ pub use math::{
 pub use runtime::{
     trq_abort, trq_assert, trq_debug, trq_env_get, trq_env_remove, trq_env_set, trq_panic,
     trq_runtime_cleanup, trq_runtime_init, trq_version,
+};
+
+// Re-export all network functions
+pub use network::{
+    // DNS/Utility (2 functions)
+    trq_get_local_ip,
+    // HTTP (3 functions)
+    trq_http_download,
+    trq_http_get,
+    trq_http_request,
+    trq_resolve_hostname,
+    // TCP (13 functions)
+    trq_tcp_accept,
+    trq_tcp_accept_timeout,
+    trq_tcp_available,
+    trq_tcp_close,
+    trq_tcp_connect,
+    trq_tcp_listen,
+    trq_tcp_local_address,
+    trq_tcp_local_port,
+    trq_tcp_receive,
+    trq_tcp_receive_bytes,
+    trq_tcp_receive_until,
+    trq_tcp_send,
+    trq_tcp_send_bytes,
+    // UDP (7 functions)
+    trq_udp_bind,
+    trq_udp_close,
+    trq_udp_receive,
+    trq_udp_receive_bytes,
+    trq_udp_reply,
+    trq_udp_send_bytes_to,
+    trq_udp_send_to,
+    // URL encoding (2 functions)
+    trq_url_decode,
+    trq_url_encode,
 };
