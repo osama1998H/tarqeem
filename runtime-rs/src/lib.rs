@@ -94,17 +94,26 @@ pub use io::{
     trq_dir_home,
     trq_dir_list,
     trq_dir_temp,
-    // File operations
+    // File operations (basic)
     trq_file_append,
+    // File handle/stream operations
+    trq_file_close,
     trq_file_copy,
     trq_file_delete,
+    trq_file_eof,
     trq_file_exists,
+    trq_file_flush,
     trq_file_is_dir,
     trq_file_is_file,
     trq_file_move,
+    trq_file_open_append,
+    trq_file_open_read,
+    trq_file_open_write,
     trq_file_read,
+    trq_file_read_line,
     trq_file_size,
     trq_file_write,
+    trq_file_write_line,
     // Console I/O
     trq_input,
     trq_input_float,
