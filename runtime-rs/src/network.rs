@@ -175,7 +175,7 @@ pub extern "C" fn trq_tcp_send(handle: i64, data: *const TrqString) -> bool {
     }
 
     let data_slice = unsafe {
-        if (*data).data.is_null() {
+        if (*data).data.is_null() || (*data).len <= 0 {
             return true; // Empty data is success
         }
         std::slice::from_raw_parts((*data).data, (*data).len as usize)
@@ -442,7 +442,15 @@ pub extern "C" fn trq_tcp_accept(handle: i64) -> *mut TrqTcpInfo {
         if let Some(wrapper) = listeners.get(&handle) {
             match wrapper.listener.accept() {
                 Ok((stream, addr)) => {
-                    // Store stream
+                    // Create TrqTcpInfo first before storing the stream
+                    let info_ptr = crate::memory::trq_alloc(std::mem::size_of::<TrqTcpInfo>() as i64)
+                        as *mut TrqTcpInfo;
+                    if info_ptr.is_null() {
+                        // Don't store the stream if allocation fails
+                        return std::ptr::null_mut();
+                    }
+
+                    // Now store stream (only after successful allocation)
                     let stream_handle = get_next_handle();
                     TCP_STREAMS.with(|streams| {
                         streams
@@ -450,21 +458,14 @@ pub extern "C" fn trq_tcp_accept(handle: i64) -> *mut TrqTcpInfo {
                             .insert(stream_handle, TcpStreamWrapper { stream });
                     });
 
-                    // Create TrqTcpInfo
+                    // Fill in TrqTcpInfo
                     unsafe {
-                        let info_ptr =
-                            crate::memory::trq_alloc(std::mem::size_of::<TrqTcpInfo>() as i64)
-                                as *mut TrqTcpInfo;
-                        if info_ptr.is_null() {
-                            return std::ptr::null_mut();
-                        }
-
                         (*info_ptr).address = string_to_trq(&addr.ip().to_string());
                         (*info_ptr).port = addr.port() as i64;
                         (*info_ptr).handle = stream_handle;
-
-                        info_ptr
                     }
+
+                    info_ptr
                 }
                 Err(_) => std::ptr::null_mut(),
             }
@@ -497,7 +498,16 @@ pub extern "C" fn trq_tcp_accept_timeout(handle: i64, timeout_ms: i64) -> *mut T
                         // Restore blocking mode
                         let _ = wrapper.listener.set_nonblocking(false);
 
-                        // Store stream
+                        // Create TrqTcpInfo first before storing the stream
+                        let info_ptr =
+                            crate::memory::trq_alloc(std::mem::size_of::<TrqTcpInfo>() as i64)
+                                as *mut TrqTcpInfo;
+                        if info_ptr.is_null() {
+                            // Don't store the stream if allocation fails
+                            return std::ptr::null_mut();
+                        }
+
+                        // Now store stream (only after successful allocation)
                         let stream_handle = get_next_handle();
                         TCP_STREAMS.with(|streams| {
                             streams
@@ -505,21 +515,14 @@ pub extern "C" fn trq_tcp_accept_timeout(handle: i64, timeout_ms: i64) -> *mut T
                                 .insert(stream_handle, TcpStreamWrapper { stream });
                         });
 
-                        // Create TrqTcpInfo
+                        // Fill in TrqTcpInfo
                         unsafe {
-                            let info_ptr =
-                                crate::memory::trq_alloc(std::mem::size_of::<TrqTcpInfo>() as i64)
-                                    as *mut TrqTcpInfo;
-                            if info_ptr.is_null() {
-                                return std::ptr::null_mut();
-                            }
-
                             (*info_ptr).address = string_to_trq(&addr.ip().to_string());
                             (*info_ptr).port = addr.port() as i64;
                             (*info_ptr).handle = stream_handle;
-
-                            return info_ptr;
                         }
+
+                        return info_ptr;
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         if start.elapsed() >= timeout {
@@ -687,7 +690,7 @@ pub extern "C" fn trq_udp_send_to(
     }
 
     let data_slice = unsafe {
-        if data.is_null() || (*data).data.is_null() {
+        if data.is_null() || (*data).data.is_null() || (*data).len <= 0 {
             return true; // Empty is success
         }
         std::slice::from_raw_parts((*data).data, (*data).len as usize)
@@ -835,7 +838,7 @@ pub extern "C" fn trq_udp_receive_bytes(handle: i64, size: i64, timeout_ms: i64)
 #[no_mangle]
 pub extern "C" fn trq_udp_reply(handle: i64, data: *const TrqString) -> bool {
     let data_slice = unsafe {
-        if data.is_null() || (*data).data.is_null() {
+        if data.is_null() || (*data).data.is_null() || (*data).len <= 0 {
             return false;
         }
         std::slice::from_raw_parts((*data).data, (*data).len as usize)
@@ -1022,16 +1025,37 @@ fn parse_url(url: &str) -> Option<ParsedUrl> {
         None => (rest, "/"),
     };
 
-    // Parse host and port
-    let (host, port) = match host_port.rfind(':') {
-        Some(idx) => {
-            let h = &host_port[..idx];
-            let p = host_port[idx + 1..].parse().ok()?;
-            (h.to_string(), p)
+    // Parse host and port, handling IPv6 addresses in brackets
+    let (host, port) = if host_port.starts_with('[') {
+        // IPv6 address in brackets: [::1]:8080
+        match host_port.find(']') {
+            Some(bracket_idx) => {
+                let h = &host_port[1..bracket_idx]; // Extract IPv6 without brackets
+                let after_bracket = &host_port[bracket_idx + 1..];
+                if after_bracket.starts_with(':') {
+                    let p = after_bracket[1..].parse().ok()?;
+                    (h.to_string(), p)
+                } else if after_bracket.is_empty() {
+                    let default_port = if is_https { 443 } else { 80 };
+                    (h.to_string(), default_port)
+                } else {
+                    return None; // Invalid format
+                }
+            }
+            None => return None, // Missing closing bracket
         }
-        None => {
-            let default_port = if is_https { 443 } else { 80 };
-            (host_port.to_string(), default_port)
+    } else {
+        // Regular IPv4 or hostname
+        match host_port.rfind(':') {
+            Some(idx) => {
+                let h = &host_port[..idx];
+                let p = host_port[idx + 1..].parse().ok()?;
+                (h.to_string(), p)
+            }
+            None => {
+                let default_port = if is_https { 443 } else { 80 };
+                (host_port.to_string(), default_port)
+            }
         }
     };
 
@@ -1132,12 +1156,17 @@ pub extern "C" fn trq_http_request(
         unsafe {
             let len = (*headers).len;
             let elem_size = (*headers).elem_size;
-            for i in 0..len {
-                let ptr_offset = (i * elem_size) as usize;
-                let header_ptr = (*headers).data.add(ptr_offset) as *const *const TrqString;
-                if let Some(header) = extract_string(*header_ptr) {
-                    request.push_str(&header);
-                    request.push_str("\r\n");
+            let expected_size = std::mem::size_of::<*const TrqString>() as i64;
+
+            // Validate elem_size matches pointer size and len is positive
+            if elem_size == expected_size && len > 0 && !(*headers).data.is_null() {
+                for i in 0..len {
+                    let ptr_offset = (i * elem_size) as usize;
+                    let header_ptr = (*headers).data.add(ptr_offset) as *const *const TrqString;
+                    if let Some(header) = extract_string(*header_ptr) {
+                        request.push_str(&header);
+                        request.push_str("\r\n");
+                    }
                 }
             }
         }
@@ -1333,9 +1362,17 @@ pub extern "C" fn trq_http_download(url: *const TrqString, path: *const TrqStrin
         let status = (*response).status;
         let body = (*response).body;
 
-        let success = if status >= 200 && status < 300 && !body.is_null() {
+        let success = if status >= 200
+            && status < 300
+            && !body.is_null()
+            && !(*body).data.is_null()
+            && (*body).len > 0
+        {
             let body_slice = std::slice::from_raw_parts((*body).data, (*body).len as usize);
             std::fs::write(&path_str, body_slice).is_ok()
+        } else if status >= 200 && status < 300 && !body.is_null() && (*body).len == 0 {
+            // Empty body is still success, write empty file
+            std::fs::write(&path_str, &[]).is_ok()
         } else {
             false
         };
