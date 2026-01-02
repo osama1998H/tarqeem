@@ -124,18 +124,14 @@ pub extern "C" fn trq_array_len(arr: *const TrqArray) -> i64 {
 #[no_mangle]
 pub extern "C" fn trq_array_get(arr: *const TrqArray, index: i64) -> *mut u8 {
     if arr.is_null() {
-        eprintln!(
-            "Error: Array access on null array / خطأ: الوصول إلى مصفوفة فارغة"
-        );
+        eprintln!("Error: Array access on null array / خطأ: الوصول إلى مصفوفة فارغة");
         return ptr::null_mut();
     }
 
     unsafe {
         let data = (*arr).data;
         if data.is_null() {
-            eprintln!(
-                "Error: Array access on null array / خطأ: الوصول إلى مصفوفة فارغة"
-            );
+            eprintln!("Error: Array access on null array / خطأ: الوصول إلى مصفوفة فارغة");
             return ptr::null_mut();
         }
 
@@ -166,18 +162,14 @@ pub extern "C" fn trq_array_get(arr: *const TrqArray, index: i64) -> *mut u8 {
 #[no_mangle]
 pub extern "C" fn trq_array_set(arr: *mut TrqArray, index: i64, value: *const u8) {
     if arr.is_null() {
-        eprintln!(
-            "Error: Array access on null array / خطأ: الوصول إلى مصفوفة فارغة"
-        );
+        eprintln!("Error: Array access on null array / خطأ: الوصول إلى مصفوفة فارغة");
         return;
     }
 
     unsafe {
         let data = (*arr).data;
         if data.is_null() {
-            eprintln!(
-                "Error: Array access on null array / خطأ: الوصول إلى مصفوفة فارغة"
-            );
+            eprintln!("Error: Array access on null array / خطأ: الوصول إلى مصفوفة فارغة");
             return;
         }
 
@@ -271,9 +263,7 @@ pub extern "C" fn trq_array_ensure_capacity(arr: *mut TrqArray, new_cap: i64) ->
 #[no_mangle]
 pub extern "C" fn trq_array_push(arr: *mut TrqArray, value: *const u8, _elem_size: i64) {
     if arr.is_null() {
-        eprintln!(
-            "Error: Push on null array / خطأ: إضافة إلى مصفوفة فارغة"
-        );
+        eprintln!("Error: Push on null array / خطأ: إضافة إلى مصفوفة فارغة");
         return;
     }
 
@@ -283,9 +273,7 @@ pub extern "C" fn trq_array_push(arr: *mut TrqArray, value: *const u8, _elem_siz
 
         // Ensure we have capacity for one more element
         if !trq_array_ensure_capacity(arr, (*arr).len + 1) {
-            eprintln!(
-                "Error: Failed to grow array / خطأ: فشل في توسيع المصفوفة"
-            );
+            eprintln!("Error: Failed to grow array / خطأ: فشل في توسيع المصفوفة");
             return;
         }
 
@@ -317,17 +305,13 @@ pub extern "C" fn trq_array_push(arr: *mut TrqArray, value: *const u8, _elem_siz
 #[no_mangle]
 pub extern "C" fn trq_array_pop(arr: *mut TrqArray) -> *mut u8 {
     if arr.is_null() {
-        eprintln!(
-            "Error: Pop from empty array / خطأ: إزالة من مصفوفة فارغة"
-        );
+        eprintln!("Error: Pop from empty array / خطأ: إزالة من مصفوفة فارغة");
         return ptr::null_mut();
     }
 
     unsafe {
         if (*arr).len == 0 {
-            eprintln!(
-                "Error: Pop from empty array / خطأ: إزالة من مصفوفة فارغة"
-            );
+            eprintln!("Error: Pop from empty array / خطأ: إزالة من مصفوفة فارغة");
             return ptr::null_mut();
         }
 

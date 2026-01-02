@@ -22,10 +22,7 @@ use std::ptr;
 /// Count UTF-8 characters (code points) in a byte slice
 #[inline]
 fn count_utf8_chars(bytes: &[u8]) -> i64 {
-    bytes
-        .iter()
-        .filter(|&&b| (b & 0xC0) != 0x80)
-        .count() as i64
+    bytes.iter().filter(|&&b| (b & 0xC0) != 0x80).count() as i64
 }
 
 /// Get the byte length of a UTF-8 character starting at the given byte
@@ -1002,7 +999,10 @@ pub extern "C" fn trq_string_trim(s: *const TrqString) -> *mut TrqString {
         let bytes = std::slice::from_raw_parts((*s).data, (*s).len as usize);
 
         // Find start (first non-whitespace)
-        let start = bytes.iter().position(|&b| !is_whitespace(b)).unwrap_or(bytes.len());
+        let start = bytes
+            .iter()
+            .position(|&b| !is_whitespace(b))
+            .unwrap_or(bytes.len());
 
         // Find end (last non-whitespace)
         let end = bytes
@@ -1041,7 +1041,10 @@ pub extern "C" fn trq_string_trim_left(s: *const TrqString) -> *mut TrqString {
         let bytes = std::slice::from_raw_parts((*s).data, (*s).len as usize);
 
         // Find start (first non-whitespace)
-        let start = bytes.iter().position(|&b| !is_whitespace(b)).unwrap_or(bytes.len());
+        let start = bytes
+            .iter()
+            .position(|&b| !is_whitespace(b))
+            .unwrap_or(bytes.len());
 
         if start >= bytes.len() {
             return trq_string_new(ptr::null(), 0);
@@ -1127,7 +1130,11 @@ pub extern "C" fn trq_string_reverse(s: *const TrqString) -> *mut TrqString {
         // Copy characters in reverse order
         let mut dest_pos = 0;
         for &(offset, len) in char_offsets.iter().rev() {
-            ptr::copy_nonoverlapping(bytes.as_ptr().add(offset), (*result).data.add(dest_pos), len);
+            ptr::copy_nonoverlapping(
+                bytes.as_ptr().add(offset),
+                (*result).data.add(dest_pos),
+                len,
+            );
             dest_pos += len;
         }
         *(*result).data.add(dest_pos) = 0;
@@ -1284,7 +1291,11 @@ pub extern "C" fn trq_string_replace(
 
         // Copy new_str
         if new_len > 0 {
-            ptr::copy_nonoverlapping((*new_str).data, (*result).data.add(pos as usize), new_len as usize);
+            ptr::copy_nonoverlapping(
+                (*new_str).data,
+                (*result).data.add(pos as usize),
+                new_len as usize,
+            );
         }
 
         // Copy after old_str
@@ -1509,14 +1520,22 @@ pub extern "C" fn trq_string_join(
         for i in 0..(*arr).len {
             // Add delimiter before elements (except first)
             if i > 0 && delim_len > 0 {
-                ptr::copy_nonoverlapping((*delim).data, (*result).data.add(dest_pos), delim_len as usize);
+                ptr::copy_nonoverlapping(
+                    (*delim).data,
+                    (*result).data.add(dest_pos),
+                    delim_len as usize,
+                );
                 dest_pos += delim_len as usize;
             }
 
             let str_ptr_ptr = (*arr).data.add((i as usize) * elem_size) as *const *mut TrqString;
             let str_ptr = *str_ptr_ptr;
             if !str_ptr.is_null() && !(*str_ptr).data.is_null() && (*str_ptr).len > 0 {
-                ptr::copy_nonoverlapping((*str_ptr).data, (*result).data.add(dest_pos), (*str_ptr).len as usize);
+                ptr::copy_nonoverlapping(
+                    (*str_ptr).data,
+                    (*result).data.add(dest_pos),
+                    (*str_ptr).len as usize,
+                );
                 dest_pos += (*str_ptr).len as usize;
             }
         }
@@ -1688,9 +1707,9 @@ pub extern "C" fn trq_string_is_alpha(s: *const TrqString) -> bool {
         let bytes = std::slice::from_raw_parts((*s).data, (*s).len as usize);
 
         // Check for ASCII alphabetic (A-Z, a-z) or allow multi-byte UTF-8
-        bytes.iter().all(|&b| {
-            (b >= b'A' && b <= b'Z') || (b >= b'a' && b <= b'z') || (b & 0x80) != 0
-        })
+        bytes
+            .iter()
+            .all(|&b| (b >= b'A' && b <= b'Z') || (b >= b'a' && b <= b'z') || (b & 0x80) != 0)
     }
 }
 

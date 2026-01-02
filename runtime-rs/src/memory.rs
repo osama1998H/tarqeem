@@ -144,9 +144,7 @@ pub extern "C" fn trq_realloc(ptr: *mut u8, new_size: i64) -> *mut u8 {
         let new_header_ptr = realloc(header_ptr as *mut u8, old_layout, new_total);
 
         if new_header_ptr.is_null() {
-            eprintln!("خطأ: فشل إعادة تخصيص الذاكرة ({} بايت)",
-                new_total
-            );
+            eprintln!("خطأ: فشل إعادة تخصيص الذاكرة ({} بايت)", new_total);
             return ptr::null_mut();
         }
 
