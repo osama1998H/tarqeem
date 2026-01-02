@@ -131,56 +131,112 @@ fn test_global_scope_creation() {
 }
 
 #[test]
-fn test_global_scope_has_builtins_arabic() {
+fn test_global_scope_has_core_builtins() {
+    // Only 18 core builtins should be available globally without imports
     let scope = Scope::new_global();
 
+    // I/O (6)
     assert!(scope.lookup("اطبع").is_some());
     assert!(scope.lookup("طباعة").is_some());
+    assert!(scope.lookup("اطبع_سطر").is_some());
+    assert!(scope.lookup("اطبع_خطأ").is_some());
     assert!(scope.lookup("ادخل").is_some());
     assert!(scope.lookup("ادخل_رسالة").is_some());
 
+    // Type introspection (2)
     assert!(scope.lookup("طول").is_some());
     assert!(scope.lookup("نوع").is_some());
 
+    // Type conversion (4)
     assert!(scope.lookup("عدد").is_some());
     assert!(scope.lookup("عدد_عشري").is_some());
     assert!(scope.lookup("نص").is_some());
     assert!(scope.lookup("منطقي").is_some());
 
-    assert!(scope.lookup("مطلق").is_some());
-    assert!(scope.lookup("جذر").is_some());
-    assert!(scope.lookup("قوة").is_some());
+    // Control (4)
+    assert!(scope.lookup("تأكد").is_some());
+    assert!(scope.lookup("تأكد_رسالة").is_some());
+    assert!(scope.lookup("توقف").is_some());
+    assert!(scope.lookup("نم").is_some());
+
+    // Array (2)
+    assert!(scope.lookup("طول_مصفوفة").is_some());
+    assert!(scope.lookup("الحق").is_some());
+
+    // Verify stdlib functions are NOT in global scope
+    assert!(scope.lookup("مطلق").is_none());
+    assert!(scope.lookup("جذر").is_none());
+    assert!(scope.lookup("قوة").is_none());
 }
 
 #[test]
-fn test_global_scope_has_trig_functions() {
-    let scope = Scope::new_global();
-
-    assert!(scope.lookup("جا").is_some());
-    assert!(scope.lookup("جتا").is_some());
-    assert!(scope.lookup("ظا").is_some());
-    assert!(scope.lookup("جا_عكسي").is_some());
-    assert!(scope.lookup("جتا_عكسي").is_some());
-    assert!(scope.lookup("ظا_عكسي").is_some());
+fn test_stdlib_builtins_available_via_import() {
+    // Math functions should be available via get_stdlib_builtin
+    assert!(Scope::get_stdlib_builtin("رياضيات", "جا").is_some());
+    assert!(Scope::get_stdlib_builtin("رياضيات", "جتا").is_some());
+    assert!(Scope::get_stdlib_builtin("رياضيات", "ظا").is_some());
+    assert!(Scope::get_stdlib_builtin("رياضيات", "جا_عكسي").is_some());
+    assert!(Scope::get_stdlib_builtin("رياضيات", "جذر").is_some());
+    assert!(Scope::get_stdlib_builtin("رياضيات", "قوة").is_some());
+    assert!(Scope::get_stdlib_builtin("رياضيات", "مطلق").is_some());
 }
 
 #[test]
-fn test_global_scope_has_file_functions() {
+fn test_stdlib_file_functions_require_import() {
+    // File functions should NOT be in global scope
     let scope = Scope::new_global();
+    assert!(scope.lookup("ملف_موجود").is_none());
+    assert!(scope.lookup("اقرأ_ملف").is_none());
+    assert!(scope.lookup("اكتب_ملف").is_none());
 
-    assert!(scope.lookup("ملف_موجود").is_some());
-    assert!(scope.lookup("اقرأ_ملف").is_some());
-    assert!(scope.lookup("اكتب_ملف").is_some());
+    // But should be available via import
+    assert!(Scope::get_stdlib_builtin("ملفات", "ملف_موجود").is_some());
+    assert!(Scope::get_stdlib_builtin("ملفات", "اقرأ_ملف").is_some());
+    assert!(Scope::get_stdlib_builtin("ملفات", "اكتب_ملف").is_some());
 }
 
 #[test]
-fn test_global_scope_has_random_functions() {
+fn test_stdlib_random_functions_require_import() {
+    // Random functions should NOT be in global scope
     let scope = Scope::new_global();
+    assert!(scope.lookup("عشوائي").is_none());
+    assert!(scope.lookup("عشوائي_عدد").is_none());
 
-    assert!(scope.lookup("عشوائي").is_some());
-    assert!(scope.lookup("عشوائي_عدد").is_some());
-    assert!(scope.lookup("عشوائي_عشري").is_some());
-    assert!(scope.lookup("عشوائي_منطقي").is_some());
+    // But should be available via import from رياضيات
+    assert!(Scope::get_stdlib_builtin("رياضيات", "عشوائي").is_some());
+    assert!(Scope::get_stdlib_builtin("رياضيات", "عشوائي_عدد").is_some());
+    assert!(Scope::get_stdlib_builtin("رياضيات", "عشوائي_عشري").is_some());
+    assert!(Scope::get_stdlib_builtin("رياضيات", "عشوائي_منطقي").is_some());
+}
+
+#[test]
+fn test_get_stdlib_modules() {
+    let modules = Scope::get_stdlib_modules();
+    assert!(modules.contains(&"رياضيات"));
+    assert!(modules.contains(&"نص"));
+    assert!(modules.contains(&"ملفات"));
+    assert!(modules.contains(&"وقت"));
+    assert!(modules.contains(&"تشفير"));
+    assert!(modules.contains(&"ضغط"));
+    assert!(modules.contains(&"شبكة"));
+}
+
+#[test]
+fn test_get_stdlib_module_exports() {
+    // Math module should have many functions
+    let math_exports = Scope::get_stdlib_module_exports("رياضيات");
+    assert!(!math_exports.is_empty());
+    assert!(math_exports.contains(&"جذر"));
+    assert!(math_exports.contains(&"قوة"));
+
+    // String module should have string functions
+    let string_exports = Scope::get_stdlib_module_exports("نص");
+    assert!(string_exports.contains(&"قص_نص"));
+    assert!(string_exports.contains(&"كبير"));
+
+    // Unknown module should return empty
+    let unknown_exports = Scope::get_stdlib_module_exports("غير_موجود");
+    assert!(unknown_exports.is_empty());
 }
 
 #[test]

@@ -4,7 +4,7 @@
 //! declarations, function declarations, class declarations, control flow, etc.
 
 use super::super::modules::ExportKind;
-use super::super::scope::{ScopeKind, Symbol, SymbolKind};
+use super::super::scope::{Scope, ScopeKind, Symbol, SymbolKind};
 use super::super::types::Type;
 use super::{Analyzer, EnumInfo, EnumVariantInfo};
 use crate::error::codes::{ERR_CLASS_NOT_FOUND, ERR_NOT_EXPORTED};
@@ -917,6 +917,16 @@ impl Analyzer {
 
     /// Analyze an import statement.
     pub(crate) fn analyze_import(&mut self, items: &ImportItems, from: &str, span: Span) {
+        // First, check if this is a stdlib module import
+        // Stdlib modules have builtin functions that don't require file loading
+        let is_stdlib_module = Scope::get_stdlib_modules().contains(&from);
+
+        if is_stdlib_module {
+            // Handle stdlib module imports directly through the builtin map
+            self.handle_stdlib_import(items, from, span);
+            return;
+        }
+
         let current_file = self
             .current_file
             .clone()
@@ -1052,6 +1062,77 @@ impl Analyzer {
                 });
             }
             ImportItems::Default(name) => {
+                self.scope.define(Symbol {
+                    name: name.clone(),
+                    kind: SymbolKind::Import,
+                    ty: Type::Any,
+                    mutable: false,
+                    defined: true,
+                    used: false,
+                    span,
+                });
+            }
+        }
+    }
+
+    /// Handle imports from stdlib modules.
+    /// Stdlib modules have builtin functions that are resolved through Scope::get_stdlib_builtin.
+    fn handle_stdlib_import(&mut self, items: &ImportItems, module: &str, span: Span) {
+        match items {
+            ImportItems::Named(imports) => {
+                for import in imports {
+                    let name = import.alias.as_ref().unwrap_or(&import.name);
+                    // Check if this is a stdlib builtin function
+                    if let Some(symbol) = Scope::get_stdlib_builtin(module, &import.name) {
+                        self.scope.define(Symbol {
+                            name: name.clone(),
+                            kind: SymbolKind::Import,
+                            ty: symbol.ty,
+                            mutable: false,
+                            defined: true,
+                            used: false,
+                            span,
+                        });
+                    } else {
+                        self.error_with_code(
+                            &format!(
+                                "الوحدة '{}' لا تحتوي على تصدير باسم '{}'",
+                                module, import.name
+                            ),
+                            span,
+                            &ERR_NOT_EXPORTED.to_string(),
+                        );
+                        self.scope.define(Symbol {
+                            name: name.clone(),
+                            kind: SymbolKind::Import,
+                            ty: Type::Any,
+                            mutable: false,
+                            defined: true,
+                            used: false,
+                            span,
+                        });
+                    }
+                }
+            }
+            ImportItems::Wildcard(alias) => {
+                // For wildcard imports, register all exports from the stdlib module
+                // We define the alias as a namespace-like symbol
+                self.scope.define(Symbol {
+                    name: alias.clone(),
+                    kind: SymbolKind::Import,
+                    ty: Type::Any, // Namespace type would be better, but Any works for now
+                    mutable: false,
+                    defined: true,
+                    used: false,
+                    span,
+                });
+            }
+            ImportItems::Default(name) => {
+                // Stdlib modules don't have default exports
+                self.warn(
+                    &format!("الوحدة '{}' لا تحتوي على تصدير افتراضي", module),
+                    span,
+                );
                 self.scope.define(Symbol {
                     name: name.clone(),
                     kind: SymbolKind::Import,
