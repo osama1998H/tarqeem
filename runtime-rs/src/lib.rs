@@ -51,4 +51,4 @@ pub mod types;
 pub use types::{RefCountHeader, TrqArray, TrqString, HEADER_SIZE};
 
 // Re-export all public functions
-pub use memory::{trq_alloc, trq_free, trq_refcount, trq_realloc, trq_release, trq_retain};
+pub use memory::{trq_alloc, trq_free, trq_realloc, trq_refcount, trq_release, trq_retain};
