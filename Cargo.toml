@@ -1,9 +1,16 @@
+[workspace]
+members = [
+    ".",           # Main compiler
+    "runtime-rs",  # Rust runtime library
+]
+resolver = "2"
+
 [package]
 name = "tarqeem"
 version = "0.1.0"
 edition = "2021"
 authors = ["Tarqeem Contributors"]
-description = "أول لغة برمجة عربية مُترجَمة للأغراض العامة - The first compiled Arabic programming language"
+description = "أول لغة برمجة عربية للأغراض العامة - The first compiled Arabic programming language"
 license = "MIT"
 repository = "https://github.com/osama1998H/tarqeem"
 keywords = ["compiler", "programming-language", "arabic", "compiler-design"]
