@@ -369,7 +369,7 @@ pub extern "C" fn trq_refcount(ptr: *const u8) -> i64 {
 }
 ```
 
-### Phase 2: Core Types (Week 2-3)
+### Phase 2: Core Types (Week 2-3) ✅ COMPLETED
 
 #### 4.2.1 String Operations
 
