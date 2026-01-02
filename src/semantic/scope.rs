@@ -209,7 +209,9 @@ impl Scope {
                 "قوة" => Some(builtin("قوة", vec![Type::Float, Type::Float], Type::Float)),
                 "قوة_عدد" => Some(builtin("قوة_عدد", vec![Type::Int, Type::Int], Type::Int)),
                 "جذر" => Some(builtin("جذر", vec![Type::Float], Type::Float)),
-                "جذر_تكعيبي" => Some(builtin("جذر_تكعيبي", vec![Type::Float], Type::Float)),
+                "جذر_تكعيبي" => {
+                    Some(builtin("جذر_تكعيبي", vec![Type::Float], Type::Float))
+                }
 
                 // Logarithms
                 "لوغاريتم" => Some(builtin("لوغاريتم", vec![Type::Float], Type::Float)),
@@ -234,24 +236,42 @@ impl Scope {
                 "أقل_عدد" => Some(builtin("أقل_عدد", vec![Type::Int, Type::Int], Type::Int)),
                 "أكبر" => Some(builtin("أكبر", vec![Type::Any, Type::Any], Type::Any)),
                 "أقصى" => Some(builtin("أقصى", vec![Type::Any, Type::Any], Type::Any)),
-                "أكبر_عدد" => Some(builtin("أكبر_عدد", vec![Type::Int, Type::Int], Type::Int)),
+                "أكبر_عدد" => {
+                    Some(builtin("أكبر_عدد", vec![Type::Int, Type::Int], Type::Int))
+                }
 
                 // Clamp
-                "حصر" => Some(builtin("حصر", vec![Type::Any, Type::Any, Type::Any], Type::Any)),
-                "حصر_عدد" => Some(builtin("حصر_عدد", vec![Type::Int, Type::Int, Type::Int], Type::Int)),
+                "حصر" => Some(builtin(
+                    "حصر",
+                    vec![Type::Any, Type::Any, Type::Any],
+                    Type::Any,
+                )),
+                "حصر_عدد" => Some(builtin(
+                    "حصر_عدد",
+                    vec![Type::Int, Type::Int, Type::Int],
+                    Type::Int,
+                )),
 
                 // Other math
                 "علامة" => Some(builtin("علامة", vec![Type::Int], Type::Int)),
                 "باقي" => Some(builtin("باقي", vec![Type::Int, Type::Int], Type::Int)),
-                "قاسم_مشترك" => Some(builtin("قاسم_مشترك", vec![Type::Int, Type::Int], Type::Int)),
-                "مضاعف_مشترك" => Some(builtin("مضاعف_مشترك", vec![Type::Int, Type::Int], Type::Int)),
+                "قاسم_مشترك" => {
+                    Some(builtin("قاسم_مشترك", vec![Type::Int, Type::Int], Type::Int))
+                }
+                "مضاعف_مشترك" => Some(builtin(
+                    "مضاعف_مشترك",
+                    vec![Type::Int, Type::Int],
+                    Type::Int,
+                )),
                 "عاملي" => Some(builtin("عاملي", vec![Type::Int], Type::Int)),
 
                 // Trigonometry
                 "جا" => Some(builtin("جا", vec![Type::Float], Type::Float)),
                 "جيب" => Some(builtin("جيب", vec![Type::Float], Type::Float)),
                 "جتا" => Some(builtin("جتا", vec![Type::Float], Type::Float)),
-                "جيب_التمام" => Some(builtin("جيب_التمام", vec![Type::Float], Type::Float)),
+                "جيب_التمام" => {
+                    Some(builtin("جيب_التمام", vec![Type::Float], Type::Float))
+                }
                 "ظا" => Some(builtin("ظا", vec![Type::Float], Type::Float)),
                 "ظل" => Some(builtin("ظل", vec![Type::Float], Type::Float)),
                 "ظتا" => Some(builtin("ظتا", vec![Type::Float], Type::Float)),
@@ -259,15 +279,23 @@ impl Scope {
                 "قا" => Some(builtin("قا", vec![Type::Float], Type::Float)),
                 "قاطع" => Some(builtin("قاطع", vec![Type::Float], Type::Float)),
                 "قتا" => Some(builtin("قتا", vec![Type::Float], Type::Float)),
-                "قاطع_التمام" => Some(builtin("قاطع_التمام", vec![Type::Float], Type::Float)),
+                "قاطع_التمام" => {
+                    Some(builtin("قاطع_التمام", vec![Type::Float], Type::Float))
+                }
 
                 // Inverse trig
                 "جا_عكسي" => Some(builtin("جا_عكسي", vec![Type::Float], Type::Float)),
                 "جيب_عكسي" => Some(builtin("جيب_عكسي", vec![Type::Float], Type::Float)),
                 "جتا_عكسي" => Some(builtin("جتا_عكسي", vec![Type::Float], Type::Float)),
-                "جيب_تمام_عكسي" => Some(builtin("جيب_تمام_عكسي", vec![Type::Float], Type::Float)),
+                "جيب_تمام_عكسي" => {
+                    Some(builtin("جيب_تمام_عكسي", vec![Type::Float], Type::Float))
+                }
                 "ظا_عكسي" => Some(builtin("ظا_عكسي", vec![Type::Float], Type::Float)),
-                "ظا_عكسي2" => Some(builtin("ظا_عكسي2", vec![Type::Float, Type::Float], Type::Float)),
+                "ظا_عكسي2" => Some(builtin(
+                    "ظا_عكسي2",
+                    vec![Type::Float, Type::Float],
+                    Type::Float,
+                )),
 
                 // Hyperbolic
                 "جا_زائدي" => Some(builtin("جا_زائدي", vec![Type::Float], Type::Float)),
@@ -275,20 +303,36 @@ impl Scope {
                 "ظا_زائدي" => Some(builtin("ظا_زائدي", vec![Type::Float], Type::Float)),
 
                 // Angle conversion
-                "الى_راديان" => Some(builtin("الى_راديان", vec![Type::Float], Type::Float)),
+                "الى_راديان" => {
+                    Some(builtin("الى_راديان", vec![Type::Float], Type::Float))
+                }
                 "راديان" => Some(builtin("راديان", vec![Type::Float], Type::Float)),
                 "الى_درجات" => Some(builtin("الى_درجات", vec![Type::Float], Type::Float)),
                 "درجات" => Some(builtin("درجات", vec![Type::Float], Type::Float)),
 
                 // Random
-                "بذرة_عشوائية" => Some(builtin("بذرة_عشوائية", vec![Type::Int], Type::Void)),
-                "بذرة_عشوائي" => Some(builtin("بذرة_عشوائي", vec![Type::Int], Type::Void)),
+                "بذرة_عشوائية" => {
+                    Some(builtin("بذرة_عشوائية", vec![Type::Int], Type::Void))
+                }
+                "بذرة_عشوائي" => {
+                    Some(builtin("بذرة_عشوائي", vec![Type::Int], Type::Void))
+                }
                 "عشوائي" => Some(builtin("عشوائي", vec![], Type::Int)),
                 "عشوائي_عدد" => Some(builtin("عشوائي_عدد", vec![], Type::Int)),
-                "عشوائي_بين" => Some(builtin("عشوائي_بين", vec![Type::Int, Type::Int], Type::Int)),
-                "عشوائي_عدد_بين" => Some(builtin("عشوائي_عدد_بين", vec![Type::Int, Type::Int], Type::Int)),
+                "عشوائي_بين" => {
+                    Some(builtin("عشوائي_بين", vec![Type::Int, Type::Int], Type::Int))
+                }
+                "عشوائي_عدد_بين" => Some(builtin(
+                    "عشوائي_عدد_بين",
+                    vec![Type::Int, Type::Int],
+                    Type::Int,
+                )),
                 "عشوائي_عشري" => Some(builtin("عشوائي_عشري", vec![], Type::Float)),
-                "عشوائي_عشري_بين" => Some(builtin("عشوائي_عشري_بين", vec![Type::Float, Type::Float], Type::Float)),
+                "عشوائي_عشري_بين" => Some(builtin(
+                    "عشوائي_عشري_بين",
+                    vec![Type::Float, Type::Float],
+                    Type::Float,
+                )),
                 "عشوائي_منطقي" => Some(builtin("عشوائي_منطقي", vec![], Type::Bool)),
 
                 _ => None,
@@ -299,17 +343,49 @@ impl Scope {
             // =======================================================================
             "نص" => match name {
                 // Slicing
-                "قص_نص" => Some(builtin("قص_نص", vec![Type::String, Type::Int, Type::Int], Type::String)),
-                "قص_حروف" => Some(builtin("قص_حروف", vec![Type::String, Type::Int, Type::Int], Type::String)),
-                "حرف_في" => Some(builtin("حرف_في", vec![Type::String, Type::Int], Type::String)),
+                "قص_نص" => Some(builtin(
+                    "قص_نص",
+                    vec![Type::String, Type::Int, Type::Int],
+                    Type::String,
+                )),
+                "قص_حروف" => Some(builtin(
+                    "قص_حروف",
+                    vec![Type::String, Type::Int, Type::Int],
+                    Type::String,
+                )),
+                "حرف_في" => Some(builtin(
+                    "حرف_في",
+                    vec![Type::String, Type::Int],
+                    Type::String,
+                )),
 
                 // Search
-                "يحتوي" => Some(builtin("يحتوي", vec![Type::String, Type::String], Type::Bool)),
-                "يبدأ_بـ" => Some(builtin("يبدأ_بـ", vec![Type::String, Type::String], Type::Bool)),
-                "ينتهي_بـ" => Some(builtin("ينتهي_بـ", vec![Type::String, Type::String], Type::Bool)),
+                "يحتوي" => Some(builtin(
+                    "يحتوي",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
+                "يبدأ_بـ" => Some(builtin(
+                    "يبدأ_بـ",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
+                "ينتهي_بـ" => Some(builtin(
+                    "ينتهي_بـ",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
                 "موضع" => Some(builtin("موضع", vec![Type::String, Type::String], Type::Int)),
-                "موضع_اخير" => Some(builtin("موضع_اخير", vec![Type::String, Type::String], Type::Int)),
-                "عدد_مرات" => Some(builtin("عدد_مرات", vec![Type::String, Type::String], Type::Int)),
+                "موضع_اخير" => Some(builtin(
+                    "موضع_اخير",
+                    vec![Type::String, Type::String],
+                    Type::Int,
+                )),
+                "عدد_مرات" => Some(builtin(
+                    "عدد_مرات",
+                    vec![Type::String, Type::String],
+                    Type::Int,
+                )),
 
                 // Case conversion
                 "كبير" => Some(builtin("كبير", vec![Type::String], Type::String)),
@@ -318,23 +394,57 @@ impl Scope {
                 "اعكس_نص" => Some(builtin("اعكس_نص", vec![Type::String], Type::String)),
 
                 // Trimming
-                "ازل_فراغات" => Some(builtin("ازل_فراغات", vec![Type::String], Type::String)),
-                "ازل_فراغات_يسار" => Some(builtin("ازل_فراغات_يسار", vec![Type::String], Type::String)),
-                "ازل_فراغات_يمين" => Some(builtin("ازل_فراغات_يمين", vec![Type::String], Type::String)),
+                "ازل_فراغات" => {
+                    Some(builtin("ازل_فراغات", vec![Type::String], Type::String))
+                }
+                "ازل_فراغات_يسار" => {
+                    Some(builtin("ازل_فراغات_يسار", vec![Type::String], Type::String))
+                }
+                "ازل_فراغات_يمين" => {
+                    Some(builtin("ازل_فراغات_يمين", vec![Type::String], Type::String))
+                }
 
                 // Split/Join
-                "قسّم" => Some(builtin("قسّم", vec![Type::String, Type::String], Type::Array(Box::new(Type::String)))),
-                "ادمج" => Some(builtin("ادمج", vec![Type::Array(Box::new(Type::String)), Type::String], Type::String)),
+                "قسّم" => Some(builtin(
+                    "قسّم",
+                    vec![Type::String, Type::String],
+                    Type::Array(Box::new(Type::String)),
+                )),
+                "ادمج" => Some(builtin(
+                    "ادمج",
+                    vec![Type::Array(Box::new(Type::String)), Type::String],
+                    Type::String,
+                )),
 
                 // Replace
-                "استبدل" => Some(builtin("استبدل", vec![Type::String, Type::String, Type::String], Type::String)),
-                "استبدل_كل" => Some(builtin("استبدل_كل", vec![Type::String, Type::String, Type::String], Type::String)),
+                "استبدل" => Some(builtin(
+                    "استبدل",
+                    vec![Type::String, Type::String, Type::String],
+                    Type::String,
+                )),
+                "استبدل_كل" => Some(builtin(
+                    "استبدل_كل",
+                    vec![Type::String, Type::String, Type::String],
+                    Type::String,
+                )),
 
                 // Repeat/Pad
-                "كرر_نص" => Some(builtin("كرر_نص", vec![Type::String, Type::Int], Type::String)),
+                "كرر_نص" => Some(builtin(
+                    "كرر_نص",
+                    vec![Type::String, Type::Int],
+                    Type::String,
+                )),
                 "كرر" => Some(builtin("كرر", vec![Type::String, Type::Int], Type::String)),
-                "احشو_يسار" => Some(builtin("احشو_يسار", vec![Type::String, Type::Int, Type::String], Type::String)),
-                "احشو_يمين" => Some(builtin("احشو_يمين", vec![Type::String, Type::Int, Type::String], Type::String)),
+                "احشو_يسار" => Some(builtin(
+                    "احشو_يسار",
+                    vec![Type::String, Type::Int, Type::String],
+                    Type::String,
+                )),
+                "احشو_يمين" => Some(builtin(
+                    "احشو_يمين",
+                    vec![Type::String, Type::Int, Type::String],
+                    Type::String,
+                )),
 
                 // Length
                 "طول_نص" => Some(builtin("طول_نص", vec![Type::String], Type::Int)),
@@ -346,11 +456,31 @@ impl Scope {
                 "عربي" => Some(builtin("عربي", vec![Type::String], Type::Bool)),
 
                 // Comparison
-                "قارن_نص" => Some(builtin("قارن_نص", vec![Type::String, Type::String], Type::Int)),
-                "نصوص_متساوية" => Some(builtin("نصوص_متساوية", vec![Type::String, Type::String], Type::Bool)),
-                "نص_يحتوي" => Some(builtin("نص_يحتوي", vec![Type::String, Type::String], Type::Bool)),
-                "نص_يبدأ_بـ" => Some(builtin("نص_يبدأ_بـ", vec![Type::String, Type::String], Type::Bool)),
-                "نص_ينتهي_بـ" => Some(builtin("نص_ينتهي_بـ", vec![Type::String, Type::String], Type::Bool)),
+                "قارن_نص" => Some(builtin(
+                    "قارن_نص",
+                    vec![Type::String, Type::String],
+                    Type::Int,
+                )),
+                "نصوص_متساوية" => Some(builtin(
+                    "نصوص_متساوية",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
+                "نص_يحتوي" => Some(builtin(
+                    "نص_يحتوي",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
+                "نص_يبدأ_بـ" => Some(builtin(
+                    "نص_يبدأ_بـ",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
+                "نص_ينتهي_بـ" => Some(builtin(
+                    "نص_ينتهي_بـ",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
 
                 // Conversion
                 "عدد_لنص" => Some(builtin("عدد_لنص", vec![Type::Int], Type::String)),
@@ -377,26 +507,52 @@ impl Scope {
 
                 // File operations
                 "اقرأ_ملف" => Some(builtin("اقرأ_ملف", vec![Type::String], Type::String)),
-                "اكتب_ملف" => Some(builtin("اكتب_ملف", vec![Type::String, Type::String], Type::Bool)),
-                "الحق_ملف" => Some(builtin("الحق_ملف", vec![Type::String, Type::String], Type::Bool)),
+                "اكتب_ملف" => Some(builtin(
+                    "اكتب_ملف",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
+                "الحق_ملف" => Some(builtin(
+                    "الحق_ملف",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
                 "احذف_ملف" => Some(builtin("احذف_ملف", vec![Type::String], Type::Bool)),
-                "انسخ_ملف" => Some(builtin("انسخ_ملف", vec![Type::String, Type::String], Type::Bool)),
-                "انقل_ملف" => Some(builtin("انقل_ملف", vec![Type::String, Type::String], Type::Bool)),
+                "انسخ_ملف" => Some(builtin(
+                    "انسخ_ملف",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
+                "انقل_ملف" => Some(builtin(
+                    "انقل_ملف",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
                 "حجم_ملف" => Some(builtin("حجم_ملف", vec![Type::String], Type::Int)),
 
                 // Directory operations
                 "انشئ_مجلد" => Some(builtin("انشئ_مجلد", vec![Type::String], Type::Bool)),
-                "قائمة_مجلد" => Some(builtin("قائمة_مجلد", vec![Type::String], Type::Array(Box::new(Type::String)))),
+                "قائمة_مجلد" => Some(builtin(
+                    "قائمة_مجلد",
+                    vec![Type::String],
+                    Type::Array(Box::new(Type::String)),
+                )),
                 "احذف_مجلد" => Some(builtin("احذف_مجلد", vec![Type::String], Type::Bool)),
                 "مجلد_حالي" => Some(builtin("مجلد_حالي", vec![], Type::String)),
                 "مجلد_مستخدم" => Some(builtin("مجلد_مستخدم", vec![], Type::String)),
                 "مجلد_مؤقت" => Some(builtin("مجلد_مؤقت", vec![], Type::String)),
 
                 // Path operations
-                "ادمج_مسار" => Some(builtin("ادمج_مسار", vec![Type::String, Type::String], Type::String)),
+                "ادمج_مسار" => Some(builtin(
+                    "ادمج_مسار",
+                    vec![Type::String, Type::String],
+                    Type::String,
+                )),
                 "مسار_اب" => Some(builtin("مسار_اب", vec![Type::String], Type::String)),
                 "اسم_ملف" => Some(builtin("اسم_ملف", vec![Type::String], Type::String)),
-                "امتداد_ملف" => Some(builtin("امتداد_ملف", vec![Type::String], Type::String)),
+                "امتداد_ملف" => {
+                    Some(builtin("امتداد_ملف", vec![Type::String], Type::String))
+                }
                 "فاصل_مسار" => Some(builtin("فاصل_مسار", vec![], Type::String)),
 
                 _ => None,
@@ -418,14 +574,34 @@ impl Scope {
                 // SHA-256 (بصمة = fingerprint)
                 "احسب_بصمة" => Some(builtin("احسب_بصمة", vec![Type::String], Type::String)),
                 "بصمة_ملف" => Some(builtin("بصمة_ملف", vec![Type::String], Type::String)),
-                "بصمة_ثنائي" => Some(builtin("بصمة_ثنائي", vec![Type::Array(Box::new(Type::Int))], Type::String)),
-                "طابق_بصمة" => Some(builtin("طابق_بصمة", vec![Type::String, Type::String], Type::Bool)),
+                "بصمة_ثنائي" => Some(builtin(
+                    "بصمة_ثنائي",
+                    vec![Type::Array(Box::new(Type::Int))],
+                    Type::String,
+                )),
+                "طابق_بصمة" => Some(builtin(
+                    "طابق_بصمة",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
 
                 // Hex encoding
-                "إلى_ست_عشري" => Some(builtin("إلى_ست_عشري", vec![Type::String], Type::String)),
-                "من_ست_عشري" => Some(builtin("من_ست_عشري", vec![Type::String], Type::String)),
-                "ثنائي_إلى_ست_عشري" => Some(builtin("ثنائي_إلى_ست_عشري", vec![Type::Array(Box::new(Type::Int))], Type::String)),
-                "ست_عشري_إلى_ثنائي" => Some(builtin("ست_عشري_إلى_ثنائي", vec![Type::String], Type::Array(Box::new(Type::Int)))),
+                "إلى_ست_عشري" => {
+                    Some(builtin("إلى_ست_عشري", vec![Type::String], Type::String))
+                }
+                "من_ست_عشري" => {
+                    Some(builtin("من_ست_عشري", vec![Type::String], Type::String))
+                }
+                "ثنائي_إلى_ست_عشري" => Some(builtin(
+                    "ثنائي_إلى_ست_عشري",
+                    vec![Type::Array(Box::new(Type::Int))],
+                    Type::String,
+                )),
+                "ست_عشري_إلى_ثنائي" => Some(builtin(
+                    "ست_عشري_إلى_ثنائي",
+                    vec![Type::String],
+                    Type::Array(Box::new(Type::Int)),
+                )),
 
                 _ => None,
             },
@@ -434,12 +610,36 @@ impl Scope {
             // ضغط (Compression) - Compression functions
             // =======================================================================
             "ضغط" => match name {
-                "اضغط" => Some(builtin("اضغط", vec![Type::String], Type::Array(Box::new(Type::Int)))),
-                "فك_الضغط" => Some(builtin("فك_الضغط", vec![Type::Array(Box::new(Type::Int))], Type::String)),
-                "اضغط_ثنائي" => Some(builtin("اضغط_ثنائي", vec![Type::Array(Box::new(Type::Int))], Type::Array(Box::new(Type::Int)))),
-                "فك_ضغط_ثنائي" => Some(builtin("فك_ضغط_ثنائي", vec![Type::Array(Box::new(Type::Int))], Type::Array(Box::new(Type::Int)))),
-                "اضغط_ملف" => Some(builtin("اضغط_ملف", vec![Type::String, Type::String], Type::Bool)),
-                "فك_ضغط_ملف" => Some(builtin("فك_ضغط_ملف", vec![Type::String, Type::String], Type::Bool)),
+                "اضغط" => Some(builtin(
+                    "اضغط",
+                    vec![Type::String],
+                    Type::Array(Box::new(Type::Int)),
+                )),
+                "فك_الضغط" => Some(builtin(
+                    "فك_الضغط",
+                    vec![Type::Array(Box::new(Type::Int))],
+                    Type::String,
+                )),
+                "اضغط_ثنائي" => Some(builtin(
+                    "اضغط_ثنائي",
+                    vec![Type::Array(Box::new(Type::Int))],
+                    Type::Array(Box::new(Type::Int)),
+                )),
+                "فك_ضغط_ثنائي" => Some(builtin(
+                    "فك_ضغط_ثنائي",
+                    vec![Type::Array(Box::new(Type::Int))],
+                    Type::Array(Box::new(Type::Int)),
+                )),
+                "اضغط_ملف" => Some(builtin(
+                    "اضغط_ملف",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
+                "فك_ضغط_ملف" => Some(builtin(
+                    "فك_ضغط_ملف",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
                 _ => None,
             },
 
@@ -448,44 +648,86 @@ impl Scope {
             // =======================================================================
             "شبكة" => match name {
                 // TCP
-                "اتصل_خادم" => Some(builtin("اتصل_خادم", vec![Type::String, Type::Int, Type::Int], Type::Int)),
+                "اتصل_خادم" => Some(builtin(
+                    "اتصل_خادم",
+                    vec![Type::String, Type::Int, Type::Int],
+                    Type::Int,
+                )),
                 "أغلق_اتصال" => Some(builtin("أغلق_اتصال", vec![Type::Int], Type::Void)),
                 "أرسل" => Some(builtin("أرسل", vec![Type::Int, Type::String], Type::Bool)),
-                "أرسل_بايتات" => Some(builtin("أرسل_بايتات", vec![Type::Int, Type::Array(Box::new(Type::Int))], Type::Bool)),
+                "أرسل_بايتات" => Some(builtin(
+                    "أرسل_بايتات",
+                    vec![Type::Int, Type::Array(Box::new(Type::Int))],
+                    Type::Bool,
+                )),
                 "استقبل" => Some(builtin("استقبل", vec![Type::Int, Type::Int], Type::String)),
-                "استقبل_بايتات" => Some(builtin("استقبل_بايتات", vec![Type::Int, Type::Int, Type::Int], Type::Array(Box::new(Type::Int)))),
-                "استقبل_حتى" => Some(builtin("استقبل_حتى", vec![Type::Int, Type::String, Type::Int], Type::String)),
+                "استقبل_بايتات" => Some(builtin(
+                    "استقبل_بايتات",
+                    vec![Type::Int, Type::Int, Type::Int],
+                    Type::Array(Box::new(Type::Int)),
+                )),
+                "استقبل_حتى" => Some(builtin(
+                    "استقبل_حتى",
+                    vec![Type::Int, Type::String, Type::Int],
+                    Type::String,
+                )),
                 "هل_متاح" => Some(builtin("هل_متاح", vec![Type::Int], Type::Bool)),
-                "استمع" => Some(builtin("استمع", vec![Type::String, Type::Int, Type::Int], Type::Int)),
+                "استمع" => Some(builtin(
+                    "استمع",
+                    vec![Type::String, Type::Int, Type::Int],
+                    Type::Int,
+                )),
                 "اقبل_اتصال" => Some(builtin("اقبل_اتصال", vec![Type::Int], Type::Int)),
                 "عنوان_محلي" => Some(builtin("عنوان_محلي", vec![Type::Int], Type::String)),
                 "منفذ_محلي" => Some(builtin("منفذ_محلي", vec![Type::Int], Type::Int)),
 
                 // UDP
                 "ارتبط_منفذ" => Some(builtin("ارتبط_منفذ", vec![Type::Int], Type::Int)),
-                "أرسل_إلى" => Some(builtin("أرسل_إلى", vec![Type::Int, Type::String, Type::Int, Type::String], Type::Bool)),
-                "استقبل_من" => Some(builtin("استقبل_من", vec![Type::Int, Type::Int], Type::String)),
+                "أرسل_إلى" => Some(builtin(
+                    "أرسل_إلى",
+                    vec![Type::Int, Type::String, Type::Int, Type::String],
+                    Type::Bool,
+                )),
+                "استقبل_من" => Some(builtin(
+                    "استقبل_من",
+                    vec![Type::Int, Type::Int],
+                    Type::String,
+                )),
                 "رد" => Some(builtin("رد", vec![Type::Int, Type::String], Type::Bool)),
 
                 // DNS
-                "حل_اسم_نطاق" => Some(builtin("حل_اسم_نطاق", vec![Type::String], Type::String)),
-                "عنوان_محلي_للجهاز" => Some(builtin("عنوان_محلي_للجهاز", vec![], Type::String)),
+                "حل_اسم_نطاق" => {
+                    Some(builtin("حل_اسم_نطاق", vec![Type::String], Type::String))
+                }
+                "عنوان_محلي_للجهاز" => {
+                    Some(builtin("عنوان_محلي_للجهاز", vec![], Type::String))
+                }
 
                 // HTTP
-                "طلب_ويب" => Some(builtin("طلب_ويب", vec![
+                "طلب_ويب" => Some(builtin(
+                    "طلب_ويب",
+                    vec![
+                        Type::String,
+                        Type::String,
+                        Type::Array(Box::new(Type::String)),
+                        Type::String,
+                        Type::Int,
+                        Type::Bool,
+                    ],
                     Type::String,
-                    Type::String,
-                    Type::Array(Box::new(Type::String)),
-                    Type::String,
-                    Type::Int,
-                    Type::Bool,
-                ], Type::String)),
+                )),
                 "احصل_ويب" => Some(builtin("احصل_ويب", vec![Type::String], Type::String)),
-                "حمّل_ملف" => Some(builtin("حمّل_ملف", vec![Type::String, Type::String], Type::Bool)),
+                "حمّل_ملف" => Some(builtin(
+                    "حمّل_ملف",
+                    vec![Type::String, Type::String],
+                    Type::Bool,
+                )),
 
                 // URL encoding
                 "رمّز_رابط" => Some(builtin("رمّز_رابط", vec![Type::String], Type::String)),
-                "فك_ترميز_رابط" => Some(builtin("فك_ترميز_رابط", vec![Type::String], Type::String)),
+                "فك_ترميز_رابط" => {
+                    Some(builtin("فك_ترميز_رابط", vec![Type::String], Type::String))
+                }
 
                 _ => None,
             },
@@ -503,53 +745,180 @@ impl Scope {
     pub fn get_stdlib_module_exports(module: &str) -> Vec<&'static str> {
         match module {
             "رياضيات" => vec![
-                "مطلق", "مطلق_عدد", "قوة", "قوة_عدد", "جذر", "جذر_تكعيبي",
-                "لوغاريتم", "لوغ10", "لوغاريتم10", "لوغ2",
-                "أس", "أسي", "أرضية", "سقف", "قرّب", "تقريب", "اقتطع",
-                "أقل", "أدنى", "أقل_عدد", "أكبر", "أقصى", "أكبر_عدد",
-                "حصر", "حصر_عدد", "علامة", "باقي", "قاسم_مشترك", "مضاعف_مشترك", "عاملي",
-                "جا", "جيب", "جتا", "جيب_التمام", "ظا", "ظل", "ظتا", "ظل_التمام",
-                "قا", "قاطع", "قتا", "قاطع_التمام",
-                "جا_عكسي", "جيب_عكسي", "جتا_عكسي", "جيب_تمام_عكسي", "ظا_عكسي", "ظا_عكسي2",
-                "جا_زائدي", "جتا_زائدي", "ظا_زائدي",
-                "الى_راديان", "راديان", "الى_درجات", "درجات",
-                "بذرة_عشوائية", "بذرة_عشوائي", "عشوائي", "عشوائي_عدد",
-                "عشوائي_بين", "عشوائي_عدد_بين", "عشوائي_عشري", "عشوائي_عشري_بين", "عشوائي_منطقي",
+                "مطلق",
+                "مطلق_عدد",
+                "قوة",
+                "قوة_عدد",
+                "جذر",
+                "جذر_تكعيبي",
+                "لوغاريتم",
+                "لوغ10",
+                "لوغاريتم10",
+                "لوغ2",
+                "أس",
+                "أسي",
+                "أرضية",
+                "سقف",
+                "قرّب",
+                "تقريب",
+                "اقتطع",
+                "أقل",
+                "أدنى",
+                "أقل_عدد",
+                "أكبر",
+                "أقصى",
+                "أكبر_عدد",
+                "حصر",
+                "حصر_عدد",
+                "علامة",
+                "باقي",
+                "قاسم_مشترك",
+                "مضاعف_مشترك",
+                "عاملي",
+                "جا",
+                "جيب",
+                "جتا",
+                "جيب_التمام",
+                "ظا",
+                "ظل",
+                "ظتا",
+                "ظل_التمام",
+                "قا",
+                "قاطع",
+                "قتا",
+                "قاطع_التمام",
+                "جا_عكسي",
+                "جيب_عكسي",
+                "جتا_عكسي",
+                "جيب_تمام_عكسي",
+                "ظا_عكسي",
+                "ظا_عكسي2",
+                "جا_زائدي",
+                "جتا_زائدي",
+                "ظا_زائدي",
+                "الى_راديان",
+                "راديان",
+                "الى_درجات",
+                "درجات",
+                "بذرة_عشوائية",
+                "بذرة_عشوائي",
+                "عشوائي",
+                "عشوائي_عدد",
+                "عشوائي_بين",
+                "عشوائي_عدد_بين",
+                "عشوائي_عشري",
+                "عشوائي_عشري_بين",
+                "عشوائي_منطقي",
             ],
             "نص" => vec![
-                "قص_نص", "قص_حروف", "حرف_في",
-                "يحتوي", "يبدأ_بـ", "ينتهي_بـ", "موضع", "موضع_اخير", "عدد_مرات",
-                "كبير", "صغير", "عنوان", "اعكس_نص",
-                "ازل_فراغات", "ازل_فراغات_يسار", "ازل_فراغات_يمين",
-                "قسّم", "ادمج", "استبدل", "استبدل_كل",
-                "كرر_نص", "كرر", "احشو_يسار", "احشو_يمين",
-                "طول_نص", "طول_حروف", "رقمي", "حروف_فقط", "عربي",
-                "قارن_نص", "نصوص_متساوية", "نص_يحتوي", "نص_يبدأ_بـ", "نص_ينتهي_بـ",
-                "عدد_لنص", "عشري_لنص", "منطقي_لنص", "نص_لعدد", "نص_لعشري",
-                "ادخل_عدد", "ادخل_عشري",
+                "قص_نص",
+                "قص_حروف",
+                "حرف_في",
+                "يحتوي",
+                "يبدأ_بـ",
+                "ينتهي_بـ",
+                "موضع",
+                "موضع_اخير",
+                "عدد_مرات",
+                "كبير",
+                "صغير",
+                "عنوان",
+                "اعكس_نص",
+                "ازل_فراغات",
+                "ازل_فراغات_يسار",
+                "ازل_فراغات_يمين",
+                "قسّم",
+                "ادمج",
+                "استبدل",
+                "استبدل_كل",
+                "كرر_نص",
+                "كرر",
+                "احشو_يسار",
+                "احشو_يمين",
+                "طول_نص",
+                "طول_حروف",
+                "رقمي",
+                "حروف_فقط",
+                "عربي",
+                "قارن_نص",
+                "نصوص_متساوية",
+                "نص_يحتوي",
+                "نص_يبدأ_بـ",
+                "نص_ينتهي_بـ",
+                "عدد_لنص",
+                "عشري_لنص",
+                "منطقي_لنص",
+                "نص_لعدد",
+                "نص_لعشري",
+                "ادخل_عدد",
+                "ادخل_عشري",
             ],
             "ملفات" => vec![
-                "ملف_موجود", "هل_ملف", "هل_مجلد",
-                "اقرأ_ملف", "اكتب_ملف", "الحق_ملف", "احذف_ملف", "انسخ_ملف", "انقل_ملف", "حجم_ملف",
-                "انشئ_مجلد", "قائمة_مجلد", "احذف_مجلد", "مجلد_حالي", "مجلد_مستخدم", "مجلد_مؤقت",
-                "ادمج_مسار", "مسار_اب", "اسم_ملف", "امتداد_ملف", "فاصل_مسار",
+                "ملف_موجود",
+                "هل_ملف",
+                "هل_مجلد",
+                "اقرأ_ملف",
+                "اكتب_ملف",
+                "الحق_ملف",
+                "احذف_ملف",
+                "انسخ_ملف",
+                "انقل_ملف",
+                "حجم_ملف",
+                "انشئ_مجلد",
+                "قائمة_مجلد",
+                "احذف_مجلد",
+                "مجلد_حالي",
+                "مجلد_مستخدم",
+                "مجلد_مؤقت",
+                "ادمج_مسار",
+                "مسار_اب",
+                "اسم_ملف",
+                "امتداد_ملف",
+                "فاصل_مسار",
             ],
             "وقت" => vec!["وقت_الآن", "وقت_أداء"],
             "تشفير" => vec![
-                "احسب_بصمة", "بصمة_ملف", "بصمة_ثنائي", "طابق_بصمة",
-                "إلى_ست_عشري", "من_ست_عشري", "ثنائي_إلى_ست_عشري", "ست_عشري_إلى_ثنائي",
+                "احسب_بصمة",
+                "بصمة_ملف",
+                "بصمة_ثنائي",
+                "طابق_بصمة",
+                "إلى_ست_عشري",
+                "من_ست_عشري",
+                "ثنائي_إلى_ست_عشري",
+                "ست_عشري_إلى_ثنائي",
             ],
             "ضغط" => vec![
-                "اضغط", "فك_الضغط", "اضغط_ثنائي", "فك_ضغط_ثنائي", "اضغط_ملف", "فك_ضغط_ملف",
+                "اضغط",
+                "فك_الضغط",
+                "اضغط_ثنائي",
+                "فك_ضغط_ثنائي",
+                "اضغط_ملف",
+                "فك_ضغط_ملف",
             ],
             "شبكة" => vec![
-                "اتصل_خادم", "أغلق_اتصال", "أرسل", "أرسل_بايتات",
-                "استقبل", "استقبل_بايتات", "استقبل_حتى", "هل_متاح",
-                "استمع", "اقبل_اتصال", "عنوان_محلي", "منفذ_محلي",
-                "ارتبط_منفذ", "أرسل_إلى", "استقبل_من", "رد",
-                "حل_اسم_نطاق", "عنوان_محلي_للجهاز",
-                "طلب_ويب", "احصل_ويب", "حمّل_ملف",
-                "رمّز_رابط", "فك_ترميز_رابط",
+                "اتصل_خادم",
+                "أغلق_اتصال",
+                "أرسل",
+                "أرسل_بايتات",
+                "استقبل",
+                "استقبل_بايتات",
+                "استقبل_حتى",
+                "هل_متاح",
+                "استمع",
+                "اقبل_اتصال",
+                "عنوان_محلي",
+                "منفذ_محلي",
+                "ارتبط_منفذ",
+                "أرسل_إلى",
+                "استقبل_من",
+                "رد",
+                "حل_اسم_نطاق",
+                "عنوان_محلي_للجهاز",
+                "طلب_ويب",
+                "احصل_ويب",
+                "حمّل_ملف",
+                "رمّز_رابط",
+                "فك_ترميز_رابط",
             ],
             _ => vec![],
         }
