@@ -311,6 +311,207 @@ pub extern "C" fn trq_file_size(path: *const TrqString) -> i64 {
 }
 
 // ============================================================================
+// File Handle/Stream Operations
+// ============================================================================
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
+use std::sync::atomic::{AtomicI64, Ordering};
+
+/// Global counter for generating unique file handles.
+static NEXT_FILE_HANDLE: AtomicI64 = AtomicI64::new(1);
+
+/// File handle types for streaming I/O.
+enum FileHandle {
+    Reader(BufReader<File>),
+    Writer(BufWriter<File>),
+}
+
+// Thread-local storage for file handles
+thread_local! {
+    static FILE_HANDLES: RefCell<HashMap<i64, FileHandle>> = RefCell::new(HashMap::new());
+}
+
+/// Get the next unique file handle ID.
+fn get_next_file_handle() -> i64 {
+    NEXT_FILE_HANDLE.fetch_add(1, Ordering::SeqCst)
+}
+
+/// Store a file handle and return its ID.
+fn store_file_handle(handle: FileHandle) -> i64 {
+    let id = get_next_file_handle();
+    FILE_HANDLES.with(|handles| {
+        handles.borrow_mut().insert(id, handle);
+    });
+    id
+}
+
+/// Open a file for reading and return a handle.
+/// Returns 0 on error.
+#[no_mangle]
+pub extern "C" fn trq_file_open_read(path: *const TrqString) -> i64 {
+    let path_str = match trq_string_to_path(path) {
+        Some(p) => p,
+        None => return 0,
+    };
+
+    match File::open(&path_str) {
+        Ok(file) => {
+            let reader = BufReader::new(file);
+            store_file_handle(FileHandle::Reader(reader))
+        }
+        Err(_) => 0,
+    }
+}
+
+/// Open a file for writing (creates or truncates) and return a handle.
+/// Returns 0 on error.
+#[no_mangle]
+pub extern "C" fn trq_file_open_write(path: *const TrqString) -> i64 {
+    let path_str = match trq_string_to_path(path) {
+        Some(p) => p,
+        None => return 0,
+    };
+
+    match File::create(&path_str) {
+        Ok(file) => {
+            let writer = BufWriter::new(file);
+            store_file_handle(FileHandle::Writer(writer))
+        }
+        Err(_) => 0,
+    }
+}
+
+/// Open a file for appending and return a handle.
+/// Returns 0 on error.
+#[no_mangle]
+pub extern "C" fn trq_file_open_append(path: *const TrqString) -> i64 {
+    use std::fs::OpenOptions;
+
+    let path_str = match trq_string_to_path(path) {
+        Some(p) => p,
+        None => return 0,
+    };
+
+    match OpenOptions::new().append(true).create(true).open(&path_str) {
+        Ok(file) => {
+            let writer = BufWriter::new(file);
+            store_file_handle(FileHandle::Writer(writer))
+        }
+        Err(_) => 0,
+    }
+}
+
+/// Close a file handle.
+/// Returns true on success, false on error (invalid handle).
+#[no_mangle]
+pub extern "C" fn trq_file_close(handle: i64) -> bool {
+    FILE_HANDLES.with(|handles| {
+        let mut handles = handles.borrow_mut();
+        if let Some(file_handle) = handles.remove(&handle) {
+            // Flush writer before dropping
+            if let FileHandle::Writer(mut writer) = file_handle {
+                let _ = writer.flush();
+            }
+            true
+        } else {
+            false
+        }
+    })
+}
+
+/// Read a line from a file handle.
+/// Returns an empty string at EOF or on error.
+/// The newline character is stripped from the result.
+#[no_mangle]
+pub extern "C" fn trq_file_read_line(handle: i64) -> *mut TrqString {
+    FILE_HANDLES.with(|handles| {
+        let mut handles = handles.borrow_mut();
+        if let Some(FileHandle::Reader(reader)) = handles.get_mut(&handle) {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => trq_string_new(std::ptr::null(), 0), // EOF
+                Ok(_) => {
+                    // Remove trailing newline characters
+                    if line.ends_with('\n') {
+                        line.pop();
+                        if line.ends_with('\r') {
+                            line.pop();
+                        }
+                    }
+                    let bytes = line.as_bytes();
+                    trq_string_new(bytes.as_ptr(), bytes.len() as i64)
+                }
+                Err(_) => trq_string_new(std::ptr::null(), 0),
+            }
+        } else {
+            trq_string_new(std::ptr::null(), 0)
+        }
+    })
+}
+
+/// Write a line to a file handle (appends newline).
+/// Returns true on success, false on error.
+#[no_mangle]
+pub extern "C" fn trq_file_write_line(handle: i64, content: *const TrqString) -> bool {
+    FILE_HANDLES.with(|handles| {
+        let mut handles = handles.borrow_mut();
+        if let Some(FileHandle::Writer(writer)) = handles.get_mut(&handle) {
+            let content_slice = if content.is_null() {
+                &[]
+            } else {
+                unsafe {
+                    if (*content).data.is_null() {
+                        &[]
+                    } else {
+                        std::slice::from_raw_parts((*content).data, (*content).len as usize)
+                    }
+                }
+            };
+
+            // Write content and newline
+            if writer.write_all(content_slice).is_err() {
+                return false;
+            }
+            writer.write_all(b"\n").is_ok()
+        } else {
+            false
+        }
+    })
+}
+
+/// Check if at end of file.
+/// Returns true at EOF or for invalid handles.
+#[no_mangle]
+pub extern "C" fn trq_file_eof(handle: i64) -> bool {
+    FILE_HANDLES.with(|handles| {
+        let mut handles = handles.borrow_mut();
+        if let Some(FileHandle::Reader(reader)) = handles.get_mut(&handle) {
+            // Peek to check if at EOF without consuming
+            reader.fill_buf().map(|buf| buf.is_empty()).unwrap_or(true)
+        } else {
+            true // Invalid handle = EOF
+        }
+    })
+}
+
+/// Flush the file buffer.
+/// Returns true on success, false on error.
+#[no_mangle]
+pub extern "C" fn trq_file_flush(handle: i64) -> bool {
+    FILE_HANDLES.with(|handles| {
+        let mut handles = handles.borrow_mut();
+        if let Some(FileHandle::Writer(writer)) = handles.get_mut(&handle) {
+            writer.flush().is_ok()
+        } else {
+            false
+        }
+    })
+}
+
+// ============================================================================
 // Directory Operations
 // ============================================================================
 
@@ -704,6 +905,140 @@ mod tests {
         unsafe {
             assert!((*temp).len > 0);
             crate::memory::trq_release(temp as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_file_handle_read() {
+        // Create a test file
+        let test_content = "سطر أول\nسطر ثاني\nسطر ثالث";
+        let test_path = "/tmp/tarqeem_test_file_handle.txt";
+        std::fs::write(test_path, test_content).unwrap();
+
+        // Open for reading
+        let path = trq_string_new(test_path.as_ptr(), test_path.len() as i64);
+        let handle = trq_file_open_read(path);
+        assert!(handle > 0);
+
+        // Read first line
+        let line1 = trq_file_read_line(handle);
+        assert!(!line1.is_null());
+        unsafe {
+            let slice = std::slice::from_raw_parts((*line1).data, (*line1).len as usize);
+            let line_str = std::str::from_utf8(slice).unwrap();
+            assert_eq!(line_str, "سطر أول");
+            crate::memory::trq_release(line1 as *mut u8);
+        }
+
+        // Read second line
+        let line2 = trq_file_read_line(handle);
+        assert!(!line2.is_null());
+        unsafe {
+            let slice = std::slice::from_raw_parts((*line2).data, (*line2).len as usize);
+            let line_str = std::str::from_utf8(slice).unwrap();
+            assert_eq!(line_str, "سطر ثاني");
+            crate::memory::trq_release(line2 as *mut u8);
+        }
+
+        // Read third line
+        let line3 = trq_file_read_line(handle);
+        assert!(!line3.is_null());
+        unsafe {
+            let slice = std::slice::from_raw_parts((*line3).data, (*line3).len as usize);
+            let line_str = std::str::from_utf8(slice).unwrap();
+            assert_eq!(line_str, "سطر ثالث");
+            crate::memory::trq_release(line3 as *mut u8);
+        }
+
+        // Check EOF
+        assert!(trq_file_eof(handle));
+
+        // Close handle
+        assert!(trq_file_close(handle));
+
+        // Cleanup
+        std::fs::remove_file(test_path).ok();
+        unsafe {
+            crate::memory::trq_release(path as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_file_handle_write() {
+        let test_path = "/tmp/tarqeem_test_file_handle_write.txt";
+
+        // Open for writing
+        let path = trq_string_new(test_path.as_ptr(), test_path.len() as i64);
+        let handle = trq_file_open_write(path);
+        assert!(handle > 0);
+
+        // Write lines
+        let line1 = trq_string_new("مرحبا".as_ptr(), "مرحبا".len() as i64);
+        let line2 = trq_string_new("بالعالم".as_ptr(), "بالعالم".len() as i64);
+
+        assert!(trq_file_write_line(handle, line1));
+        assert!(trq_file_write_line(handle, line2));
+
+        // Flush and close
+        assert!(trq_file_flush(handle));
+        assert!(trq_file_close(handle));
+
+        // Verify content
+        let content = std::fs::read_to_string(test_path).unwrap();
+        assert_eq!(content, "مرحبا\nبالعالم\n");
+
+        // Cleanup
+        std::fs::remove_file(test_path).ok();
+        unsafe {
+            crate::memory::trq_release(path as *mut u8);
+            crate::memory::trq_release(line1 as *mut u8);
+            crate::memory::trq_release(line2 as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_file_handle_append() {
+        let test_path = "/tmp/tarqeem_test_file_handle_append.txt";
+
+        // Create initial file
+        std::fs::write(test_path, "السطر الأول\n").unwrap();
+
+        // Open for appending
+        let path = trq_string_new(test_path.as_ptr(), test_path.len() as i64);
+        let handle = trq_file_open_append(path);
+        assert!(handle > 0);
+
+        // Append a line
+        let line = trq_string_new("السطر الثاني".as_ptr(), "السطر الثاني".len() as i64);
+        assert!(trq_file_write_line(handle, line));
+
+        // Close
+        assert!(trq_file_close(handle));
+
+        // Verify content
+        let content = std::fs::read_to_string(test_path).unwrap();
+        assert_eq!(content, "السطر الأول\nالسطر الثاني\n");
+
+        // Cleanup
+        std::fs::remove_file(test_path).ok();
+        unsafe {
+            crate::memory::trq_release(path as *mut u8);
+            crate::memory::trq_release(line as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_file_handle_invalid() {
+        // Test operations on invalid handle
+        assert!(!trq_file_close(99999));
+        assert!(trq_file_eof(99999)); // Invalid handle returns true for EOF
+        assert!(!trq_file_flush(99999));
+
+        let line = trq_file_read_line(99999);
+        assert!(!line.is_null());
+        unsafe {
+            assert_eq!((*line).len, 0); // Empty string
+            crate::memory::trq_release(line as *mut u8);
         }
     }
 }
