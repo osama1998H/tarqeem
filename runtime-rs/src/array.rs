@@ -3,6 +3,38 @@
 //! Implements dynamic arrays with reference counting.
 //! This module provides all array manipulation functions needed by
 //! compiled, JIT, and interpreted Tarqeem programs.
+//!
+//! # Memory Management Model
+//!
+//! This module uses a **two-level allocation** pattern that matches the C runtime:
+//!
+//! - **TrqArray struct**: Allocated via `trq_alloc()` (reference-counted)
+//! - **Data buffer**: Allocated via `libc::malloc()` (NOT reference-counted)
+//!
+//! This design is intentional for C ABI compatibility and matches the original
+//! C runtime implementation. The data buffer's lifetime is tied to the TrqArray
+//! struct's lifecycle, not its reference count.
+//!
+//! ## Ownership Rules
+//!
+//! 1. **Single owner**: Each TrqArray owns its data buffer exclusively
+//! 2. **Clone for sharing**: Use `trq_array_clone()` to create independent copies
+//! 3. **Cleanup**: Call `trq_array_free_data()` before `trq_release()` to avoid leaks
+//!
+//! ## Why Mixed Allocators?
+//!
+//! Using `libc::malloc()` for data buffers allows:
+//! - Direct `libc::realloc()` for efficient array growth
+//! - C ABI compatibility with code that may pass arrays to C libraries
+//! - Consistent behavior with the original C runtime
+//!
+//! # Safety Notes for Callers
+//!
+//! - Pointers returned by `trq_array_get()` and `trq_array_pop()` are **borrowed**
+//!   and become invalid after any array modification (push, pop, resize, free)
+//! - Do NOT call `trq_array_free_data()` while other code holds element pointers
+//! - When using `trq_retain()`, each reference should call `trq_release()` but
+//!   only the **last** release should call `trq_array_free_data()` first
 
 use crate::memory::trq_alloc;
 use crate::types::TrqArray;
@@ -116,6 +148,20 @@ pub extern "C" fn trq_array_len(arr: *const TrqArray) -> i64 {
 ///
 /// # Returns
 /// Pointer to the element, or NULL if array is NULL or index is out of bounds.
+///
+/// # Safety
+///
+/// **The returned pointer is a borrowed reference into the array's internal buffer.**
+/// This pointer becomes invalid (dangling) after ANY of the following operations:
+///
+/// - `trq_array_push()` - may reallocate the buffer
+/// - `trq_array_pop()` - modifies array length
+/// - `trq_array_ensure_capacity()` - may reallocate the buffer
+/// - `trq_array_free_data()` - frees the buffer
+/// - `trq_release()` on the array - may free the entire array
+///
+/// Callers MUST NOT store this pointer across array-modifying operations.
+/// Copy the data if you need it to persist.
 ///
 /// # Errors
 /// Prints an error message to stderr if:
@@ -296,8 +342,20 @@ pub extern "C" fn trq_array_push(arr: *mut TrqArray, value: *const u8, _elem_siz
 /// # Returns
 /// Pointer to the last element (still in array memory), or NULL if array is empty.
 ///
-/// # Note
-/// The returned pointer is valid until the next array modification.
+/// # Safety
+///
+/// **The returned pointer is a borrowed reference into the array's internal buffer.**
+/// This pointer becomes invalid (dangling) after ANY of the following operations:
+///
+/// - `trq_array_push()` - may reallocate the buffer
+/// - `trq_array_pop()` - another pop changes the valid region
+/// - `trq_array_ensure_capacity()` - may reallocate the buffer
+/// - `trq_array_free_data()` - frees the buffer
+/// - `trq_release()` on the array - may free the entire array
+///
+/// Callers MUST copy the data immediately if they need it to persist.
+/// The element data remains in memory until overwritten by a subsequent push,
+/// but relying on this is undefined behavior.
 ///
 /// # Errors
 /// Prints an error message to stderr if:
@@ -510,11 +568,45 @@ pub extern "C" fn trq_array_slice(
 
 /// Free the internal data buffer of an array.
 ///
-/// This is an internal helper function. After calling this,
-/// the array struct is still valid but has no data.
+/// This is a cleanup function that frees the array's data buffer.
+/// After calling this, the array struct is still valid but has no data
+/// (len=0, cap=0, data=NULL).
 ///
 /// # Parameters
 /// - `arr`: Pointer to the array
+///
+/// # Safety
+///
+/// **This function MUST only be called by the sole owner of the array.**
+///
+/// If multiple references to the array exist (via `trq_retain()`), calling
+/// this function will invalidate all other references' data pointers, leading
+/// to use-after-free bugs.
+///
+/// ## Correct Usage Pattern
+///
+/// ```c
+/// // Single owner pattern
+/// TrqArray* arr = trq_array_new(10, 8);
+/// // ... use array ...
+/// trq_array_free_data(arr);  // Free data first
+/// trq_release(arr);          // Then release struct
+/// ```
+///
+/// ## Incorrect Usage (DO NOT DO)
+///
+/// ```c
+/// TrqArray* arr = trq_array_new(10, 8);
+/// trq_retain(arr);           // Now refcount = 2
+/// trq_array_free_data(arr);  // WRONG! Other reference still exists
+/// // Other code using arr now has dangling pointer!
+/// ```
+///
+/// # When to Call
+///
+/// Call this function:
+/// - Before the final `trq_release()` that will free the array struct
+/// - Only when you are certain no other code holds pointers into the array
 #[no_mangle]
 pub extern "C" fn trq_array_free_data(arr: *mut TrqArray) {
     if arr.is_null() {
