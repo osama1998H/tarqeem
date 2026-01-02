@@ -1,7 +1,7 @@
 //! Tarqeem Runtime Library (Rust Implementation)
 //!
 //! This crate provides the runtime library for Tarqeem programs, implementing
-//! memory management, string operations, array handling, and other core functionality.
+//! memory management, string operations, array handling, I/O, math, and other core functionality.
 //!
 //! # ABI Compatibility
 //!
@@ -15,6 +15,9 @@
 //! - `memory`: Reference-counted memory allocation
 //! - `string`: String operations (creation, manipulation, conversion)
 //! - `array`: Array operations (creation, access, modification)
+//! - `io`: Input/output operations (console, file, directory, path)
+//! - `math`: Mathematical functions (basic, trig, log, random)
+//! - `runtime`: Runtime initialization and utilities
 //!
 //! # Example Usage (from C)
 //!
@@ -47,7 +50,10 @@
 #![allow(non_snake_case)]
 
 pub mod array;
+pub mod io;
+pub mod math;
 pub mod memory;
+pub mod runtime;
 pub mod string;
 pub mod types;
 
@@ -76,4 +82,116 @@ pub use array::{
     trq_array_clone, trq_array_concat, trq_array_ensure_capacity, trq_array_free_data,
     trq_array_get, trq_array_len, trq_array_new, trq_array_pop, trq_array_push, trq_array_set,
     trq_array_slice,
+};
+
+// Re-export all I/O functions
+pub use io::{
+    // Directory operations
+    trq_dir_create,
+    trq_dir_create_all,
+    trq_dir_current,
+    trq_dir_delete,
+    trq_dir_home,
+    trq_dir_list,
+    trq_dir_temp,
+    // File operations
+    trq_file_append,
+    trq_file_copy,
+    trq_file_delete,
+    trq_file_exists,
+    trq_file_is_dir,
+    trq_file_is_file,
+    trq_file_move,
+    trq_file_read,
+    trq_file_size,
+    trq_file_write,
+    // Console I/O
+    trq_input,
+    trq_input_float,
+    trq_input_int,
+    trq_input_prompt,
+    // Path operations
+    trq_path_absolute,
+    trq_path_extension,
+    trq_path_filename,
+    trq_path_is_absolute,
+    trq_path_join,
+    trq_path_parent,
+    trq_path_stem,
+    trq_print,
+    trq_print_bool,
+    trq_print_error,
+    trq_print_float,
+    trq_print_int,
+    trq_print_newline,
+};
+
+// Re-export all math functions
+pub use math::{
+    // Basic math
+    trq_abs_float,
+    trq_abs_int,
+    // Inverse trig
+    trq_acos,
+    trq_asin,
+    trq_atan,
+    trq_atan2,
+    trq_cbrt,
+    // Rounding
+    trq_ceil,
+    // Comparison
+    trq_clamp_float,
+    trq_clamp_int,
+    // Trigonometric
+    trq_cos,
+    // Hyperbolic
+    trq_cosh,
+    trq_cot,
+    trq_csc,
+    // Constants
+    trq_e,
+    // Logarithmic
+    trq_exp,
+    // Number theory
+    trq_factorial,
+    trq_floor,
+    trq_gcd,
+    trq_lcm,
+    trq_log,
+    trq_log10,
+    trq_log2,
+    trq_max_float,
+    trq_max_int,
+    trq_min_float,
+    trq_min_int,
+    trq_mod,
+    trq_nroot,
+    trq_pi,
+    trq_pow_float,
+    trq_pow_int,
+    // Random
+    trq_random_bool,
+    trq_random_float,
+    trq_random_float_range,
+    trq_random_int,
+    trq_random_int_range,
+    trq_random_seed,
+    trq_round,
+    trq_sec,
+    trq_sign,
+    trq_sin,
+    trq_sinh,
+    trq_sqrt,
+    trq_tan,
+    trq_tanh,
+    // Angle conversion
+    trq_to_degrees,
+    trq_to_radians,
+    trq_trunc,
+};
+
+// Re-export all runtime functions
+pub use runtime::{
+    trq_abort, trq_assert, trq_debug, trq_env_get, trq_env_remove, trq_env_set, trq_panic,
+    trq_runtime_cleanup, trq_runtime_init, trq_version,
 };
