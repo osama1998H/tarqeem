@@ -19,7 +19,7 @@ use crate::types::{TrqArray, TrqHttpResponse, TrqString, TrqTcpInfo};
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{BufReader, Read, Write};
+use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
@@ -331,20 +331,15 @@ pub extern "C" fn trq_tcp_receive_until(
                 return empty_string();
             }
 
-            // Clone stream for BufReader (we need to preserve the original)
-            let stream_clone = match wrapper.stream.try_clone() {
-                Ok(s) => s,
-                Err(_) => return empty_string(),
-            };
-
-            let mut reader = BufReader::new(stream_clone);
             let delim_bytes = delim.as_bytes();
             let mut buffer = Vec::new();
 
-            // Read byte by byte until delimiter found
+            // Read byte by byte directly from stream until delimiter found
+            // Note: We read directly from wrapper.stream to avoid data loss
+            // that would occur with try_clone() (which shares the socket buffer)
             loop {
                 let mut byte = [0u8; 1];
-                match reader.read_exact(&mut byte) {
+                match wrapper.stream.read_exact(&mut byte) {
                     Ok(()) => {
                         buffer.push(byte[0]);
                         // Check if buffer ends with delimiter
@@ -983,7 +978,12 @@ pub extern "C" fn trq_url_decode(s: *const TrqString) -> *mut TrqString {
                 }
             }
             '+' => decoded.push(b' '),
-            _ => decoded.push(c as u8),
+            _ => {
+                // Properly encode multi-byte UTF-8 characters
+                let mut buf = [0u8; 4];
+                let encoded = c.encode_utf8(&mut buf);
+                decoded.extend_from_slice(encoded.as_bytes());
+            }
         }
     }
 
@@ -1269,6 +1269,8 @@ pub extern "C" fn trq_http_get(url: *const TrqString) -> *mut TrqString {
     let response = trq_http_request(method, url, std::ptr::null(), std::ptr::null(), 30000, true);
 
     if response.is_null() {
+        // Release method string to avoid memory leak
+        crate::memory::trq_release(method as *mut u8);
         return empty_string();
     }
 
