@@ -1618,6 +1618,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tarqeem-runtime"
+version = "1.0.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

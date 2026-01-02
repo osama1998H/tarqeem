@@ -7,7 +7,7 @@
 #   make uninstall    # Remove installation
 #   make clean        # Clean build artifacts
 
-.PHONY: all build build-debug runtime install uninstall clean test fmt clippy
+.PHONY: all build build-debug runtime runtime-rs install uninstall clean test fmt clippy
 
 # Installation directory (override with: make install PREFIX=/custom/path)
 PREFIX ?= $(HOME)/.tarqeem
@@ -33,6 +33,12 @@ build-debug: runtime
 runtime:
 	@echo "Building C runtime..."
 	$(MAKE) -C runtime
+
+# Build Rust runtime library (Phase 1+)
+runtime-rs:
+	@echo "Building Rust runtime..."
+	cargo build --release --package tarqeem-runtime
+	@echo "Rust runtime built: target/release/libtrq.a"
 
 # Install to PREFIX
 install: build
