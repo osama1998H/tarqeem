@@ -563,6 +563,7 @@ impl LlvmCodegen {
             "declare ptr @trq_http_request(ptr, ptr, ptr, ptr, i64, i1)"
         );
         emit!(self, "declare i1 @trq_http_download(ptr, ptr)");
+        emit!(self, "declare ptr @trq_http_get(ptr)");
         emit!(self, "declare ptr @trq_url_encode(ptr)");
         emit!(self, "declare ptr @trq_url_decode(ptr)");
         emit!(self, "declare ptr @trq_base64_encode(ptr)");
@@ -2235,6 +2236,38 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "طول" => Some("trq_array_len"), // Generic length function for arrays
         "طول_مصفوفة" => Some("trq_array_len"),
         "الحق" => Some("trq_array_push"),
+
+        // Networking - الشبكة
+        // TCP Operations
+        "اتصل_خادم" => Some("trq_tcp_connect"),
+        "أغلق_اتصال" => Some("trq_tcp_close"),
+        "أرسل" => Some("trq_tcp_send"),
+        "أرسل_بايتات" => Some("trq_tcp_send_bytes"),
+        "استقبل" => Some("trq_tcp_receive"),
+        "استقبل_بايتات" => Some("trq_tcp_receive_bytes"),
+        "استقبل_حتى" => Some("trq_tcp_receive_until"),
+        "هل_متاح" => Some("trq_tcp_available"),
+        "استمع" => Some("trq_tcp_listen"),
+        "اقبل_اتصال" => Some("trq_tcp_accept"),
+        "عنوان_محلي" => Some("trq_tcp_local_address"),
+        "منفذ_محلي" => Some("trq_tcp_local_port"),
+
+        // UDP Operations
+        "ارتبط_منفذ" => Some("trq_udp_bind"),
+        "أرسل_إلى" => Some("trq_udp_send_to"),
+        "استقبل_من" => Some("trq_udp_receive"),
+        "رد" => Some("trq_udp_reply"),
+
+        // DNS and utilities
+        "حل_اسم_نطاق" => Some("trq_resolve_hostname"),
+        "عنوان_محلي_للجهاز" => Some("trq_get_local_ip"),
+
+        // HTTP Operations
+        "احصل_ويب" => Some("trq_http_get"),
+        "حمّل_ملف" => Some("trq_http_download"),
+
+        // URL encoding
+        "فك_ترميز_رابط" => Some("trq_url_decode"),
 
         _ => None,
     }
