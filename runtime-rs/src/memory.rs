@@ -73,7 +73,7 @@ pub extern "C" fn trq_alloc(size: i64) -> *mut u8 {
     let layout = match Layout::from_size_align(total_size, 8) {
         Ok(layout) => layout,
         Err(_) => {
-            eprintln!("خطأ: فشل في إنشاء تخطيط الذاكرة - Memory layout error");
+            eprintln!("خطأ: فشل في إنشاء تخطيط الذاكرة ({} بايت)", total_size);
             return ptr::null_mut();
         }
     };
@@ -83,10 +83,7 @@ pub extern "C" fn trq_alloc(size: i64) -> *mut u8 {
         let header_ptr = alloc_zeroed(layout) as *mut RefCountHeader;
 
         if header_ptr.is_null() {
-            eprintln!(
-                "خطأ: فشل تخصيص الذاكرة ({} بايت) - Memory allocation failed ({} bytes)",
-                total_size, total_size
-            );
+            eprintln!("خطأ: فشل تخصيص الذاكرة ({} بايت)", total_size);
             return ptr::null_mut();
         }
 
@@ -147,9 +144,8 @@ pub extern "C" fn trq_realloc(ptr: *mut u8, new_size: i64) -> *mut u8 {
         let new_header_ptr = realloc(header_ptr as *mut u8, old_layout, new_total);
 
         if new_header_ptr.is_null() {
-            eprintln!(
-                "خطأ: فشل إعادة تخصيص الذاكرة ({} بايت) - Reallocation failed ({} bytes)",
-                new_total, new_total
+            eprintln!("خطأ: فشل إعادة تخصيص الذاكرة ({} بايت)",
+                new_total
             );
             return ptr::null_mut();
         }
