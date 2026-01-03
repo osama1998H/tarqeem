@@ -10,7 +10,8 @@ keywords = ["runtime", "ffi", "arabic", "tarqeem"]
 
 [lib]
 name = "trq"
-crate-type = ["staticlib", "cdylib"]
+# staticlib/cdylib for C FFI, rlib for Rust tests
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
 libc = "0.2"

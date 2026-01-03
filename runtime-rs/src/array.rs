@@ -961,4 +961,140 @@ mod tests {
         assert!(trq_array_clone(ptr::null(), 0).is_null());
         trq_array_free_data(ptr::null_mut()); // Should not crash
     }
+
+    // ===== Phase 8: Additional Array Tests =====
+
+    #[test]
+    fn test_array_push_many() {
+        let elem_size = std::mem::size_of::<i64>() as i64;
+        let arr = trq_array_new(0, elem_size);
+
+        unsafe {
+            // Push 1000 elements to test capacity growth
+            for i in 0..1000 {
+                let val: i64 = i;
+                trq_array_push(arr, &val as *const i64 as *const u8, elem_size);
+            }
+
+            assert_eq!(trq_array_len(arr), 1000);
+
+            // Verify first and last elements
+            assert_eq!(*(trq_array_get(arr, 0) as *const i64), 0);
+            assert_eq!(*(trq_array_get(arr, 999) as *const i64), 999);
+
+            // Verify capacity grew appropriately
+            assert!((*arr).cap >= 1000);
+
+            trq_array_free_data(arr);
+            crate::memory::trq_release(arr as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_array_pop_empty() {
+        let elem_size = std::mem::size_of::<i64>() as i64;
+        let arr = trq_array_new(0, elem_size);
+
+        unsafe {
+            // Pop from empty array should return null
+            let result = trq_array_pop(arr);
+            assert!(result.is_null());
+
+            // Length should still be 0
+            assert_eq!(trq_array_len(arr), 0);
+
+            // Push one element and pop it
+            let val: i64 = 42;
+            trq_array_push(arr, &val as *const i64 as *const u8, elem_size);
+            assert_eq!(trq_array_len(arr), 1);
+
+            let popped = trq_array_pop(arr);
+            assert!(!popped.is_null());
+            assert_eq!(*(popped as *const i64), 42);
+            assert_eq!(trq_array_len(arr), 0);
+
+            // Pop again from empty
+            let empty_pop = trq_array_pop(arr);
+            assert!(empty_pop.is_null());
+
+            trq_array_free_data(arr);
+            crate::memory::trq_release(arr as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_array_get_out_of_bounds() {
+        let elem_size = std::mem::size_of::<i64>() as i64;
+        let arr = trq_array_new(5, elem_size);
+
+        unsafe {
+            // Set values
+            for i in 0..5 {
+                let val: i64 = i * 10;
+                trq_array_set(arr, i, &val as *const i64 as *const u8);
+            }
+
+            // Negative index should return null
+            let neg_result = trq_array_get(arr, -1);
+            assert!(neg_result.is_null());
+
+            // Index at length should return null
+            let at_len = trq_array_get(arr, 5);
+            assert!(at_len.is_null());
+
+            // Index beyond length should return null
+            let beyond = trq_array_get(arr, 100);
+            assert!(beyond.is_null());
+
+            // Valid indices should work
+            assert_eq!(*(trq_array_get(arr, 0) as *const i64), 0);
+            assert_eq!(*(trq_array_get(arr, 4) as *const i64), 40);
+
+            trq_array_free_data(arr);
+            crate::memory::trq_release(arr as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_array_slice_edge_cases() {
+        let elem_size = std::mem::size_of::<i64>() as i64;
+        let arr = trq_array_new(5, elem_size);
+
+        unsafe {
+            for i in 0..5 {
+                let val: i64 = i;
+                trq_array_set(arr, i, &val as *const i64 as *const u8);
+            }
+
+            // Slice with start == end -> empty
+            let empty1 = trq_array_slice(arr, 2, 2, 0);
+            assert_eq!((*empty1).len, 0);
+
+            // Slice with start > end -> empty (should handle gracefully)
+            let empty2 = trq_array_slice(arr, 4, 2, 0);
+            assert_eq!((*empty2).len, 0);
+
+            // Slice with negative start (should clamp to 0)
+            let from_zero = trq_array_slice(arr, -10, 3, 0);
+            assert_eq!((*from_zero).len, 3);
+            assert_eq!(*(trq_array_get(from_zero, 0) as *const i64), 0);
+
+            // Slice with end beyond length (should clamp to len)
+            let to_end = trq_array_slice(arr, 2, 1000, 0);
+            assert_eq!((*to_end).len, 3); // [2, 3, 4]
+            assert_eq!(*(trq_array_get(to_end, 0) as *const i64), 2);
+            assert_eq!(*(trq_array_get(to_end, 2) as *const i64), 4);
+
+            trq_array_free_data(arr);
+            trq_array_free_data(empty1);
+            trq_array_free_data(empty2);
+            trq_array_free_data(from_zero);
+            trq_array_free_data(to_end);
+            crate::memory::trq_release(arr as *mut u8);
+            crate::memory::trq_release(empty1 as *mut u8);
+            crate::memory::trq_release(empty2 as *mut u8);
+            crate::memory::trq_release(from_zero as *mut u8);
+            crate::memory::trq_release(to_end as *mut u8);
+        }
+    }
 }

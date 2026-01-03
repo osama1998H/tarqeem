@@ -133,7 +133,7 @@ pub extern "C" fn trq_tcp_connect(address: *const TrqString, port: i64, timeout_
             Err(_) => return -1,
         }
     } else {
-        match TcpStream::connect(&socket_addr) {
+        match TcpStream::connect(socket_addr) {
             Ok(s) => s,
             Err(_) => return -1,
         }
@@ -274,7 +274,8 @@ pub extern "C" fn trq_tcp_receive_bytes(handle: i64, size: i64, timeout_ms: i64)
             match wrapper.stream.read_exact(&mut buffer) {
                 Ok(()) => {
                     // Create array - allocate via our memory system
-                    let arr = unsafe {
+
+                    unsafe {
                         let arr_ptr =
                             crate::memory::trq_alloc(std::mem::size_of::<TrqArray>() as i64)
                                 as *mut TrqArray;
@@ -296,8 +297,7 @@ pub extern "C" fn trq_tcp_receive_bytes(handle: i64, size: i64, timeout_ms: i64)
                         (*arr_ptr).data = data_ptr;
 
                         arr_ptr
-                    };
-                    arr
+                    }
                 }
                 Err(_) => std::ptr::null_mut(),
             }
@@ -1010,10 +1010,10 @@ fn parse_url(url: &str) -> Option<ParsedUrl> {
     let url = url.trim();
 
     // Check scheme
-    let (is_https, rest) = if url.starts_with("https://") {
-        (true, &url[8..])
-    } else if url.starts_with("http://") {
-        (false, &url[7..])
+    let (is_https, rest) = if let Some(stripped) = url.strip_prefix("https://") {
+        (true, stripped)
+    } else if let Some(stripped) = url.strip_prefix("http://") {
+        (false, stripped)
     } else {
         // Assume http
         (false, url)
@@ -1032,8 +1032,8 @@ fn parse_url(url: &str) -> Option<ParsedUrl> {
             Some(bracket_idx) => {
                 let h = &host_port[1..bracket_idx]; // Extract IPv6 without brackets
                 let after_bracket = &host_port[bracket_idx + 1..];
-                if after_bracket.starts_with(':') {
-                    let p = after_bracket[1..].parse().ok()?;
+                if let Some(port_str) = after_bracket.strip_prefix(':') {
+                    let p = port_str.parse().ok()?;
                     (h.to_string(), p)
                 } else if after_bracket.is_empty() {
                     let default_port = if is_https { 443 } else { 80 };
@@ -1372,7 +1372,7 @@ pub extern "C" fn trq_http_download(url: *const TrqString, path: *const TrqStrin
             std::fs::write(&path_str, body_slice).is_ok()
         } else if status >= 200 && status < 300 && !body.is_null() && (*body).len == 0 {
             // Empty body is still success, write empty file
-            std::fs::write(&path_str, &[]).is_ok()
+            std::fs::write(&path_str, []).is_ok()
         } else {
             false
         };

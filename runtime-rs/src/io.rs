@@ -1041,4 +1041,152 @@ mod tests {
             crate::memory::trq_release(line as *mut u8);
         }
     }
+
+    // ===== Phase 8: Additional I/O Error Condition Tests =====
+
+    #[test]
+    fn test_file_not_found() {
+        // Test reading a non-existent file
+        let nonexistent = "/tmp/tarqeem_nonexistent_file_xyz_12345.txt";
+        let path = trq_string_new(nonexistent.as_ptr(), nonexistent.len() as i64);
+
+        // trq_file_read should return empty string for non-existent file
+        let content = trq_file_read(path);
+        assert!(!content.is_null());
+        unsafe {
+            assert_eq!((*content).len, 0);
+            crate::memory::trq_release(content as *mut u8);
+        }
+
+        // trq_file_open_read should return 0 for non-existent file
+        let handle = trq_file_open_read(path);
+        assert_eq!(handle, 0);
+
+        // trq_file_exists should return false
+        assert!(!trq_file_exists(path));
+
+        // trq_file_is_file should return false
+        assert!(!trq_file_is_file(path));
+
+        // trq_file_size should return -1 for non-existent file
+        assert_eq!(trq_file_size(path), -1);
+
+        unsafe {
+            crate::memory::trq_release(path as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_file_write_readonly() {
+        // Test writing to a read-only location (root directory on Unix)
+        // This should fail gracefully
+        let readonly_path = "/readonly_test_file.txt";
+        let path = trq_string_new(readonly_path.as_ptr(), readonly_path.len() as i64);
+
+        let content = trq_string_new("test".as_ptr(), 4);
+
+        // trq_file_write should return false for permission denied
+        let result = trq_file_write(path, content);
+        assert!(!result);
+
+        // trq_file_open_write should return 0 for permission denied
+        let handle = trq_file_open_write(path);
+        assert_eq!(handle, 0);
+
+        // trq_file_append should return false for permission denied
+        let append_result = trq_file_append(path, content);
+        assert!(!append_result);
+
+        // trq_file_open_append should return 0 for permission denied
+        let append_handle = trq_file_open_append(path);
+        assert_eq!(append_handle, 0);
+
+        unsafe {
+            crate::memory::trq_release(path as *mut u8);
+            crate::memory::trq_release(content as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_path_operations_edge_cases() {
+        // Test with null path
+        let result = trq_path_parent(std::ptr::null());
+        assert!(!result.is_null());
+        unsafe {
+            assert_eq!((*result).len, 0);
+            crate::memory::trq_release(result as *mut u8);
+        }
+
+        // Test with empty path
+        let empty = trq_string_new(std::ptr::null(), 0);
+        assert!(!trq_file_exists(empty));
+        assert!(!trq_path_is_absolute(empty));
+        unsafe {
+            crate::memory::trq_release(empty as *mut u8);
+        }
+
+        // Test path join with null components
+        let base = trq_string_new("/home".as_ptr(), 5);
+        let joined_null = trq_path_join(base, std::ptr::null());
+        assert!(!joined_null.is_null());
+        unsafe {
+            let slice =
+                std::slice::from_raw_parts((*joined_null).data, (*joined_null).len as usize);
+            let str_val = std::str::from_utf8(slice).unwrap();
+            assert_eq!(str_val, "/home");
+            crate::memory::trq_release(joined_null as *mut u8);
+        }
+
+        // Test path with trailing slash
+        let trailing = trq_string_new("/home/user/".as_ptr(), "/home/user/".len() as i64);
+        let parent = trq_path_parent(trailing);
+        assert!(!parent.is_null());
+        unsafe {
+            let slice = std::slice::from_raw_parts((*parent).data, (*parent).len as usize);
+            let str_val = std::str::from_utf8(slice).unwrap();
+            // Parent of "/home/user/" should be "/home/user" or "/home" depending on impl
+            assert!(str_val.starts_with("/home"));
+            crate::memory::trq_release(parent as *mut u8);
+            crate::memory::trq_release(trailing as *mut u8);
+        }
+
+        // Test path with no extension
+        let no_ext = trq_string_new("/home/file".as_ptr(), "/home/file".len() as i64);
+        let ext = trq_path_extension(no_ext);
+        assert!(!ext.is_null());
+        unsafe {
+            assert_eq!((*ext).len, 0); // No extension
+            crate::memory::trq_release(ext as *mut u8);
+            crate::memory::trq_release(no_ext as *mut u8);
+        }
+
+        // Test path with multiple extensions
+        let multi_ext = trq_string_new("file.tar.gz".as_ptr(), "file.tar.gz".len() as i64);
+        let ext2 = trq_path_extension(multi_ext);
+        assert!(!ext2.is_null());
+        unsafe {
+            let slice = std::slice::from_raw_parts((*ext2).data, (*ext2).len as usize);
+            let str_val = std::str::from_utf8(slice).unwrap();
+            assert_eq!(str_val, "gz"); // Only last extension
+            crate::memory::trq_release(ext2 as *mut u8);
+        }
+
+        let stem = trq_path_stem(multi_ext);
+        assert!(!stem.is_null());
+        unsafe {
+            let slice = std::slice::from_raw_parts((*stem).data, (*stem).len as usize);
+            let str_val = std::str::from_utf8(slice).unwrap();
+            assert_eq!(str_val, "file.tar"); // Stem without last extension
+            crate::memory::trq_release(stem as *mut u8);
+            crate::memory::trq_release(multi_ext as *mut u8);
+        }
+
+        // Test relative path
+        let relative = trq_string_new("relative/path".as_ptr(), "relative/path".len() as i64);
+        assert!(!trq_path_is_absolute(relative));
+        unsafe {
+            crate::memory::trq_release(relative as *mut u8);
+            crate::memory::trq_release(base as *mut u8);
+        }
+    }
 }
