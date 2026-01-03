@@ -14,6 +14,8 @@ crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
 libc = "0.2"
+sha2 = "0.10"      # SHA-256 implementation
+flate2 = "1.0"    # GZIP compression
 
 [dev-dependencies]
 # Tests can be added later
