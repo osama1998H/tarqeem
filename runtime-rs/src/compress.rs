@@ -15,7 +15,7 @@
 //! - `trq_gzip_compress_file` - Compress file to .gz
 //! - `trq_gzip_decompress_file` - Decompress .gz file
 
-use crate::memory::trq_alloc;
+use crate::helpers::{allocate_array, allocate_string};
 use crate::types::{TrqArray, TrqString};
 use flate2::read::{GzDecoder, GzEncoder};
 use flate2::Compression;
@@ -26,83 +26,6 @@ use std::ptr;
 // ============================================================================
 // Helper Functions (internal)
 // ============================================================================
-
-/// Allocate a TrqString struct and its data buffer
-///
-/// # Safety
-/// Returns null if allocation fails
-unsafe fn allocate_string(len: i64) -> *mut TrqString {
-    if len < 0 {
-        return ptr::null_mut();
-    }
-
-    // Allocate the TrqString struct via trq_alloc (reference-counted)
-    let str_ptr = trq_alloc(std::mem::size_of::<TrqString>() as i64) as *mut TrqString;
-    if str_ptr.is_null() {
-        return ptr::null_mut();
-    }
-
-    // Allocate data buffer via malloc (NOT reference-counted)
-    let data_ptr = libc::malloc((len + 1) as usize) as *mut u8;
-    if data_ptr.is_null() {
-        // Free the struct since data allocation failed
-        crate::memory::trq_free(str_ptr as *mut u8);
-        return ptr::null_mut();
-    }
-
-    // Zero-initialize the data buffer
-    ptr::write_bytes(data_ptr, 0, (len + 1) as usize);
-
-    // Initialize the struct
-    (*str_ptr).len = len;
-    (*str_ptr).cap = len;
-    (*str_ptr).data = data_ptr;
-
-    str_ptr
-}
-
-/// Allocate a TrqArray struct and its data buffer
-///
-/// # Safety
-/// Returns null if allocation fails
-unsafe fn allocate_array(len: i64, elem_size: i64) -> *mut TrqArray {
-    if len < 0 || elem_size <= 0 {
-        return ptr::null_mut();
-    }
-
-    // Allocate the TrqArray struct via trq_alloc (reference-counted)
-    let arr_ptr = trq_alloc(std::mem::size_of::<TrqArray>() as i64) as *mut TrqArray;
-    if arr_ptr.is_null() {
-        return ptr::null_mut();
-    }
-
-    // Allocate data buffer via malloc (NOT reference-counted)
-    let data_size = len * elem_size;
-    let data_ptr = if data_size > 0 {
-        libc::malloc(data_size as usize) as *mut u8
-    } else {
-        ptr::null_mut()
-    };
-
-    if data_size > 0 && data_ptr.is_null() {
-        // Free the struct since data allocation failed
-        crate::memory::trq_free(arr_ptr as *mut u8);
-        return ptr::null_mut();
-    }
-
-    // Zero-initialize the data buffer if allocated
-    if !data_ptr.is_null() {
-        ptr::write_bytes(data_ptr, 0, data_size as usize);
-    }
-
-    // Initialize the struct
-    (*arr_ptr).len = len;
-    (*arr_ptr).cap = len;
-    (*arr_ptr).elem_size = elem_size;
-    (*arr_ptr).data = data_ptr;
-
-    arr_ptr
-}
 
 /// Convert Vec<u8> to TrqArray (each byte stored as int64_t)
 unsafe fn vec_to_byte_array(bytes: Vec<u8>) -> *mut TrqArray {

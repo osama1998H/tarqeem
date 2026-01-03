@@ -52,6 +52,7 @@
 pub mod array;
 pub mod compress;
 pub mod crypto;
+mod helpers; // Internal helpers (not re-exported)
 pub mod io;
 pub mod math;
 pub mod memory;
