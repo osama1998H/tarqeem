@@ -7,7 +7,11 @@ use super::super::method_resolver::{MemberResolution, MethodResolver};
 use super::super::scope::Symbol;
 use super::super::types::Type;
 use super::Analyzer;
-use crate::error::codes::{ERR_PRIVATE_ACCESS, ERR_PROPERTY_NOT_FOUND, ERR_PROTECTED_ACCESS};
+use crate::error::codes::{
+    ERR_CONST_ASSIGNMENT, ERR_PRIVATE_ACCESS, ERR_PROPERTY_NOT_FOUND, ERR_PROTECTED_ACCESS,
+    ERR_SUPER_OUTSIDE_CLASS, ERR_THIS_OUTSIDE_CLASS, ERR_TYPE_MISMATCH, ERR_UNDEFINED_CLASS,
+    ERR_UNDEFINED_VARIABLE,
+};
 use crate::error::Span;
 use crate::parser::*;
 
@@ -34,7 +38,6 @@ impl Analyzer {
                 if let Some(symbol) = self.scope.lookup(name) {
                     symbol.ty.clone()
                 } else {
-                    use crate::error::codes::ERR_UNDEFINED_VARIABLE;
                     let similar_names = self.find_similar_names(name, 3);
                     self.undefined_error(
                         "معرّف",
@@ -100,7 +103,6 @@ impl Analyzer {
 
             ExprKind::This => {
                 if !self.scope.is_in_class() {
-                    use crate::error::codes::ERR_THIS_OUTSIDE_CLASS;
                     self.error_with_code(
                         "'هذا' يمكن استخدامها فقط داخل صنف",
                         expr.span,
@@ -212,7 +214,6 @@ impl Analyzer {
                 for (i, (arg, param_type)) in args.iter().zip(params.iter()).enumerate() {
                     let arg_type = self.infer_type(arg);
                     if !arg_type.is_compatible_with(param_type) {
-                        use crate::error::codes::ERR_TYPE_MISMATCH;
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
@@ -255,7 +256,6 @@ impl Analyzer {
             }
             Type::Map(k, v) => {
                 if !index_type.is_compatible_with(&k) {
-                    use crate::error::codes::ERR_TYPE_MISMATCH;
                     self.type_mismatch_error(
                         &k,
                         &index_type,
@@ -292,7 +292,6 @@ impl Analyzer {
 
                 if let Some((mutable, ty)) = symbol_info {
                     if !mutable {
-                        use crate::error::codes::ERR_CONST_ASSIGNMENT;
                         self.error_with_code(
                             &format!("لا يمكن تعيين قيمة لمتغير ثابت '{}'", name),
                             target.span,
@@ -300,7 +299,6 @@ impl Analyzer {
                         );
                     }
                     if !value_type.is_compatible_with(&ty) {
-                        use crate::error::codes::ERR_TYPE_MISMATCH;
                         self.type_mismatch_error(
                             &ty,
                             &value_type,
@@ -310,7 +308,6 @@ impl Analyzer {
                         );
                     }
                 } else {
-                    use crate::error::codes::ERR_UNDEFINED_VARIABLE;
                     let similar_names = self.find_similar_names(name, 3);
                     self.undefined_error(
                         "متغير",
@@ -345,7 +342,6 @@ impl Analyzer {
             for elem in elements.iter().skip(1) {
                 let elem_type = self.infer_type(elem);
                 if !elem_type.is_compatible_with(&first_type) {
-                    use crate::error::codes::ERR_TYPE_MISMATCH;
                     self.type_mismatch_error(
                         &first_type,
                         &elem_type,
@@ -516,7 +512,6 @@ impl Analyzer {
                 {
                     let arg_type = self.infer_type(arg);
                     if !arg_type.is_compatible_with(param_type) {
-                        use crate::error::codes::ERR_TYPE_MISMATCH;
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
@@ -533,7 +528,6 @@ impl Analyzer {
             Type::Class(class_name)
         } else {
             // Try to find similar class names
-            use crate::error::codes::ERR_UNDEFINED_CLASS;
             let all_classes = self.class_resolver.all_class_names();
             let similar: Vec<String> = all_classes
                 .iter()
@@ -590,7 +584,6 @@ impl Analyzer {
     /// Infer super expression type.
     fn infer_super_expr(&mut self, span: Span) -> Type {
         if !self.scope.is_in_class() {
-            use crate::error::codes::ERR_SUPER_OUTSIDE_CLASS;
             self.error_with_code(
                 "'الأصل' يمكن استخدامها فقط داخل صنف",
                 span,
@@ -646,7 +639,6 @@ impl Analyzer {
                         arg_types.iter().zip(&variant.fields).enumerate()
                     {
                         if !arg_ty.is_compatible_with(expected_ty) {
-                            use crate::error::codes::ERR_TYPE_MISMATCH;
                             self.type_mismatch_error(
                                 expected_ty,
                                 arg_ty,
