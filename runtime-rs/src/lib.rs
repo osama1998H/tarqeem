@@ -50,6 +50,8 @@
 #![allow(non_snake_case)]
 
 pub mod array;
+pub mod compress;
+pub mod crypto;
 pub mod io;
 pub mod math;
 pub mod memory;
@@ -240,4 +242,30 @@ pub use network::{
     // URL encoding (2 functions)
     trq_url_decode,
     trq_url_encode,
+};
+
+// Re-export all crypto functions
+pub use crypto::{
+    // Hex encoding functions (4)
+    trq_hex_decode,
+    trq_hex_decode_to_bytes,
+    trq_hex_encode,
+    trq_hex_encode_bytes,
+    // SHA-256 functions (4)
+    trq_sha256_bytes,
+    trq_sha256_compare,
+    trq_sha256_file,
+    trq_sha256_string,
+};
+
+// Re-export all compression functions
+pub use compress::{
+    // String/bytes compression (4)
+    trq_gzip_compress_bytes,
+    // File compression (2)
+    trq_gzip_compress_file,
+    trq_gzip_compress_string,
+    trq_gzip_decompress_bytes,
+    trq_gzip_decompress_file,
+    trq_gzip_decompress_to_string,
 };
