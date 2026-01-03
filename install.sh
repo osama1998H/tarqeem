@@ -37,7 +37,7 @@ if [ ! -f "$SCRIPT_DIR/target/release/tarqeem" ]; then
 
     # Build compiler and Rust runtime
     echo -e "${BLUE}Building Tarqeem compiler and runtime (release mode)...${NC}"
-    cargo build --release
+    cargo build --release --workspace
     echo ""
 fi
 

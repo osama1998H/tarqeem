@@ -18,15 +18,15 @@ UNAME_S := $(shell uname -s)
 all: build
 
 # Build release binary (includes Rust runtime)
-build: runtime-rs
-	@echo "Building Tarqeem compiler (release)..."
-	cargo build --release
-	@echo "Build complete: target/release/tarqeem"
+build:
+	@echo "Building Tarqeem compiler and runtime (release)..."
+	cargo build --release --workspace
+	@echo "Build complete: target/release/tarqeem and target/release/libtrq.a"
 
 # Build debug binary
-build-debug: runtime-rs
-	@echo "Building Tarqeem compiler (debug)..."
-	cargo build
+build-debug:
+	@echo "Building Tarqeem compiler and runtime (debug)..."
+	cargo build --workspace
 	@echo "Build complete: target/debug/tarqeem"
 
 # Build Rust runtime library

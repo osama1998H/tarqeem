@@ -14,7 +14,7 @@ pub use commands::run;
 #[derive(Parser, Debug)]
 #[command(name = "tarqeem")]
 #[command(author = "Tarqeem Contributors")]
-#[command(version = "0.1.0")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "ترقيم - أول لغة برمجة عربية مُترجَمة")]
 #[command(
     long_about = "Tarqeem (ترقيم) is a compiled, general-purpose programming language with full Arabic syntax support."
