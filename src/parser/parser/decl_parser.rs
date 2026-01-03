@@ -396,14 +396,20 @@ impl Parser {
 
     /// Parse visibility modifier.
     pub(crate) fn parse_visibility(&mut self) -> Visibility {
-        if self.match_token(&TokenKind::Public) {
-            Visibility::Public
-        } else if self.match_token(&TokenKind::Private) {
-            Visibility::Private
-        } else if self.match_token(&TokenKind::Protected) {
-            Visibility::Protected
-        } else {
-            Visibility::Public
+        match self.peek().kind {
+            TokenKind::Public => {
+                self.advance();
+                Visibility::Public
+            }
+            TokenKind::Private => {
+                self.advance();
+                Visibility::Private
+            }
+            TokenKind::Protected => {
+                self.advance();
+                Visibility::Protected
+            }
+            _ => Visibility::Public, // default visibility
         }
     }
 

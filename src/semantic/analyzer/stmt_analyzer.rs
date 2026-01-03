@@ -7,7 +7,10 @@ use super::super::modules::ExportKind;
 use super::super::scope::{Scope, ScopeKind, Symbol, SymbolKind};
 use super::super::types::Type;
 use super::{Analyzer, EnumInfo, EnumVariantInfo};
-use crate::error::codes::{ERR_CLASS_NOT_FOUND, ERR_NOT_EXPORTED};
+use crate::error::codes::{
+    ERR_BREAK_OUTSIDE_LOOP, ERR_CLASS_NOT_FOUND, ERR_CONTINUE_OUTSIDE_LOOP, ERR_NOT_EXPORTED,
+    ERR_RETURN_OUTSIDE_FUNCTION, ERR_TYPE_MISMATCH, ERR_UNDEFINED_CLASS, ERR_VARIABLE_REDEFINITION,
+};
 use crate::error::Span;
 use crate::parser::*;
 use std::path::PathBuf;
@@ -118,7 +121,6 @@ impl Analyzer {
 
             StmtKind::Break => {
                 if !self.scope.is_in_loop() {
-                    use crate::error::codes::ERR_BREAK_OUTSIDE_LOOP;
                     self.error_with_code(
                         "'أوقف' يمكن استخدامها فقط داخل حلقة",
                         stmt.span,
@@ -129,7 +131,6 @@ impl Analyzer {
 
             StmtKind::Continue => {
                 if !self.scope.is_in_loop() {
-                    use crate::error::codes::ERR_CONTINUE_OUTSIDE_LOOP;
                     self.error_with_code(
                         "'استمر' يمكن استخدامها فقط داخل حلقة",
                         stmt.span,
@@ -194,7 +195,6 @@ impl Analyzer {
             self.expected_type = None;
 
             if !init_type.is_compatible_with(expected) {
-                use crate::error::codes::ERR_TYPE_MISMATCH;
                 self.type_mismatch_error(
                     expected,
                     &init_type,
@@ -207,7 +207,6 @@ impl Analyzer {
 
         let symbol = Symbol::variable(name, var_type, mutable, span);
         if !self.scope.define(symbol) {
-            use crate::error::codes::ERR_VARIABLE_REDEFINITION;
             self.already_defined_error(
                 "المتغير",
                 name,
@@ -243,7 +242,6 @@ impl Analyzer {
 
         let symbol = Symbol::function(name, param_types.clone(), ret_type.clone(), span);
         if !self.scope.define(symbol) {
-            use crate::error::codes::ERR_VARIABLE_REDEFINITION;
             self.already_defined_error(
                 "الدالة",
                 name,
@@ -295,7 +293,6 @@ impl Analyzer {
                 && self.scope.lookup(parent_name).is_none()
             {
                 // Try to find similar class names
-                use crate::error::codes::ERR_UNDEFINED_CLASS;
                 let all_classes = self.class_resolver.all_class_names();
                 let similar: Vec<String> = all_classes
                     .iter()
@@ -322,7 +319,6 @@ impl Analyzer {
                 && self.scope.lookup(iface).is_none()
             {
                 // Try to find similar interface names
-                use crate::error::codes::ERR_UNDEFINED_CLASS;
                 let all_interfaces = self.class_resolver.all_interface_names();
                 let similar: Vec<String> = all_interfaces
                     .iter()
@@ -345,7 +341,6 @@ impl Analyzer {
 
         let symbol = Symbol::class(name, span);
         if !self.scope.define(symbol) {
-            use crate::error::codes::ERR_VARIABLE_REDEFINITION;
             self.already_defined_error(
                 "الصنف",
                 name,
@@ -404,7 +399,6 @@ impl Analyzer {
                 if let Some(init_expr) = init {
                     let init_type = self.infer_type(init_expr);
                     if !init_type.is_compatible_with(&field_type) {
-                        use crate::error::codes::ERR_TYPE_MISMATCH;
                         self.type_mismatch_error(
                             &field_type,
                             &init_type,
@@ -486,7 +480,6 @@ impl Analyzer {
         if let Some(init_expr) = default_value {
             let init_type = self.infer_type(init_expr);
             if !init_type.is_compatible_with(&prop_type) {
-                use crate::error::codes::ERR_TYPE_MISMATCH;
                 self.type_mismatch_error(
                     &prop_type,
                     &init_type,
@@ -510,7 +503,6 @@ impl Analyzer {
                         PropertyAccessorBody::Expr(expr) => {
                             let expr_type = self.infer_type(expr);
                             if !expr_type.is_compatible_with(&prop_type) {
-                                use crate::error::codes::ERR_TYPE_MISMATCH;
                                 self.type_mismatch_error(
                                     &prop_type,
                                     &expr_type,
@@ -569,7 +561,6 @@ impl Analyzer {
         };
 
         if !self.scope.define(symbol) {
-            use crate::error::codes::ERR_VARIABLE_REDEFINITION;
             self.already_defined_error(
                 "الميثاق",
                 name,
@@ -599,7 +590,6 @@ impl Analyzer {
         };
 
         if !self.scope.define(symbol) {
-            use crate::error::codes::ERR_VARIABLE_REDEFINITION;
             self.already_defined_error(
                 "التعداد",
                 name,
@@ -638,13 +628,7 @@ impl Analyzer {
         then_branch: &Block,
         else_branch: Option<&Block>,
     ) {
-        let cond_type = self.infer_type(condition);
-        if !cond_type.is_compatible_with(&Type::Bool) {
-            self.error(
-                &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
-                condition.span,
-            );
-        }
+        self.check_condition_type(condition);
 
         self.analyze_block(then_branch, ScopeKind::Block);
 
@@ -655,28 +639,14 @@ impl Analyzer {
 
     /// Analyze a while loop.
     pub(crate) fn analyze_while(&mut self, condition: &Expr, body: &Block) {
-        let cond_type = self.infer_type(condition);
-        if !cond_type.is_compatible_with(&Type::Bool) {
-            self.error(
-                &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
-                condition.span,
-            );
-        }
-
+        self.check_condition_type(condition);
         self.analyze_block(body, ScopeKind::Loop);
     }
 
     /// Analyze a do-while loop.
     pub(crate) fn analyze_do_while(&mut self, body: &Block, condition: &Expr) {
         self.analyze_block(body, ScopeKind::Loop);
-
-        let cond_type = self.infer_type(condition);
-        if !cond_type.is_compatible_with(&Type::Bool) {
-            self.error(
-                &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
-                condition.span,
-            );
-        }
+        self.check_condition_type(condition);
     }
 
     /// Analyze a for loop.
@@ -694,13 +664,7 @@ impl Analyzer {
         }
 
         if let Some(cond_expr) = condition {
-            let cond_type = self.infer_type(cond_expr);
-            if !cond_type.is_compatible_with(&Type::Bool) {
-                self.error(
-                    &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
-                    cond_expr.span,
-                );
-            }
+            self.check_condition_type(cond_expr);
         }
 
         if let Some(update_expr) = update {
@@ -855,7 +819,6 @@ impl Analyzer {
     /// Analyze a return statement.
     pub(crate) fn analyze_return(&mut self, value: Option<&Expr>, span: Span) {
         if !self.scope.is_in_function() {
-            use crate::error::codes::ERR_RETURN_OUTSIDE_FUNCTION;
             self.error_with_code(
                 "'أرجع' يمكن استخدامها فقط داخل دالة",
                 span,
@@ -1225,7 +1188,6 @@ impl Analyzer {
                 {
                     let arg_type = self.infer_type(arg);
                     if !arg_type.is_compatible_with(param_type) {
-                        use crate::error::codes::ERR_TYPE_MISMATCH;
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
