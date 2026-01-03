@@ -155,6 +155,9 @@ impl Linker {
         output: &Path,
         runtime_path: Option<&Path>,
     ) -> Result<(), LinkerError> {
+        // Auto-discover runtime if not provided
+        let runtime = runtime_path.map(|p| p.to_path_buf()).or_else(find_runtime);
+
         let ir_path = output.with_extension("ll");
         fs::write(&ir_path, llvm_ir).map_err(|e| {
             LinkerError::with_code(
@@ -167,11 +170,11 @@ impl Linker {
         })?;
 
         if let Some(ref clang) = self.clang_path {
-            self.compile_and_link_with_clang(clang, &ir_path, output, runtime_path)?;
+            self.compile_and_link_with_clang(clang, &ir_path, output, runtime.as_deref())?;
         } else {
             let obj_path = output.with_extension("o");
             self.compile_to_object(llvm_ir, &obj_path)?;
-            self.link_object(&obj_path, output, runtime_path)?;
+            self.link_object(&obj_path, output, runtime.as_deref())?;
 
             if !self.verbose {
                 let _ = fs::remove_file(&obj_path);
@@ -246,6 +249,9 @@ impl Linker {
         output: &Path,
         runtime_path: Option<&Path>,
     ) -> Result<(), LinkerError> {
+        // Auto-discover runtime if not provided
+        let runtime = runtime_path.map(|p| p.to_path_buf()).or_else(find_runtime);
+
         if !self.target.is_wasm() {
             return Err(LinkerError::with_code(
                 "الهدف ليس WebAssembly. استخدم --target wasm32-unknown-unknown".to_string(),
@@ -266,7 +272,7 @@ impl Linker {
 
         // Use clang for WASM compilation (it handles the full pipeline)
         if let Some(ref clang) = self.clang_path {
-            self.compile_wasm_with_clang(clang, &ir_path, output, runtime_path)?;
+            self.compile_wasm_with_clang(clang, &ir_path, output, runtime.as_deref())?;
         } else {
             return Err(LinkerError::with_code(
                 "لم يتم العثور على clang. ثبّت LLVM مع دعم WebAssembly.".to_string(),
@@ -542,6 +548,79 @@ impl std::fmt::Display for LinkerError {
 }
 
 impl std::error::Error for LinkerError {}
+
+/// Finds the Tarqeem runtime library (libtrq.a or trq.lib)
+///
+/// Search order:
+/// 1. TARQEEM_RUNTIME_PATH environment variable (set by build.rs)
+/// 2. Cargo workspace target directory
+/// 3. TARQEEM_HOME environment variable
+/// 4. Home directory ~/.tarqeem/lib/
+/// 5. System installation /usr/local/lib/tarqeem/
+pub fn find_runtime() -> Option<PathBuf> {
+    let lib_name = if cfg!(windows) { "trq.lib" } else { "libtrq.a" };
+
+    // Priority 1: Build-time environment variable from build.rs
+    if let Ok(path) = std::env::var("TARQEEM_RUNTIME_PATH") {
+        let p = PathBuf::from(&path);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    // Priority 2: Cargo target directory (development mode)
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        // Try release first, then debug
+        for profile in &["release", "debug"] {
+            let workspace_lib = PathBuf::from(&manifest_dir)
+                .join("target")
+                .join(profile)
+                .join(lib_name);
+            if workspace_lib.exists() {
+                return Some(workspace_lib);
+            }
+        }
+    }
+
+    // Priority 3: TARQEEM_HOME environment variable
+    if let Ok(home) = std::env::var("TARQEEM_HOME") {
+        let p = PathBuf::from(&home).join("lib").join(lib_name);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    // Priority 4: User home directory
+    if let Some(home_dir) = dirs::home_dir() {
+        let p = home_dir.join(".tarqeem").join("lib").join(lib_name);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    // Priority 5: System installation paths
+    let system_paths = if cfg!(windows) {
+        vec![PathBuf::from("C:\\Program Files\\Tarqeem\\lib\\trq.lib")]
+    } else if cfg!(target_os = "macos") {
+        vec![
+            PathBuf::from("/usr/local/lib/tarqeem/libtrq.a"),
+            PathBuf::from("/opt/homebrew/lib/tarqeem/libtrq.a"),
+        ]
+    } else {
+        vec![
+            PathBuf::from("/usr/local/lib/tarqeem/libtrq.a"),
+            PathBuf::from("/usr/lib/tarqeem/libtrq.a"),
+        ]
+    };
+
+    for path in system_paths {
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    None
+}
 
 fn find_program(name: &str) -> Option<PathBuf> {
     if Command::new(name).arg("--version").output().is_ok() {
@@ -883,5 +962,49 @@ mod tests {
         let linker = Linker::new(target);
         // This tests the method exists; actual availability depends on system
         let _ = linker.is_wasm_available();
+    }
+
+    #[test]
+    fn test_find_runtime_with_env_var() {
+        // Create temp file to simulate runtime
+        let temp_dir = std::env::temp_dir();
+        let temp_lib = temp_dir.join("test_libtrq.a");
+        std::fs::write(&temp_lib, b"test").unwrap();
+
+        // Save original value if exists
+        let original = std::env::var("TARQEEM_RUNTIME_PATH").ok();
+
+        std::env::set_var("TARQEEM_RUNTIME_PATH", &temp_lib);
+        let result = find_runtime();
+
+        // Restore original value
+        match original {
+            Some(val) => std::env::set_var("TARQEEM_RUNTIME_PATH", val),
+            None => std::env::remove_var("TARQEEM_RUNTIME_PATH"),
+        }
+        std::fs::remove_file(&temp_lib).ok();
+
+        assert!(result.is_some());
+        assert!(result.unwrap().to_string_lossy().contains("test_libtrq.a"));
+    }
+
+    #[test]
+    fn test_find_runtime_nonexistent_env_path() {
+        // Save original value if exists
+        let original = std::env::var("TARQEEM_RUNTIME_PATH").ok();
+
+        // Set to a path that doesn't exist
+        std::env::set_var("TARQEEM_RUNTIME_PATH", "/nonexistent/path/libtrq.a");
+        let result = find_runtime();
+
+        // Restore original value
+        match original {
+            Some(val) => std::env::set_var("TARQEEM_RUNTIME_PATH", val),
+            None => std::env::remove_var("TARQEEM_RUNTIME_PATH"),
+        }
+
+        // Should fall through to other discovery methods (or return None if nothing found)
+        // We can't assert specific behavior since it depends on system state
+        let _ = result;
     }
 }
