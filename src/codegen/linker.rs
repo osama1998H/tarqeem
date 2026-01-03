@@ -613,13 +613,7 @@ pub fn find_runtime() -> Option<PathBuf> {
         ]
     };
 
-    for path in system_paths {
-        if path.exists() {
-            return Some(path);
-        }
-    }
-
-    None
+    system_paths.into_iter().find(|path| path.exists())
 }
 
 fn find_program(name: &str) -> Option<PathBuf> {
