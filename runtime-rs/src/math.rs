@@ -11,8 +11,8 @@ use std::f64::consts::PI;
 // ============================================================================
 
 thread_local! {
-    static RNG_SEEDED: RefCell<bool> = RefCell::new(false);
-    static RNG_STATE: RefCell<u64> = RefCell::new(0);
+    static RNG_SEEDED: RefCell<bool> = const { RefCell::new(false) };
+    static RNG_STATE: RefCell<u64> = const { RefCell::new(0) };
 }
 
 // Simple xorshift64 PRNG
@@ -395,7 +395,7 @@ pub extern "C" fn trq_random_seed(seed: i64) {
 #[no_mangle]
 pub extern "C" fn trq_random_int() -> i64 {
     ensure_rng_seeded();
-    RNG_STATE.with(|state| xorshift64(&mut *state.borrow_mut()) as i64)
+    RNG_STATE.with(|state| xorshift64(&mut state.borrow_mut()) as i64)
 }
 
 /// Generate a random integer in range [min, max].
@@ -406,7 +406,7 @@ pub extern "C" fn trq_random_int_range(min: i64, max: i64) -> i64 {
     }
     ensure_rng_seeded();
     let range = (max - min + 1) as u64;
-    let random = RNG_STATE.with(|state| xorshift64(&mut *state.borrow_mut()));
+    let random = RNG_STATE.with(|state| xorshift64(&mut state.borrow_mut()));
     min + (random % range) as i64
 }
 
@@ -414,7 +414,7 @@ pub extern "C" fn trq_random_int_range(min: i64, max: i64) -> i64 {
 #[no_mangle]
 pub extern "C" fn trq_random_float() -> f64 {
     ensure_rng_seeded();
-    let random = RNG_STATE.with(|state| xorshift64(&mut *state.borrow_mut()));
+    let random = RNG_STATE.with(|state| xorshift64(&mut state.borrow_mut()));
     (random as f64) / (u64::MAX as f64 + 1.0)
 }
 
@@ -431,7 +431,7 @@ pub extern "C" fn trq_random_float_range(min: f64, max: f64) -> f64 {
 #[no_mangle]
 pub extern "C" fn trq_random_bool() -> bool {
     ensure_rng_seeded();
-    RNG_STATE.with(|state| xorshift64(&mut *state.borrow_mut()) & 1 == 0)
+    RNG_STATE.with(|state| xorshift64(&mut state.borrow_mut()) & 1 == 0)
 }
 
 // ============================================================================
@@ -646,5 +646,123 @@ mod tests {
             let f = trq_random_float_range(5.0, 10.0);
             assert!(f >= 5.0 && f < 10.0);
         }
+    }
+
+    // ===== Phase 8: Additional Math Tests =====
+
+    #[test]
+    fn test_trig_special_values() {
+        // Test sin at special angles
+        assert!(approx_eq(trq_sin(0.0), 0.0));
+        assert!(approx_eq(trq_sin(PI / 6.0), 0.5)); // 30 degrees
+        assert!(approx_eq(
+            trq_sin(PI / 4.0),
+            std::f64::consts::FRAC_1_SQRT_2
+        )); // 45 degrees
+        assert!(approx_eq(trq_sin(PI / 2.0), 1.0)); // 90 degrees
+        assert!(approx_eq(trq_sin(PI), 0.0)); // 180 degrees
+
+        // Test cos at special angles
+        assert!(approx_eq(trq_cos(0.0), 1.0));
+        assert!(approx_eq(trq_cos(PI / 3.0), 0.5)); // 60 degrees
+        assert!(approx_eq(trq_cos(PI / 2.0), 0.0)); // 90 degrees
+        assert!(approx_eq(trq_cos(PI), -1.0)); // 180 degrees
+
+        // Test tan at special angles
+        assert!(approx_eq(trq_tan(0.0), 0.0));
+        assert!(approx_eq(trq_tan(PI / 4.0), 1.0)); // 45 degrees
+                                                    // tan(PI/2) is undefined (very large), so we skip that
+
+        // Test additional trig functions
+        assert!(approx_eq(trq_cot(PI / 4.0), 1.0)); // cotangent of 45 degrees
+        assert!(approx_eq(trq_sec(0.0), 1.0)); // secant of 0
+        assert!(approx_eq(trq_csc(PI / 2.0), 1.0)); // cosecant of 90 degrees
+    }
+
+    #[test]
+    fn test_log_edge_cases() {
+        // log(1) = 0 for any base
+        assert!(approx_eq(trq_log(1.0), 0.0));
+        assert!(approx_eq(trq_log10(1.0), 0.0));
+        assert!(approx_eq(trq_log2(1.0), 0.0));
+
+        // log(0) should return -infinity
+        assert!(trq_log(0.0).is_infinite() && trq_log(0.0) < 0.0);
+        assert!(trq_log10(0.0).is_infinite() && trq_log10(0.0) < 0.0);
+        assert!(trq_log2(0.0).is_infinite() && trq_log2(0.0) < 0.0);
+
+        // log of negative should return NaN
+        assert!(trq_log(-1.0).is_nan());
+        assert!(trq_log10(-1.0).is_nan());
+        assert!(trq_log2(-1.0).is_nan());
+
+        // exp(0) = 1
+        assert!(approx_eq(trq_exp(0.0), 1.0));
+
+        // exp(ln(x)) = x
+        let x = 5.0;
+        assert!(approx_eq(trq_exp(trq_log(x)), x));
+    }
+
+    #[test]
+    fn test_pow_edge_cases() {
+        // x^0 = 1 for any x
+        assert_eq!(trq_pow_int(5, 0), 1);
+        assert_eq!(trq_pow_int(0, 0), 1); // 0^0 = 1 by convention
+        assert!(approx_eq(trq_pow_float(5.0, 0.0), 1.0));
+
+        // x^1 = x
+        assert_eq!(trq_pow_int(42, 1), 42);
+        assert!(approx_eq(trq_pow_float(42.0, 1.0), 42.0));
+
+        // 0^x = 0 for x > 0
+        assert_eq!(trq_pow_int(0, 5), 0);
+        assert!(approx_eq(trq_pow_float(0.0, 5.0), 0.0));
+
+        // Large exponents (test overflow handling)
+        let big = trq_pow_int(2, 62);
+        assert_eq!(big, 4611686018427387904);
+
+        // Negative base with even/odd exponents
+        assert_eq!(trq_pow_int(-2, 2), 4); // (-2)^2 = 4
+        assert_eq!(trq_pow_int(-2, 3), -8); // (-2)^3 = -8
+
+        // Fractional exponents (square root via pow)
+        assert!(approx_eq(trq_pow_float(16.0, 0.5), 4.0));
+        assert!(approx_eq(trq_pow_float(27.0, 1.0 / 3.0), 3.0));
+    }
+
+    #[test]
+    fn test_random_range_edge_cases() {
+        trq_random_seed(12345);
+
+        // When min == max, should always return that value
+        for _ in 0..10 {
+            let r = trq_random_int_range(42, 42);
+            assert_eq!(r, 42);
+        }
+
+        for _ in 0..10 {
+            let f = trq_random_float_range(3.14, 3.14);
+            assert!(approx_eq(f, 3.14));
+        }
+
+        // Random bool should produce both true and false over many iterations
+        trq_random_seed(12345);
+        let mut true_count = 0;
+        let mut false_count = 0;
+        for _ in 0..1000 {
+            if trq_random_bool() {
+                true_count += 1;
+            } else {
+                false_count += 1;
+            }
+        }
+        // Both should appear (statistically very likely)
+        assert!(true_count > 0);
+        assert!(false_count > 0);
+        // Should be roughly 50/50 (within 10% margin)
+        let ratio = true_count as f64 / (true_count + false_count) as f64;
+        assert!(ratio > 0.4 && ratio < 0.6);
     }
 }

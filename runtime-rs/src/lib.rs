@@ -47,7 +47,10 @@
 //! }
 //! ```
 
+// FFI library - callers are responsible for pointer validity
 #![allow(non_snake_case)]
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+#![allow(clippy::manual_range_contains)]
 
 pub mod array;
 pub mod compress;

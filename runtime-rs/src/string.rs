@@ -2006,4 +2006,140 @@ mod tests {
         assert!(trq_string_equals(ptr::null(), ptr::null()));
         assert!(!trq_string_contains(ptr::null(), ptr::null()));
     }
+
+    // ===== Phase 8: Additional UTF-8/Arabic Tests =====
+
+    #[test]
+    fn test_arabic_with_diacritics() {
+        // مَرْحَبًا with tashkeel (diacritical marks)
+        let arabic_with_tashkeel = "مَرْحَبًا";
+        let s = trq_string_new(
+            arabic_with_tashkeel.as_ptr(),
+            arabic_with_tashkeel.len() as i64,
+        );
+
+        // Byte length should match UTF-8 encoding
+        assert_eq!(trq_string_len(s), arabic_with_tashkeel.len() as i64);
+
+        // Character count should account for combining marks
+        // Note: Each base letter + diacritical mark may count differently
+        let char_count = trq_string_len_chars(s);
+        assert!(char_count > 0);
+        assert!(char_count <= arabic_with_tashkeel.chars().count() as i64);
+
+        // Should be recognized as Arabic
+        assert!(trq_string_is_arabic(s));
+
+        unsafe {
+            crate::memory::trq_release(s as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_arabic_numbers() {
+        // Arabic-Indic numerals ٠١٢٣٤٥٦٧٨٩
+        let arabic_nums = "٠١٢٣٤٥٦٧٨٩";
+        let s = trq_string_new(arabic_nums.as_ptr(), arabic_nums.len() as i64);
+
+        // Should have 10 characters
+        assert_eq!(trq_string_len_chars(s), 10);
+
+        // Test contains with Arabic zero
+        let zero = "٠";
+        let zero_s = trq_string_new(zero.as_ptr(), zero.len() as i64);
+        assert!(trq_string_contains(s, zero_s));
+
+        unsafe {
+            crate::memory::trq_release(s as *mut u8);
+            crate::memory::trq_release(zero_s as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_mixed_bidi_text() {
+        // Bidirectional text: "Hello مرحبا World"
+        let mixed = "Hello مرحبا World";
+        let s = trq_string_new(mixed.as_ptr(), mixed.len() as i64);
+
+        // trq_string_is_arabic returns true if string CONTAINS Arabic chars
+        // Mixed content with Arabic should return true
+        assert!(trq_string_is_arabic(s));
+
+        // Should correctly handle length
+        assert_eq!(trq_string_len(s), mixed.len() as i64);
+        assert_eq!(trq_string_len_chars(s), mixed.chars().count() as i64);
+
+        // Test contains with Arabic part
+        let arabic_part = "مرحبا";
+        let arabic_s = trq_string_new(arabic_part.as_ptr(), arabic_part.len() as i64);
+        assert!(trq_string_contains(s, arabic_s));
+
+        // Test contains with English part
+        let english_part = trq_string_from_cstr(b"Hello\0".as_ptr() as *const c_char);
+        assert!(trq_string_contains(s, english_part));
+
+        unsafe {
+            crate::memory::trq_release(s as *mut u8);
+            crate::memory::trq_release(arabic_s as *mut u8);
+            crate::memory::trq_release(english_part as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_empty_string_all_ops() {
+        let empty = trq_string_from_cstr(b"\0".as_ptr() as *const c_char);
+
+        // Length operations
+        assert_eq!(trq_string_len(empty), 0);
+        assert_eq!(trq_string_len_chars(empty), 0);
+
+        // Contains on empty
+        assert!(trq_string_contains(empty, empty)); // Empty contains empty
+        let non_empty = trq_string_from_cstr(b"x\0".as_ptr() as *const c_char);
+        assert!(!trq_string_contains(empty, non_empty)); // Empty doesn't contain non-empty
+        assert!(trq_string_contains(non_empty, empty)); // Non-empty contains empty
+
+        // Trim empty
+        let trimmed = trq_string_trim(empty);
+        assert_eq!(trq_string_len(trimmed), 0);
+
+        // Reverse empty
+        let reversed = trq_string_reverse(empty);
+        assert_eq!(trq_string_len(reversed), 0);
+
+        // Clone empty
+        let cloned = trq_string_clone(empty);
+        assert_eq!(trq_string_len(cloned), 0);
+        assert!(trq_string_equals(empty, cloned));
+
+        unsafe {
+            crate::memory::trq_release(empty as *mut u8);
+            crate::memory::trq_release(non_empty as *mut u8);
+            crate::memory::trq_release(trimmed as *mut u8);
+            crate::memory::trq_release(reversed as *mut u8);
+            crate::memory::trq_release(cloned as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_string_concat_arabic() {
+        let part1 = "مرحبا ";
+        let part2 = "بالعالم";
+        let s1 = trq_string_new(part1.as_ptr(), part1.len() as i64);
+        let s2 = trq_string_new(part2.as_ptr(), part2.len() as i64);
+
+        let concat = trq_string_concat(s1, s2);
+
+        unsafe {
+            let bytes = std::slice::from_raw_parts((*concat).data, (*concat).len as usize);
+            let result = std::str::from_utf8(bytes).unwrap();
+            assert_eq!(result, "مرحبا بالعالم");
+        }
+
+        unsafe {
+            crate::memory::trq_release(s1 as *mut u8);
+            crate::memory::trq_release(s2 as *mut u8);
+            crate::memory::trq_release(concat as *mut u8);
+        }
+    }
 }

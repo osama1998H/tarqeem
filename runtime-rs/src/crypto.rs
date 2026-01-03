@@ -308,7 +308,7 @@ pub extern "C" fn trq_hex_decode(hex: *const TrqString) -> *mut TrqString {
         }
 
         // Must be even length
-        if input_len % 2 != 0 {
+        if !input_len.is_multiple_of(2) {
             return ptr::null_mut();
         }
 
@@ -414,7 +414,7 @@ pub extern "C" fn trq_hex_decode_to_bytes(hex: *const TrqString) -> *mut TrqArra
         }
 
         // Must be even length
-        if input_len % 2 != 0 {
+        if !input_len.is_multiple_of(2) {
             return ptr::null_mut();
         }
 
