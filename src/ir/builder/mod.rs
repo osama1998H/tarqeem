@@ -278,6 +278,7 @@ impl IrBuilder {
 
         // Check if there's top-level EXECUTABLE code (Script mode entry point)
         // VarDecl is allowed (global variables), but other statements are executable code
+        // Import statements are declarations, not executable code
         let has_top_level_executable = ast.statements.iter().any(|stmt| {
             !matches!(
                 &stmt.kind,
@@ -285,6 +286,7 @@ impl IrBuilder {
                     | StmtKind::ClassDecl { .. }
                     | StmtKind::InterfaceDecl { .. }
                     | StmtKind::VarDecl { .. }
+                    | StmtKind::Import { .. }
             )
         });
 
