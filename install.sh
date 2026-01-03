@@ -35,22 +35,16 @@ if [ ! -f "$SCRIPT_DIR/target/release/tarqeem" ]; then
     echo -e "${YELLOW}Release binary not found. Building...${NC}"
     echo ""
 
-    # Build runtime first
-    if [ -d "$SCRIPT_DIR/runtime" ]; then
-        echo -e "${BLUE}Building C runtime...${NC}"
-        (cd "$SCRIPT_DIR/runtime" && make clean && make)
-    fi
-
-    # Build compiler
-    echo -e "${BLUE}Building Tarqeem compiler (release mode)...${NC}"
+    # Build compiler and Rust runtime
+    echo -e "${BLUE}Building Tarqeem compiler and runtime (release mode)...${NC}"
     cargo build --release
     echo ""
 fi
 
-# Check if runtime exists
-if [ ! -f "$SCRIPT_DIR/runtime/libtrq.a" ]; then
-    echo -e "${YELLOW}C runtime not found. Building...${NC}"
-    (cd "$SCRIPT_DIR/runtime" && make)
+# Verify runtime library was built
+if [ ! -f "$SCRIPT_DIR/target/release/libtrq.a" ]; then
+    echo -e "${RED}Error: Runtime library (libtrq.a) not found. Build may have failed.${NC}"
+    exit 1
 fi
 
 # Create installation directory structure
@@ -66,15 +60,9 @@ echo -e "  ${GREEN}✓${NC} Installing tarqeem binary"
 cp "$SCRIPT_DIR/target/release/tarqeem" "$INSTALL_DIR/bin/"
 chmod +x "$INSTALL_DIR/bin/tarqeem"
 
-# Copy runtime library
-echo -e "  ${GREEN}✓${NC} Installing C runtime library"
-cp "$SCRIPT_DIR/runtime/libtrq.a" "$INSTALL_DIR/lib/"
-
-# Copy WASM runtime if it exists
-if [ -f "$SCRIPT_DIR/runtime/wasm/libtrq_wasm.a" ]; then
-    echo -e "  ${GREEN}✓${NC} Installing WASM runtime library"
-    cp "$SCRIPT_DIR/runtime/wasm/libtrq_wasm.a" "$INSTALL_DIR/lib/"
-fi
+# Copy runtime library (Rust implementation)
+echo -e "  ${GREEN}✓${NC} Installing runtime library"
+cp "$SCRIPT_DIR/target/release/libtrq.a" "$INSTALL_DIR/lib/"
 
 # Copy standard library
 echo -e "  ${GREEN}✓${NC} Installing standard library"

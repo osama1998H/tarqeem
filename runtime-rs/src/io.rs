@@ -62,6 +62,42 @@ pub extern "C" fn trq_print_bool(value: bool) {
     io::stdout().flush().ok();
 }
 
+/// Print an array to stdout.
+///
+/// Prints the array in format: [elem1، elem2، elem3]
+/// Uses Arabic comma (،) as separator.
+///
+/// # Safety
+///
+/// - `arr` must be a valid pointer to a `TrqArray` or null.
+#[no_mangle]
+pub extern "C" fn trq_print_array(arr: *const TrqArray) {
+    if arr.is_null() {
+        print!("[null]");
+        io::stdout().flush().ok();
+        return;
+    }
+
+    unsafe {
+        let array = &*arr;
+        print!("[");
+
+        if !array.data.is_null() && array.len > 0 {
+            // Assume i64 elements (most common case for Tarqeem arrays)
+            let data = array.data as *const i64;
+            for i in 0..array.len {
+                if i > 0 {
+                    print!("، "); // Arabic comma separator
+                }
+                print!("{}", *data.add(i as usize));
+            }
+        }
+
+        print!("]");
+        io::stdout().flush().ok();
+    }
+}
+
 /// Print a newline to stdout.
 #[no_mangle]
 pub extern "C" fn trq_print_newline() {

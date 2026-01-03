@@ -41,10 +41,10 @@ if (-not (Test-Path "$ScriptDir\target\release\tarqeem.exe")) {
     Write-Host ""
 }
 
-# Check if runtime exists
-if (-not (Test-Path "$ScriptDir\runtime\libtrq.a")) {
-    Write-Host "C runtime not found. Please build it first with MinGW or WSL." -ForegroundColor Yellow
-    Write-Host "  cd runtime && make" -ForegroundColor Yellow
+# Verify runtime library was built
+if (-not (Test-Path "$ScriptDir\target\release\libtrq.a")) {
+    Write-Host "Error: Runtime library (libtrq.a) not found. Build may have failed." -ForegroundColor Red
+    exit 1
 }
 
 Write-Host "Installing to: $InstallDir" -ForegroundColor Blue
@@ -59,11 +59,9 @@ New-Item -ItemType Directory -Force -Path "$InstallDir\stdlib_trq" | Out-Null
 Write-Host "  ✓ Installing tarqeem.exe" -ForegroundColor Green
 Copy-Item "$ScriptDir\target\release\tarqeem.exe" "$InstallDir\bin\" -Force
 
-# Copy runtime library if it exists
-if (Test-Path "$ScriptDir\runtime\libtrq.a") {
-    Write-Host "  ✓ Installing C runtime library" -ForegroundColor Green
-    Copy-Item "$ScriptDir\runtime\libtrq.a" "$InstallDir\lib\" -Force
-}
+# Copy runtime library (Rust implementation)
+Write-Host "  ✓ Installing runtime library" -ForegroundColor Green
+Copy-Item "$ScriptDir\target\release\libtrq.a" "$InstallDir\lib\" -Force
 
 # Copy standard library
 Write-Host "  ✓ Installing standard library" -ForegroundColor Green
