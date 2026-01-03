@@ -28,7 +28,6 @@
 | **LLVM** | 14+ | واجهة توليد الكود الأصلي |
 | **Clang** | 14+ | مُترجم C للربط |
 | **جِت (Git)** | 2.0+ | لاستنساخ المستودع |
-| **Make** | 3.8+ | لبناء مكتبة وقت التشغيل |
 
 ### تثبيت المتطلبات
 
@@ -295,7 +294,7 @@ New-Item -ItemType Directory -Force -Path "$InstallDir\stdlib_trq"
 
 # ٣. نسخ الملفات
 Copy-Item "target\release\tarqeem.exe" "$InstallDir\bin\"
-Copy-Item "runtime\libtrq.a" "$InstallDir\lib\"
+Copy-Item "target\release\libtrq.a" "$InstallDir\lib\"
 Copy-Item -Recurse "stdlib_trq\*" "$InstallDir\stdlib_trq\"
 
 # ٤. تعيين متغيرات البيئة
@@ -465,13 +464,14 @@ winget install LLVM.LLVM
 
 **الحل**:
 ```bash
-# إعادة بناء مكتبة وقت التشغيل
-cd tarqeem/runtime
-make clean
-make
+# إعادة بناء المترجم ومكتبة وقت التشغيل
+cd tarqeem
+cargo build --release
+
+# تحقق من وجود المكتبة
+ls target/release/libtrq.a
 
 # إعادة التثبيت
-cd ..
 ./install.sh
 ```
 

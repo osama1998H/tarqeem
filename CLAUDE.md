@@ -110,7 +110,7 @@ src/
 ├── error/               # Bilingual diagnostics
 └── utils/               # String interning, extensions
 
-runtime/                 # C runtime library (builtins, string, array, I/O, crypto)
+runtime-rs/              # Rust runtime library (memory, string, array, I/O, crypto, network)
 stdlib_trq/              # Standard library (Tarqeem source)
 tests/                   # Integration tests
 benches/                 # Criterion benchmarks
@@ -403,12 +403,14 @@ This project uses **Gitflow** as the branching strategy. Claude must follow thes
 
 ### Adding a Standard Library Function
 
-1. Implement in C in `runtime/` (for native functions)
-2. Create Tarqeem wrapper in `stdlib_trq/`
-3. Register in `src/semantic/scope.rs` for type checking
-4. Add codegen mapping if needed
-5. Add documentation
-6. Add tests
+1. Implement in Rust in `runtime-rs/src/` (for native functions)
+2. Export with `#[no_mangle] extern "C"` for C ABI compatibility
+3. Re-export from `runtime-rs/src/lib.rs`
+4. Create Tarqeem wrapper in `stdlib_trq/`
+5. Register in `src/semantic/scope.rs` for type checking
+6. Add codegen mapping if needed
+7. Add documentation
+8. Add tests
 
 ### Debugging the Compiler
 

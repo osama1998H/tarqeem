@@ -11,7 +11,7 @@ env:
 
 jobs:
   # ============================================
-  # Build Tarqeem Compiler
+  # Build Tarqeem Compiler and Runtime
   # ============================================
   build-compiler:
     name: Build Compiler
@@ -25,14 +25,25 @@ jobs:
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Build release
+      - name: Build release (compiler + runtime)
         run: cargo build --release --verbose
+
+      - name: Verify runtime library
+        run: |
+          ls -la target/release/libtrq.a
+          file target/release/libtrq.a
 
       - name: Upload compiler binary
         uses: actions/upload-artifact@v6
         with:
           name: tarqeem-compiler
           path: target/release/tarqeem
+
+      - name: Upload runtime library
+        uses: actions/upload-artifact@v6
+        with:
+          name: tarqeem-runtime
+          path: target/release/libtrq.a
 
   # ============================================
   # Validate Examples (Syntax Check)
@@ -93,33 +104,6 @@ jobs:
         with:
           name: syntax-check-results
           path: check-results.md
-
-  # ============================================
-  # Build C Runtime Library
-  # ============================================
-  build-runtime:
-    name: Build C Runtime
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential zlib1g-dev
-
-      - name: Build runtime library
-        run: |
-          cd runtime
-          make clean
-          make
-          ls -la libtrq.a
-
-      - name: Upload runtime library
-        uses: actions/upload-artifact@v6
-        with:
-          name: tarqeem-runtime
-          path: runtime/libtrq.a
 
   # ============================================
   # Run Examples with Interpreter (Default Mode)
@@ -241,7 +225,7 @@ jobs:
   run-examples-compiled:
     name: Run Examples (Compiled)
     runs-on: ubuntu-latest
-    needs: [build-compiler, build-runtime]
+    needs: build-compiler
     strategy:
       fail-fast: false
       matrix:
