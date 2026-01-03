@@ -505,6 +505,18 @@ impl Analyzer {
         self.diagnostics.push(diag);
     }
 
+    /// Check that a condition expression has boolean type.
+    /// Reports an error if the condition is not compatible with Bool.
+    pub(crate) fn check_condition_type(&mut self, condition: &Expr) {
+        let cond_type = self.infer_type(condition);
+        if !cond_type.is_compatible_with(&Type::Bool) {
+            self.error(
+                &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
+                condition.span,
+            );
+        }
+    }
+
     /// Find similar names to the given name from a list of candidates.
     pub(crate) fn find_similar_names(&self, name: &str, max_results: usize) -> Vec<String> {
         let mut candidates: Vec<(String, usize)> = Vec::new();

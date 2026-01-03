@@ -628,13 +628,7 @@ impl Analyzer {
         then_branch: &Block,
         else_branch: Option<&Block>,
     ) {
-        let cond_type = self.infer_type(condition);
-        if !cond_type.is_compatible_with(&Type::Bool) {
-            self.error(
-                &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
-                condition.span,
-            );
-        }
+        self.check_condition_type(condition);
 
         self.analyze_block(then_branch, ScopeKind::Block);
 
@@ -645,28 +639,14 @@ impl Analyzer {
 
     /// Analyze a while loop.
     pub(crate) fn analyze_while(&mut self, condition: &Expr, body: &Block) {
-        let cond_type = self.infer_type(condition);
-        if !cond_type.is_compatible_with(&Type::Bool) {
-            self.error(
-                &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
-                condition.span,
-            );
-        }
-
+        self.check_condition_type(condition);
         self.analyze_block(body, ScopeKind::Loop);
     }
 
     /// Analyze a do-while loop.
     pub(crate) fn analyze_do_while(&mut self, body: &Block, condition: &Expr) {
         self.analyze_block(body, ScopeKind::Loop);
-
-        let cond_type = self.infer_type(condition);
-        if !cond_type.is_compatible_with(&Type::Bool) {
-            self.error(
-                &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
-                condition.span,
-            );
-        }
+        self.check_condition_type(condition);
     }
 
     /// Analyze a for loop.
@@ -684,13 +664,7 @@ impl Analyzer {
         }
 
         if let Some(cond_expr) = condition {
-            let cond_type = self.infer_type(cond_expr);
-            if !cond_type.is_compatible_with(&Type::Bool) {
-                self.error(
-                    &format!("الشرط يجب أن يكون منطقياً، وُجد {}", cond_type.arabic_name()),
-                    cond_expr.span,
-                );
-            }
+            self.check_condition_type(cond_expr);
         }
 
         if let Some(update_expr) = update {
