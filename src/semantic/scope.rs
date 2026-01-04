@@ -732,13 +732,160 @@ impl Scope {
                 _ => None,
             },
 
+            // =======================================================================
+            // رسوميات (Graphics) - SDL2 graphics functions
+            // =======================================================================
+            "رسوميات" => match name {
+                // التهيئة والإنهاء - Initialization
+                // Note: These return i64 (0/1) at FFI level, but we map to Int
+                "هيئ" => Some(builtin("هيئ", vec![], Type::Int)),
+                "أنهِ" => Some(builtin("أنهِ", vec![], Type::Void)),
+                "مهيأ" => Some(builtin("مهيأ", vec![], Type::Int)),
+
+                // إدارة النوافذ - Window management
+                "أنشئ_نافذة" => Some(builtin(
+                    "أنشئ_نافذة",
+                    vec![Type::String, Type::Int, Type::Int],
+                    Type::Int,
+                )),
+                "أغلق_نافذة" => Some(builtin("أغلق_نافذة", vec![Type::Int], Type::Void)),
+                "عيّن_عنوان" => Some(builtin(
+                    "عيّن_عنوان",
+                    vec![Type::Int, Type::String],
+                    Type::Void,
+                )),
+                "عرض_نافذة" => Some(builtin("عرض_نافذة", vec![Type::Int], Type::Int)),
+                "ارتفاع_نافذة" => {
+                    Some(builtin("ارتفاع_نافذة", vec![Type::Int], Type::Int))
+                }
+                "أظهر_نافذة" => Some(builtin("أظهر_نافذة", vec![Type::Int], Type::Void)),
+                "أخفِ_نافذة" => Some(builtin("أخفِ_نافذة", vec![Type::Int], Type::Void)),
+                "عيّن_موضع_نافذة" => Some(builtin(
+                    "عيّن_موضع_نافذة",
+                    vec![Type::Int, Type::Int, Type::Int],
+                    Type::Void,
+                )),
+                "عيّن_حجم_نافذة" => Some(builtin(
+                    "عيّن_حجم_نافذة",
+                    vec![Type::Int, Type::Int, Type::Int],
+                    Type::Void,
+                )),
+                "عيّن_ملء_شاشة" => Some(builtin(
+                    "عيّن_ملء_شاشة",
+                    vec![Type::Int, Type::Int],
+                    Type::Void,
+                )),
+
+                // الرسم - Rendering
+                "امسح" => Some(builtin("امسح", vec![Type::Int], Type::Void)),
+                "اعرض" => Some(builtin("اعرض", vec![Type::Int], Type::Void)),
+                "عيّن_لون" => Some(builtin(
+                    "عيّن_لون",
+                    vec![Type::Int, Type::Int, Type::Int, Type::Int, Type::Int],
+                    Type::Void,
+                )),
+                "عيّن_لون_ر_خ_ز" => Some(builtin(
+                    "عيّن_لون_ر_خ_ز",
+                    vec![Type::Int, Type::Int, Type::Int, Type::Int],
+                    Type::Void,
+                )),
+                "ارسم_نقطة" => Some(builtin(
+                    "ارسم_نقطة",
+                    vec![Type::Int, Type::Int, Type::Int],
+                    Type::Void,
+                )),
+                "ارسم_خط" => Some(builtin(
+                    "ارسم_خط",
+                    vec![Type::Int, Type::Int, Type::Int, Type::Int, Type::Int],
+                    Type::Void,
+                )),
+                "ارسم_مستطيل" => Some(builtin(
+                    "ارسم_مستطيل",
+                    vec![Type::Int, Type::Int, Type::Int, Type::Int, Type::Int],
+                    Type::Void,
+                )),
+                "ارسم_مستطيل_ممتلئ" => Some(builtin(
+                    "ارسم_مستطيل_ممتلئ",
+                    vec![Type::Int, Type::Int, Type::Int, Type::Int, Type::Int],
+                    Type::Void,
+                )),
+                "ارسم_دائرة" => Some(builtin(
+                    "ارسم_دائرة",
+                    vec![Type::Int, Type::Int, Type::Int, Type::Int],
+                    Type::Void,
+                )),
+                "ارسم_دائرة_ممتلئة" => Some(builtin(
+                    "ارسم_دائرة_ممتلئة",
+                    vec![Type::Int, Type::Int, Type::Int, Type::Int],
+                    Type::Void,
+                )),
+                "ارسم_قطع_ناقص" => Some(builtin(
+                    "ارسم_قطع_ناقص",
+                    vec![Type::Int, Type::Int, Type::Int, Type::Int, Type::Int],
+                    Type::Void,
+                )),
+
+                // الأحداث - Events (FFI returns i64: 1=has event, 0=no event)
+                "استطلع_حدث" => Some(builtin("استطلع_حدث", vec![], Type::Int)),
+                "انتظر_حدث" => Some(builtin("انتظر_حدث", vec![], Type::Int)),
+                "نوع_الحدث" => Some(builtin("نوع_الحدث", vec![], Type::Int)),
+                "مفتاح_الحدث" => Some(builtin("مفتاح_الحدث", vec![], Type::Int)),
+                "فأرة_س" => Some(builtin("فأرة_س", vec![], Type::Int)),
+                "فأرة_ص" => Some(builtin("فأرة_ص", vec![], Type::Int)),
+                "زر_الفأرة" => Some(builtin("زر_الفأرة", vec![], Type::Int)),
+                // Event type constants (return i64 for comparison)
+                "حدث_إغلاق" => Some(builtin("حدث_إغلاق", vec![], Type::Int)),
+                "حدث_ضغط_مفتاح" => Some(builtin("حدث_ضغط_مفتاح", vec![], Type::Int)),
+                "حدث_حركة_فأرة" => Some(builtin("حدث_حركة_فأرة", vec![], Type::Int)),
+                "حدث_ضغط_فأرة" => Some(builtin("حدث_ضغط_فأرة", vec![], Type::Int)),
+
+                // حالة المفاتيح والفأرة - Input state (FFI returns i64)
+                "مفتاح_مضغوط" => Some(builtin("مفتاح_مضغوط", vec![Type::Int], Type::Int)),
+                "موضع_فأرة_س" => Some(builtin("موضع_فأرة_س", vec![], Type::Int)),
+                "موضع_فأرة_ص" => Some(builtin("موضع_فأرة_ص", vec![], Type::Int)),
+                "زر_فأرة_مضغوط" => {
+                    Some(builtin("زر_فأرة_مضغوط", vec![Type::Int], Type::Int))
+                }
+
+                // التوقيت - Timing
+                "تأخير" => Some(builtin("تأخير", vec![Type::Int], Type::Void)),
+                "وقت_التشغيل" => Some(builtin("وقت_التشغيل", vec![], Type::Int)),
+
+                // الألوان - Predefined colors (take window as parameter)
+                "لون_أسود" => Some(builtin("لون_أسود", vec![Type::Int], Type::Void)),
+                "لون_أبيض" => Some(builtin("لون_أبيض", vec![Type::Int], Type::Void)),
+                "لون_أحمر" => Some(builtin("لون_أحمر", vec![Type::Int], Type::Void)),
+                "لون_أخضر" => Some(builtin("لون_أخضر", vec![Type::Int], Type::Void)),
+                "لون_أزرق" => Some(builtin("لون_أزرق", vec![Type::Int], Type::Void)),
+                "لون_أصفر" => Some(builtin("لون_أصفر", vec![Type::Int], Type::Void)),
+                "لون_سماوي" => Some(builtin("لون_سماوي", vec![Type::Int], Type::Void)),
+                "لون_أرجواني" => {
+                    Some(builtin("لون_أرجواني", vec![Type::Int], Type::Void))
+                }
+                "لون_برتقالي" => {
+                    Some(builtin("لون_برتقالي", vec![Type::Int], Type::Void))
+                }
+                "لون_رمادي" => Some(builtin("لون_رمادي", vec![Type::Int], Type::Void)),
+
+                _ => None,
+            },
+
             _ => None,
         }
     }
 
     /// Returns a list of all stdlib module names
     pub fn get_stdlib_modules() -> &'static [&'static str] {
-        &["رياضيات", "نص", "ملفات", "وقت", "تشفير", "ضغط", "شبكة"]
+        &[
+            "رياضيات",
+            "نص",
+            "ملفات",
+            "وقت",
+            "تشفير",
+            "ضغط",
+            "شبكة",
+            "رسوميات",
+        ]
     }
 
     /// Returns all function names exported by a stdlib module
@@ -919,6 +1066,66 @@ impl Scope {
                 "حمّل_ملف",
                 "رمّز_رابط",
                 "فك_ترميز_رابط",
+            ],
+            "رسوميات" => vec![
+                // التهيئة والإنهاء
+                "هيئ",
+                "أنهِ",
+                "مهيأ",
+                // إدارة النوافذ
+                "أنشئ_نافذة",
+                "أغلق_نافذة",
+                "عيّن_عنوان",
+                "عرض_نافذة",
+                "ارتفاع_نافذة",
+                "أظهر_نافذة",
+                "أخفِ_نافذة",
+                "عيّن_موضع_نافذة",
+                "عيّن_حجم_نافذة",
+                "عيّن_ملء_شاشة",
+                // الرسم
+                "امسح",
+                "اعرض",
+                "عيّن_لون",
+                "عيّن_لون_ر_خ_ز",
+                "ارسم_نقطة",
+                "ارسم_خط",
+                "ارسم_مستطيل",
+                "ارسم_مستطيل_ممتلئ",
+                "ارسم_دائرة",
+                "ارسم_دائرة_ممتلئة",
+                "ارسم_قطع_ناقص",
+                // الأحداث
+                "استطلع_حدث",
+                "انتظر_حدث",
+                "نوع_الحدث",
+                "مفتاح_الحدث",
+                "فأرة_س",
+                "فأرة_ص",
+                "زر_الفأرة",
+                "حدث_إغلاق",
+                "حدث_ضغط_مفتاح",
+                "حدث_حركة_فأرة",
+                "حدث_ضغط_فأرة",
+                // حالة المفاتيح والفأرة
+                "مفتاح_مضغوط",
+                "موضع_فأرة_س",
+                "موضع_فأرة_ص",
+                "زر_فأرة_مضغوط",
+                // التوقيت
+                "تأخير",
+                "وقت_التشغيل",
+                // الألوان
+                "لون_أسود",
+                "لون_أبيض",
+                "لون_أحمر",
+                "لون_أخضر",
+                "لون_أزرق",
+                "لون_أصفر",
+                "لون_سماوي",
+                "لون_أرجواني",
+                "لون_برتقالي",
+                "لون_رمادي",
             ],
             _ => vec![],
         }

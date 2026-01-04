@@ -444,6 +444,9 @@ impl Linker {
 
         cmd.arg("-lc").arg("-lm").arg("-lz"); // -lz for zlib (compression)
 
+        // SDL2 libraries for graphics support
+        cmd.arg("-lSDL2").arg("-lpthread").arg("-ldl");
+
         self.run_command(cmd, "clang")
     }
 
@@ -472,9 +475,14 @@ impl Linker {
                 .arg("/lib64/ld-linux-x86-64.so.2")
                 .arg("-lc")
                 .arg("-lm")
-                .arg("-lz"); // zlib for compression
+                .arg("-lz") // zlib for compression
+                .arg("-lSDL2") // SDL2 for graphics
+                .arg("-lpthread")
+                .arg("-ldl");
         } else if self.target.triple.os == "darwin" {
-            cmd.arg("-lSystem").arg("-lz"); // zlib for compression
+            cmd.arg("-lSystem")
+                .arg("-lz") // zlib for compression
+                .arg("-lSDL2"); // SDL2 for graphics
         }
 
         self.run_command(cmd, "linker")

@@ -204,6 +204,32 @@ impl IrBuilder {
             .insert("اقرأ_سطر".to_string(), IrType::String);
         self.function_return_types
             .insert("read_line".to_string(), IrType::String);
+
+        // SDL2 Graphics - Core functions
+        self.function_return_types
+            .insert("هيئ".to_string(), IrType::Int);
+        self.function_return_types
+            .insert("أنشئ_نافذة".to_string(), IrType::Int);
+
+        // SDL2 Graphics - Event functions
+        self.function_return_types
+            .insert("استطلع_حدث".to_string(), IrType::Int);
+        self.function_return_types
+            .insert("انتظر_حدث".to_string(), IrType::Int);
+        self.function_return_types
+            .insert("نوع_الحدث".to_string(), IrType::Int);
+        self.function_return_types
+            .insert("مفتاح_الحدث".to_string(), IrType::Int);
+        self.function_return_types
+            .insert("فأرة_س".to_string(), IrType::Int);
+        self.function_return_types
+            .insert("فأرة_ص".to_string(), IrType::Int);
+        self.function_return_types
+            .insert("زر_الفأرة".to_string(), IrType::Int);
+
+        // SDL2 Graphics - Timing functions
+        self.function_return_types
+            .insert("وقت_التشغيل".to_string(), IrType::Int);
     }
 
     /// Build IR from an AST.

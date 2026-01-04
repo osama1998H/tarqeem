@@ -19,13 +19,15 @@ crate-type = ["staticlib", "rlib"]
 libc = "0.2"
 sha2 = "0.10"      # SHA-256 implementation
 flate2 = "1.0"    # GZIP compression
-
-[dev-dependencies]
-# Tests can be added later
+sdl2 = { version = "0.37", optional = true }  # SDL2 graphics library
 
 [features]
 default = ["std"]
 std = []
+graphics = ["sdl2"]  # Enable SDL2 graphics support
+
+[dev-dependencies]
+# Tests can be added later
 
 # Linting configuration
 [lints.rust]
