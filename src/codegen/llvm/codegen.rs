@@ -325,17 +325,17 @@ impl LlvmCodegen {
                             field,
                             value,
                         } => {
-                            if anon_objects.contains(&object.0) && field.class.0 == "__anonymous__"
+                            if anon_objects.contains(&object.0)
+                                && field.class.0 == "__anonymous__"
+                                && !seen_fields.contains(&field.name)
                             {
-                                if !seen_fields.contains(&field.name) {
-                                    // Get the type of the value being set
-                                    let field_ty = var_types
-                                        .get(&value.0)
-                                        .cloned()
-                                        .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
-                                    fields.push((field.name.clone(), field_ty));
-                                    seen_fields.insert(field.name.clone());
-                                }
+                                // Get the type of the value being set
+                                let field_ty = var_types
+                                    .get(&value.0)
+                                    .cloned()
+                                    .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+                                fields.push((field.name.clone(), field_ty));
+                                seen_fields.insert(field.name.clone());
                             }
                         }
                         _ => {}
