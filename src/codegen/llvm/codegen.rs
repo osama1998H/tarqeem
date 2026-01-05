@@ -310,7 +310,8 @@ impl LlvmCodegen {
             let var_types = self.infer_var_types(func);
 
             for block in &func.blocks {
-                let mut anon_objects: std::collections::HashSet<u32> = std::collections::HashSet::new();
+                let mut anon_objects: std::collections::HashSet<u32> =
+                    std::collections::HashSet::new();
 
                 for instr in &block.instructions {
                     match instr {
@@ -319,8 +320,13 @@ impl LlvmCodegen {
                                 anon_objects.insert(dest.0);
                             }
                         }
-                        Instruction::SetField { object, field, value } => {
-                            if anon_objects.contains(&object.0) && field.class.0 == "__anonymous__" {
+                        Instruction::SetField {
+                            object,
+                            field,
+                            value,
+                        } => {
+                            if anon_objects.contains(&object.0) && field.class.0 == "__anonymous__"
+                            {
                                 if !seen_fields.contains(&field.name) {
                                     // Get the type of the value being set
                                     let field_ty = var_types
@@ -363,7 +369,11 @@ impl LlvmCodegen {
                     Instruction::Unary { dest, ty, .. } => {
                         types.insert(dest.0, ty.clone());
                     }
-                    Instruction::Call { dest: Some(dest), ret_ty, .. } => {
+                    Instruction::Call {
+                        dest: Some(dest),
+                        ret_ty,
+                        ..
+                    } => {
                         types.insert(dest.0, ret_ty.clone());
                     }
                     Instruction::NewObject { dest, class } => {
@@ -390,7 +400,11 @@ impl LlvmCodegen {
                     Instruction::Bitcast { dest, to_ty, .. } => {
                         types.insert(dest.0, to_ty.clone());
                     }
-                    Instruction::CallMethod { dest: Some(dest), ret_ty, .. } => {
+                    Instruction::CallMethod {
+                        dest: Some(dest),
+                        ret_ty,
+                        ..
+                    } => {
                         types.insert(dest.0, ret_ty.clone());
                     }
                     _ => {}
@@ -402,7 +416,10 @@ impl LlvmCodegen {
     }
 
     /// Emit the struct type definition for anonymous classes.
-    fn emit_anonymous_class_definition(&mut self, fields: &[(String, IrType)]) -> Result<(), CodegenError> {
+    fn emit_anonymous_class_definition(
+        &mut self,
+        fields: &[(String, IrType)],
+    ) -> Result<(), CodegenError> {
         if fields.is_empty() {
             return Ok(());
         }
@@ -413,7 +430,8 @@ impl LlvmCodegen {
         emit!(self, "{}", type_def);
 
         // Register the fields in class_defs for field access
-        self.class_defs.insert("__anonymous__".to_string(), fields.to_vec());
+        self.class_defs
+            .insert("__anonymous__".to_string(), fields.to_vec());
 
         emit!(self);
         Ok(())
