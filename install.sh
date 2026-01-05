@@ -30,12 +30,32 @@ if [ ! -f "$SCRIPT_DIR/Cargo.toml" ]; then
     exit 1
 fi
 
-# Check if release binary exists
+# Extract version from Cargo.toml
+CARGO_VERSION=$(grep '^version' "$SCRIPT_DIR/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+
+# Check if rebuild is needed
+NEEDS_BUILD=false
+
 if [ ! -f "$SCRIPT_DIR/target/release/tarqeem" ]; then
     echo -e "${YELLOW}Release binary not found. Building...${NC}"
-    echo ""
+    NEEDS_BUILD=true
+else
+    # Extract version from existing binary
+    BINARY_VERSION=$("$SCRIPT_DIR/target/release/tarqeem" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 
-    # Build compiler and Rust runtime
+    if [ "$CARGO_VERSION" != "$BINARY_VERSION" ]; then
+        echo -e "${YELLOW}Version mismatch detected:${NC}"
+        echo -e "  Cargo.toml: ${GREEN}$CARGO_VERSION${NC}"
+        echo -e "  Binary:     ${RED}$BINARY_VERSION${NC}"
+        echo -e "${YELLOW}Rebuilding...${NC}"
+        NEEDS_BUILD=true
+    else
+        echo -e "${GREEN}Binary is up-to-date (v$CARGO_VERSION)${NC}"
+    fi
+fi
+
+if [ "$NEEDS_BUILD" = true ]; then
+    echo ""
     echo -e "${BLUE}Building Tarqeem compiler and runtime (release mode)...${NC}"
     cargo build --release --workspace
     echo ""
@@ -68,10 +88,9 @@ cp "$SCRIPT_DIR/target/release/libtrq.a" "$INSTALL_DIR/lib/"
 echo -e "  ${GREEN}✓${NC} Installing standard library"
 cp -r "$SCRIPT_DIR/stdlib_trq/"* "$INSTALL_DIR/stdlib_trq/"
 
-# Create version file
-VERSION=$(grep '^version' "$SCRIPT_DIR/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
-echo "$VERSION" > "$INSTALL_DIR/VERSION"
-echo -e "  ${GREEN}✓${NC} Version: $VERSION"
+# Create version file (reuse CARGO_VERSION from earlier)
+echo "$CARGO_VERSION" > "$INSTALL_DIR/VERSION"
+echo -e "  ${GREEN}✓${NC} Version: $CARGO_VERSION"
 
 echo ""
 echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
