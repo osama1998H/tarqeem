@@ -377,10 +377,7 @@ impl LlvmCodegen {
                         types.insert(dest.0, ret_ty.clone());
                     }
                     Instruction::NewObject { dest, class } => {
-                        types.insert(
-                            dest.0,
-                            IrType::Ptr(Box::new(IrType::Struct(class.clone()))),
-                        );
+                        types.insert(dest.0, IrType::Ptr(Box::new(IrType::Struct(class.clone()))));
                     }
                     Instruction::GetField { dest, ty, .. } => {
                         types.insert(dest.0, ty.clone());
