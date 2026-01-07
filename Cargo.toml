@@ -81,6 +81,7 @@ jit = [          # Enable JIT compilation support
 [[bin]]
 name = "tarqeem"
 path = "src/main.rs"
+bench = false
 
 [lib]
 name = "tarqeem"
