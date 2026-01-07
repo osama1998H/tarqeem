@@ -604,6 +604,11 @@ impl DapAdapter {
     }
 
     fn handle_scopes(&mut self, request: &DapRequest) -> DapResponse {
+        // Clear stale variable references to prevent memory leaks and stale data
+        self.var_refs.clear();
+        // Reset counter to keep reference IDs small and predictable
+        self.var_ref_counter = 1;
+
         let locals_ref = self.var_ref_counter;
         self.var_ref_counter += 1;
         let globals_ref = self.var_ref_counter;
@@ -729,7 +734,25 @@ impl DapAdapter {
                 };
                 self.queue_event(DapEvent::stopped(dap_reason, self.thread_id, description));
             }
-            StepResult::Returned(_) | StepResult::Completed(_) => {
+            StepResult::Returned(_) => {
+                // Check if we're returning from main (call stack now empty)
+                let is_main_return = self
+                    .interpreter
+                    .as_ref()
+                    .map(|i| i.call_stack_depth() == 0)
+                    .unwrap_or(true);
+
+                if is_main_return {
+                    // Main function returned - program complete
+                    self.queue_event(DapEvent::exited(0));
+                    self.queue_event(DapEvent::terminated());
+                } else {
+                    // Non-main function returned - pause at caller
+                    self.queue_event(DapEvent::stopped("step", self.thread_id, None));
+                }
+            }
+            StepResult::Completed(_) => {
+                // Program completed execution
                 self.queue_event(DapEvent::exited(0));
                 self.queue_event(DapEvent::terminated());
             }

@@ -186,6 +186,32 @@ impl DebugInterpreter {
     pub fn start(&mut self) -> DebugResult<()> {
         self.init_globals()?;
 
+        // Find and prepare the main function BEFORE pausing
+        // This ensures stackTrace has data when client requests it at entry point
+        let main_func_id = self.find_main_function()?;
+
+        // Log diagnostic info about the main function
+        if let Some(func) = self.module.get_function(&main_func_id) {
+            eprintln!(
+                "[DEBUG] Main function '{}' found with {} blocks",
+                main_func_id.0,
+                func.blocks.len()
+            );
+            if func.blocks.is_empty() {
+                eprintln!("[DEBUG] WARNING: Main function has NO blocks - stepping will fail!");
+            } else {
+                eprintln!(
+                    "[DEBUG] First block has {} instructions",
+                    func.blocks[0].instructions.len()
+                );
+            }
+        } else {
+            eprintln!("[DEBUG] ERROR: Main function '{}' not found in module!", main_func_id.0);
+        }
+
+        let frame = DebugCallFrame::new(main_func_id);
+        self.call_stack.push(frame);
+
         if self.context.config().stop_on_entry {
             self.context.set_state(DebugState::Paused {
                 reason: PauseReason::Entry,
@@ -201,7 +227,25 @@ impl DebugInterpreter {
     pub fn run(&mut self) -> DebugResult<StepResult> {
         let main_func = self.find_main_function()?;
 
-        match self.call_function(&main_func, vec![]) {
+        // Check if frame was already pushed by start() (stop_on_entry case)
+        let frame_already_pushed = !self.call_stack.is_empty();
+
+        let result = if frame_already_pushed {
+            // Frame exists from start(), just execute the function
+            let func = self
+                .module
+                .get_function(&main_func)
+                .ok_or_else(|| DebugError::new("الدالة الرئيسية غير موجودة"))?
+                .clone();
+            let exec_result = self.execute_function(&func);
+            self.call_stack.pop();
+            exec_result
+        } else {
+            // Normal path: call_function will push/pop frame
+            self.call_function(&main_func, vec![])
+        };
+
+        match result {
             Ok(value) => {
                 self.context.set_state(DebugState::Terminated {
                     exit_value: Some(value.to_display_string()),
@@ -274,8 +318,14 @@ impl DebugInterpreter {
 
     fn execute_one_instruction(&mut self) -> DebugResult<StepResult> {
         let Some(frame) = self.call_stack.last() else {
+            eprintln!("[DEBUG] execute_one_instruction: call_stack is empty, returning Completed");
             return Ok(StepResult::Completed(Value::Null));
         };
+
+        eprintln!(
+            "[DEBUG] execute_one_instruction: func={}, block_idx={}, inst_idx={}",
+            frame.func_id.0, frame.block_idx, frame.inst_idx
+        );
 
         let func = self
             .module
@@ -283,7 +333,18 @@ impl DebugInterpreter {
             .ok_or_else(|| DebugError::internal("Function not found"))?
             .clone();
 
+        eprintln!(
+            "[DEBUG] Function '{}' has {} blocks",
+            frame.func_id.0,
+            func.blocks.len()
+        );
+
         if frame.block_idx >= func.blocks.len() {
+            eprintln!(
+                "[DEBUG] block_idx ({}) >= blocks.len() ({}), returning Completed",
+                frame.block_idx,
+                func.blocks.len()
+            );
             return Ok(StepResult::Completed(Value::Null));
         }
 
@@ -406,7 +467,23 @@ impl DebugInterpreter {
             .cloned()
     }
 
+    /// Returns the current depth of the call stack
+    pub fn call_stack_depth(&self) -> usize {
+        self.call_stack.len()
+    }
+
     pub fn get_stack_trace(&self) -> Vec<StackFrame> {
+        eprintln!(
+            "[DEBUG] get_stack_trace called - call_stack.len() = {}",
+            self.call_stack.len()
+        );
+        for (i, frame) in self.call_stack.iter().enumerate() {
+            eprintln!(
+                "[DEBUG]   Frame {}: func='{}', block_idx={}, inst_idx={}",
+                i, frame.func_id.0, frame.block_idx, frame.inst_idx
+            );
+        }
+
         self.call_stack
             .iter()
             .enumerate()
