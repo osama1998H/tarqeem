@@ -192,7 +192,7 @@ impl DocumentState {
         });
 
         // Find first top-level executable statement (Script mode entry point)
-        // VarDecl, FuncDecl, ClassDecl, InterfaceDecl are declarations (allowed)
+        // Declarations are allowed: VarDecl, FuncDecl, ClassDecl, InterfaceDecl, EnumDecl, Import
         // Everything else is executable code
         let first_executable_span = ast.statements.iter().find_map(|stmt| {
             if !matches!(
@@ -200,7 +200,9 @@ impl DocumentState {
                 StmtKind::FuncDecl { .. }
                     | StmtKind::ClassDecl { .. }
                     | StmtKind::InterfaceDecl { .. }
+                    | StmtKind::EnumDecl { .. }
                     | StmtKind::VarDecl { .. }
+                    | StmtKind::Import { .. }
             ) {
                 return Some(stmt.span);
             }
