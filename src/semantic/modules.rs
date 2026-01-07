@@ -218,7 +218,7 @@ impl ModuleLoader {
             }
         };
 
-        let exports = self.collect_exports(&ast);
+        let exports = self.collect_exports(&ast, path);
 
         Ok(LoadedModule {
             id: ModuleId(path.to_path_buf()),
@@ -229,10 +229,18 @@ impl ModuleLoader {
         })
     }
 
-    fn collect_exports(&self, ast: &Ast) -> HashMap<String, ExportedSymbol> {
+    fn collect_exports(
+        &mut self,
+        ast: &Ast,
+        current_path: &Path,
+    ) -> HashMap<String, ExportedSymbol> {
         use crate::parser::{ExportItems, StmtKind};
 
         let mut exports = HashMap::new();
+
+        // First pass: collect direct exports and prepare re-export info
+        let mut wildcard_reexports: Vec<(String, Span)> = Vec::new();
+        let mut named_reexports: Vec<(Vec<crate::parser::ExportItem>, String, Span)> = Vec::new();
 
         for stmt in &ast.statements {
             if let StmtKind::Export(export_items) = &stmt.kind {
@@ -284,6 +292,16 @@ impl ModuleLoader {
                                     },
                                 );
                             }
+                            StmtKind::EnumDecl { name, .. } => {
+                                exports.insert(
+                                    name.clone(),
+                                    ExportedSymbol {
+                                        name: name.clone(),
+                                        kind: ExportKind::Class, // Enums are treated like classes
+                                        span: stmt.span,
+                                    },
+                                );
+                            }
                             _ => {}
                         }
                     }
@@ -302,22 +320,57 @@ impl ModuleLoader {
                             );
                         }
                     }
-                    ExportItems::Wildcard { from: _ } => {
+                    ExportItems::Wildcard { from } => {
                         // Handle صدّر * من "module"
-                        // This re-exports all from another module
-                        // Full resolution requires loading that module
+                        // Store for second pass to resolve after all modules loaded
+                        wildcard_reexports.push((from.clone(), stmt.span));
                     }
-                    ExportItems::NamedReexport { items, from: _ } => {
+                    ExportItems::NamedReexport { items, from } => {
                         // Handle صدّر { name1، name2 } من "module"
-                        // Re-export specific names from another module
-                        for item in items {
-                            let export_name = item.alias.as_ref().unwrap_or(&item.name);
+                        // Store for second pass
+                        named_reexports.push((items.clone(), from.clone(), stmt.span));
+                    }
+                }
+            }
+        }
+
+        // Second pass: resolve wildcard re-exports
+        for (from, span) in wildcard_reexports {
+            if let Some(target_path) = self.resolve_path(current_path, &from) {
+                // Load the target module (circular deps handled by load_module)
+                if let Ok(target_module) = self.load_module(&target_path, span) {
+                    // Merge all exports from target module
+                    for (name, symbol) in target_module.exports.clone() {
+                        exports.entry(name).or_insert(symbol);
+                    }
+                }
+            }
+        }
+
+        // Third pass: resolve named re-exports with correct types
+        for (items, from, span) in named_reexports {
+            if let Some(target_path) = self.resolve_path(current_path, &from) {
+                if let Ok(target_module) = self.load_module(&target_path, span) {
+                    for item in items {
+                        let export_name = item.alias.as_ref().unwrap_or(&item.name);
+                        // Try to get the correct type from target module
+                        if let Some(target_symbol) = target_module.exports.get(&item.name) {
                             exports.insert(
                                 export_name.clone(),
                                 ExportedSymbol {
                                     name: item.name.clone(),
-                                    kind: ExportKind::Variable, // Type determined later
-                                    span: stmt.span,
+                                    kind: target_symbol.kind.clone(),
+                                    span,
+                                },
+                            );
+                        } else {
+                            // Symbol not found in target, use Variable as fallback
+                            exports.insert(
+                                export_name.clone(),
+                                ExportedSymbol {
+                                    name: item.name.clone(),
+                                    kind: ExportKind::Variable,
+                                    span,
                                 },
                             );
                         }
