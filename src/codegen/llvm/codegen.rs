@@ -6,8 +6,8 @@ use super::{mangle_name, TypeMapper};
 use crate::codegen::Target;
 use crate::error::codes::ERR_LLVM_INTERNAL;
 use crate::ir::{
-    BasicBlock, BinaryOp, BlockId, Class, Constant, Function, Instruction, IrType, Module, UnaryOp,
-    VarId,
+    BasicBlock, BinaryOp, BlockId, Class, ClassId, Constant, Function, Instruction, IrType, Module,
+    UnaryOp, VarId,
 };
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
@@ -90,6 +90,10 @@ impl LlvmCodegen {
         for class in &module.classes {
             self.emit_class_definition(class, &module.classes)?;
         }
+
+        // Collect and emit anonymous class definitions (for object literals)
+        let anon_fields = self.collect_anonymous_class_fields(module);
+        self.emit_anonymous_class_definition(&anon_fields)?;
 
         self.emit_runtime_declarations()?;
 
@@ -294,6 +298,145 @@ impl LlvmCodegen {
         fields
     }
 
+    /// Collect field information for anonymous classes from the IR.
+    /// Scans all functions for NewObject instructions with __anonymous__ class
+    /// and gathers field types from subsequent SetField instructions.
+    fn collect_anonymous_class_fields(&self, module: &Module) -> Vec<(String, IrType)> {
+        let mut fields: Vec<(String, IrType)> = Vec::new();
+        let mut seen_fields: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for func in &module.functions {
+            // Build a type map for variables in this function
+            let var_types = self.infer_var_types(func);
+
+            for block in &func.blocks {
+                let mut anon_objects: std::collections::HashSet<u32> =
+                    std::collections::HashSet::new();
+
+                for instr in &block.instructions {
+                    match instr {
+                        Instruction::NewObject { dest, class } => {
+                            if class.0 == "__anonymous__" {
+                                anon_objects.insert(dest.0);
+                            }
+                        }
+                        Instruction::SetField {
+                            object,
+                            field,
+                            value,
+                        } => {
+                            if anon_objects.contains(&object.0)
+                                && field.class.0 == "__anonymous__"
+                                && !seen_fields.contains(&field.name)
+                            {
+                                // Get the type of the value being set
+                                let field_ty = var_types
+                                    .get(&value.0)
+                                    .cloned()
+                                    .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+                                fields.push((field.name.clone(), field_ty));
+                                seen_fields.insert(field.name.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        fields
+    }
+
+    /// Infer types for all variables in a function by analyzing instructions.
+    fn infer_var_types(&self, func: &Function) -> HashMap<u32, IrType> {
+        let mut types: HashMap<u32, IrType> = HashMap::new();
+
+        // Add parameter types
+        for param in &func.params {
+            types.insert(param.id.0, param.ty.clone());
+        }
+
+        // Scan all instructions
+        for block in &func.blocks {
+            for instr in &block.instructions {
+                match instr {
+                    Instruction::Const { dest, ty, .. } => {
+                        types.insert(dest.0, ty.clone());
+                    }
+                    Instruction::Binary { dest, ty, .. } => {
+                        types.insert(dest.0, ty.clone());
+                    }
+                    Instruction::Unary { dest, ty, .. } => {
+                        types.insert(dest.0, ty.clone());
+                    }
+                    Instruction::Call {
+                        dest: Some(dest),
+                        ret_ty,
+                        ..
+                    } => {
+                        types.insert(dest.0, ret_ty.clone());
+                    }
+                    Instruction::NewObject { dest, class } => {
+                        types.insert(dest.0, IrType::Ptr(Box::new(IrType::Struct(class.clone()))));
+                    }
+                    Instruction::GetField { dest, ty, .. } => {
+                        types.insert(dest.0, ty.clone());
+                    }
+                    Instruction::NewArray { dest, elem_ty, .. } => {
+                        types.insert(dest.0, IrType::Ptr(Box::new(elem_ty.clone())));
+                    }
+                    Instruction::GetElementPtr { dest, elem_ty, .. } => {
+                        types.insert(dest.0, elem_ty.clone());
+                    }
+                    Instruction::Alloca { dest, ty, .. } => {
+                        types.insert(dest.0, IrType::Ptr(Box::new(ty.clone())));
+                    }
+                    Instruction::Load { dest, ty, .. } => {
+                        types.insert(dest.0, ty.clone());
+                    }
+                    Instruction::Phi { dest, ty, .. } => {
+                        types.insert(dest.0, ty.clone());
+                    }
+                    Instruction::Bitcast { dest, to_ty, .. } => {
+                        types.insert(dest.0, to_ty.clone());
+                    }
+                    Instruction::CallMethod {
+                        dest: Some(dest),
+                        ret_ty,
+                        ..
+                    } => {
+                        types.insert(dest.0, ret_ty.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        types
+    }
+
+    /// Emit the struct type definition for anonymous classes.
+    fn emit_anonymous_class_definition(
+        &mut self,
+        fields: &[(String, IrType)],
+    ) -> Result<(), CodegenError> {
+        if fields.is_empty() {
+            return Ok(());
+        }
+
+        emit!(self, "; Anonymous class (object literals)");
+        let class_id = ClassId("__anonymous__".to_string());
+        let type_def = self.type_mapper.generate_struct_type(&class_id, fields);
+        emit!(self, "{}", type_def);
+
+        // Register the fields in class_defs for field access
+        self.class_defs
+            .insert("__anonymous__".to_string(), fields.to_vec());
+
+        emit!(self);
+        Ok(())
+    }
+
     /// Calculate field access information for correct struct indexing with inheritance.
     ///
     /// Returns (struct_type_name, actual_index) where:
@@ -302,28 +445,62 @@ impl LlvmCodegen {
     fn get_field_access_info(
         &self,
         field_class: &str,
+        field_name: &str,
         field_index: u32,
         obj_ty: &Option<IrType>,
     ) -> (String, u32) {
         // Get the actual object class for struct type
         let actual_class = match obj_ty {
             Some(IrType::Ptr(inner)) => match inner.as_ref() {
-                IrType::Struct(class_id) => class_id.0.clone(),
-                _ => field_class.to_string(),
+                IrType::Struct(class_id) if !class_id.0.is_empty() => class_id.0.clone(),
+                _ => {
+                    // If the type is Ptr to non-struct or empty class, use field_class
+                    // If field_class is also empty, default to __anonymous__ (for object literals)
+                    if field_class.is_empty() {
+                        "__anonymous__".to_string()
+                    } else {
+                        field_class.to_string()
+                    }
+                }
             },
-            Some(IrType::Struct(class_id)) => class_id.0.clone(),
-            _ => field_class.to_string(),
+            Some(IrType::Struct(class_id)) if !class_id.0.is_empty() => class_id.0.clone(),
+            _ => {
+                // If no type info or empty class name, default to __anonymous__ for object literals
+                if field_class.is_empty() {
+                    "__anonymous__".to_string()
+                } else {
+                    field_class.to_string()
+                }
+            }
         };
 
         let struct_ty = format!("%class.{}", mangle_class_name(&actual_class));
 
-        // Calculate actual index: inherited fields + field index within defining class
-        let inherited_count = self
-            .inherited_field_count
-            .get(field_class)
-            .copied()
-            .unwrap_or(0) as u32;
-        let actual_index = inherited_count + field_index;
+        // For anonymous classes, look up field index by name from class_defs
+        let actual_index = if actual_class == "__anonymous__" {
+            if let Some(fields) = self.class_defs.get("__anonymous__") {
+                fields
+                    .iter()
+                    .position(|(name, _)| name == field_name)
+                    .map(|i| i as u32)
+                    .unwrap_or(field_index)
+            } else {
+                field_index
+            }
+        } else {
+            // Calculate actual index: inherited fields + field index within defining class
+            let lookup_class = if field_class.is_empty() {
+                &actual_class
+            } else {
+                field_class
+            };
+            let inherited_count = self
+                .inherited_field_count
+                .get(lookup_class)
+                .copied()
+                .unwrap_or(0) as u32;
+            inherited_count + field_index
+        };
 
         (struct_ty, actual_index)
     }
@@ -1028,7 +1205,7 @@ impl LlvmCodegen {
                 // including inherited fields
                 let obj_ty = self.var_types.get(&object.0).cloned();
                 let (struct_ty, actual_index) =
-                    self.get_field_access_info(&field.class.0, field.index, &obj_ty);
+                    self.get_field_access_info(&field.class.0, &field.name, field.index, &obj_ty);
 
                 let ptr_name = self.fresh_name("field.ptr");
                 writeln!(
@@ -1059,7 +1236,7 @@ impl LlvmCodegen {
                 // including inherited fields
                 let obj_ty = self.var_types.get(&object.0).cloned();
                 let (struct_ty, actual_index) =
-                    self.get_field_access_info(&field.class.0, field.index, &obj_ty);
+                    self.get_field_access_info(&field.class.0, &field.name, field.index, &obj_ty);
 
                 let ptr_name = self.fresh_name("field.ptr");
                 writeln!(
