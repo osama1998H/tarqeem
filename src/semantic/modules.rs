@@ -218,7 +218,7 @@ impl ModuleLoader {
             }
         };
 
-        let exports = self.collect_exports(&ast);
+        let exports = self.collect_exports(&ast, path);
 
         Ok(LoadedModule {
             id: ModuleId(path.to_path_buf()),
@@ -229,59 +229,157 @@ impl ModuleLoader {
         })
     }
 
-    fn collect_exports(&self, ast: &Ast) -> HashMap<String, ExportedSymbol> {
-        use crate::parser::StmtKind;
+    fn collect_exports(
+        &mut self,
+        ast: &Ast,
+        current_path: &Path,
+    ) -> HashMap<String, ExportedSymbol> {
+        use crate::parser::{ExportItems, StmtKind};
 
         let mut exports = HashMap::new();
 
+        // First pass: collect direct exports and prepare re-export info
+        let mut wildcard_reexports: Vec<(String, Span)> = Vec::new();
+        let mut named_reexports: Vec<(Vec<crate::parser::ExportItem>, String, Span)> = Vec::new();
+
         for stmt in &ast.statements {
-            if let StmtKind::Export(inner) = &stmt.kind {
-                match &inner.kind {
-                    StmtKind::FuncDecl { name, .. } => {
-                        exports.insert(
-                            name.clone(),
-                            ExportedSymbol {
-                                name: name.clone(),
-                                kind: ExportKind::Function,
-                                span: stmt.span,
-                            },
-                        );
+            if let StmtKind::Export(export_items) = &stmt.kind {
+                match export_items {
+                    ExportItems::Declaration(inner) => {
+                        // Handle صدّر دالة/صنف/ثابت...
+                        match &inner.kind {
+                            StmtKind::FuncDecl { name, .. } => {
+                                exports.insert(
+                                    name.clone(),
+                                    ExportedSymbol {
+                                        name: name.clone(),
+                                        kind: ExportKind::Function,
+                                        span: stmt.span,
+                                    },
+                                );
+                            }
+                            StmtKind::ClassDecl { name, .. } => {
+                                exports.insert(
+                                    name.clone(),
+                                    ExportedSymbol {
+                                        name: name.clone(),
+                                        kind: ExportKind::Class,
+                                        span: stmt.span,
+                                    },
+                                );
+                            }
+                            StmtKind::InterfaceDecl { name, .. } => {
+                                exports.insert(
+                                    name.clone(),
+                                    ExportedSymbol {
+                                        name: name.clone(),
+                                        kind: ExportKind::Interface,
+                                        span: stmt.span,
+                                    },
+                                );
+                            }
+                            StmtKind::VarDecl { name, mutable, .. } => {
+                                exports.insert(
+                                    name.clone(),
+                                    ExportedSymbol {
+                                        name: name.clone(),
+                                        kind: if *mutable {
+                                            ExportKind::Variable
+                                        } else {
+                                            ExportKind::Constant
+                                        },
+                                        span: stmt.span,
+                                    },
+                                );
+                            }
+                            StmtKind::EnumDecl { name, .. } => {
+                                exports.insert(
+                                    name.clone(),
+                                    ExportedSymbol {
+                                        name: name.clone(),
+                                        kind: ExportKind::Class, // Enums are treated like classes
+                                        span: stmt.span,
+                                    },
+                                );
+                            }
+                            _ => {}
+                        }
                     }
-                    StmtKind::ClassDecl { name, .. } => {
-                        exports.insert(
-                            name.clone(),
-                            ExportedSymbol {
-                                name: name.clone(),
-                                kind: ExportKind::Class,
-                                span: stmt.span,
-                            },
-                        );
-                    }
-                    StmtKind::InterfaceDecl { name, .. } => {
-                        exports.insert(
-                            name.clone(),
-                            ExportedSymbol {
-                                name: name.clone(),
-                                kind: ExportKind::Interface,
-                                span: stmt.span,
-                            },
-                        );
-                    }
-                    StmtKind::VarDecl { name, mutable, .. } => {
-                        exports.insert(
-                            name.clone(),
-                            ExportedSymbol {
-                                name: name.clone(),
-                                kind: if *mutable {
-                                    ExportKind::Variable
-                                } else {
-                                    ExportKind::Constant
+                    ExportItems::Named(items) => {
+                        // Handle صدّر { name1، name2 }
+                        // Store for later pass to resolve after direct exports are collected
+                        for item in items {
+                            let export_name = item.alias.as_ref().unwrap_or(&item.name);
+                            // Look up the symbol in already collected exports (from Declaration exports)
+                            let kind = exports
+                                .get(&item.name)
+                                .map(|s| s.kind.clone())
+                                .unwrap_or(ExportKind::Variable);
+                            exports.insert(
+                                export_name.clone(),
+                                ExportedSymbol {
+                                    name: item.name.clone(),
+                                    kind,
+                                    span: stmt.span,
                                 },
-                                span: stmt.span,
-                            },
-                        );
+                            );
+                        }
                     }
-                    _ => {}
+                    ExportItems::Wildcard { from } => {
+                        // Handle صدّر * من "module"
+                        // Store for second pass to resolve after all modules loaded
+                        wildcard_reexports.push((from.clone(), stmt.span));
+                    }
+                    ExportItems::NamedReexport { items, from } => {
+                        // Handle صدّر { name1، name2 } من "module"
+                        // Store for second pass
+                        named_reexports.push((items.clone(), from.clone(), stmt.span));
+                    }
+                }
+            }
+        }
+
+        // Second pass: resolve wildcard re-exports
+        for (from, span) in wildcard_reexports {
+            if let Some(target_path) = self.resolve_path(current_path, &from) {
+                // Load the target module (circular deps handled by load_module)
+                if let Ok(target_module) = self.load_module(&target_path, span) {
+                    // Merge all exports from target module
+                    for (name, symbol) in target_module.exports.clone() {
+                        exports.entry(name).or_insert(symbol);
+                    }
+                }
+            }
+        }
+
+        // Third pass: resolve named re-exports with correct types
+        for (items, from, span) in named_reexports {
+            if let Some(target_path) = self.resolve_path(current_path, &from) {
+                if let Ok(target_module) = self.load_module(&target_path, span) {
+                    for item in items {
+                        let export_name = item.alias.as_ref().unwrap_or(&item.name);
+                        // Try to get the correct type from target module
+                        if let Some(target_symbol) = target_module.exports.get(&item.name) {
+                            exports.insert(
+                                export_name.clone(),
+                                ExportedSymbol {
+                                    name: item.name.clone(),
+                                    kind: target_symbol.kind.clone(),
+                                    span,
+                                },
+                            );
+                        } else {
+                            // Symbol not found in target, use Variable as fallback
+                            exports.insert(
+                                export_name.clone(),
+                                ExportedSymbol {
+                                    name: item.name.clone(),
+                                    kind: ExportKind::Variable,
+                                    span,
+                                },
+                            );
+                        }
+                    }
                 }
             }
         }

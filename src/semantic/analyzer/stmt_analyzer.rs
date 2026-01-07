@@ -155,8 +155,8 @@ impl Analyzer {
                 self.analyze_import(items, from, stmt.span);
             }
 
-            StmtKind::Export(inner) => {
-                self.analyze_stmt(inner);
+            StmtKind::Export(export_items) => {
+                self.analyze_export(export_items, stmt.span);
             }
 
             StmtKind::Expr(expr) => {
@@ -1034,6 +1034,34 @@ impl Analyzer {
                     used: false,
                     span,
                 });
+            }
+        }
+    }
+
+    /// Analyze an export statement.
+    pub(crate) fn analyze_export(&mut self, export_items: &ExportItems, span: Span) {
+        match export_items {
+            ExportItems::Declaration(inner) => {
+                // صدّر دالة/صنف/ثابت... - analyze the inner declaration
+                self.analyze_stmt(inner);
+            }
+            ExportItems::Named(items) => {
+                // صدّر { name1، name2 } - verify names are defined
+                for item in items {
+                    if self.scope.lookup(&item.name).is_none() {
+                        self.warn(&format!("الاسم '{}' غير معرّف للتصدير", item.name), span);
+                    }
+                }
+            }
+            ExportItems::Wildcard { from: _ } => {
+                // صدّر * من "module" - re-export all from module
+                // Full validation requires loading the source module
+            }
+            ExportItems::NamedReexport { items, from: _ } => {
+                // صدّر { name1، name2 } من "module"
+                // Full validation requires loading the source module
+                // For now, just register that these are being re-exported
+                let _ = items; // Suppress unused warning
             }
         }
     }

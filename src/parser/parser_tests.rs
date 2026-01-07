@@ -359,11 +359,14 @@ fn test_parse_export_function() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Export(inner) => match &inner.kind {
-            StmtKind::FuncDecl { name, .. } => {
-                assert_eq!(name, "مساعدة");
-            }
-            _ => panic!("Expected FuncDecl inside export"),
+        StmtKind::Export(export_items) => match export_items {
+            ExportItems::Declaration(inner) => match &inner.kind {
+                StmtKind::FuncDecl { name, .. } => {
+                    assert_eq!(name, "مساعدة");
+                }
+                _ => panic!("Expected FuncDecl inside export"),
+            },
+            _ => panic!("Expected Declaration export"),
         },
         _ => panic!("Expected Export statement"),
     }
@@ -382,11 +385,14 @@ fn test_parse_export_class() {
     let ast = parser.parse().unwrap();
 
     match &ast.statements[0].kind {
-        StmtKind::Export(inner) => match &inner.kind {
-            StmtKind::ClassDecl { name, .. } => {
-                assert_eq!(name, "مساعد");
-            }
-            _ => panic!("Expected ClassDecl inside export"),
+        StmtKind::Export(export_items) => match export_items {
+            ExportItems::Declaration(inner) => match &inner.kind {
+                StmtKind::ClassDecl { name, .. } => {
+                    assert_eq!(name, "مساعد");
+                }
+                _ => panic!("Expected ClassDecl inside export"),
+            },
+            _ => panic!("Expected Declaration export"),
         },
         _ => panic!("Expected Export statement"),
     }

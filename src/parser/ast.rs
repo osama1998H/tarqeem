@@ -166,7 +166,7 @@ pub enum StmtKind {
         from: String,
     },
 
-    Export(Box<Stmt>),
+    Export(ExportItems),
 
     Expr(Expr),
 
@@ -461,6 +461,29 @@ pub enum ImportItems {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ImportItem {
+    pub name: String,
+    pub alias: Option<String>,
+}
+
+/// Export items for different export patterns.
+#[derive(Debug, Clone, Serialize)]
+pub enum ExportItems {
+    /// Export a declaration: صدّر دالة/صنف/ثابت
+    Declaration(Box<Stmt>),
+    /// Named exports: صدّر { name1، name2 }
+    Named(Vec<ExportItem>),
+    /// Wildcard re-export: صدّر * من "module"
+    Wildcard { from: String },
+    /// Named re-export: صدّر { name1، name2 } من "module"
+    NamedReexport {
+        items: Vec<ExportItem>,
+        from: String,
+    },
+}
+
+/// An individual export item with optional alias.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportItem {
     pub name: String,
     pub alias: Option<String>,
 }
