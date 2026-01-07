@@ -307,14 +307,19 @@ impl ModuleLoader {
                     }
                     ExportItems::Named(items) => {
                         // Handle صدّر { name1، name2 }
-                        // These are re-exports of previously defined/imported symbols
+                        // Store for later pass to resolve after direct exports are collected
                         for item in items {
                             let export_name = item.alias.as_ref().unwrap_or(&item.name);
+                            // Look up the symbol in already collected exports (from Declaration exports)
+                            let kind = exports
+                                .get(&item.name)
+                                .map(|s| s.kind.clone())
+                                .unwrap_or(ExportKind::Variable);
                             exports.insert(
                                 export_name.clone(),
                                 ExportedSymbol {
                                     name: item.name.clone(),
-                                    kind: ExportKind::Variable, // Type determined later
+                                    kind,
                                     span: stmt.span,
                                 },
                             );
