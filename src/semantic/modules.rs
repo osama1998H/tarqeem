@@ -230,58 +230,98 @@ impl ModuleLoader {
     }
 
     fn collect_exports(&self, ast: &Ast) -> HashMap<String, ExportedSymbol> {
-        use crate::parser::StmtKind;
+        use crate::parser::{ExportItems, StmtKind};
 
         let mut exports = HashMap::new();
 
         for stmt in &ast.statements {
-            if let StmtKind::Export(inner) = &stmt.kind {
-                match &inner.kind {
-                    StmtKind::FuncDecl { name, .. } => {
-                        exports.insert(
-                            name.clone(),
-                            ExportedSymbol {
-                                name: name.clone(),
-                                kind: ExportKind::Function,
-                                span: stmt.span,
-                            },
-                        );
+            if let StmtKind::Export(export_items) = &stmt.kind {
+                match export_items {
+                    ExportItems::Declaration(inner) => {
+                        // Handle صدّر دالة/صنف/ثابت...
+                        match &inner.kind {
+                            StmtKind::FuncDecl { name, .. } => {
+                                exports.insert(
+                                    name.clone(),
+                                    ExportedSymbol {
+                                        name: name.clone(),
+                                        kind: ExportKind::Function,
+                                        span: stmt.span,
+                                    },
+                                );
+                            }
+                            StmtKind::ClassDecl { name, .. } => {
+                                exports.insert(
+                                    name.clone(),
+                                    ExportedSymbol {
+                                        name: name.clone(),
+                                        kind: ExportKind::Class,
+                                        span: stmt.span,
+                                    },
+                                );
+                            }
+                            StmtKind::InterfaceDecl { name, .. } => {
+                                exports.insert(
+                                    name.clone(),
+                                    ExportedSymbol {
+                                        name: name.clone(),
+                                        kind: ExportKind::Interface,
+                                        span: stmt.span,
+                                    },
+                                );
+                            }
+                            StmtKind::VarDecl { name, mutable, .. } => {
+                                exports.insert(
+                                    name.clone(),
+                                    ExportedSymbol {
+                                        name: name.clone(),
+                                        kind: if *mutable {
+                                            ExportKind::Variable
+                                        } else {
+                                            ExportKind::Constant
+                                        },
+                                        span: stmt.span,
+                                    },
+                                );
+                            }
+                            _ => {}
+                        }
                     }
-                    StmtKind::ClassDecl { name, .. } => {
-                        exports.insert(
-                            name.clone(),
-                            ExportedSymbol {
-                                name: name.clone(),
-                                kind: ExportKind::Class,
-                                span: stmt.span,
-                            },
-                        );
-                    }
-                    StmtKind::InterfaceDecl { name, .. } => {
-                        exports.insert(
-                            name.clone(),
-                            ExportedSymbol {
-                                name: name.clone(),
-                                kind: ExportKind::Interface,
-                                span: stmt.span,
-                            },
-                        );
-                    }
-                    StmtKind::VarDecl { name, mutable, .. } => {
-                        exports.insert(
-                            name.clone(),
-                            ExportedSymbol {
-                                name: name.clone(),
-                                kind: if *mutable {
-                                    ExportKind::Variable
-                                } else {
-                                    ExportKind::Constant
+                    ExportItems::Named(items) => {
+                        // Handle صدّر { name1، name2 }
+                        // These are re-exports of previously defined/imported symbols
+                        for item in items {
+                            let export_name = item.alias.as_ref().unwrap_or(&item.name);
+                            exports.insert(
+                                export_name.clone(),
+                                ExportedSymbol {
+                                    name: item.name.clone(),
+                                    kind: ExportKind::Variable, // Type determined later
+                                    span: stmt.span,
                                 },
-                                span: stmt.span,
-                            },
-                        );
+                            );
+                        }
                     }
-                    _ => {}
+                    ExportItems::Wildcard { from: _ } => {
+                        // Handle صدّر * من "module"
+                        // This re-exports all from another module
+                        // Full resolution requires loading that module
+                    }
+                    ExportItems::NamedReexport { items, from: _ } => {
+                        // Handle صدّر { name1، name2 } من "module"
+                        // Re-export specific names from another module
+                        for item in items {
+                            let export_name = item.alias.as_ref().unwrap_or(&item.name);
+                            exports.insert(
+                                export_name.clone(),
+                                ExportedSymbol {
+                                    name: item.name.clone(),
+                                    kind: ExportKind::Variable, // Type determined later
+                                    span: stmt.span,
+                                },
+                            );
+                        }
+                    }
                 }
             }
         }

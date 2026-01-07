@@ -414,10 +414,71 @@ impl Formatter {
                 p.write_char('"');
             }
 
-            StmtKind::Export(inner) => {
+            StmtKind::Export(export_items) => {
+                use crate::parser::ExportItems;
                 p.write("صدّر");
-                p.write_space();
-                self.format_stmt_inline(inner, p);
+                match export_items {
+                    ExportItems::Declaration(inner) => {
+                        p.write_space();
+                        self.format_stmt_inline(inner, p);
+                    }
+                    ExportItems::Named(items) => {
+                        p.write_space();
+                        p.write("{");
+                        p.write_space();
+                        for (i, item) in items.iter().enumerate() {
+                            if i > 0 {
+                                p.write_comma();
+                                p.write_space();
+                            }
+                            p.write(&item.name);
+                            if let Some(alias) = &item.alias {
+                                p.write_space();
+                                p.write("كـ");
+                                p.write_space();
+                                p.write(alias);
+                            }
+                        }
+                        p.write_space();
+                        p.write("}");
+                    }
+                    ExportItems::Wildcard { from } => {
+                        p.write_space();
+                        p.write("*");
+                        p.write_space();
+                        p.write("من");
+                        p.write_space();
+                        p.write("\"");
+                        p.write(from);
+                        p.write("\"");
+                    }
+                    ExportItems::NamedReexport { items, from } => {
+                        p.write_space();
+                        p.write("{");
+                        p.write_space();
+                        for (i, item) in items.iter().enumerate() {
+                            if i > 0 {
+                                p.write_comma();
+                                p.write_space();
+                            }
+                            p.write(&item.name);
+                            if let Some(alias) = &item.alias {
+                                p.write_space();
+                                p.write("كـ");
+                                p.write_space();
+                                p.write(alias);
+                            }
+                        }
+                        p.write_space();
+                        p.write("}");
+                        p.write_space();
+                        p.write("من");
+                        p.write_space();
+                        p.write("\"");
+                        p.write(from);
+                        p.write("\"");
+                    }
+                }
             }
 
             StmtKind::Expr(expr) => {

@@ -381,7 +381,17 @@ impl DocExtractor {
                 Some(DocItem::Enum(enum_doc))
             }
 
-            StmtKind::Export(inner) => self.extract_stmt(inner, true),
+            StmtKind::Export(export_items) => {
+                use crate::parser::ExportItems;
+                match export_items {
+                    ExportItems::Declaration(inner) => self.extract_stmt(inner, true),
+                    // Named exports, wildcards, and re-exports don't have their own documentation
+                    // They re-export items documented elsewhere
+                    ExportItems::Named(_)
+                    | ExportItems::Wildcard { .. }
+                    | ExportItems::NamedReexport { .. } => None,
+                }
+            }
 
             _ => None,
         }

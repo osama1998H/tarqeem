@@ -653,13 +653,59 @@ impl Parser {
     }
 
     /// Parse an export statement.
+    ///
+    /// Supports:
+    /// - `صدّر دالة/صنف/ثابت...` - Declaration export
+    /// - `صدّر { name1، name2 }` - Named exports
+    /// - `صدّر { name1، name2 } من "module"` - Named re-exports
+    /// - `صدّر * من "module"` - Wildcard re-export
     pub(crate) fn parse_export_statement(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.current_span();
-        self.advance(); // consume 'export'
+        self.advance(); // consume 'export' (صدّر)
 
-        let stmt = self.parse_declaration()?;
+        let items = if self.match_token(&TokenKind::Star) {
+            // صدّر * من "module" - Wildcard re-export
+            self.expect(&TokenKind::From, "متوقع 'من' بعد '*' في التصدير")?;
+            let from = self.expect_string("متوقع مسار الوحدة")?;
+            ExportItems::Wildcard { from }
+        } else if self.match_token(&TokenKind::LeftBrace) {
+            // صدّر { name1، name2 } [من "module"]
+            let mut items = Vec::new();
+            loop {
+                let name = self.expect_identifier("متوقع اسم التصدير")?;
+                let alias = if self.match_token(&TokenKind::As) {
+                    Some(self.expect_identifier("متوقع الاسم المستعار")?)
+                } else {
+                    None
+                };
+                items.push(ExportItem { name, alias });
+
+                if !self.match_token(&TokenKind::Comma)
+                    && !self.match_token(&TokenKind::ArabicComma)
+                {
+                    break;
+                }
+            }
+            self.expect(&TokenKind::RightBrace, "متوقع '}'")?;
+
+            if self.match_token(&TokenKind::From) {
+                // Re-export from another module
+                let from = self.expect_string("متوقع مسار الوحدة")?;
+                ExportItems::NamedReexport { items, from }
+            } else {
+                // Export from current module
+                ExportItems::Named(items)
+            }
+        } else {
+            // صدّر دالة/صنف/ثابت... - Declaration export
+            let stmt = self.parse_declaration()?;
+            ExportItems::Declaration(Box::new(stmt))
+        };
+
+        self.consume_semicolon()?;
+
         let span = start.merge(&self.previous_span());
-        Ok(Stmt::new(StmtKind::Export(Box::new(stmt)), span))
+        Ok(Stmt::new(StmtKind::Export(items), span))
     }
 
     /// Parse a type annotation.

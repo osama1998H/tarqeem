@@ -83,7 +83,17 @@ impl IrBuilder {
             } => self.build_try(body, catch.as_ref(), finally.as_ref()),
             StmtKind::Throw(expr) => self.build_throw(expr),
             StmtKind::Import { .. } => Ok(()),
-            StmtKind::Export(inner) => self.build_stmt(inner),
+            StmtKind::Export(export_items) => {
+                use crate::parser::ExportItems;
+                match export_items {
+                    ExportItems::Declaration(inner) => self.build_stmt(inner),
+                    // Named exports, wildcards, and re-exports don't generate IR
+                    // They're module-level metadata handled during semantic analysis
+                    ExportItems::Named(_)
+                    | ExportItems::Wildcard { .. }
+                    | ExportItems::NamedReexport { .. } => Ok(()),
+                }
+            }
             StmtKind::Expr(expr) => {
                 self.build_expr(expr)?;
                 Ok(())
