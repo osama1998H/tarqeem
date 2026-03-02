@@ -110,7 +110,7 @@ jobs:
 
       - name: Upload test results
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.module }}
           path: target/debug/.fingerprint/
@@ -192,7 +192,7 @@ jobs:
           verbose: true
 
       - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage/
@@ -245,7 +245,7 @@ jobs:
           RUSTDOCFLAGS: -D warnings
 
       - name: Upload documentation
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: documentation
           path: target/doc/
