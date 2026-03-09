@@ -19,14 +19,14 @@ categories = ["compilers", "development-tools"]
 [dependencies]
 # CLI
 clap = { version = "4.5", features = ["derive"] }
-colored = "3.0"
+colored = "3.1"
 
 # Unicode handling
 unicode-segmentation = "1.12"
 unicode-normalization = "0.1"
 
 # Utilities
-indexmap = "2.12"
+indexmap = "2.13"
 phf = { version = "0.13", features = ["macros"] }
 
 # Serialization (for package manager)
@@ -38,7 +38,7 @@ toml = "0.9"
 semver = "1.0"
 sha2 = "0.10"
 hex = "0.4"
-flate2 = "1.0"
+flate2 = "1.1"
 tar = "0.4"
 dirs = "6.0"
 walkdir = "2.5"
@@ -63,7 +63,7 @@ target-lexicon = { version = "0.12", optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1.4"
-tempfile = "3.14"
+tempfile = "3.26"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [features]
