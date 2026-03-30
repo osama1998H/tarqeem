@@ -240,7 +240,7 @@ jobs:
             }
 
       - name: Upload benchmark artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: benchmark-results
@@ -268,7 +268,7 @@ jobs:
       - name: Run lexer benchmarks
         run: cargo bench --bench lexer -- --verbose || echo "Lexer benchmark completed"
       - name: Upload results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bench-lexer
@@ -286,7 +286,7 @@ jobs:
       - name: Run parser benchmarks
         run: cargo bench --bench parser -- --verbose || echo "Parser benchmark completed"
       - name: Upload results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bench-parser
@@ -304,7 +304,7 @@ jobs:
       - name: Run semantic benchmarks
         run: cargo bench --bench semantic -- --verbose || echo "Semantic benchmark completed"
       - name: Upload results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bench-semantic
@@ -322,7 +322,7 @@ jobs:
       - name: Run IR benchmarks
         run: cargo bench --bench ir_generation -- --verbose || echo "IR benchmark completed"
       - name: Upload results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bench-ir
@@ -340,7 +340,7 @@ jobs:
       - name: Run optimizer benchmarks
         run: cargo bench --bench optimizer -- --verbose || echo "Optimizer benchmark completed"
       - name: Upload results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bench-optimizer
@@ -358,7 +358,7 @@ jobs:
       - name: Run end-to-end benchmarks
         run: cargo bench --bench end_to_end -- --verbose || echo "E2E benchmark completed"
       - name: Upload results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bench-e2e
@@ -376,7 +376,7 @@ jobs:
       - name: Run JIT benchmarks
         run: cargo bench --features jit --bench jit -- --verbose || echo "JIT benchmark completed"
       - name: Upload results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bench-jit

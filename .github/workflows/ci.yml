@@ -110,7 +110,7 @@ jobs:
 
       - name: Upload test results
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.module }}
           path: target/debug/.fingerprint/
@@ -185,14 +185,14 @@ jobs:
         run: cargo tarpaulin --out xml --out html --output-dir coverage
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: coverage/cobertura.xml
           fail_ci_if_error: false
           verbose: true
 
       - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage/
@@ -245,7 +245,7 @@ jobs:
           RUSTDOCFLAGS: -D warnings
 
       - name: Upload documentation
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: documentation
           path: target/doc/
