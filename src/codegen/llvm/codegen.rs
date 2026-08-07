@@ -324,19 +324,17 @@ impl LlvmCodegen {
                             object,
                             field,
                             value,
-                        } => {
-                            if anon_objects.contains(&object.0)
-                                && field.class.0 == "__anonymous__"
-                                && !seen_fields.contains(&field.name)
-                            {
-                                // Get the type of the value being set
-                                let field_ty = var_types
-                                    .get(&value.0)
-                                    .cloned()
-                                    .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
-                                fields.push((field.name.clone(), field_ty));
-                                seen_fields.insert(field.name.clone());
-                            }
+                        } if anon_objects.contains(&object.0)
+                            && field.class.0 == "__anonymous__"
+                            && !seen_fields.contains(&field.name) =>
+                        {
+                            // Get the type of the value being set
+                            let field_ty = var_types
+                                .get(&value.0)
+                                .cloned()
+                                .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+                            fields.push((field.name.clone(), field_ty));
+                            seen_fields.insert(field.name.clone());
                         }
                         _ => {}
                     }
@@ -1579,6 +1577,9 @@ impl LlvmCodegen {
                     llvm_ty,
                     entries.join(", ")
                 );
+                // GlobalStore infers the stored type from var_types; without
+                // this a ptr-typed phi (e.g. string ternary) falls back to i64
+                self.var_types.insert(dest.0, ty.clone());
             }
 
             Instruction::Print { value } => {
@@ -2507,5 +2508,40 @@ mod tests {
         assert_eq!(sanitize_label("entry"), "entry");
         assert_eq!(sanitize_label("then.block"), "then.block");
         assert_eq!(sanitize_label("مدخل"), "____");
+    }
+
+    #[test]
+    fn test_string_ternary_global_stores_ptr_not_i64() {
+        // Phi results were not registered in var_types, so GlobalStore fell
+        // back to i64 and emitted `store i64 <ptr-value>` — invalid LLVM IR
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let source = "بسم_الله\nمتغير وضع = 1 >= 0 ? \"بالغ\" : \"قاصر\"؛\nاطبع(وضع)؛\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let llvm_ir = codegen.generate(&ir_module).expect("codegen failed");
+
+        let global_store_lines: Vec<&str> = llvm_ir
+            .lines()
+            .filter(|l| l.contains("store") && l.contains("@_U0648__U0636__U0639_"))
+            .collect();
+        assert!(
+            !global_store_lines.is_empty(),
+            "expected a store to the وضع global in:\n{}",
+            llvm_ir
+        );
+        for line in &global_store_lines {
+            assert!(
+                line.trim_start().starts_with("store ptr"),
+                "string ternary must be stored as ptr, got: {}",
+                line
+            );
+        }
     }
 }

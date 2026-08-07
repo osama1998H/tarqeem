@@ -51,13 +51,14 @@ pub extern "C" fn trq_print_float(value: f64) {
 }
 
 /// Print a boolean to stdout in Arabic.
-/// Outputs "صحيح" for true, "خاطئ" for false.
+/// Outputs "صحيح" for true, "خطأ" for false — the language's boolean
+/// literals (LANGUAGE_SPEC §4.3), matching the interpreter's rendering.
 #[no_mangle]
 pub extern "C" fn trq_print_bool(value: bool) {
     if value {
         print!("صحيح");
     } else {
-        print!("خاطئ");
+        print!("خطأ");
     }
     io::stdout().flush().ok();
 }

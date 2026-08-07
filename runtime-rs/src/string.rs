@@ -574,8 +574,9 @@ pub extern "C" fn trq_bool_to_string(value: bool) -> *mut TrqString {
         let s = "صحيح";
         trq_string_new(s.as_ptr(), s.len() as i64)
     } else {
-        // "خاطئ" in UTF-8
-        let s = "خاطئ";
+        // "خطأ" in UTF-8 — the false literal per LANGUAGE_SPEC §4.3,
+        // matching the interpreter's rendering
+        let s = "خطأ";
         trq_string_new(s.as_ptr(), s.len() as i64)
     }
 }
@@ -1930,7 +1931,7 @@ mod tests {
             let f_bytes = std::slice::from_raw_parts((*f).data, (*f).len as usize);
 
             assert_eq!(t_bytes, "صحيح".as_bytes());
-            assert_eq!(f_bytes, "خاطئ".as_bytes());
+            assert_eq!(f_bytes, "خطأ".as_bytes());
 
             crate::memory::trq_release(t as *mut u8);
             crate::memory::trq_release(f as *mut u8);

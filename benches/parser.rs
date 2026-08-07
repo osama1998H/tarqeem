@@ -2,6 +2,10 @@
 //!
 //! Measures AST nodes/second for various source file sizes and complexity levels.
 
+// Bench closures return Result<Ast, Diagnostic> straight into black_box;
+// boxing the error type here would only distort the measurement.
+#![allow(clippy::result_large_err)]
+
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use tarqeem::Parser;
 

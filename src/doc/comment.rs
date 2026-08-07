@@ -179,10 +179,8 @@ impl DocCommentParser {
                     result.warnings.push(content.to_string());
                 }
             }
-            "since" => {
-                if !content.is_empty() {
-                    result.since = Some(content.to_string());
-                }
+            "since" if !content.is_empty() => {
+                result.since = Some(content.to_string());
             }
             _ => {}
         }

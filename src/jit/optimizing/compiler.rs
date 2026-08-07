@@ -304,11 +304,10 @@ impl OptimizingCompiler {
         OptimizingStats {
             functions_compiled: self.functions_compiled,
             total_compile_time_ms: self.total_compile_time_ms,
-            avg_compile_time_ms: if self.functions_compiled > 0 {
-                self.total_compile_time_ms / self.functions_compiled
-            } else {
-                0
-            },
+            avg_compile_time_ms: self
+                .total_compile_time_ms
+                .checked_div(self.functions_compiled)
+                .unwrap_or(0),
             specializations_generated: self.specializations_generated,
             specializer_stats: self.specializer.stats(),
         }

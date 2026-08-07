@@ -402,7 +402,7 @@ impl ProfileData {
         }
 
         // Sort by call count descending
-        hottest_functions.sort_by(|a, b| b.1.cmp(&a.1));
+        hottest_functions.sort_by_key(|a| std::cmp::Reverse(a.1));
         hottest_functions.truncate(10);
 
         ProfileSummary {

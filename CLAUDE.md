@@ -419,19 +419,19 @@ This project uses **Gitflow** as the branching strategy. Claude must follow thes
 RUST_LOG=debug cargo run -- compile test.ترقيم
 
 # Dump tokens
-cargo run -- compile test.ترقيم --dump-tokens
+cargo run -- lex test.ترقيم
 
 # Dump AST
-cargo run -- compile test.ترقيم --dump-ast
-
-# Dump IR
-cargo run -- compile test.ترقيم --dump-ir
+cargo run -- parse test.ترقيم
 
 # Dump LLVM IR
 cargo run -- compile test.ترقيم --emit-llvm
 
-# Run with interpreter (for debugging)
-cargo run -- run test.ترقيم --interpret
+# Run with interpreter (default for `run`)
+cargo run -- run test.ترقيم
+
+# Run with JIT (experimental)
+cargo run -- run test.ترقيم --jit
 ```
 
 ## Architecture Decisions

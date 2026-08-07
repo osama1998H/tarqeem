@@ -327,9 +327,14 @@ impl Parser {
         let start = self.current_span();
         self.advance(); // consume 'return'
 
+        // A newline (or trailing comment) after أرجع ends the statement,
+        // otherwise a bare return swallows the next line as its expression
         let value = if self.check(&TokenKind::Semicolon)
             || self.check(&TokenKind::ArabicSemicolon)
             || self.check(&TokenKind::RightBrace)
+            || self.check(&TokenKind::Newline)
+            || matches!(self.peek().kind, TokenKind::LineComment(_))
+            || self.is_at_end()
         {
             None
         } else {

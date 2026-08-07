@@ -206,7 +206,10 @@ impl DebugInterpreter {
                 );
             }
         } else {
-            eprintln!("[DEBUG] ERROR: Main function '{}' not found in module!", main_func_id.0);
+            eprintln!(
+                "[DEBUG] ERROR: Main function '{}' not found in module!",
+                main_func_id.0
+            );
         }
 
         let frame = DebugCallFrame::new(main_func_id);

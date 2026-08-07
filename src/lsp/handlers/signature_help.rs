@@ -167,10 +167,8 @@ fn find_call_context(content: &str, offset: usize) -> Option<CallContext> {
                 }
                 paren_depth -= 1;
             }
-            '،' | ',' => {
-                if paren_depth == 0 {
-                    comma_count += 1;
-                }
+            '،' | ',' if paren_depth == 0 => {
+                comma_count += 1;
             }
             _ => {}
         }

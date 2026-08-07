@@ -402,8 +402,8 @@ impl HtmlGenerator {
         write!(
             writer,
             "<td><span class=\"visibility {}\">{}</span> <code>{}</code>",
-            &field.visibility,
-            &field.visibility,
+            field.visibility,
+            field.visibility,
             html_escape(&field.name)
         )?;
         if field.is_static {
@@ -434,7 +434,7 @@ impl HtmlGenerator {
         write!(
             writer,
             "<span class=\"visibility {}\">{}</span> ",
-            &method.visibility, &method.visibility
+            method.visibility, method.visibility
         )?;
         if method.is_static {
             write!(writer, "<span class=\"modifier\">مشترك</span> ")?;

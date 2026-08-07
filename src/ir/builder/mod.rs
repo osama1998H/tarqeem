@@ -252,7 +252,16 @@ impl IrBuilder {
                     IrType::Int
                 };
 
-                let init_val = init.as_ref().and_then(|e| self.try_evaluate_const(e));
+                // Implicit عدد → عدد_عشري conversion (spec §5.6): a float-typed
+                // global with an integer constant initializer must store a float
+                // constant, or codegen emits `global double 5` (invalid LLVM IR)
+                let init_val =
+                    init.as_ref()
+                        .and_then(|e| self.try_evaluate_const(e))
+                        .map(|c| match (&ir_type, c) {
+                            (IrType::Float, Constant::Int(n)) => Constant::Float(n as f64),
+                            (_, c) => c,
+                        });
 
                 self.module
                     .globals
@@ -930,6 +939,45 @@ mod tests {
         assert!(
             err.message.contains("ت٠٢٠١"),
             "Arabic error should include error code ت٠٢٠١"
+        );
+    }
+
+    #[test]
+    fn test_global_float_annotation_int_initializer_coerced_to_float_constant() {
+        // Implicit عدد → عدد_عشري (spec §5.6): keeping Constant::Int(5) on an
+        // f64 global made codegen emit `global double 5`, invalid LLVM IR
+        let source = "متغير أ: عدد_عشري = 5";
+        let module = build_ir(source).expect("Failed to build IR");
+        let (name, ty, init) = &module.globals[0];
+        assert_eq!(name, "أ");
+        assert!(matches!(ty, IrType::Float));
+        assert!(
+            matches!(init, Some(Constant::Float(f)) if *f == 5.0),
+            "int initializer of a float global must be coerced, got {:?}",
+            init
+        );
+    }
+
+    #[test]
+    fn test_local_float_annotation_int_initializer_emits_int_to_float() {
+        // Without the coercion the i64 bit pattern was stored raw into an
+        // alloca double, printing ~2.47e-323 in native binaries
+        let source = r#"
+            دالة رئيسية() {
+                متغير أ: عدد_عشري = 5
+                اطبع(أ)
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+        let has_int_to_float = module
+            .functions
+            .iter()
+            .flat_map(|f| &f.blocks)
+            .flat_map(|b| &b.instructions)
+            .any(|i| matches!(i, Instruction::IntToFloat { .. }));
+        assert!(
+            has_int_to_float,
+            "float-typed local with int initializer must emit IntToFloat"
         );
     }
 }

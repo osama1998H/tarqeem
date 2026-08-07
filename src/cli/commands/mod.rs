@@ -664,14 +664,15 @@ fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
 
                 line_count += 1;
 
-                let mut parser = Parser::new(trimmed);
+                let source = wrap_repl_input(trimmed);
+                let mut parser = Parser::new(&source);
                 match parser.parse() {
                     Ok(ast) => {
                         let mut analyzer = Analyzer::new();
                         configure_analyzer(&mut analyzer, verbose);
                         if let Err(diagnostics) = analyzer.analyze(&ast) {
                             for diag in &diagnostics {
-                                diag.emit(trimmed, "<repl>", lang);
+                                diag.emit(&source, "<repl>", lang);
                             }
                         } else {
                             let module_name = format!("<repl:{}>", line_count);
@@ -701,7 +702,7 @@ fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
                         }
                     }
                     Err(e) => {
-                        e.emit(trimmed, "<repl>", lang);
+                        e.emit(&source, "<repl>", lang);
                     }
                 }
             }
@@ -1123,4 +1124,43 @@ fn generate_multi_doc_files(
     );
 
     Ok(())
+}
+
+/// REPL input is a bare statement, but the parser requires every program
+/// to open with بسم_الله and close with الحمد_لله. Wrap the input so
+/// users can type plain statements interactively.
+fn wrap_repl_input(input: &str) -> String {
+    if input.trim_start().starts_with("بسم_الله") {
+        input.to_string()
+    } else {
+        format!("بسم_الله\n{}\nالحمد_لله", input)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wrap_repl_input_makes_bare_statement_parseable() {
+        let wrapped = wrap_repl_input("اطبع(٥)");
+        let mut parser = Parser::new(&wrapped);
+        assert!(
+            parser.parse().is_ok(),
+            "wrapped REPL input should parse as a full program"
+        );
+    }
+
+    #[test]
+    fn test_wrap_repl_input_keeps_explicit_markers() {
+        let src = "بسم_الله\nاطبع(٥)\nالحمد_لله";
+        assert_eq!(wrap_repl_input(src), src);
+    }
+
+    #[test]
+    fn test_wrap_repl_input_variable_declaration() {
+        let wrapped = wrap_repl_input("متغير س = ٥");
+        let mut parser = Parser::new(&wrapped);
+        assert!(parser.parse().is_ok());
+    }
 }
