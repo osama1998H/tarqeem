@@ -236,14 +236,12 @@ impl OptimizingCompiler {
 
         // Variable mapping for SSA values
         let mut var_map: HashMap<u32, Variable> = HashMap::new();
-        let mut var_counter = 0u32;
 
         // Declare variables for parameters
         for (i, param) in func.params.iter().enumerate() {
-            let var = Variable::from_u32(var_counter);
-            var_counter += 1;
             let ty = ir_type_to_cranelift(&param.ty)?;
-            builder.declare_var(var, ty);
+            // cranelift 0.129: declare_var allocates and returns the Variable
+            let var = builder.declare_var(ty);
             let param_value = builder.block_params(entry_block)[i];
             builder.def_var(var, param_value);
             var_map.insert(param.id.0, var);
@@ -269,7 +267,6 @@ impl OptimizingCompiler {
                     func,
                     inst,
                     &mut var_map,
-                    &mut var_counter,
                     &block_map,
                     branch_profile,
                 )?;
@@ -326,14 +323,12 @@ fn get_or_create_var(
     var_id: u32,
     ty: types::Type,
     var_map: &mut HashMap<u32, Variable>,
-    var_counter: &mut u32,
 ) -> Variable {
     if let Some(var) = var_map.get(&var_id) {
         *var
     } else {
-        let var = Variable::from_u32(*var_counter);
-        *var_counter += 1;
-        builder.declare_var(var, ty);
+        // cranelift 0.129: declare_var allocates and returns the Variable
+        let var = builder.declare_var(ty);
         var_map.insert(var_id, var);
         var
     }
@@ -347,14 +342,13 @@ fn compile_optimized_instruction(
     _func: &Function,
     inst: &Instruction,
     var_map: &mut HashMap<u32, Variable>,
-    var_counter: &mut u32,
     block_map: &HashMap<u32, Block>,
     _branch_profile: Option<&crate::jit::profile::BranchProfile>,
 ) -> JitResult<()> {
     match inst {
         Instruction::Const { dest, value, ty } => {
             let cranelift_ty = ir_type_to_cranelift(ty)?;
-            let var = get_or_create_var(builder, dest.0, cranelift_ty, var_map, var_counter);
+            let var = get_or_create_var(builder, dest.0, cranelift_ty, var_map);
 
             let val = match value {
                 Constant::Null => builder.ins().iconst(types::I64, 0),
@@ -378,7 +372,7 @@ fn compile_optimized_instruction(
             ty,
         } => {
             let cranelift_ty = ir_type_to_cranelift(ty)?;
-            let dest_var = get_or_create_var(builder, dest.0, cranelift_ty, var_map, var_counter);
+            let dest_var = get_or_create_var(builder, dest.0, cranelift_ty, var_map);
 
             let left_var = var_map
                 .get(&left.0)
@@ -477,7 +471,7 @@ fn compile_optimized_instruction(
             ty,
         } => {
             let cranelift_ty = ir_type_to_cranelift(ty)?;
-            let dest_var = get_or_create_var(builder, dest.0, cranelift_ty, var_map, var_counter);
+            let dest_var = get_or_create_var(builder, dest.0, cranelift_ty, var_map);
 
             let operand_var = var_map
                 .get(&operand.0)
@@ -552,7 +546,7 @@ fn compile_optimized_instruction(
         } => {
             // TODO: Implement optimized function calls with inline caching
             let cranelift_ty = ir_type_to_cranelift(ret_ty)?;
-            let dest_var = get_or_create_var(builder, d.0, cranelift_ty, var_map, var_counter);
+            let dest_var = get_or_create_var(builder, d.0, cranelift_ty, var_map);
             let zero = builder.ins().iconst(types::I64, 0);
             builder.def_var(dest_var, zero);
         }
