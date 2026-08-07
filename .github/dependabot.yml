@@ -80,21 +80,3 @@ updates:
       actions:
         patterns:
           - "*"
-
-  # ============================================
-  # npm (if VS Code extension or tooling uses npm)
-  # ============================================
-
-  # Uncomment if you have npm-based tooling
-
-  # - package-ecosystem: "npm"
-  #   directory: "/vscode-extension"
-  #   schedule:
-  #     interval: "weekly"
-  #   target-branch: "develop"
-  #   open-pull-requests-limit: 5
-  #   commit-message:
-  #     prefix: "deps(npm)"
-  #   labels:
-  #     - "dependencies"
-  #     - "javascript"
