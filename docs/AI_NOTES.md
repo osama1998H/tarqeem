@@ -2,6 +2,46 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-07 — Issue #186 part 2: hoist top-level functions and enums
+
+### Decision: hoist in the analyzer only
+Forward references failed only in semantic analysis — the IR builder already
+hoists function signatures (`src/ir/builder/mod.rs`, "First pass") and the
+interpreter resolves by `FuncId`. Fix lives entirely in `src/semantic/`:
+`Analyzer::analyze` now runs `hoist_enum_decl` then `hoist_func_decl` loops
+between `register_types` and `add_type_members`.
+
+### Design constraints discovered (worth knowing for future passes)
+- **Enums must hoist before functions**: `resolve_type` only returns
+  `Type::Enum` for names already in `self.enums`; otherwise `parse_type_name`
+  falls back to an incompatible `Type::Class(name)`. A function signature
+  mentioning a later enum would silently get the wrong type.
+- **`Scope::define` returns false on any existing key**, so pass 3 must not
+  re-define hoisted symbols or every top-level function reports د٠١٠١.
+  Discriminator: `self.scope.kind() == ScopeKind::Global` — only top-level
+  pass-3 statements and `Export(Declaration(_))` reach the declaration
+  analyzers with the global scope current. Nested functions keep
+  define-in-place and are deliberately NOT hoisted.
+- **The hoist pass must unwrap `StmtKind::Export(ExportItems::Declaration)`**
+  because `analyze_export` analyzes the inner declaration with the global
+  scope current — without unwrapping, exported functions would never be
+  defined at all. Note `register_types` does NOT unwrap Export (pre-existing
+  gap for exported classes, left untouched: fixing it requires also fixing
+  `add_type_members` or vtable validation breaks).
+- Duplicate detection for top-level functions/enums moved into the hoist
+  pass — still exactly one د٠١٠١ per collision, verified by count-asserting
+  tests. Known diagnostic shift: `متغير س` + later `دالة س` now reports
+  against the variable (the hoisted function claims the name first).
+
+### Related discoveries
+- Part 1 of #186 (bare أرجع) was already fixed by `97c0673`.
+- Two new parser bugs found during investigation, filed separately:
+  the end-marker check runs before the accumulated-error check so
+  `synchronize()` overshoot masks real errors behind
+  `متوقع 'الحمد_لله' في نهاية الملف`; and a trailing doc comment (`///`)
+  after any statement fails to parse (lexer folds the newline into
+  `DocComment`; terminator checks only match `LineComment`).
+
 ## 2026-08-07 — CI unblock + usability audit
 
 ### CI failures: two root causes

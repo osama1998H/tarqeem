@@ -431,6 +431,34 @@ mod interpreter {
 "#;
         assert!(analyzes_ok(source));
     }
+
+    // Issue #186: calling a function defined later in the file must work
+    // end-to-end, not just pass semantic analysis (see issue #187).
+    #[test]
+    fn test_forward_function_call_executes() {
+        let source = r#"
+دالة رئيسية() -> عدد {
+    أرجع ضعف(21)
+}
+
+دالة ضعف(س: عدد) -> عدد {
+    أرجع س * 2
+}
+"#;
+        assert_eq!(interpret_source(source), Ok("42".to_string()));
+    }
+
+    #[test]
+    fn test_forward_call_script_mode_executes() {
+        let source = r#"
+اطبع(ضعف(21))
+
+دالة ضعف(س: عدد) -> عدد {
+    أرجع س * 2
+}
+"#;
+        assert!(interpret_source(source).is_ok());
+    }
 }
 
 mod errors {

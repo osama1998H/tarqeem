@@ -217,16 +217,12 @@ impl Analyzer {
         }
     }
 
-    /// Analyze a function declaration.
-    pub(crate) fn analyze_func_decl(
-        &mut self,
-        name: &str,
+    /// Resolve a function's parameter and return types from its annotations.
+    fn func_signature_types(
+        &self,
         params: &[Param],
         return_type: Option<&TypeAnnotation>,
-        body: &Block,
-        _is_async: bool,
-        span: Span,
-    ) {
+    ) -> (Vec<Type>, Type) {
         let param_types: Vec<Type> = params
             .iter()
             .map(|p| {
@@ -240,15 +236,36 @@ impl Analyzer {
             .map(|t| self.resolve_type(t))
             .unwrap_or(Type::Void);
 
-        let symbol = Symbol::function(name, param_types.clone(), ret_type.clone(), span);
-        if !self.scope.define(symbol) {
-            self.already_defined_error(
-                "الدالة",
-                name,
-                span,
-                None,
-                &ERR_VARIABLE_REDEFINITION.to_string(),
-            );
+        (param_types, ret_type)
+    }
+
+    /// Analyze a function declaration.
+    pub(crate) fn analyze_func_decl(
+        &mut self,
+        name: &str,
+        params: &[Param],
+        return_type: Option<&TypeAnnotation>,
+        body: &Block,
+        _is_async: bool,
+        span: Span,
+    ) {
+        let (param_types, ret_type) = self.func_signature_types(params, return_type);
+
+        // Top-level functions were already declared by the hoisting pass in
+        // `analyze` (issue #186); defining again would falsely report
+        // redefinition (د٠١٠١). Nested functions are not hoisted and are
+        // declared here as before.
+        if self.scope.kind() != ScopeKind::Global {
+            let symbol = Symbol::function(name, param_types.clone(), ret_type.clone(), span);
+            if !self.scope.define(symbol) {
+                self.already_defined_error(
+                    "الدالة",
+                    name,
+                    span,
+                    None,
+                    &ERR_VARIABLE_REDEFINITION.to_string(),
+                );
+            }
         }
 
         self.push_function_scope(ret_type);
@@ -579,6 +596,22 @@ impl Analyzer {
         variants: &[EnumVariant],
         span: Span,
     ) {
+        // Top-level enums were already registered by the hoisting pass in
+        // `analyze` (issue #186); re-declaring would falsely report د٠١٠١.
+        if self.scope.kind() == ScopeKind::Global {
+            return;
+        }
+        self.declare_enum(name, type_params, variants, span);
+    }
+
+    /// Define an enum's symbol and record its variant info.
+    fn declare_enum(
+        &mut self,
+        name: &str,
+        type_params: &[String],
+        variants: &[EnumVariant],
+        span: Span,
+    ) {
         let symbol = Symbol {
             name: name.to_string(),
             kind: SymbolKind::Enum,
@@ -619,6 +652,55 @@ impl Analyzer {
         };
 
         self.enums.insert(name.to_string(), enum_info);
+    }
+
+    /// Hoist a top-level enum declaration so forward references resolve.
+    ///
+    /// Recurses into `صدّر` since exported declarations are analyzed with the
+    /// global scope current and would otherwise never be defined.
+    pub(crate) fn hoist_enum_decl(&mut self, stmt: &Stmt) {
+        match &stmt.kind {
+            StmtKind::EnumDecl {
+                name,
+                type_params,
+                variants,
+                ..
+            } => {
+                self.declare_enum(name, type_params, variants, stmt.span);
+            }
+            StmtKind::Export(ExportItems::Declaration(inner)) => self.hoist_enum_decl(inner),
+            _ => {}
+        }
+    }
+
+    /// Hoist a top-level function declaration so forward references resolve.
+    ///
+    /// Duplicate detection lives here for top-level functions;
+    /// `analyze_func_decl` skips re-defining them.
+    pub(crate) fn hoist_func_decl(&mut self, stmt: &Stmt) {
+        match &stmt.kind {
+            StmtKind::FuncDecl {
+                name,
+                params,
+                return_type,
+                ..
+            } => {
+                let (param_types, ret_type) =
+                    self.func_signature_types(params, return_type.as_ref());
+                let symbol = Symbol::function(name, param_types, ret_type, stmt.span);
+                if !self.scope.define(symbol) {
+                    self.already_defined_error(
+                        "الدالة",
+                        name,
+                        stmt.span,
+                        None,
+                        &ERR_VARIABLE_REDEFINITION.to_string(),
+                    );
+                }
+            }
+            StmtKind::Export(ExportItems::Declaration(inner)) => self.hoist_func_decl(inner),
+            _ => {}
+        }
     }
 
     /// Analyze an if statement.
