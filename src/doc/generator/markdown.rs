@@ -29,7 +29,7 @@ impl Default for MarkdownGenerator {
 
 impl DocGenerator for MarkdownGenerator {
     fn generate(&self, doc: &Documentation, writer: &mut dyn Write) -> std::io::Result<()> {
-        writeln!(writer, "# {}", &doc.name)?;
+        writeln!(writer, "# {}", doc.name)?;
         writeln!(writer)?;
 
         if let Some(desc) = &doc.description {
@@ -124,7 +124,7 @@ impl MarkdownGenerator {
             };
             writeln!(writer, "- [{}](#الدوال--functions)", header)?;
             for func in &functions {
-                writeln!(writer, "  - [`{}`](#{})", &func.name, slug(&func.name))?;
+                writeln!(writer, "  - [`{}`](#{})", func.name, slug(&func.name))?;
             }
         }
 
@@ -137,7 +137,7 @@ impl MarkdownGenerator {
             };
             writeln!(writer, "- [{}](#الأصناف--classes)", header)?;
             for class in &classes {
-                writeln!(writer, "  - [`{}`](#{})", &class.name, slug(&class.name))?;
+                writeln!(writer, "  - [`{}`](#{})", class.name, slug(&class.name))?;
             }
         }
 
@@ -150,7 +150,7 @@ impl MarkdownGenerator {
             };
             writeln!(writer, "- [{}](#الواجهات--interfaces)", header)?;
             for iface in &interfaces {
-                writeln!(writer, "  - [`{}`](#{})", &iface.name, slug(&iface.name))?;
+                writeln!(writer, "  - [`{}`](#{})", iface.name, slug(&iface.name))?;
             }
         }
 
@@ -159,19 +159,19 @@ impl MarkdownGenerator {
     }
 
     fn write_function(&self, func: &FunctionDoc, writer: &mut dyn Write) -> std::io::Result<()> {
-        writeln!(writer, "### `{}`", &func.name)?;
+        writeln!(writer, "### `{}`", func.name)?;
         writeln!(writer)?;
 
         writeln!(writer, "```tarqeem")?;
         if func.is_async {
             write!(writer, "متوازي ")?;
         }
-        write!(writer, "دالة {}(", &func.name)?;
+        write!(writer, "دالة {}(", func.name)?;
         for (i, param) in func.params.iter().enumerate() {
             if i > 0 {
                 write!(writer, "، ")?;
             }
-            write!(writer, "{}", &param.name)?;
+            write!(writer, "{}", param.name)?;
             if let Some(ty) = &param.ty {
                 write!(writer, ": {}", ty)?;
             }
@@ -200,7 +200,7 @@ impl MarkdownGenerator {
             writeln!(writer, "{}", header)?;
             writeln!(writer)?;
             for param in &func.params {
-                write!(writer, "- `{}`", &param.name)?;
+                write!(writer, "- `{}`", param.name)?;
                 if let Some(ty) = &param.ty {
                     write!(writer, " ({})", ty)?;
                 }
@@ -269,11 +269,11 @@ impl MarkdownGenerator {
     }
 
     fn write_class(&self, class: &ClassDoc, writer: &mut dyn Write) -> std::io::Result<()> {
-        writeln!(writer, "### `{}`", &class.name)?;
+        writeln!(writer, "### `{}`", class.name)?;
         writeln!(writer)?;
 
         writeln!(writer, "```tarqeem")?;
-        write!(writer, "صنف {}", &class.name)?;
+        write!(writer, "صنف {}", class.name)?;
         if !class.type_params.is_empty() {
             write!(writer, "<")?;
             for (i, param) in class.type_params.iter().enumerate() {
@@ -319,7 +319,7 @@ impl MarkdownGenerator {
             }
             if !ctor.params.is_empty() {
                 for param in &ctor.params {
-                    write!(writer, "- `{}`", &param.name)?;
+                    write!(writer, "- `{}`", param.name)?;
                     if let Some(ty) = &param.ty {
                         write!(writer, " ({})", ty)?;
                     }
@@ -345,11 +345,11 @@ impl MarkdownGenerator {
             for field in &class.fields {
                 let ty = field.ty.as_deref().unwrap_or("-");
                 let desc = field.description.as_deref().unwrap_or("-");
-                let visibility = format!("({}) ", &field.visibility);
+                let visibility = format!("({}) ", field.visibility);
                 writeln!(
                     writer,
                     "| {}`{}` | `{}` | {} |",
-                    visibility, &field.name, ty, desc
+                    visibility, field.name, ty, desc
                 )?;
             }
             writeln!(writer)?;
@@ -364,13 +364,13 @@ impl MarkdownGenerator {
             writeln!(writer, "{}", header)?;
             writeln!(writer)?;
             for method in &class.methods {
-                write!(writer, "- **`{}`** ", &method.name)?;
+                write!(writer, "- **`{}`** ", method.name)?;
                 write!(writer, "(")?;
                 for (i, param) in method.params.iter().enumerate() {
                     if i > 0 {
                         write!(writer, "، ")?;
                     }
-                    write!(writer, "{}", &param.name)?;
+                    write!(writer, "{}", param.name)?;
                     if let Some(ty) = &param.ty {
                         write!(writer, ": {}", ty)?;
                     }
@@ -400,11 +400,11 @@ impl MarkdownGenerator {
         interface: &InterfaceDoc,
         writer: &mut dyn Write,
     ) -> std::io::Result<()> {
-        writeln!(writer, "### `{}`", &interface.name)?;
+        writeln!(writer, "### `{}`", interface.name)?;
         writeln!(writer)?;
 
         writeln!(writer, "```tarqeem")?;
-        write!(writer, "ميثاق {}", &interface.name)?;
+        write!(writer, "ميثاق {}", interface.name)?;
         if !interface.type_params.is_empty() {
             write!(writer, "<")?;
             for (i, param) in interface.type_params.iter().enumerate() {
@@ -433,12 +433,12 @@ impl MarkdownGenerator {
             writeln!(writer, "{}", header)?;
             writeln!(writer)?;
             for method in &interface.methods {
-                write!(writer, "- `دالة {}(", &method.name)?;
+                write!(writer, "- `دالة {}(", method.name)?;
                 for (i, param) in method.params.iter().enumerate() {
                     if i > 0 {
                         write!(writer, "، ")?;
                     }
-                    write!(writer, "{}", &param.name)?;
+                    write!(writer, "{}", param.name)?;
                     if let Some(ty) = &param.ty {
                         write!(writer, ": {}", ty)?;
                     }
@@ -462,7 +462,7 @@ impl MarkdownGenerator {
     }
 
     fn write_variable(&self, var: &VariableDoc, writer: &mut dyn Write) -> std::io::Result<()> {
-        writeln!(writer, "### `{}`", &var.name)?;
+        writeln!(writer, "### `{}`", var.name)?;
         writeln!(writer)?;
 
         let keyword = if var.is_mutable {
@@ -471,7 +471,7 @@ impl MarkdownGenerator {
             "ثابت"
         };
         writeln!(writer, "```tarqeem")?;
-        write!(writer, "{} {}", keyword, &var.name)?;
+        write!(writer, "{} {}", keyword, var.name)?;
         if let Some(ty) = &var.ty {
             write!(writer, ": {}", ty)?;
         }

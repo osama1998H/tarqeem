@@ -289,7 +289,7 @@ impl MemoryTracker {
             output.push_str("=====================================\n");
 
             let mut live: Vec<_> = self.live_allocations().collect();
-            live.sort_by(|a, b| b.size.cmp(&a.size));
+            live.sort_by_key(|a| std::cmp::Reverse(a.size));
 
             for (i, alloc) in live.iter().take(20).enumerate() {
                 output.push_str(&format!(
