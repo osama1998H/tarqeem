@@ -113,6 +113,8 @@ impl IrBuilder {
             if let Some(init_expr) = init {
                 if self.try_evaluate_const(init_expr).is_none() {
                     let value = self.build_expr(init_expr)?;
+                    let global_ty = self.global_var_types.get(name).cloned();
+                    let value = self.coerce_int_to_float(value, global_ty.as_ref(), init_expr);
                     self.emit(Instruction::GlobalStore {
                         name: name.to_string(),
                         value,
@@ -140,12 +142,35 @@ impl IrBuilder {
 
         if let Some(init_expr) = init {
             let value = self.build_expr(init_expr)?;
+            let value = self.coerce_int_to_float(value, Some(&ir_type), init_expr);
             self.emit(Instruction::Store { ptr, value });
         }
 
         self.variables.insert(name.to_string(), ptr);
 
         Ok(())
+    }
+
+    /// Implicit عدد → عدد_عشري conversion (spec §5.6): storing an integer
+    /// value into a float-typed slot must go through IntToFloat, otherwise
+    /// native codegen stores the raw i64 bit pattern into a double slot.
+    fn coerce_int_to_float(
+        &mut self,
+        value: VarId,
+        target_ty: Option<&IrType>,
+        init_expr: &Expr,
+    ) -> VarId {
+        if target_ty == Some(&IrType::Float) && self.infer_expr_type(init_expr) == IrType::Int {
+            let coerced = self.new_var();
+            self.emit(Instruction::IntToFloat {
+                dest: coerced,
+                src: value,
+            });
+            self.var_types.insert(coerced.0, IrType::Float);
+            coerced
+        } else {
+            value
+        }
     }
 
     /// Build IR for a function declaration.
