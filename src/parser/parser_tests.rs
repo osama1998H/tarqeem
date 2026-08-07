@@ -1360,6 +1360,31 @@ fn test_parse_return_without_value() {
 }
 
 #[test]
+fn test_parse_bare_return_before_newline() {
+    // A bare أرجع on its own line must not swallow the next line as
+    // its return expression
+    let source = r#"
+        دالة فحص(س: عدد) {
+            إذا (س < 0) {
+                أرجع
+            }
+            اطبع(س)
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser
+        .parse()
+        .expect("bare return before newline must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => {
+            assert_eq!(body.statements.len(), 2, "if-statement and print call");
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
 fn test_parse_function_with_default_params() {
     let source = r#"
         دالة رحب(اسم: نص = "العالم") {
