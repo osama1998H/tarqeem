@@ -1,0 +1,142 @@
+[workspace]
+members = [
+    ".",           # Main compiler
+    "runtime-rs",  # Rust runtime library
+]
+resolver = "2"
+
+[package]
+name = "tarqeem"
+version = "0.2.1"
+edition = "2021"
+authors = ["Tarqeem Contributors"]
+description = "أول لغة برمجة عربية للأغراض العامة - The first compiled Arabic programming language"
+license = "MIT"
+repository = "https://github.com/osama1998H/tarqeem"
+keywords = ["compiler", "programming-language", "arabic", "compiler-design"]
+categories = ["compilers", "development-tools"]
+
+[dependencies]
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+colored = "3.0"
+
+# Unicode handling
+unicode-segmentation = "1.12"
+unicode-normalization = "0.1"
+
+# Utilities
+indexmap = "2.12"
+phf = { version = "0.13", features = ["macros"] }
+
+# Serialization (for package manager)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.9"
+
+# Package management
+semver = "1.0"
+sha2 = "0.10"
+hex = "0.4"
+flate2 = "1.0"
+tar = "0.4"
+dirs = "6.0"
+walkdir = "2.5"
+
+# Error handling
+thiserror = "2.0"
+
+# LSP (Language Server Protocol)
+tower-lsp = "0.20"
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+dashmap = "6.0"    # Concurrent hashmap for document state
+
+# JIT Compilation (optional)
+cranelift-codegen = { version = "0.113", optional = true }
+cranelift-frontend = { version = "0.113", optional = true }
+cranelift-jit = { version = "0.113", optional = true }
+cranelift-module = { version = "0.113", optional = true }
+cranelift-native = { version = "0.113", optional = true }
+target-lexicon = { version = "0.12", optional = true }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+tempfile = "3.14"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[features]
+profiling = []   # Enable profiling instrumentation
+concurrent = []  # Enable concurrent string interner
+jit = [          # Enable JIT compilation support
+    "cranelift-codegen",
+    "cranelift-frontend",
+    "cranelift-jit",
+    "cranelift-module",
+    "cranelift-native",
+    "target-lexicon",
+]
+
+[[bin]]
+name = "tarqeem"
+path = "src/main.rs"
+bench = false
+
+[lib]
+name = "tarqeem"
+path = "src/lib.rs"
+bench = false  # Disable libtest harness for lib to allow Criterion CLI args
+
+[profile.release]
+lto = true
+codegen-units = 1
+
+# Linting configuration
+[lints.rust]
+# Deny these for correctness
+unsafe_code = "deny"
+
+[lints.clippy]
+# These lints are documented for future improvement but currently allowed
+# to avoid blocking CI. Enable them incrementally as code is cleaned up.
+#
+# Aspirational lints (enable when ready):
+# needless_pass_by_value = "warn"
+# redundant_clone = "warn"
+# cognitive_complexity = "warn"
+# map_unwrap_or = "warn"
+
+# These are allowed (intentional patterns in this codebase)
+# result_large_err - would require Box<Diagnostic> refactoring
+# only_used_in_recursion - intentional API design
+# module_inception - intentional directory structure
+
+# Benchmark configuration
+[[bench]]
+name = "lexer"
+harness = false
+
+[[bench]]
+name = "parser"
+harness = false
+
+[[bench]]
+name = "semantic"
+harness = false
+
+[[bench]]
+name = "ir_generation"
+harness = false
+
+[[bench]]
+name = "optimizer"
+harness = false
+
+[[bench]]
+name = "end_to_end"
+harness = false
+
+[[bench]]
+name = "jit"
+harness = false

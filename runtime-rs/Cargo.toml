@@ -1,0 +1,33 @@
+[package]
+name = "tarqeem-runtime"
+version = "1.0.0"
+edition = "2021"
+authors = ["Tarqeem Contributors"]
+description = "مكتبة وقت التشغيل لترقيم"
+license = "MIT"
+repository = "https://github.com/osama1998H/tarqeem"
+keywords = ["runtime", "ffi", "arabic", "tarqeem"]
+
+[lib]
+name = "trq"
+# staticlib for C FFI linking (AOT compilation), rlib for Rust tests
+# Note: cdylib removed because the `main` entry point has an unresolved
+# `__main__` symbol that only exists in user code at final link time
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+libc = "0.2"
+sha2 = "0.10"      # SHA-256 implementation
+flate2 = "1.0"    # GZIP compression
+
+[dev-dependencies]
+# Tests can be added later
+
+[features]
+default = ["std"]
+std = []
+
+# Linting configuration
+[lints.rust]
+# Allow unsafe code - required for FFI
+unsafe_code = "allow"

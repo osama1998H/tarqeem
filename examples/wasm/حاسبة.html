@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>حاسبة ترقيم - Tarqeem Calculator</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #eee;
+        }
+
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: #00d9ff;
+            font-size: 2.5em;
+            margin-bottom: 30px;
+            text-shadow: 0 0 20px rgba(0, 217, 255, 0.3);
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-top: -20px;
+            margin-bottom: 30px;
+        }
+
+        .calculator {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #00d9ff;
+            font-size: 1.1em;
+        }
+
+        input[type="number"] {
+            width: 100%;
+            padding: 15px;
+            font-size: 1.2em;
+            border: 2px solid #00d9ff;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        input[type="number"]:focus {
+            border-color: #ff00aa;
+        }
+
+        .buttons {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        button {
+            padding: 15px;
+            font-size: 1.2em;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+
+        .op-btn {
+            background: linear-gradient(135deg, #00d9ff 0%, #0099cc 100%);
+            color: #1a1a2e;
+        }
+
+        .op-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(0, 217, 255, 0.4);
+        }
+
+        .func-btn {
+            background: linear-gradient(135deg, #ff00aa 0%, #cc0088 100%);
+            color: #fff;
+        }
+
+        .func-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(255, 0, 170, 0.4);
+        }
+
+        .result {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .result-label {
+            color: #888;
+            font-size: 1em;
+            margin-bottom: 10px;
+        }
+
+        .result-value {
+            font-size: 2.5em;
+            color: #00ff88;
+            font-weight: bold;
+            text-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+        }
+
+        .status {
+            text-align: center;
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 0.9em;
+        }
+
+        .status.loading {
+            background: rgba(255, 170, 0, 0.2);
+            color: #ffaa00;
+        }
+
+        .status.ready {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+
+        .status.error {
+            background: rgba(255, 0, 0, 0.2);
+            color: #ff5555;
+        }
+
+        .code-example {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 30px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            direction: ltr;
+            text-align: left;
+            overflow-x: auto;
+        }
+
+        .code-comment {
+            color: #888;
+        }
+
+        .code-keyword {
+            color: #ff00aa;
+        }
+
+        .code-function {
+            color: #00d9ff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>حاسبة ترقيم</h1>
+        <p class="subtitle">Tarqeem WebAssembly Calculator</p>
+
+        <div class="calculator">
+            <div class="input-group">
+                <label>الرقم الأول / First Number</label>
+                <input type="number" id="num1" value="10">
+            </div>
+
+            <div class="input-group">
+                <label>الرقم الثاني / Second Number</label>
+                <input type="number" id="num2" value="5">
+            </div>
+
+            <div class="buttons">
+                <button class="op-btn" onclick="calculate('جمع')">+</button>
+                <button class="op-btn" onclick="calculate('طرح')">−</button>
+                <button class="op-btn" onclick="calculate('ضرب')">×</button>
+                <button class="op-btn" onclick="calculate('قسمة')">÷</button>
+            </div>
+
+            <div class="buttons">
+                <button class="func-btn" onclick="calculate('حساب_القوة')">قوة</button>
+                <button class="func-btn" onclick="calculate('حساب_الباقي')">باقي</button>
+                <button class="func-btn" onclick="calculateSingle('مضروب')">مضروب</button>
+                <button class="func-btn" onclick="calculateSingle('فيبوناتشي')">فيبوناتشي</button>
+            </div>
+
+            <div class="result">
+                <div class="result-label">النتيجة / Result</div>
+                <div class="result-value" id="result">0</div>
+            </div>
+
+            <div id="status" class="status loading">
+                جاري تحميل WebAssembly... / Loading WebAssembly...
+            </div>
+        </div>
+
+        <div class="code-example">
+            <span class="code-comment">// مثال على كود ترقيم المستخدم</span><br>
+            <span class="code-keyword">صدّر دالة</span> <span class="code-function">جمع</span>(أ: عدد، ب: عدد) -> عدد {<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">أرجع</span> أ + ب<br>
+            }
+        </div>
+    </div>
+
+    <script type="module">
+        // Import the generated Tarqeem runtime
+        // In production, this would be: import TarqeemRuntime from './حاسبة.js';
+
+        let runtime = null;
+
+        // Simulated runtime for demo (replace with actual .js when compiled)
+        const TarqeemRuntime = {
+            memory: null,
+            instance: null,
+
+            async load(wasmPath) {
+                const imports = {
+                    env: {
+                        memory: new WebAssembly.Memory({ initial: 16, maximum: 256 }),
+                        __trq_js_print: (ptr, len) => console.log('Print:', ptr, len),
+                        __trq_js_print_int: (v) => console.log(v),
+                        __trq_js_print_float: (v) => console.log(v),
+                        __trq_js_print_bool: (v) => console.log(v ? 'صحيح' : 'خطأ'),
+                        __trq_js_print_newline: () => console.log(''),
+                        __trq_js_input: () => 0,
+                        __trq_js_sqrt: Math.sqrt,
+                        __trq_js_pow: Math.pow,
+                        __trq_js_sin: Math.sin,
+                        __trq_js_cos: Math.cos,
+                        __trq_js_tan: Math.tan,
+                        __trq_js_floor: Math.floor,
+                        __trq_js_ceil: Math.ceil,
+                        __trq_js_round: Math.round,
+                        __trq_js_abs: Math.abs,
+                        __trq_js_log: Math.log,
+                        __trq_js_exp: Math.exp,
+                        __trq_js_now: () => Date.now(),
+                        __trq_js_performance_now: () => performance.now(),
+                    }
+                };
+
+                this.memory = imports.env.memory;
+
+                try {
+                    const response = await fetch(wasmPath);
+                    const bytes = await response.arrayBuffer();
+                    const module = await WebAssembly.compile(bytes);
+                    this.instance = await WebAssembly.instantiate(module, imports);
+
+                    if (this.instance.exports.memory) {
+                        this.memory = this.instance.exports.memory;
+                    }
+
+                    return this;
+                } catch (error) {
+                    throw new Error(`Failed to load: ${error.message}`);
+                }
+            },
+
+            call(funcName, ...args) {
+                const func = this.instance.exports[funcName];
+                if (!func) {
+                    throw new Error(`Function not found: ${funcName}`);
+                }
+                return func(...args);
+            },
+
+            getExports() {
+                return Object.keys(this.instance.exports).filter(
+                    name => typeof this.instance.exports[name] === 'function'
+                );
+            }
+        };
+
+        // Try to load the WASM module
+        async function init() {
+            const statusEl = document.getElementById('status');
+
+            try {
+                runtime = await TarqeemRuntime.load('./حاسبة.wasm');
+                statusEl.className = 'status ready';
+                statusEl.textContent = 'جاهز! / Ready! - Functions: ' + runtime.getExports().join(', ');
+            } catch (error) {
+                // Demo mode - use JavaScript fallback
+                runtime = {
+                    call: function(name, a, b) {
+                        switch(name) {
+                            case 'جمع': return a + b;
+                            case 'طرح': return a - b;
+                            case 'ضرب': return a * b;
+                            case 'قسمة': return b !== 0 ? Math.floor(a / b) : 0;
+                            case 'حساب_القوة': return Math.pow(a, b);
+                            case 'حساب_الباقي': return a % b;
+                            case 'مضروب':
+                                let f = 1;
+                                for (let i = 2; i <= a; i++) f *= i;
+                                return f;
+                            case 'فيبوناتشي':
+                                if (a <= 1) return a;
+                                let prev = 0, curr = 1;
+                                for (let i = 2; i <= a; i++) {
+                                    [prev, curr] = [curr, prev + curr];
+                                }
+                                return curr;
+                            default: return 0;
+                        }
+                    }
+                };
+                statusEl.className = 'status ready';
+                statusEl.textContent = 'وضع العرض (JavaScript) / Demo Mode (JavaScript)';
+                console.log('Note: Compile حاسبة.ترقيم to WASM to use the actual compiled code');
+            }
+        }
+
+        // Calculate with two operands
+        window.calculate = function(op) {
+            const a = parseInt(document.getElementById('num1').value) || 0;
+            const b = parseInt(document.getElementById('num2').value) || 0;
+
+            try {
+                const result = runtime.call(op, a, b);
+                document.getElementById('result').textContent = result;
+            } catch (error) {
+                document.getElementById('result').textContent = 'خطأ';
+                console.error(error);
+            }
+        };
+
+        // Calculate with single operand (uses first number only)
+        window.calculateSingle = function(op) {
+            const a = parseInt(document.getElementById('num1').value) || 0;
+
+            try {
+                const result = runtime.call(op, a, 0);
+                document.getElementById('result').textContent = result;
+            } catch (error) {
+                document.getElementById('result').textContent = 'خطأ';
+                console.error(error);
+            }
+        };
+
+        // Initialize on load
+        init();
+    </script>
+</body>
+</html>

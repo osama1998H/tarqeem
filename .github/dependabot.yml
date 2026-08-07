@@ -1,0 +1,77 @@
+# Dependabot configuration for Tarqeem
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+updates:
+  # ============================================
+  # Rust/Cargo Dependencies
+  # ============================================
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Riyadh"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "deps(cargo)"
+    labels:
+      - "dependencies"
+      - "rust"
+    reviewers:
+      - "osama1998H"
+    groups:
+      # Group minor and patch updates together
+      rust-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Keep major updates separate for careful review
+      rust-major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+
+  # ============================================
+  # GitHub Actions
+  # ============================================
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Riyadh"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(actions)"
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "ci"
+    reviewers:
+      - "osama1998H"
+    groups:
+      # Group all GitHub Actions updates
+      actions:
+        patterns:
+          - "*"
+
+  # ============================================
+  # npm (if VS Code extension or tooling uses npm)
+  # ============================================
+  # Uncomment if you have npm-based tooling
+  # - package-ecosystem: "npm"
+  #   directory: "/vscode-extension"
+  #   schedule:
+  #     interval: "weekly"
+  #   open-pull-requests-limit: 5
+  #   commit-message:
+  #     prefix: "deps(npm)"
+  #   labels:
+  #     - "dependencies"
+  #     - "javascript"
