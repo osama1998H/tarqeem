@@ -494,11 +494,13 @@ impl Formatter {
 
         // Output trailing comment if present. `LineComment` content keeps its
         // leading space, but `DocComment`/`BlockDocComment` content has it
-        // stripped by the lexer — trim_start() normalizes both to one space
-        // after `//` regardless of which comment kind produced the text.
+        // stripped by the lexer — write_comment_lines' per-line trim()
+        // normalizes both to one space after `//`, and re-prefixes every
+        // continuation line of a multi-line `/** */` so it can't corrupt
+        // re-parsing (see finding #1 / write_comment_lines' doc comment).
         if let Some(trailing) = &stmt.trailing_comment {
-            p.write("  // ");
-            p.write(trailing.trim_start());
+            p.write("  ");
+            self.write_comment_lines(trailing, p);
         }
 
         p.newline();
@@ -543,6 +545,10 @@ impl Formatter {
     fn format_block(&self, block: &Block, p: &mut Printer) {
         for stmt in &block.statements {
             self.format_stmt(stmt, p);
+        }
+        for comment in &block.dangling_comments {
+            self.write_comment_lines(comment, p);
+            p.newline();
         }
     }
 
@@ -869,8 +875,15 @@ impl Formatter {
                 ty,
                 init,
                 is_static,
+                leading_comments,
                 doc_comment,
             } => {
+                for comment in leading_comments {
+                    p.write("//");
+                    p.write(comment);
+                    p.newline();
+                }
+
                 if let Some(doc) = doc_comment.as_ref() {
                     self.format_doc_comment(doc, p);
                 }
@@ -904,9 +917,16 @@ impl Formatter {
                 body,
                 is_static,
                 is_async,
+                leading_comments,
                 doc_comment,
             } => {
                 p.blank_line();
+
+                for comment in leading_comments {
+                    p.write("//");
+                    p.write(comment);
+                    p.newline();
+                }
 
                 if let Some(doc) = doc_comment.as_ref() {
                     self.format_doc_comment(doc, p);
@@ -946,9 +966,16 @@ impl Formatter {
             ClassMember::Constructor {
                 params,
                 body,
+                leading_comments,
                 doc_comment,
             } => {
                 p.blank_line();
+
+                for comment in leading_comments {
+                    p.write("//");
+                    p.write(comment);
+                    p.newline();
+                }
 
                 if let Some(doc) = doc_comment.as_ref() {
                     self.format_doc_comment(doc, p);
@@ -972,9 +999,16 @@ impl Formatter {
                 accessors,
                 default_value,
                 is_static,
+                leading_comments,
                 doc_comment,
             } => {
                 p.blank_line();
+
+                for comment in leading_comments {
+                    p.write("//");
+                    p.write(comment);
+                    p.newline();
+                }
 
                 if let Some(doc) = doc_comment.as_ref() {
                     self.format_doc_comment(doc, p);
@@ -1199,6 +1233,31 @@ impl Formatter {
         }
     }
 
+    /// Writes `text` as `//` comment lines, re-prefixing every continuation line.
+    /// A multi-line `/** */` (scan_block_doc_comment, lexer.rs:458-471) joins its
+    /// lines with embedded `\n`; a single `// ` prefix would leave continuation
+    /// lines as bare code that fails to re-parse. Emits no leading/trailing
+    /// newline — the caller owns those.
+    fn write_comment_lines(&self, text: &str, p: &mut Printer) {
+        let mut wrote_any = false;
+        for line in text.lines() {
+            if wrote_any {
+                p.newline();
+            }
+            let line = line.trim();
+            if line.is_empty() {
+                p.write("//");
+            } else {
+                p.write("// ");
+                p.write(line);
+            }
+            wrote_any = true;
+        }
+        if !wrote_any {
+            p.write("//"); // /** */ lexes to BlockDocComment("")
+        }
+    }
+
     fn format_doc_comment(&self, doc: &str, p: &mut Printer) {
         for line in doc.lines() {
             if !line.is_empty() {
@@ -1256,6 +1315,16 @@ mod tests {
         let config = FormatConfig::default();
         let wrapped = wrap_with_markers(source);
         let mut parser = crate::parser::Parser::new(&wrapped);
+        let ast = parser.parse().expect("Parse failed");
+        let formatter = Formatter::new(config);
+        formatter.format(&ast)
+    }
+
+    /// Like `format`, but does not wrap the input with بسم_الله/الحمد_لله
+    /// markers — needed for round-tripping output that already carries them.
+    fn format_raw(source: &str) -> String {
+        let config = FormatConfig::default();
+        let mut parser = crate::parser::Parser::new(source);
         let ast = parser.parse().expect("Parse failed");
         let formatter = Formatter::new(config);
         formatter.format(&ast)
@@ -1367,17 +1436,15 @@ mod tests {
     }
 
     // Regression tests for #193/#194/#198 (comment handling & error-masking
-    // bundle). These pin formatter round-trip behavior for the parser fixes
-    // landing elsewhere; both are expected to stay RED until the parser
-    // accepts a comment-only function body / a trailing `///` respectively
-    // (today, `format()`'s `.expect("Parse failed")` panics on both inputs).
+    // bundle). The parser fixes have landed: a comment-only function body and
+    // a trailing `///` both parse, and these tests are what keep the comment
+    // surviving the formatter round trip instead of being dropped or
+    // corrupted.
 
     #[test]
-    fn test_format_comment_only_function_body_does_not_panic() {
-        // Known limitation: the comment is currently dropped from the
-        // formatted output (tracked as a follow-up), so we only assert
-        // that formatting a comment-only function body does not panic.
-        let _ = format("دالة س() {\n    // تعليق\n}");
+    fn test_format_comment_only_function_body_preserves_comment() {
+        let result = format("دالة س() {\n    // تعليق\n}");
+        assert!(result.contains("// تعليق"));
     }
 
     #[test]
@@ -1388,5 +1455,110 @@ mod tests {
         let result = format("متغير س = 5 /// تعليق");
         assert!(result.contains("// تعليق"));
         assert!(!result.contains("/// تعليق"));
+    }
+
+    // Regression tests for finding #1: a multi-line `/** */` trailing comment
+    // (scan_block_doc_comment joins its lines with embedded `\n`) must have
+    // every continuation line re-prefixed with `//`, or the continuation
+    // lands as bare, uncommented code that fails to re-parse.
+
+    #[test]
+    fn test_format_multiline_trailing_block_doc_comment() {
+        let result = format("متغير س = 5 /** سطر واحد\nسطر آخر */\nمتغير ص = 6");
+        assert!(result.contains("متغير س = 5  // سطر واحد"));
+        assert!(
+            result.lines().any(|l| l.trim() == "// سطر آخر"),
+            "expected a standalone '// سطر آخر' line in:\n{result}"
+        );
+        // Every occurrence of the continuation text must be preceded by
+        // `//` on its own line — never a bare, uncommented line.
+        assert!(!result.contains("\nسطر آخر\n"));
+    }
+
+    #[test]
+    fn test_format_multiline_trailing_comment_is_idempotent() {
+        let once = format("متغير س = 5 /** سطر واحد\nسطر آخر */\nمتغير ص = 6");
+        let twice = format_raw(&once);
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn test_format_multiline_trailing_comment_output_reparses() {
+        let once = format("متغير س = 5 /** سطر واحد\nسطر آخر */\nمتغير ص = 6");
+        // Automated form of the manual `fmt -w` → `check` repro from the
+        // review: formatting once must never produce output that fails to
+        // parse (previously: خطأ[ب٠١٠١] "متوقع '؛'").
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+    }
+
+    #[test]
+    fn test_format_multiline_trailing_comment_indented_in_block() {
+        let result = format("دالة س() {\n    متغير س = 5 /** سطر واحد\nسطر آخر */\n}");
+        assert!(
+            result.contains("    // سطر آخر"),
+            "expected 4-space-indented continuation line in:\n{result}"
+        );
+    }
+
+    // Regression tests for finding #2: a leading `//` comment on a class
+    // member must stay attached to that member, not leak past the class's
+    // closing brace to whatever statement follows it.
+
+    #[test]
+    fn test_format_class_member_leading_comment_stays_inside_class() {
+        let result = format("صنف س {\n    // تعليق\n    عام دالة م() {}\n}\nمتغير ص = 5");
+
+        let comment_pos = result
+            .find("// تعليق")
+            .expect("expected the leading comment to appear in the output");
+        let method_pos = result
+            .find("عام دالة م")
+            .expect("expected the method declaration to appear in the output");
+        let var_pos = result
+            .find("متغير ص")
+            .expect("expected the trailing statement to appear in the output");
+        let class_close_pos = result[..var_pos]
+            .rfind('}')
+            .expect("expected a closing brace for the class before the next statement");
+
+        assert!(
+            comment_pos < method_pos,
+            "comment must appear before the method it documents"
+        );
+        assert!(
+            comment_pos < class_close_pos,
+            "comment must stay inside the class body, not leak past its closing brace"
+        );
+        assert!(
+            comment_pos < var_pos,
+            "comment must not leak to the unrelated statement after the class"
+        );
+    }
+
+    #[test]
+    fn test_format_stack_module_banner_stays_above_method() {
+        // Direct repro of the 92-real-line corpus bug found during code
+        // review: a `//` banner comment placed between two class members
+        // must stay above the member that follows it, not be relocated
+        // into that member's body (or past it).
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/stdlib_trq/مجموعات/مكدس.ترقيم"
+        ));
+        let result = format_raw(source);
+
+        let banner_pos = result
+            .find("العمليات الأساسية")
+            .expect("expected the banner comment to appear in the output");
+        let method_pos = result
+            .find("دالة ادفع")
+            .expect("expected the دالة ادفع method to appear in the output");
+
+        assert!(
+            banner_pos < method_pos,
+            "banner comment must stay above 'دالة ادفع', not be relocated into its body"
+        );
     }
 }
