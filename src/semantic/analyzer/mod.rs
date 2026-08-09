@@ -105,9 +105,21 @@ impl Analyzer {
 
     /// Analyze an AST and return any errors.
     pub fn analyze(&mut self, ast: &Ast) -> Result<(), Vec<Diagnostic>> {
-        // First pass: register all types (classes, interfaces, enums)
+        // First pass: register all types (classes and interfaces)
         for stmt in &ast.statements {
             self.register_types(stmt);
+        }
+
+        // Hoist top-level enums, then functions, so forward references
+        // resolve (issue #186). Enums must come first: `resolve_type` only
+        // produces Type::Enum for names already present in `self.enums`, so a
+        // function signature mentioning a later enum would otherwise get an
+        // incompatible class type.
+        for stmt in &ast.statements {
+            self.hoist_enum_decl(stmt);
+        }
+        for stmt in &ast.statements {
+            self.hoist_func_decl(stmt);
         }
 
         // Second pass: add members to types
@@ -1188,5 +1200,185 @@ mod tests {
         assert!(errors
             .iter()
             .any(|e| e.code.as_ref().is_some_and(|c| c == "ص٠٤٠٢")));
+    }
+
+    // Issue #186: top-level functions and enums are hoisted, so forward
+    // references (including mutual recursion) must analyze cleanly.
+
+    #[test]
+    fn test_forward_function_call() {
+        let result = analyze(
+            r#"
+            دالة أ() -> عدد {
+                أرجع ب();
+            }
+            دالة ب() -> عدد {
+                أرجع 1;
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_mutual_recursion_functions() {
+        let result = analyze(
+            r#"
+            دالة زوجي(ن: عدد) -> منطقي {
+                إذا (ن == 0) {
+                    أرجع صحيح;
+                }
+                أرجع فردي(ن - 1);
+            }
+            دالة فردي(ن: عدد) -> منطقي {
+                إذا (ن == 0) {
+                    أرجع خطأ;
+                }
+                أرجع زوجي(ن - 1);
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_top_level_call_before_definition() {
+        let result = analyze(
+            r#"
+            اطبع(ضعف(21));
+            دالة ضعف(س: عدد) -> عدد {
+                أرجع س * 2;
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_duplicate_function_still_errors_once() {
+        let result = analyze(
+            r#"
+            دالة مكررة() {
+                متغير س = 1;
+            }
+            دالة مكررة() {
+                متغير س = 1;
+            }
+        "#,
+        );
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(
+            errors
+                .iter()
+                .filter(|e| e.code.as_ref().is_some_and(|c| c == "د٠١٠١"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_forward_enum_member_access() {
+        let result = analyze(
+            r#"
+            متغير ل = لون.أحمر;
+            تعداد لون { أحمر، أخضر، أزرق }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_forward_enum_variant_with_annotation() {
+        let result = analyze(
+            r#"
+            متغير ل: لون = لون::أحمر;
+            تعداد لون { أحمر، أخضر }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    // Pins the hoist ordering: enums must be registered before function
+    // signatures are resolved, or `ل: لون` would become an incompatible
+    // class type.
+    #[test]
+    fn test_function_with_enum_param_before_enum_decl() {
+        let result = analyze(
+            r#"
+            دالة صف(ل: لون) -> نص {
+                أرجع "لون";
+            }
+            تعداد لون { أحمر }
+            متغير الوصف = صف(لون::أحمر);
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_duplicate_enum_still_errors_once() {
+        let result = analyze(
+            r#"
+            تعداد لون { أحمر }
+            تعداد لون { أخضر }
+        "#,
+        );
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(
+            errors
+                .iter()
+                .filter(|e| e.code.as_ref().is_some_and(|c| c == "د٠١٠١"))
+                .count(),
+            1
+        );
+    }
+
+    // Only top-level declarations are hoisted; a nested function stays
+    // invisible before its declaration, matching common language semantics.
+    #[test]
+    fn test_nested_function_forward_call_still_errors() {
+        let result = analyze(
+            r#"
+            دالة خارجية() {
+                داخلية();
+                دالة داخلية() {
+                    متغير س = 1;
+                }
+            }
+        "#,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_nested_function_defined_then_called() {
+        let result = analyze(
+            r#"
+            دالة خارجية() -> عدد {
+                دالة داخلية() -> عدد {
+                    أرجع 1;
+                }
+                أرجع داخلية();
+            }
+        "#,
+        );
+        assert!(result.is_ok());
+    }
+
+    // صدّر wraps the declaration in Export(Declaration(_)); the hoist pass
+    // must unwrap it or exported functions would never be defined.
+    #[test]
+    fn test_exported_function_forward_call() {
+        let result = analyze(
+            r#"
+            اطبع(مساعدة());
+            صدّر دالة مساعدة() -> عدد {
+                أرجع 5;
+            }
+        "#,
+        );
+        assert!(result.is_ok());
     }
 }

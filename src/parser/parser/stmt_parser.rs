@@ -7,7 +7,7 @@ use crate::error::Diagnostic;
 use crate::lexer::TokenKind;
 
 use super::super::ast::*;
-use super::Parser;
+use super::{identifier_like_name, Parser};
 
 impl Parser {
     /// Parse a statement (not a declaration).
@@ -198,12 +198,14 @@ impl Parser {
 
         let mut arms = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            // Skip any line comments before the arm
-            self.collect_line_comments();
-            if self.check(&TokenKind::RightBrace) {
-                self.take_pending_comments();
+            if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
                 break;
             }
+            // A comment here precedes a real arm rather than '}' (the case
+            // just ruled out above); discarded — MatchArm has no field to
+            // preserve it in (0 real occurrences in the stdlib/examples corpus,
+            // see the code-review-fix AI_NOTES entry for the measured evidence).
+            self.skip_trivia_run();
             match self.parse_match_arm() {
                 Ok(arm) => arms.push(arm),
                 Err(diagnostic) => {
@@ -275,7 +277,8 @@ impl Parser {
         let start_span = self.current_span();
 
         // Check for enum variant pattern: identifier::identifier
-        if let TokenKind::Identifier(name) = self.peek().kind.clone() {
+        // (includes contextual keywords احصل/عيّن/حالة as enum names)
+        if let Some(name) = identifier_like_name(self.peek()).map(str::to_string) {
             // Look ahead for ::
             if self.peek_next().map(|t| &t.kind) == Some(&TokenKind::ColonColon) {
                 self.advance(); // consume enum name
@@ -333,7 +336,7 @@ impl Parser {
             || self.check(&TokenKind::ArabicSemicolon)
             || self.check(&TokenKind::RightBrace)
             || self.check(&TokenKind::Newline)
-            || matches!(self.peek().kind, TokenKind::LineComment(_))
+            || self.peek().kind.is_comment()
             || self.is_at_end()
         {
             None
@@ -429,7 +432,12 @@ impl Parser {
         self.skip_newlines();
 
         let mut statements = Vec::new();
+        let mut dangling_comments = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            if let Some(comments) = self.take_terminator_trivia_comments(&TokenKind::RightBrace) {
+                dangling_comments = comments;
+                break;
+            }
             match self.parse_declaration() {
                 Ok(stmt) => statements.push(stmt),
                 Err(diagnostic) => {
@@ -444,6 +452,8 @@ impl Parser {
         self.expect(&TokenKind::RightBrace, "متوقع '}'")?;
 
         let span = start.merge(&self.previous_span());
-        Ok(Block::new(statements, span))
+        let mut block = Block::new(statements, span);
+        block.dangling_comments = dangling_comments;
+        Ok(block)
     }
 }

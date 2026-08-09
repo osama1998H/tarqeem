@@ -2,6 +2,221 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-09 — Code-review fixes on the #193/#194/#198 bundle: 6 findings
+
+A high-effort automated review of the bundle below found 6 confirmed issues.
+Two design agents proposed fixes at different scopes; the deciding factor was
+measuring rather than guessing.
+
+### Decision: measure real usage before sizing the AST change
+One agent proposed extending `leading_comments`/`trailing_comments: Vec<String>`
+across ~8 AST types (`Block`, `ClassDecl`, `InterfaceDecl`, `EnumDecl`, `Match`,
+`ClassMember`, `MethodSignature`, `EnumVariant`, `PropertyAccessor`, `Ast`).
+A scan of all 65 real `.ترقيم` files in `stdlib_trq/`+`examples/` found the
+speculative patterns (comment before a class/interface/enum/match/accessor
+body's closing `}`, or before `الحمد_لله`) occur **0 times** — but surfaced a
+**worse, previously unreported** bug with hard evidence: 92 real lines across 7
+stdlib files (`مجموعات/{مكدس,طابور,قائمة,قاموس,مجموعة}`, `وقت/{وقت,تاريخ}`)
+where a `//` section-banner comment before a class method gets silently
+*relocated* into the method's body instead of staying above it — `tarqeem fmt`
+was structurally corrupting real, shipped code. Sized the fix to the evidence:
+two new AST fields, not eight.
+
+### `Block.dangling_comments` (issue #205, resolved) + `ClassMember.leading_comments`
+`Block` gained a field for comments between the last statement and `}`
+(covers every construct `parse_block` builds — function/if/while/for/do/try/
+lambda/accessor/brace-match-arm bodies — so it closes #205 for every real
+occurrence, not just "function bodies" as originally filed). `ClassMember`'s 4
+variants gained `leading_comments`, fixing the 92-line relocation bug: a
+banner comment before a method was being collected into the shared
+`pending_comments` buffer and, since nothing drained it before the method's
+own `parse_block` ran, ending up attached as the *first statement inside the
+method* instead of staying above it.
+
+### Root cause of the misattachment (issue not previously filed under its own number)
+`pending_comments` (`Parser` field) is pushed to by `collect_line_comments()`
+at 5 sites but drained by exactly 1 (`parse_declaration`). The other 4 —
+`parse_class_member`, the property-accessor/interface-method/enum-variant
+loops — leaked a collected comment forward to whatever unrelated
+`parse_declaration()` call happened next. Fixed with one choke point
+(`pending_comments.clear()` inside `match_terminator_after_trivia`'s
+confirmed-terminator path, safe because that field is only ever legitimately
+non-empty in the two-line window between `collect_line_comments()` and
+`take_pending_comments()`) plus 3 local one-line drains for paths the choke
+point can't reach.
+
+### What stayed out of scope, deliberately
+Comments at the tail of a class/interface/enum body's member list, an
+accessor list, a match-arm list, or immediately before `الحمد_لله` are still
+silently dropped — measured at 0 real occurrences, not fixed. Restoring a
+diagnostic there (the review's finding #3) would just reintroduce bug #198;
+`Parser::parse` returns `Err(self.errors[0].clone())` regardless of
+`DiagnosticLevel`, so even a warning-level diagnostic would hard-fail the
+parse (needs the return-type change already tracked as #206).
+
+Multi-line trailing block-doc-comments (`/** a\nb */`) were also corrupted by
+the formatter (one `//` prefix for possibly multi-line content, so
+continuation lines became bare, unparseable code) — fixed with a
+`write_comment_lines` helper that re-prefixes every line, reused for the new
+`Block.dangling_comments` emission too (which can also come from a multi-line
+`BlockDocComment` — the same bug would have reappeared there otherwise).
+
+## 2026-08-09 — Issues #193/#194/#198: comment handling & error-masking bundle
+
+### Root cause: one defect, three symptoms
+All three issues traced to the same underlying gap and were fixed together
+deliberately — fixing any one alone made the others *worse* (verified by
+tracing, not assumed): a parser-only fix for #194 (trailing `///`/`/** */`)
+left the doc-comment token unconsumed in `capture_trailing_comment`, so it
+got misattributed as the *next* declaration's doc comment instead of erroring
+loudly. All seven repros from the three issues printed the identical masked
+`متوقع 'الحمد_لله' في نهاية الملف` message before this fix (#193 is why the
+other two were invisible as distinct bugs).
+
+### Decision: one shared trivia-skipping helper, not seven patches
+Seven statement-list loops wait for a `RightBrace`/`Alhamdulillah` terminator
+and can meet a comment first; only three had a guard, and all three matched
+`LineComment` only. Added two `pub(crate)` methods in `src/parser/parser/mod.rs`:
+`check_terminator_after_trivia` (non-consuming lookahead over
+`Newline`/`is_comment()` tokens) and `match_terminator_after_trivia`
+(consuming version for loop heads — only consumes trivia once the terminator
+is confirmed, so a leading comment for the *next* real declaration is never
+stolen). Reused the existing `TokenKind::is_comment()` helper
+(`src/lexer/token.rs`), which had zero production callers before this.
+
+### Lexer fix was required, not optional
+`scan_doc_comment` merges consecutive `///` lines without checking whether
+the *first* `///` began its own line. Once the parser accepts a trailing
+`///` as a valid statement terminator, that merge bug becomes silent doc
+theft: `س() {} /// نبذة` immediately followed by `/// وثيقة ب` +
+`دالة ب(){}` would lex as one `DocComment` token misattributed to `ب`. Gated
+the merge on a backward line-start scan; also stopped the terminate branch
+from swallowing the trailing newline (restore captured position/line/column
+instead of jumping past it), so a comment token is now always followed by a
+`Newline`, matching `scan_line_comment`/`scan_block_doc_comment`.
+
+### #193: the "infinite loop" risk from adding RightBrace to synchronize() was never real
+Verified by tracing, not by initial instinct (an earlier read of the issue
+assumed the risk was real and designed defensively around it): `parse_prefix`
+(`expr_parser.rs`) calls `advance()` before it can return `Err`, so every
+`parse_declaration` failure path already consumes ≥1 token — `synchronize()`
+can never re-park on the same index. Added `RightBrace` as a sync point
+anyway (matches its two siblings, `synchronize_to_member`/`synchronize_to_arm`,
+which already had it) and a cheap progress guard in `parse()`'s loop as
+documentation of the invariant, not as a load-bearing fix.
+
+### Verification method: don't trust a predicted baseline, measure it
+Used `git stash` to rebuild the pre-fix binary and ran the same stdlib parse
+sweep before trusting a subagent-reported "34 files fail" baseline — it was
+correct, and the post-fix count (33, one file newly parseable:
+`stdlib_trq/ملفات/مجلد.ترقيم`) was confirmed a strict subset via `comm`, zero
+regressions. Also ran a `tarqeem fmt` diff sweep (pre- vs post-fix output,
+byte-identical across all 31 previously-parseable files) and an idempotence
+check (`fmt(fmt(x)) == fmt(x)`) — 11 files failed idempotence, but `git stash`
+confirmed that failure pre-exists on `develop` too (root cause: the
+already-known `///`-marker-stripping formatter bug, filed as #201 — the
+"twice" pass fails to re-parse its own output, unrelated to this bundle).
+
+### Deliberately out of scope
+`consume_doc_comment` still does not accept `BlockDocComment` (`/** */`
+before a declaration is a hard parse error) — attaching it would feed more
+content into the formatter's `///`-stripping bug (#201), converting a loud
+error into silent corruption. Fix both together. Filed follow-ups: #201
+(fmt strips `///` + `BlockDocComment` unhandled), #202 (type keywords
+rejected as method names — the real remaining blocker on `مشغل.ترقيم`, not
+comment-only bodies as previously documented), #203 (a `//` banner
+immediately after a leading `///` module doc fails — the real first blocker
+on `http.ترقيم`, surfacing *before* the already-known #197 `منشئ_كامل` issue
+since it occurs earlier in the file), #204 (doc comments on `صدّر`/`استورد`
+silently dropped), #205 (`Block` has no field for a comment-only body, so
+`tarqeem fmt` silently drops one — **fixed**, see the 2026-08-09 code-review
+entry above), #206 (parser returns only `errors[0]`, unlike semantic
+analysis), #207 (marker diagnostics carry no error code).
+
+## 2026-08-09 — Issue #183: احصل/عيّن/حالة become contextual keywords
+
+### Decision: parser-level contextual keywords, lexer untouched
+The lexer keeps emitting `Get`/`Set`/`Case`; the parser maps them back to
+identifier strings everywhere except their reserved contexts (خاصية accessor
+blocks, تطابق arm heads). New helper `identifier_like_name(&Token) ->
+Option<&str>` in `src/parser/parser/mod.rs` mirrors the existing
+`expect_type_name` pattern (type keywords as names). It returns the token's
+lexeme, so the user's spelling is preserved: عين (no shadda) and عيّن both lex
+to `Set` but are distinct identifiers, exactly as they would be if they
+weren't keywords — stdlib's `دالة عيّن` must be called with the same spelling.
+(An earlier draft normalized عين→عيّن; the code review flagged that as silent
+identifier renaming — `tarqeem fmt` would rewrite user source — so it was
+dropped. The lexeme is safe to use directly because the lexer NFC-normalizes
+the entire source in `Lexer::new`.) Chosen over de-reserving in the lexer
+because it leaves property/match parsing, LSP highlighting, and lexer tests
+untouched.
+
+Widened sites: `expect_identifier`, `check_identifier`, `expect_type_name`
+(mod.rs); `parse_prefix` (identifier handling hoisted to an early return
+before the match, single source of truth for the kind set) +
+`try_parse_arrow_params` + `try_parse_type_args`'s `looks_like_type` gate
+(expr_parser.rs); `parse_pattern` enum lookahead (stmt_parser.rs). Safe
+because `Precedence::of` returns `None` for these kinds (Pratt loop stops
+before an arm-head `حالة`) and both reserved contexts dispatch on the token
+kind before any identifier path. Error recovery updated to match:
+`synchronize_to_member` resumes at Get/Set/Case (and خاصية, a pre-existing
+omission); `synchronize_to_arm` treats `Case` as the next arm head only at a
+plausible arm start (after Newline/LeftBrace/comment — comment tokens swallow
+their trailing newline), since mid-line حالة is now an identifier use.
+Beware: `Parser::previous()` indexes `current - 1` and panics at position 0 —
+guard any `previous()` call reachable at the stream start.
+
+### Discoveries — remaining stdlib parse blockers are NOT this bug
+After the fix, `مجموعات/قائمة.ترقيم` and `مجموعات/قاموس.ترقيم` parse. Files
+still failing have independent causes:
+- `اختبار/نتائج.ترقيم:27` — enum variant named `خطأ` collides with the
+  boolean-false keyword (separate collision, not #183's keywords).
+- `شبكة/http.ترقيم:77` — `منشئ_كامل(...)` named-constructor member syntax
+  is not supported by the parser at all.
+- `اختبار/مشغل.ترقيم:257` — a function body containing only a line comment
+  fails to parse (same family as #194's comment handling).
+- Importing قائمة still can't `جديد قائمة()` (د٠٠٠٣): imported classes are
+  registered as scope Symbols only, never into `class_resolver` — that is
+  issue #182's import machinery, not the keyword collision.
+- `TARQEEM_HOME` (set on this machine) shadows the repo `stdlib_trq` in
+  `find_stdlib_path`; unset it when verifying stdlib changes with the CLI.
+
+## 2026-08-07 — Issue #186 part 2: hoist top-level functions and enums
+
+### Decision: hoist in the analyzer only
+Forward references failed only in semantic analysis — the IR builder already
+hoists function signatures (`src/ir/builder/mod.rs`, "First pass") and the
+interpreter resolves by `FuncId`. Fix lives entirely in `src/semantic/`:
+`Analyzer::analyze` now runs `hoist_enum_decl` then `hoist_func_decl` loops
+between `register_types` and `add_type_members`.
+
+### Design constraints discovered (worth knowing for future passes)
+- **Enums must hoist before functions**: `resolve_type` only returns
+  `Type::Enum` for names already in `self.enums`; otherwise `parse_type_name`
+  falls back to an incompatible `Type::Class(name)`. A function signature
+  mentioning a later enum would silently get the wrong type.
+- **`Scope::define` returns false on any existing key**, so pass 3 must not
+  re-define hoisted symbols or every top-level function reports د٠١٠١.
+  Discriminator: `self.scope.kind() == ScopeKind::Global` — only top-level
+  pass-3 statements and `Export(Declaration(_))` reach the declaration
+  analyzers with the global scope current. Nested functions keep
+  define-in-place and are deliberately NOT hoisted.
+- **The hoist pass must unwrap `StmtKind::Export(ExportItems::Declaration)`**
+  because `analyze_export` analyzes the inner declaration with the global
+  scope current — without unwrapping, exported functions would never be
+  defined at all. Note `register_types` does NOT unwrap Export (pre-existing
+  gap for exported classes, left untouched: fixing it requires also fixing
+  `add_type_members` or vtable validation breaks).
+- Duplicate detection for top-level functions/enums moved into the hoist
+  pass — still exactly one د٠١٠١ per collision, verified by count-asserting
+  tests. Known diagnostic shift: `متغير س` + later `دالة س` now reports
+  against the variable (the hoisted function claims the name first).
+
+### Related discoveries
+- Part 1 of #186 (bare أرجع) was already fixed by `97c0673`.
+- Two new parser bugs found during investigation, filed separately as
+  #193 and #194 — both **fixed**, see the 2026-08-09 entry above.
+
 ## 2026-08-07 — CI unblock + usability audit
 
 ### CI failures: two root causes
@@ -52,7 +267,8 @@ Decisions and discoveries recorded by AI-assisted sessions, newest first.
 ### Open confirmed bugs (multi-agent audit, adversarially verified)
 Filed as issues #180–#187: lambdas/first-class functions unfinished at IR
 stage; exception system (استثناء class missing, propagation, `_trq_throw`);
-local module imports; stdlib collections keyword collision (احصل/عيّن);
+local module imports; stdlib collections keyword collision (احصل/عيّن —
+fixed by #183, contextual keywords);
 core OOP (inherited methods, مشترك access, upcasting); native divergences
 (طول bytes-vs-chars, نوع symbol, stdlib segfault, نص? IR); parser blockers
 (bare أرجع, forward references). Raw audit: 40 findings across 6 lenses;
