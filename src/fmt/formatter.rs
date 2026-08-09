@@ -492,10 +492,13 @@ impl Formatter {
             }
         }
 
-        // Output trailing comment if present
+        // Output trailing comment if present. `LineComment` content keeps its
+        // leading space, but `DocComment`/`BlockDocComment` content has it
+        // stripped by the lexer — trim_start() normalizes both to one space
+        // after `//` regardless of which comment kind produced the text.
         if let Some(trailing) = &stmt.trailing_comment {
-            p.write("  //");
-            p.write(trailing);
+            p.write("  // ");
+            p.write(trailing.trim_start());
         }
 
         p.newline();
@@ -1361,5 +1364,29 @@ mod tests {
     fn test_format_trailing_comment_in_function() {
         let result = format("دالة اختبار() {\n    متغير س = 5  // داخل الدالة\n}");
         assert!(result.contains("متغير س = 5  // داخل الدالة"));
+    }
+
+    // Regression tests for #193/#194/#198 (comment handling & error-masking
+    // bundle). These pin formatter round-trip behavior for the parser fixes
+    // landing elsewhere; both are expected to stay RED until the parser
+    // accepts a comment-only function body / a trailing `///` respectively
+    // (today, `format()`'s `.expect("Parse failed")` panics on both inputs).
+
+    #[test]
+    fn test_format_comment_only_function_body_does_not_panic() {
+        // Known limitation: the comment is currently dropped from the
+        // formatted output (tracked as a follow-up), so we only assert
+        // that formatting a comment-only function body does not panic.
+        let _ = format("دالة س() {\n    // تعليق\n}");
+    }
+
+    #[test]
+    fn test_format_trailing_doc_comment_normalized() {
+        // A trailing `///` is semantically meaningless as a doc comment
+        // (it doesn't precede a declaration), so on round-trip it must be
+        // normalized to a plain `//` line comment.
+        let result = format("متغير س = 5 /// تعليق");
+        assert!(result.contains("// تعليق"));
+        assert!(!result.contains("/// تعليق"));
     }
 }
