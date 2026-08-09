@@ -2157,8 +2157,8 @@ fn test_parse_object_literal_key_named_case() {
 // Comment tokens (`LineComment` "//", `DocComment` "///", `BlockDocComment`
 // "/** */") must be handled consistently at every "wait for a terminator
 // token" loop in the parser, and a real mid-file error must never be masked
-// by the generic end-of-file/end-marker diagnostic. Most of these tests are
-// expected to stay RED until the lexer/parser fixes for #193/#194/#198 land.
+// by the generic end-of-file/end-marker diagnostic. The lexer/parser fixes for
+// #193/#194/#198 have landed; these tests are what keep them fixed.
 
 // ─── Group 1: a comment-only body must parse to an empty container ───
 
@@ -2713,4 +2713,166 @@ fn test_nested_block_error_does_not_cascade() {
         "Expected error recovery to stay local to the nested block, got {} errors",
         parser.get_errors().len()
     );
+}
+
+// Regression tests for the code-review fixes to #193/#194/#198's comment
+// handling: `pending_comments` is a single buffer shared across the parser,
+// but four statement-list loops (parse_class_member, and the property
+// accessor/interface-method/enum-variant loops) never drained it, so a
+// comment collected there survived until the next unrelated
+// parse_declaration() call and got misattached to whatever statement
+// followed the enclosing construct. Group A below pins the fix (the leak
+// no longer happens); Group B pins Block::dangling_comments, the new field
+// that lets parse_block preserve a comment that precedes '}' with no
+// following statement to attach to.
+
+// ─── Group A: a comment inside a class/interface/enum/property-accessor
+// body must not leak to the statement that follows the whole construct ───
+
+#[test]
+fn test_interface_method_comment_does_not_leak_to_next_statement() {
+    let source = r#"
+        ميثاق م {
+            // تعليق
+            دالة أ()
+        }
+        متغير س = 5
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    let var_stmt = ast
+        .statements
+        .iter()
+        .find(|s| matches!(s.kind, StmtKind::VarDecl { .. }))
+        .expect("Expected a VarDecl statement");
+    assert!(
+        var_stmt.leading_comments.is_empty(),
+        "Comment inside the interface body must not leak to the following statement"
+    );
+}
+
+#[test]
+fn test_enum_variant_comment_does_not_leak_to_next_statement() {
+    let source = r#"
+        تعداد م {
+            // تعليق
+            أ
+        }
+        متغير س = 5
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    let var_stmt = ast
+        .statements
+        .iter()
+        .find(|s| matches!(s.kind, StmtKind::VarDecl { .. }))
+        .expect("Expected a VarDecl statement");
+    assert!(
+        var_stmt.leading_comments.is_empty(),
+        "Comment inside the enum body must not leak to the following statement"
+    );
+}
+
+#[test]
+fn test_property_accessor_comment_does_not_leak_to_next_statement() {
+    let source = r#"
+        صنف م {
+            خاصية س: عدد {
+                // تعليق
+                احصل => 1
+            }
+        }
+        متغير ص = 5
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    let var_stmt = ast
+        .statements
+        .iter()
+        .find(|s| matches!(s.kind, StmtKind::VarDecl { .. }))
+        .expect("Expected a VarDecl statement");
+    assert!(
+        var_stmt.leading_comments.is_empty(),
+        "Comment inside the property accessor body must not leak to the following statement"
+    );
+}
+
+#[test]
+fn test_class_member_comment_stays_with_member() {
+    let source = r#"
+        صنف س {
+            // تعليق
+            عام دالة م() {}
+        }
+        متغير ص = 5
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => match &members[0] {
+            ClassMember::Method {
+                leading_comments, ..
+            } => {
+                // scan_line_comment keeps the raw text after `//`, including
+                // the leading space — it is not a DocComment, which strips it.
+                assert_eq!(leading_comments, &vec![" تعليق".to_string()]);
+            }
+            other => panic!("Expected ClassMember::Method, got {:?}", other),
+        },
+        _ => panic!("Expected ClassDecl"),
+    }
+
+    match &ast.statements[1].kind {
+        StmtKind::VarDecl { .. } => {
+            assert!(ast.statements[1].leading_comments.is_empty());
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+// ─── Group B: Block::dangling_comments preserves a comment with no
+// statement to attach to (a comment-only body, or one trailing the last
+// statement before '}') ───
+
+#[test]
+fn test_parse_block_dangling_line_comment() {
+    let source = r#"
+        دالة س() {
+            // تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => {
+            assert!(body.statements.is_empty());
+            assert_eq!(body.dangling_comments, vec![" تعليق".to_string()]);
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_block_dangling_after_statement() {
+    let source = r#"
+        دالة س() {
+            اطبع(1)
+            // تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => {
+            assert_eq!(body.statements.len(), 1);
+            assert_eq!(body.dangling_comments, vec![" تعليق".to_string()]);
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
 }
