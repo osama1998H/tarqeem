@@ -276,7 +276,7 @@ impl Parser {
 
         // Check for enum variant pattern: identifier::identifier
         // (includes contextual keywords احصل/عيّن/حالة as enum names)
-        if let Some(name) = identifier_like_name(&self.peek().kind) {
+        if let Some(name) = identifier_like_name(self.peek()).map(str::to_string) {
             // Look ahead for ::
             if self.peek_next().map(|t| &t.kind) == Some(&TokenKind::ColonColon) {
                 self.advance(); // consume enum name

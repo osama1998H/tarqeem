@@ -7,20 +7,33 @@ Decisions and discoveries recorded by AI-assisted sessions, newest first.
 ### Decision: parser-level contextual keywords, lexer untouched
 The lexer keeps emitting `Get`/`Set`/`Case`; the parser maps them back to
 identifier strings everywhere except their reserved contexts (خاصية accessor
-blocks, تطابق arm heads). New helper `identifier_like_name` in
-`src/parser/parser/mod.rs` mirrors the existing `expect_type_name` pattern
-(type keywords as names). Canonical strings: Get→"احصل", Set→"عيّن"
-(the no-shadda spelling عين also lexes as `Set` and therefore normalizes to
-عيّن), Case→"حالة". Chosen over de-reserving in the lexer because it leaves
-property/match parsing, `synchronize_to_arm` recovery, LSP highlighting, and
-lexer tests untouched.
+blocks, تطابق arm heads). New helper `identifier_like_name(&Token) ->
+Option<&str>` in `src/parser/parser/mod.rs` mirrors the existing
+`expect_type_name` pattern (type keywords as names). It returns the token's
+lexeme, so the user's spelling is preserved: عين (no shadda) and عيّن both lex
+to `Set` but are distinct identifiers, exactly as they would be if they
+weren't keywords — stdlib's `دالة عيّن` must be called with the same spelling.
+(An earlier draft normalized عين→عيّن; the code review flagged that as silent
+identifier renaming — `tarqeem fmt` would rewrite user source — so it was
+dropped. The lexeme is safe to use directly because the lexer NFC-normalizes
+the entire source in `Lexer::new`.) Chosen over de-reserving in the lexer
+because it leaves property/match parsing, LSP highlighting, and lexer tests
+untouched.
 
 Widened sites: `expect_identifier`, `check_identifier`, `expect_type_name`
-(mod.rs); `parse_prefix` identifier arm + `try_parse_arrow_params`
+(mod.rs); `parse_prefix` (identifier handling hoisted to an early return
+before the match, single source of truth for the kind set) +
+`try_parse_arrow_params` + `try_parse_type_args`'s `looks_like_type` gate
 (expr_parser.rs); `parse_pattern` enum lookahead (stmt_parser.rs). Safe
 because `Precedence::of` returns `None` for these kinds (Pratt loop stops
 before an arm-head `حالة`) and both reserved contexts dispatch on the token
-kind before any identifier path.
+kind before any identifier path. Error recovery updated to match:
+`synchronize_to_member` resumes at Get/Set/Case (and خاصية, a pre-existing
+omission); `synchronize_to_arm` treats `Case` as the next arm head only at a
+plausible arm start (after Newline/LeftBrace/comment — comment tokens swallow
+their trailing newline), since mid-line حالة is now an identifier use.
+Beware: `Parser::previous()` indexes `current - 1` and panics at position 0 —
+guard any `previous()` call reachable at the stream start.
 
 ### Discoveries — remaining stdlib parse blockers are NOT this bug
 After the fix, `مجموعات/قائمة.ترقيم` and `مجموعات/قاموس.ترقيم` parse. Files

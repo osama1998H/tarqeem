@@ -31,14 +31,15 @@ pub struct Parser {
 
 /// Contextual keywords: احصل/عيّن/حالة are reserved only inside خاصية accessor
 /// blocks and تطابق arms; elsewhere they act as ordinary identifiers
-/// (same pattern as expect_type_name's type-keyword mapping).
-/// عين (no shadda) normalizes to عيّن, matching the lexer's keyword aliasing.
-pub(crate) fn identifier_like_name(kind: &TokenKind) -> Option<String> {
-    match kind {
-        TokenKind::Identifier(name) => Some(name.clone()),
-        TokenKind::Get => Some("احصل".to_string()),
-        TokenKind::Set => Some("عيّن".to_string()),
-        TokenKind::Case => Some("حالة".to_string()),
+/// (same pattern as expect_type_name's type-keyword mapping). Returns the
+/// token's own text so the spelling the user wrote is preserved (عين and عيّن
+/// are distinct identifiers, as they would be if they weren't keywords) — the
+/// lexer NFC-normalizes the whole source up front, so the lexeme is already
+/// normalized exactly like an Identifier's name.
+pub(crate) fn identifier_like_name(token: &Token) -> Option<&str> {
+    match &token.kind {
+        TokenKind::Identifier(name) => Some(name),
+        TokenKind::Get | TokenKind::Set | TokenKind::Case => Some(&token.lexeme),
         _ => None,
     }
 }
@@ -124,10 +125,15 @@ impl Parser {
                 | TokenKind::Function // دالة
                 | TokenKind::Async    // غير_متزامن
                 | TokenKind::Constructor // منشئ
+                | TokenKind::Property // خاصية
                 | TokenKind::RightBrace => {
                     return;
                 }
-                TokenKind::Identifier(_) => {
+                // Field/method names, including the contextual keywords احصل/عيّن/حالة
+                TokenKind::Identifier(_)
+                | TokenKind::Get
+                | TokenKind::Set
+                | TokenKind::Case => {
                     return;
                 }
                 _ => {}
@@ -143,7 +149,21 @@ impl Parser {
 
         while !self.is_at_end() {
             match self.peek().kind {
-                TokenKind::Case | TokenKind::Default | TokenKind::RightBrace => return,
+                // حالة mid-line is an identifier use, not the next arm head.
+                // Resume only when it plausibly starts an arm: at a line start,
+                // right after the match block's '{', or after a comment
+                // (comment tokens swallow their trailing newline).
+                TokenKind::Case => {
+                    let starts_arm = self.current == 0 || {
+                        let prev = &self.previous().kind;
+                        matches!(prev, TokenKind::Newline | TokenKind::LeftBrace)
+                            || prev.is_comment()
+                    };
+                    if starts_arm {
+                        return;
+                    }
+                }
+                TokenKind::Default | TokenKind::RightBrace => return,
                 _ => {}
             }
             self.advance();
@@ -317,7 +337,7 @@ impl Parser {
 
     /// Check if current token is an identifier (including contextual keywords).
     pub(crate) fn check_identifier(&self) -> bool {
-        identifier_like_name(&self.peek().kind).is_some()
+        identifier_like_name(self.peek()).is_some()
     }
 
     /// Match and consume a token if it matches.
@@ -342,7 +362,7 @@ impl Parser {
 
     /// Expect an identifier (including contextual keywords) or error.
     pub(crate) fn expect_identifier(&mut self, message: &str) -> Result<String, Diagnostic> {
-        if let Some(name) = identifier_like_name(&self.peek().kind) {
+        if let Some(name) = identifier_like_name(self.peek()).map(str::to_string) {
             self.advance();
             Ok(name)
         } else {
@@ -353,7 +373,8 @@ impl Parser {
     /// Expect a type name (identifier, contextual keyword, or type keyword).
     pub(crate) fn expect_type_name(&mut self) -> Result<String, Diagnostic> {
         let token = self.peek().clone();
-        if let Some(name) = identifier_like_name(&token.kind) {
+        if let Some(name) = identifier_like_name(&token) {
+            let name = name.to_string();
             self.advance();
             return Ok(name);
         }

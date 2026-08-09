@@ -1906,11 +1906,13 @@ fn test_parse_variable_named_case() {
 }
 
 #[test]
-fn test_parse_member_call_get_and_set_normalization() {
-    // عين (no shadda) is a lexer alias of عيّن and must normalize to عيّن
+fn test_parse_member_call_get_set_spelling_preserved() {
+    // عين (no shadda) and عيّن lex to the same keyword token, but as
+    // identifiers they are distinct — the AST keeps the spelling the user wrote
     let source = r#"
         قائمتي.احصل(0);
         قائمتي.عين(0، 5);
+        قائمتي.عيّن(1، 2);
     "#;
     let mut parser = parser_with_markers(source);
     let ast = parser.parse().unwrap();
@@ -1928,7 +1930,66 @@ fn test_parse_member_call_get_and_set_normalization() {
         }
     };
     assert_eq!(property_of(&ast.statements[0]), "احصل");
-    assert_eq!(property_of(&ast.statements[1]), "عيّن");
+    assert_eq!(property_of(&ast.statements[1]), "عين");
+    assert_eq!(property_of(&ast.statements[2]), "عيّن");
+}
+
+#[test]
+fn test_parse_enum_variant_with_contextual_keyword_type_arg() {
+    // A type named حالة must be accepted as a generic type argument in the
+    // speculative Enum<T>::Variant path, like any other identifier
+    let source = r#"
+        متغير س = اختياري<حالة>::عدم;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init = init.as_ref().expect("Expected initializer");
+            match &init.kind {
+                ExprKind::EnumVariant {
+                    enum_name,
+                    type_args,
+                    variant_name,
+                    ..
+                } => {
+                    assert_eq!(enum_name, "اختياري");
+                    assert_eq!(variant_name, "عدم");
+                    assert_eq!(type_args.len(), 1);
+                }
+                _ => panic!("Expected EnumVariant expression"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_synchronize_to_member_stops_at_contextual_keyword_names() {
+    use crate::lexer::TokenKind;
+
+    // Error recovery inside a class body must resume at a member named with a
+    // contextual keyword instead of consuming it as garbage
+    let mut parser = Parser::new("= 5 حالة: نص");
+    parser.synchronize_to_member();
+    assert!(matches!(parser.peek().kind, TokenKind::Case));
+
+    let mut parser = Parser::new("= 5 خاصية اسم: نص");
+    parser.synchronize_to_member();
+    assert!(matches!(parser.peek().kind, TokenKind::Property));
+}
+
+#[test]
+fn test_synchronize_to_arm_skips_midline_case_identifier() {
+    use crate::lexer::TokenKind;
+
+    // A mid-line حالة is an identifier use inside the broken arm; recovery
+    // must resume at the next line-start حالة (the real arm head)
+    let mut parser = Parser::new("=> حالة + 1\nحالة 2 => 3");
+    parser.synchronize_to_arm();
+    assert!(matches!(parser.peek().kind, TokenKind::Case));
+    assert!(matches!(parser.previous().kind, TokenKind::Newline));
 }
 
 #[test]

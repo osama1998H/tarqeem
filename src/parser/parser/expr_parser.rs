@@ -38,6 +38,51 @@ impl Parser {
         let token = self.advance();
         let span = token.span;
 
+        // Identifiers, including the contextual keywords احصل/عيّن/حالة, are
+        // handled before the match so the token-kind set lives only in
+        // identifier_like_name (same early-return shape as expect_type_name).
+        if let Some(name) = identifier_like_name(&token) {
+            let name = name.to_string();
+
+            // Check for generic type args: Identifier<T>
+            let type_args = if self.check(&TokenKind::Less) {
+                // Try to parse type args - this is speculative
+                // We need to check if this is actually a generic type or a comparison
+                self.try_parse_type_args()?.unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+
+            // Check for enum variant access: Identifier::Variant or Identifier<T>::Variant
+            if self.check(&TokenKind::ColonColon) {
+                self.advance(); // consume '::'
+                let variant_name = self.expect_identifier("متوقع اسم الحالة بعد '::'")?;
+
+                // Check for variant arguments: Variant(args)
+                let args = if self.match_token(&TokenKind::LeftParen) {
+                    let args = self.parse_arguments()?;
+                    self.expect(&TokenKind::RightParen, "متوقع ')'")?;
+                    args
+                } else {
+                    Vec::new()
+                };
+
+                let end_span = self.previous_span();
+                return Ok(Expr::new(
+                    ExprKind::EnumVariant {
+                        enum_name: name,
+                        type_args,
+                        variant_name,
+                        args,
+                    },
+                    span.merge(&end_span),
+                ));
+            }
+            // If type args were parsed without a following '::', return as a
+            // plain identifier and let semantic analysis handle it.
+            return Ok(Expr::new(ExprKind::Identifier(name), span));
+        }
+
         match &token.kind {
             TokenKind::IntLiteral(n) => Ok(Expr::new(ExprKind::Literal(Literal::Int(*n)), span)),
             TokenKind::FloatLiteral(n) => {
@@ -50,53 +95,6 @@ impl Parser {
             TokenKind::True => Ok(Expr::new(ExprKind::Literal(Literal::Bool(true)), span)),
             TokenKind::False => Ok(Expr::new(ExprKind::Literal(Literal::Bool(false)), span)),
             TokenKind::Null => Ok(Expr::new(ExprKind::Literal(Literal::Null), span)),
-
-            TokenKind::Identifier(_) | TokenKind::Get | TokenKind::Set | TokenKind::Case => {
-                // Get/Set/Case are contextual keywords acting as identifiers here
-                let name =
-                    identifier_like_name(&token.kind).unwrap_or_else(|| token.lexeme.clone());
-
-                // Check for generic type args: Identifier<T>
-                let type_args = if self.check(&TokenKind::Less) {
-                    // Try to parse type args - this is speculative
-                    // We need to check if this is actually a generic type or a comparison
-                    self.try_parse_type_args()?.unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-
-                // Check for enum variant access: Identifier::Variant or Identifier<T>::Variant
-                if self.check(&TokenKind::ColonColon) {
-                    self.advance(); // consume '::'
-                    let variant_name = self.expect_identifier("متوقع اسم الحالة بعد '::'")?;
-
-                    // Check for variant arguments: Variant(args)
-                    let args = if self.match_token(&TokenKind::LeftParen) {
-                        let args = self.parse_arguments()?;
-                        self.expect(&TokenKind::RightParen, "متوقع ')'")?;
-                        args
-                    } else {
-                        Vec::new()
-                    };
-
-                    let end_span = self.previous_span();
-                    Ok(Expr::new(
-                        ExprKind::EnumVariant {
-                            enum_name: name,
-                            type_args,
-                            variant_name,
-                            args,
-                        },
-                        span.merge(&end_span),
-                    ))
-                } else if !type_args.is_empty() {
-                    // We parsed type args but no ::, this might be an error
-                    // For now, return as identifier and let semantic analysis handle it
-                    Ok(Expr::new(ExprKind::Identifier(name), span))
-                } else {
-                    Ok(Expr::new(ExprKind::Identifier(name), span))
-                }
-            }
 
             TokenKind::TypeInt => Ok(Expr::new(ExprKind::Identifier("عدد".to_string()), span)),
             TokenKind::TypeFloat => Ok(Expr::new(
@@ -485,10 +483,14 @@ impl Parser {
             return Ok(None);
         }
 
-        // Check if this looks like type args (identifier or type keyword after '<')
+        // Check if this looks like type args (identifier, contextual keyword,
+        // or type keyword after '<')
         let looks_like_type = matches!(
             &self.peek().kind,
             TokenKind::Identifier(_)
+                | TokenKind::Get
+                | TokenKind::Set
+                | TokenKind::Case
                 | TokenKind::TypeInt
                 | TokenKind::TypeFloat
                 | TokenKind::TypeString
@@ -588,7 +590,7 @@ impl Parser {
         loop {
             let param_start = self.current_span();
 
-            let name = match identifier_like_name(&self.peek().kind) {
+            let name = match identifier_like_name(self.peek()).map(str::to_string) {
                 Some(name) => {
                     self.advance();
                     name
