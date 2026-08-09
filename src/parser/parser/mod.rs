@@ -96,6 +96,13 @@ impl Parser {
             && std::mem::discriminant(&self.tokens[idx].kind) == std::mem::discriminant(terminator)
     }
 
+    /// Advances past a run of `Newline` and comment tokens, discarding their text.
+    fn skip_trivia_run(&mut self) {
+        while self.check(&TokenKind::Newline) || self.peek().kind.is_comment() {
+            self.advance();
+        }
+    }
+
     /// Consumes the trivia preceding `terminator` when
     /// `check_terminator_after_trivia` confirms one is there, leaving the
     /// terminator itself unconsumed; otherwise consumes nothing. Lets a
@@ -106,10 +113,39 @@ impl Parser {
         if !self.check_terminator_after_trivia(terminator) {
             return false;
         }
+        self.skip_trivia_run();
+        // A statement list that reached its terminator has nothing left to attach
+        // a pending comment to — anything still here escaped a loop that collected
+        // it (parse_class_member, the accessor/interface/enum loops) and would
+        // otherwise be stolen by the next parse_declaration().
+        self.pending_comments.clear();
+        true
+    }
+
+    /// Like `match_terminator_after_trivia`, but hands back the comments it
+    /// consumed instead of discarding them. Used only by `parse_block`, which
+    /// has somewhere to put them (`Block::dangling_comments`); every other
+    /// statement-list loop terminates a node with no field for a comment and
+    /// keeps using the discarding sibling above.
+    pub(crate) fn take_terminator_trivia_comments(
+        &mut self,
+        terminator: &TokenKind,
+    ) -> Option<Vec<String>> {
+        if !self.check_terminator_after_trivia(terminator) {
+            return None;
+        }
+        let mut comments = Vec::new();
         while self.check(&TokenKind::Newline) || self.peek().kind.is_comment() {
+            if let TokenKind::LineComment(c)
+            | TokenKind::DocComment(c)
+            | TokenKind::BlockDocComment(c) = &self.peek().kind
+            {
+                comments.push(c.clone());
+            }
             self.advance();
         }
-        true
+        self.pending_comments.clear();
+        Some(comments)
     }
 
     /// Synchronize after an error to continue parsing.

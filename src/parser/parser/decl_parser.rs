@@ -253,6 +253,10 @@ impl Parser {
     /// Parse a single class member.
     pub(crate) fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
         self.collect_line_comments();
+        // Captured before the body is parsed so nothing downstream (e.g. the
+        // method's own parse_block) can steal it — pending_comments is a
+        // single shared buffer, not scoped to this member.
+        let leading_comments = self.take_pending_comments();
         let member_doc = self.consume_doc_comment();
 
         let visibility = self.parse_visibility();
@@ -267,6 +271,7 @@ impl Parser {
             Ok(ClassMember::Constructor {
                 params,
                 body,
+                leading_comments,
                 doc_comment: member_doc,
             })
         } else if self.check(&TokenKind::Function) || self.check(&TokenKind::Async) {
@@ -293,6 +298,7 @@ impl Parser {
                 body,
                 is_static,
                 is_async,
+                leading_comments,
                 doc_comment: member_doc,
             })
         } else if self.check(&TokenKind::Property) {
@@ -321,6 +327,7 @@ impl Parser {
                 accessors,
                 default_value,
                 is_static,
+                leading_comments,
                 doc_comment: member_doc,
             })
         } else {
@@ -343,6 +350,7 @@ impl Parser {
                 ty,
                 init,
                 is_static,
+                leading_comments,
                 doc_comment: member_doc,
             })
         }
@@ -363,6 +371,10 @@ impl Parser {
                 break;
             }
             self.collect_line_comments();
+            // No field exists to preserve a leading comment here (0 real
+            // occurrences in the corpus) — drain defensively so it can't
+            // leak forward to an unrelated declaration.
+            let _ = self.take_pending_comments();
             let accessor_visibility = self.parse_visibility();
 
             if self.match_token(&TokenKind::Get) {
@@ -451,6 +463,7 @@ impl Parser {
             }
             // Skip any line comments before the method
             self.collect_line_comments();
+            let _ = self.take_pending_comments();
             let method_doc = self.consume_doc_comment();
 
             self.expect(&TokenKind::Function, "متوقع 'دالة'")?;
@@ -515,6 +528,7 @@ impl Parser {
             }
             // Skip any line comments before the variant
             self.collect_line_comments();
+            let _ = self.take_pending_comments();
             let variant = self.parse_enum_variant()?;
             variants.push(variant);
 

@@ -202,12 +202,10 @@ impl Parser {
                 break;
             }
             // A comment here precedes a real arm rather than '}' (the case
-            // just ruled out above); discard it so parse_match_arm sees the
-            // arm's actual head token.
-            while self.peek().kind.is_comment() {
-                self.advance();
-                self.skip_newlines();
-            }
+            // just ruled out above); discarded — MatchArm has no field to
+            // preserve it in (0 real occurrences in the stdlib/examples corpus,
+            // see the code-review-fix AI_NOTES entry for the measured evidence).
+            self.skip_trivia_run();
             match self.parse_match_arm() {
                 Ok(arm) => arms.push(arm),
                 Err(diagnostic) => {
@@ -434,8 +432,10 @@ impl Parser {
         self.skip_newlines();
 
         let mut statements = Vec::new();
+        let mut dangling_comments = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
+            if let Some(comments) = self.take_terminator_trivia_comments(&TokenKind::RightBrace) {
+                dangling_comments = comments;
                 break;
             }
             match self.parse_declaration() {
@@ -452,6 +452,8 @@ impl Parser {
         self.expect(&TokenKind::RightBrace, "متوقع '}'")?;
 
         let span = start.merge(&self.previous_span());
-        Ok(Block::new(statements, span))
+        let mut block = Block::new(statements, span);
+        block.dangling_comments = dangling_comments;
+        Ok(block)
     }
 }
