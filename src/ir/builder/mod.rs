@@ -94,6 +94,22 @@ pub struct IrBuilder {
     pub(crate) global_var_types: HashMap<String, IrType>,
     /// Enum variant field types: (enum_name, variant_name) -> [field_types].
     pub(crate) enum_variant_fields: HashMap<(String, String), Vec<IrType>>,
+    /// Every class declared in this module (populated in pass 2, before any
+    /// function body is built, so `ClassName.member` resolves regardless of
+    /// declaration order).
+    pub(crate) class_names: HashSet<String>,
+    /// Inheritance edges: child class name -> parent class name.
+    pub(crate) class_parents: HashMap<String, String>,
+    /// `مشترك` field globals: "Class::field" -> type.
+    pub(crate) static_field_types: HashMap<String, IrType>,
+    /// `مشترك` methods: "Class::method".
+    pub(crate) static_methods: HashSet<String>,
+    /// `مشترك خاصية` properties: "Class::property" (keys into
+    /// `property_getters`/`property_setters`).
+    pub(crate) static_properties: HashSet<String>,
+    /// Static field/property initializers that are not compile-time
+    /// constants, keyed by their "Class::member" global name.
+    pub(crate) pending_static_inits: Vec<(String, Expr)>,
 }
 
 impl IrBuilder {
@@ -120,6 +136,12 @@ impl IrBuilder {
             global_variables: HashSet::new(),
             global_var_types: HashMap::new(),
             enum_variant_fields: HashMap::new(),
+            class_names: HashSet::new(),
+            class_parents: HashMap::new(),
+            static_field_types: HashMap::new(),
+            static_methods: HashSet::new(),
+            static_properties: HashSet::new(),
+            pending_static_inits: Vec::new(),
         };
         builder.register_builtin_return_types();
         builder
@@ -225,8 +247,14 @@ impl IrBuilder {
 
         // Second pass: collect class declarations
         for stmt in &ast.statements {
-            if let StmtKind::ClassDecl { name, members, .. } = &stmt.kind {
-                self.collect_class(name, members)?;
+            if let StmtKind::ClassDecl {
+                name,
+                extends,
+                members,
+                ..
+            } = &stmt.kind
+            {
+                self.collect_class(name, extends.as_ref(), members)?;
             }
         }
 
@@ -329,8 +357,22 @@ impl IrBuilder {
             .collect();
 
         // In Program mode, create __global_init__ function for complex initializers
-        // This ensures arrays, objects, etc. are properly initialized before main runs
-        if has_user_main && !globals_needing_init.is_empty() {
+        // This ensures arrays, objects, etc. are properly initialized before main runs.
+        // Static field/property initializers ride along here (must be merged in
+        // *before* the emptiness check, or a module whose only non-const
+        // initializer is a مشترك field would skip __global_init__ entirely).
+        // Script mode drains them inline into the synthesized __main__ instead
+        // (below); every other shape — Program mode, or a pure
+        // declarations-only file with no top-level code and no دالة رئيسية —
+        // has no __main__ to attach them to inline, so it needs
+        // __global_init__ too, or a مشترك field with a non-const initializer
+        // in a class-only file is silently left null forever.
+        let is_script_mode = has_top_level_executable && !has_user_main;
+        let mut globals_needing_init = globals_needing_init;
+        if !is_script_mode {
+            globals_needing_init.extend(std::mem::take(&mut self.pending_static_inits));
+        }
+        if !is_script_mode && !globals_needing_init.is_empty() {
             self.begin_function("__global_init__".to_string(), vec![], IrType::Void)?;
 
             for (name, init_expr) in &globals_needing_init {
@@ -348,6 +390,13 @@ impl IrBuilder {
         // Script mode: wrap top-level executable code in auto-generated __main__
         if has_top_level_executable && !has_user_main {
             self.begin_function("__main__".to_string(), vec![], IrType::Void)?;
+
+            // Script mode has no __global_init__; run static initializers as
+            // the first statements of the synthesized __main__ instead.
+            for (key, init_expr) in std::mem::take(&mut self.pending_static_inits) {
+                let value = self.build_expr(&init_expr)?;
+                self.emit(Instruction::GlobalStore { name: key, value });
+            }
         }
 
         // Fourth pass: build all statements
@@ -385,7 +434,17 @@ impl IrBuilder {
     }
 
     /// Collect class information for later use.
-    pub(crate) fn collect_class(&mut self, name: &str, members: &[ClassMember]) -> Result<()> {
+    pub(crate) fn collect_class(
+        &mut self,
+        name: &str,
+        extends: Option<&String>,
+        members: &[ClassMember],
+    ) -> Result<()> {
+        self.class_names.insert(name.to_string());
+        if let Some(parent) = extends {
+            self.class_parents.insert(name.to_string(), parent.clone());
+        }
+
         let mut fields = Vec::new();
 
         for member in members {
@@ -393,17 +452,24 @@ impl IrBuilder {
                 ClassMember::Field {
                     name: field_name,
                     ty,
+                    init,
+                    is_static,
                     ..
                 } => {
                     let ir_type = ty
                         .as_ref()
                         .map(|t| self.convert_type(t))
                         .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
-                    fields.push((field_name.clone(), ir_type));
+                    if *is_static {
+                        self.register_static_global(name, field_name, ir_type, init.as_ref());
+                    } else {
+                        fields.push((field_name.clone(), ir_type));
+                    }
                 }
                 ClassMember::Method {
                     name: method_name,
                     return_type,
+                    is_static,
                     ..
                 } => {
                     let ret_ty = return_type
@@ -411,6 +477,9 @@ impl IrBuilder {
                         .map(|t| self.convert_type(t))
                         .unwrap_or(IrType::Void);
                     let full_name = format!("{}::{}", name, method_name);
+                    if *is_static {
+                        self.static_methods.insert(full_name.clone());
+                    }
                     self.method_return_types.insert(full_name, ret_ty);
                 }
                 ClassMember::Property {
@@ -418,20 +487,28 @@ impl IrBuilder {
                     ty,
                     accessors,
                     default_value,
+                    is_static,
                     ..
                 } => {
                     let prop_type = self.convert_type(ty);
                     let prop_key = format!("{}::{}", name, prop_name);
+                    if *is_static {
+                        self.static_properties.insert(prop_key.clone());
+                    }
 
                     // For automatic properties (no custom accessors), add a backing field
                     if accessors.is_empty() {
                         let backing_field = format!("_{}", prop_name);
-                        fields.push((backing_field, prop_type.clone()));
-                    }
-
-                    // Also add the property itself as a field for properties with default values
-                    if default_value.is_some() && accessors.is_empty() {
-                        // Already added as backing field above
+                        if *is_static {
+                            self.register_static_global(
+                                name,
+                                &backing_field,
+                                prop_type.clone(),
+                                default_value.as_ref(),
+                            );
+                        } else {
+                            fields.push((backing_field, prop_type.clone()));
+                        }
                     }
 
                     // Register getter
@@ -465,6 +542,38 @@ impl IrBuilder {
 
         self.module.classes.push(class);
         Ok(())
+    }
+
+    /// Lowers a `مشترك` field/property backing field to a module-level
+    /// global keyed on the *defining* class (`"{Class}::{member}"`), reusing
+    /// the existing `GlobalLoad`/`GlobalStore` machinery instead of the
+    /// per-instance struct layout. Mirrors the constant-folding the ordinary
+    /// top-level `متغير`/`ثابت` pass applies (see pass 3, below).
+    fn register_static_global(
+        &mut self,
+        class: &str,
+        member: &str,
+        ty: IrType,
+        init: Option<&Expr>,
+    ) {
+        let key = format!("{}::{}", class, member);
+        let const_init = init.and_then(|e| self.try_evaluate_const(e)).map(|c| {
+            // Implicit عدد -> عدد_عشري conversion (spec §5.6), mirroring pass 3.
+            match (&ty, c) {
+                (IrType::Float, Constant::Int(n)) => Constant::Float(n as f64),
+                (_, c) => c,
+            }
+        });
+        if const_init.is_none() {
+            if let Some(init_expr) = init {
+                self.pending_static_inits
+                    .push((key.clone(), init_expr.clone()));
+            }
+        }
+        self.module
+            .globals
+            .push((key.clone(), ty.clone(), const_init));
+        self.static_field_types.insert(key, ty);
     }
 
     /// Collect function signature for forward declaration.

@@ -1,5 +1,6 @@
 //! Type system for Tarqeem
 
+use super::class_resolver::ClassResolver;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,7 +52,13 @@ impl Type {
         )
     }
 
-    pub fn is_compatible_with(&self, other: &Type) -> bool {
+    /// Two-argument-order type compatibility, shared by `is_compatible_with`
+    /// (no subtyping — used for `==`, override variance, generic
+    /// constraints, and every other pre-existing call site) and
+    /// `is_assignable` (adds class subtyping, for assignment-position checks
+    /// only). Keeping one recursive body means a fix to Optional/Array/Map/
+    /// Function handling can't silently drift between the two callers.
+    fn compat(&self, other: &Type, resolver: Option<&ClassResolver>) -> bool {
         match (self, other) {
             (a, b) if a == b => true,
 
@@ -63,12 +70,18 @@ impl Type {
 
             (Type::Null, Type::Optional(_)) | (Type::Optional(_), Type::Null) => true,
 
-            (t, Type::Optional(inner)) | (Type::Optional(inner), t) => t.is_compatible_with(inner),
+            // Kept as two arms, not one `(t, Optional(inner)) | (Optional(inner), t) => t.compat(inner, ...)`:
+            // `compat` is directional (e.g. `(Int, Float) => true` but not the
+            // reverse), so collapsing both orderings onto a single `t.compat(inner)`
+            // call would silently swap which side is the value and which is the
+            // slot whenever `self` (not `other`) is the Optional-wrapped one.
+            (t, Type::Optional(inner)) => t.compat(inner, resolver),
+            (Type::Optional(inner), t) => inner.compat(t, resolver),
 
-            (Type::Array(a), Type::Array(b)) => a.is_compatible_with(b),
+            (Type::Array(a), Type::Array(b)) => a.compat(b, resolver),
 
             (Type::Map(ak, av), Type::Map(bk, bv)) => {
-                ak.is_compatible_with(bk) && av.is_compatible_with(bv)
+                ak.compat(bk, resolver) && av.compat(bv, resolver)
             }
 
             (
@@ -82,15 +95,43 @@ impl Type {
                 },
             ) => {
                 p1.len() == p2.len()
-                    && p1
-                        .iter()
-                        .zip(p2.iter())
-                        .all(|(a, b)| a.is_compatible_with(b))
-                    && r1.is_compatible_with(r2)
+                    && p1.iter().zip(p2.iter()).all(|(a, b)| a.compat(b, resolver))
+                    && r1.compat(r2, resolver)
+            }
+
+            // Upcast: a subclass value may be stored where its ancestor is
+            // expected (issue #184). Interface-typed slots are deliberately
+            // excluded: type annotations resolve `ميثاق` names to
+            // `Type::Class`, not `Type::Interface` (see `parse_type_name`),
+            // and member resolution through an interface name doesn't yet
+            // type-check correctly, so allowing it here would trade a
+            // compile error for a runtime crash. Add an
+            // `implements_interface` arm only after that is fixed.
+            (Type::Class(value_class), Type::Class(slot_class)) => {
+                resolver.is_some_and(|r| r.is_subclass(value_class, slot_class))
             }
 
             _ => false,
         }
+    }
+
+    /// Value-to-value compatibility with no notion of class hierarchy —
+    /// the pre-#184 semantics, unchanged. Used for `==`/`!=` operands,
+    /// override parameter/return variance, generic constraints, and any
+    /// other check that isn't deciding whether a value may be stored in a
+    /// particular slot.
+    pub fn is_compatible_with(&self, other: &Type) -> bool {
+        self.compat(other, None)
+    }
+
+    /// Assignment-position compatibility: like `is_compatible_with`, plus
+    /// upcasting a class to one of its ancestors. Use this (via
+    /// `Analyzer::is_assignable`) for variable initialization, assignment,
+    /// call/constructor arguments, and return values — not for `==`,
+    /// override checks, or generic constraints, which must keep exact
+    /// semantics.
+    pub(crate) fn is_assignable(&self, slot: &Type, resolver: &ClassResolver) -> bool {
+        self.compat(slot, Some(resolver))
     }
 
     pub fn binary_result_type(&self, op: &str, other: &Type) -> Option<Type> {

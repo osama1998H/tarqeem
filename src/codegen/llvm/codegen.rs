@@ -45,6 +45,11 @@ pub struct LlvmCodegen {
     /// Global string variables that need runtime initialization
     /// (mangled_global_name, string_constant_global, length)
     global_string_inits: Vec<(String, String, usize)>,
+    /// Whether the module has a synthesized `__global_init__` function
+    /// (non-constant global/`مشترك` initializers). Interpreter mode calls it
+    /// explicitly; native codegen must call it from `__main__`'s prologue
+    /// itself, or arrays/objects assigned to globals stay null.
+    has_global_init: bool,
 }
 
 impl LlvmCodegen {
@@ -66,11 +71,13 @@ impl LlvmCodegen {
             global_vars: HashMap::new(),
             inherited_field_count: HashMap::new(),
             global_string_inits: Vec::new(),
+            has_global_init: false,
         }
     }
 
     pub fn generate(&mut self, module: &Module) -> Result<String, CodegenError> {
         self.output.clear();
+        self.has_global_init = module.functions.iter().any(|f| f.name == "__global_init__");
 
         self.emit_header(&module.name)?;
 
@@ -816,8 +823,10 @@ impl LlvmCodegen {
             params.join(", ")
         );
 
-        // Flag to track if we need to emit global string init
-        let needs_global_init = func_name == "__main__" && !self.global_string_inits.is_empty();
+        // Flag to track if we need to emit global string init and/or the
+        // __global_init__ call
+        let needs_global_init = func_name == "__main__"
+            && (!self.global_string_inits.is_empty() || self.has_global_init);
 
         for (i, block) in func.blocks.iter().enumerate() {
             // For __main__, emit global string initialization at the start of the first block
@@ -825,6 +834,11 @@ impl LlvmCodegen {
                 let label = self.get_block(block.id)?;
                 emit!(self, "{}:", label);
                 self.emit_global_string_init()?;
+                // String globals must be initialized first: __global_init__
+                // may store string values into globals it depends on.
+                if self.has_global_init {
+                    emit!(self, "  call void @__global_init__()");
+                }
                 // Continue with block instructions
                 for inst in &block.instructions {
                     self.emit_instruction(inst)?;
@@ -1259,6 +1273,20 @@ impl LlvmCodegen {
                 method,
                 args,
                 ret_ty,
+                // Native codegen always dispatches statically on `method.class`;
+                // fixing that to walk a vtable is out of scope here (tracked
+                // as a follow-up alongside issue #185's native divergences).
+                //
+                // A coarser guard — reject any call where *some* descendant
+                // overrides the method, regardless of whether this call site
+                // is reachable through an upcast — was tried and reverted:
+                // it false-positived on `examples/صنف.ترقيم` (شخص١.اطبع_معلومات()
+                // where شخص١'s declared and runtime type are both `شخص`, no
+                // upcast involved, so native's static bind is already
+                // correct there). Telling "this call is monomorphic" from
+                // "this call could reach an override via upcast" needs
+                // value-flow analysis this fix deliberately doesn't add.
+                virtual_dispatch: _,
             } => {
                 let obj_name = self.get_var(*object)?;
                 let full_method_name = format!("{}::{}", method.class.0, method.name);

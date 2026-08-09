@@ -2,6 +2,191 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-09 — Issue #184: core OOP broken (inherited methods, مشترك statics, upcasting)
+
+Highest-impact pick from the #180–#187 usability-audit backlog: three
+textbook class-system patterns (§9.5–9.7 of LANGUAGE_SPEC.md) were all
+broken — `موظف.تحية()` crashed with "دالة غير معرّفة" when only the parent
+defined it, `عدادات.المجموع` crashed with "معرّف غير معرّف" for `مشترك`
+members, and `متغير ش: شكل = جديد مربع(5)` was a flat type error.
+
+### Decision: runtime `class_id` walk, not a vtable
+
+Three independent Explore/Plan passes converged on rival designs; the
+largest required a new `ClassHierarchy` abstraction threaded through 20
+`IrBuilder::new` call sites plus native vptr object-layout changes. Checked
+independently first: `NewObject` already stores the object's true runtime
+class, and `Class.parent` was already fully populated before execution.
+That made a single `virtual_dispatch: bool` field on `Instruction::CallMethod`
+sufficient — true for ordinary calls, false only for `الأصل.م()` super calls
+(which must stay statically bound, or an override's super call recurses
+into itself). The interpreter resolves virtual calls by walking the
+object's actual `class_id` up `Class.parent` until a matching `FuncId` is
+found (`resolve_virtual_method`, mirrored in the DAP interpreter). This one
+change fixes inherited calls, template-method dispatch through `هذا`, *and*
+upcast dispatch simultaneously — dispatch never even looks at the
+declared/static type, so once assignability (below) allows the upcast to
+compile, correct dispatch falls out for free.
+
+### مشترك statics: reuse the existing global-variable path
+
+`مشترك` fields/methods had no representation as a namespace at the IR
+level — `عدادات.المجموع` fell into `build_identifier`, which only knows
+locals/params/functions/globals. Fixed by lowering static fields/properties
+to ordinary IR globals keyed `"{Class}::{member}"` (`register_static_global`
+in `ir/builder/mod.rs`) and adding a `class_name_receiver` check before the
+six call sites that used to assume every bare-identifier receiver was a
+variable (`build_call`, `build_member`, `build_assignment`, and
+`build_compound_assignment` in `expr_builder.rs`; the `Member`/`Call` arms
+of `infer_expr_type` in `type_helpers.rs`). Caught along the way:
+`__global_init__` (for non-const initializers) was invoked by the
+interpreter only — native codegen never
+called it, so a `مشترك` array field silently stayed null in compiled
+binaries. Fixed by calling it from `__main__`'s prologue in codegen.rs,
+which incidentally fixes the same latent gap for ordinary non-const globals.
+
+### Upcasting: parameterize, don't duplicate, the compatibility check
+
+`Type::is_compatible_with` had no `(Class, Class)` arm. Renamed its body to
+a private `compat(&self, other, resolver: Option<&ClassResolver>)`, kept
+`is_compatible_with` calling it with `None` (byte-for-byte identical, so
+the ~10 non-assignment call sites — `==`, override variance, generic
+constraints — are provably untouched), and added `is_assignable` calling it
+with `Some(resolver)` for the one new `(Class(sub), Class(super))` arm.
+Only assignment-position call sites (var init, call/ctor args, field
+defaults, etc.) were switched to `is_assignable`. The ternary operator
+needed a real join instead of a plain swap: naively using `is_assignable`
+would infer `شكل ? جديد شكل() : جديد مربع()` as `مربع` (the narrower type),
+which is unsound — it now tries both directions and takes the wider one.
+
+Deliberately excluded: interface-typed slots. `resolve_member_type`
+collapses interface members to `Type::Any` and `implements_interface`
+doesn't walk `extends` chains yet, so allowing an interface upcast now
+would trade a compile error for a runtime crash — filed as a follow-up
+instead of allowed here.
+
+### Native (LLVM) codegen: scope boundary, and a guard that was tried and reverted
+
+Native dispatch was deliberately left untouched — it still always binds
+`CallMethod` to `method.class`'s own body (no vtable). `مشترك` statics *are*
+fixed natively too (they reuse the pre-existing global path). For
+inheritance/upcasting, native's pre-existing behavior is unchanged, but its
+*character* shifted for the upcast case specifically: before this fix the
+program didn't type-check at all (compile error); after, it compiles and
+silently runs the ancestor's method instead of the override (e.g. prints
+`0` instead of `25`) — a worse failure mode (silent-wrong vs. loud-reject).
+
+Tried fixing this with a codegen-time guard: precompute `(ancestor_class,
+method)` pairs where some descendant overrides the method, and reject any
+`CallMethod` matching one of those pairs as unsupported-in-native (new code
+ت٠٢٠٢). Reverted after a native-compile sweep of all 18 `examples/*.ترقيم`
+found a false positive: `examples/صنف.ترقيم` calls `شخص١.اطبع_معلومات()`
+where `شخص١`'s declared *and* runtime type are both `شخص` — no upcast
+anywhere in the file — yet the guard rejected it purely because `موظف`
+(unrelated to this call site) overrides the same method name. Telling
+"this call is monomorphic" from "this call could reach an override via an
+upcast somewhere" needs value-flow analysis, which is exactly the kind of
+invasive change the minimal-diff approach was chosen to avoid. Disclosure
+(this note + a follow-up issue) instead of a coarse guard that breaks a
+currently-working canonical example.
+
+### Verification: red-proved the new tests, not just green-checked them
+
+Added `tests/oop_execution_tests.rs` (25 execution tests, stdout-asserting
+via both interpreter and JIT — addressing part of #187's "tests never
+execute programs" gap for this feature area). Confirmed they aren't
+vacuously true by running the identical file against a `git worktree` of
+the pre-fix commit: 16/25 failed there with exactly the errors this fix
+addresses (9 pre-existing regression-guard tests, e.g. downcast rejection,
+already passed). Also ran a full native-compile sweep of `examples/*.ترقيم`
+(0/18 failures) to confirm no regression outside the new tests.
+
+### xhigh code review (before commit): 12 confirmed defects, fixed
+
+An xhigh-effort multi-agent review of the full diff (before it was
+committed) found 12 defects that survived independent verification. Most
+severe: `Type::compat`'s Optional-unwrapping arm
+(`(t, Optional(inner)) | (Optional(inner), t) => t.compat(inner, ...)`)
+silently swapped which operand was the value and which was the slot
+whenever `self` (not `other`) was the Optional-wrapped one — direction
+matters for the new Class-subtype arm (and even pre-existing arms like
+`Int → Float`), so this both rejected valid `مربع? → شكل?` upcasts *and*
+silently accepted the unsound reverse direction. Fixed by splitting it
+into two direction-preserving arms. A related but separate bug: the
+ternary widening join (added earlier in this same PR) picked whichever
+branch's type satisfied `is_assignable` first, silently dropping the
+other branch's `?` — fixed locally in `infer_ternary_expr` by re-wrapping
+the join result in `Optional` when either branch was Optional, rather
+than touching `compat`'s Optional semantics globally (which `==`/`!=`
+comparisons elsewhere depend on staying symmetric).
+
+Also confirmed and fixed: array/map literal type inference anchored on
+the *first* element instead of folding to the widest type, so
+`[جديد مربع()، جديد شكل()]` was rejected while the reverse order compiled
+— same class of order-dependence as the ternary, fixed the same way
+(widen-in-place fold instead of anchor-on-first). And a genuine
+encapsulation bypass this PR's combination of features newly exposed:
+`resolve_virtual_method` dispatches on the object's *runtime* class
+without re-checking the resolved override's visibility, but
+`check_method_overrides` (pre-existing, in `class_resolver.rs`) only ever
+blocked narrowing an override to `خاص` — never `عام → محمي`. So
+`م.تحية()` through a `شخص`-typed reference to a `موظف` instance would
+statically check against `شخص`'s public method, then dynamically resolve
+to `موظف`'s protected override. Fixed at the root — generalized the
+existing check to reject *any* visibility-narrowing override, not just
+narrowing to private — rather than trying to re-check visibility at every
+virtual-dispatch call site.
+
+Lower-severity fixes: a cycle guard added to `resolve_virtual_method`
+(mirroring the `visited`-set pattern the static-lookup helpers already
+use); a `(String, String) → FuncId` cache added to the same function (was
+an uncached linear scan per inheritance level, on every instance method
+call); `مشترك` static initializers were silently dropped for class-only
+files with neither top-level code nor `دالة رئيسية` (the drain condition
+missed that third shape); the ص٠٥٠١/ص٠٥٠٢ doc examples didn't match the
+actual emitted message text; this file underclaimed the class-name-
+receiver check landed at five call sites when the diff actually touched
+six. Three new regression tests were added for the ternary/array fixes
+and the weak `test_static_method_call_with_args_and_return` assertion
+(field and method result shared the same value, so a method call that
+accidentally resolved to the field's global would still have passed) was
+tightened to use distinguishable values.
+
+One review finding was corrected rather than "fixed": `jit_stdout`'s doc
+comment claimed it exercised the dispatch fix identically to the
+interpreter, but `JitConfig::default()`'s `baseline_threshold: 100` means
+none of these short test bodies ever promote past Tier-0, so both test
+legs run the same interpreted path. Probed whether lowering the threshold
+would make the test suite meaningfully exercise Cranelift-compiled
+`CallMethod` handling — it doesn't: profiling only counts calls to
+`__main__` itself (called once per test), not to the methods inside it,
+so no realistic threshold promotes them. Left the JIT path as-is and
+corrected the doc comment instead of chasing a fix that would require
+building actual Cranelift `CallMethod` support — that's the same
+already-tracked native/JIT dispatch gap from the #185 follow-up, not
+something this PR's scope should absorb.
+
+### Follow-ups filed separately (out of scope here)
+Every item below was re-verified empirically against the built compiler
+before filing — not carried over from the plan's notes unchecked. One
+planned item (inherited *field* access from a subclass method body) did
+**not** reproduce: retested with `محمي`/`عام` fields (the original repro
+had mistakenly used `خاص`, which is correctly rejected — private means
+private even to subclasses) and both worked fine. No issue filed for it.
+
+- #185 (comment): native virtual/polymorphic dispatch — vtable population,
+  symbol mangling, vptr object layout.
+- #209: interface-typed variable assignment/dispatch (`ميثاق`-typed slots).
+- #211: `جديد` on a class with no constructor crashes at runtime instead of
+  compile-erroring.
+- #212: return statements and member/index assignment targets are never
+  type-checked.
+- #213: `check`'s "N error(s) found" count includes warnings; class methods
+  called only via `obj.method()` syntax always warn as unused.
+- #214: dead code — `MethodResolver::resolve_method_call`,
+  `ClassResolver::implements_interface` (zero callers; the latter is
+  relevant to #209's fix).
+
 ## 2026-08-09 — Code-review fixes on the #193/#194/#198 bundle: 6 findings
 
 A high-effort automated review of the bundle below found 6 confirmed issues.

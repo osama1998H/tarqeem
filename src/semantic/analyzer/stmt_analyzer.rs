@@ -194,7 +194,7 @@ impl Analyzer {
             let init_type = self.infer_type(init_expr);
             self.expected_type = None;
 
-            if !init_type.is_compatible_with(expected) {
+            if !self.is_assignable(&init_type, expected) {
                 self.type_mismatch_error(
                     expected,
                     &init_type,
@@ -415,7 +415,7 @@ impl Analyzer {
 
                 if let Some(init_expr) = init {
                     let init_type = self.infer_type(init_expr);
-                    if !init_type.is_compatible_with(&field_type) {
+                    if !self.is_assignable(&init_type, &field_type) {
                         self.type_mismatch_error(
                             &field_type,
                             &init_type,
@@ -496,7 +496,7 @@ impl Analyzer {
 
         if let Some(init_expr) = default_value {
             let init_type = self.infer_type(init_expr);
-            if !init_type.is_compatible_with(&prop_type) {
+            if !self.is_assignable(&init_type, &prop_type) {
                 self.type_mismatch_error(
                     &prop_type,
                     &init_type,
@@ -519,7 +519,7 @@ impl Analyzer {
                         }
                         PropertyAccessorBody::Expr(expr) => {
                             let expr_type = self.infer_type(expr);
-                            if !expr_type.is_compatible_with(&prop_type) {
+                            if !self.is_assignable(&expr_type, &prop_type) {
                                 self.type_mismatch_error(
                                     &prop_type,
                                     &expr_type,
@@ -1297,7 +1297,7 @@ impl Analyzer {
                     args.iter().zip(params.iter()).enumerate()
                 {
                     let arg_type = self.infer_type(arg);
-                    if !arg_type.is_compatible_with(param_type) {
+                    if !self.is_assignable(&arg_type, param_type) {
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,

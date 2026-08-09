@@ -746,14 +746,20 @@ impl ClassResolver {
                 if let Some(parent) = self.classes.get(parent_name) {
                     for (method_name, method) in &class.methods {
                         if let Some(parent_method) = parent.get_method(method_name, self) {
-                            if method.visibility == Visibility::Private
-                                && parent_method.visibility != Visibility::Private
+                            // An override may keep or widen visibility, never narrow it —
+                            // otherwise a caller holding an ancestor-typed reference could
+                            // pass the parent's (wider) visibility check at compile time
+                            // while virtual dispatch (#184) resolves at runtime to an
+                            // override the same caller couldn't have called directly.
+                            if visibility_rank(method.visibility)
+                                < visibility_rank(parent_method.visibility)
                             {
                                 private_override_violations.push((
                                     format!(
-                                        "لا يمكن تجاوز الدالة {} '{}' بخصوصية خاصة",
+                                        "لا يمكن تجاوز الدالة {} '{}' بخصوصية {}",
                                         format_visibility_ar(parent_method.visibility),
-                                        method_name
+                                        method_name,
+                                        narrowed_visibility_ar(method.visibility)
                                     ),
                                     class.span,
                                 ));
@@ -950,6 +956,28 @@ fn format_visibility_ar(vis: Visibility) -> &'static str {
         Visibility::Public => "العامة",
         Visibility::Private => "الخاصة",
         Visibility::Protected => "المحمية",
+    }
+}
+
+/// Indefinite-adjective form for "cannot override ... with N visibility" —
+/// only ever used for the narrower of the two visibilities in that message,
+/// so `Public` (the widest) never needs a form here.
+fn narrowed_visibility_ar(vis: Visibility) -> &'static str {
+    match vis {
+        Visibility::Private => "خاصة",
+        Visibility::Protected => "محمية",
+        Visibility::Public => "عامة",
+    }
+}
+
+/// Permissiveness ordering for override-narrowing checks: wider visibility
+/// ranks higher, so an override is only valid if its rank is >= the
+/// overridden method's rank.
+fn visibility_rank(vis: Visibility) -> u8 {
+    match vis {
+        Visibility::Public => 2,
+        Visibility::Protected => 1,
+        Visibility::Private => 0,
     }
 }
 

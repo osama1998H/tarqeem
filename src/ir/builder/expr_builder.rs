@@ -14,6 +14,14 @@ use super::{IrBuilder, IrError, Result};
 
 use unicode_normalization::UnicodeNormalization;
 
+/// `الأصل.method()` must stay bound to the parent's implementation: since
+/// `الأصل` resolves to the same `هذا` value, dispatching it dynamically on
+/// the runtime object would call straight back into the overriding method
+/// and recurse forever.
+fn is_super_receiver(object: &Expr) -> bool {
+    matches!(object.kind, ExprKind::Super)
+}
+
 impl IrBuilder {
     /// Build IR for an expression.
     pub(crate) fn build_expr(&mut self, expr: &Expr) -> Result<VarId> {
@@ -491,6 +499,29 @@ impl IrBuilder {
         }
 
         if let ExprKind::Member { object, property } = &callee.kind {
+            if let Some(class) = self.class_name_receiver(object) {
+                if let Some(full) = self.resolve_static_method(&class, property) {
+                    let ret_ty = self
+                        .method_return_types
+                        .get(&full)
+                        .cloned()
+                        .unwrap_or(IrType::Void);
+                    let dest = self.new_var();
+                    self.emit(Instruction::Call {
+                        dest: Some(dest),
+                        func: FuncId(full),
+                        args: arg_vars,
+                        ret_ty: ret_ty.clone(),
+                    });
+                    self.var_types.insert(dest.0, ret_ty);
+                    return Ok(dest);
+                }
+                return Err(IrError::new(format!(
+                    "الدالة '{}' ليست دالة مشتركة في الصنف '{}'",
+                    property, class
+                )));
+            }
+
             let obj_type = self.infer_expr_type(object);
             let obj_var = self.build_expr(object)?;
 
@@ -571,6 +602,7 @@ impl IrBuilder {
                 },
                 args: arg_vars,
                 ret_ty: ret_ty.clone(),
+                virtual_dispatch: !is_super_receiver(object),
             });
             self.var_types.insert(dest.0, ret_ty);
             return Ok(dest);
@@ -591,6 +623,34 @@ impl IrBuilder {
 
     /// Build IR for a member access.
     pub(crate) fn build_member(&mut self, object: &Expr, property: &str) -> Result<VarId> {
+        if let Some(class) = self.class_name_receiver(object) {
+            if let Some((key, ty)) = self.resolve_static_field(&class, property) {
+                let dest = self.new_var();
+                self.emit(Instruction::GlobalLoad {
+                    dest,
+                    name: key,
+                    ty: ty.clone(),
+                });
+                self.var_types.insert(dest.0, ty);
+                return Ok(dest);
+            }
+            if let Some((getter, ty)) = self.resolve_static_property(&class, property) {
+                let dest = self.new_var();
+                self.emit(Instruction::Call {
+                    dest: Some(dest),
+                    func: FuncId(getter),
+                    args: vec![],
+                    ret_ty: ty.clone(),
+                });
+                self.var_types.insert(dest.0, ty);
+                return Ok(dest);
+            }
+            return Err(IrError::new(format!(
+                "العضو '{}' ليس عضواً مشتركاً في الصنف '{}'",
+                property, class
+            )));
+        }
+
         let obj_type = self.infer_expr_type(object);
         let obj_var = self.build_expr(object)?;
         let dest = self.new_var();
@@ -627,6 +687,7 @@ impl IrBuilder {
                     },
                     args: vec![],
                     ret_ty: prop_type.clone(),
+                    virtual_dispatch: !is_super_receiver(object),
                 });
                 self.var_types.insert(dest.0, prop_type);
                 return Ok(dest);
@@ -710,6 +771,29 @@ impl IrBuilder {
                 }
             }
             ExprKind::Member { object, property } => {
+                if let Some(class) = self.class_name_receiver(object) {
+                    if let Some((key, _)) = self.resolve_static_field(&class, property) {
+                        self.emit(Instruction::GlobalStore {
+                            name: key,
+                            value: value_var,
+                        });
+                        return Ok(value_var);
+                    }
+                    if let Some(setter) = self.resolve_static_property_setter(&class, property) {
+                        self.emit(Instruction::Call {
+                            dest: None,
+                            func: FuncId(setter),
+                            args: vec![value_var],
+                            ret_ty: IrType::Void,
+                        });
+                        return Ok(value_var);
+                    }
+                    return Err(IrError::new(format!(
+                        "العضو '{}' ليس عضواً مشتركاً في الصنف '{}'",
+                        property, class
+                    )));
+                }
+
                 let obj_type = self.infer_expr_type(object);
                 let obj_var = self.build_expr(object)?;
 
@@ -745,6 +829,7 @@ impl IrBuilder {
                             },
                             args: vec![value_var],
                             ret_ty: IrType::Void,
+                            virtual_dispatch: !is_super_receiver(object),
                         });
                         return Ok(value_var);
                     }
@@ -832,6 +917,29 @@ impl IrBuilder {
                 }
             }
             ExprKind::Member { object, property } => {
+                if let Some(class) = self.class_name_receiver(object) {
+                    if let Some((key, _)) = self.resolve_static_field(&class, property) {
+                        self.emit(Instruction::GlobalStore {
+                            name: key,
+                            value: result,
+                        });
+                        return Ok(result);
+                    }
+                    if let Some(setter) = self.resolve_static_property_setter(&class, property) {
+                        self.emit(Instruction::Call {
+                            dest: None,
+                            func: FuncId(setter),
+                            args: vec![result],
+                            ret_ty: IrType::Void,
+                        });
+                        return Ok(result);
+                    }
+                    return Err(IrError::new(format!(
+                        "العضو '{}' ليس عضواً مشتركاً في الصنف '{}'",
+                        property, class
+                    )));
+                }
+
                 let obj_var = self.build_expr(object)?;
                 self.emit(Instruction::SetField {
                     object: obj_var,

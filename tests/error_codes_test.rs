@@ -61,6 +61,16 @@ const ALL_ERROR_CODES: &[(ErrorCode, &str, &str)] = &[
     (ERR_METHOD_NOT_FOUND, "ص٠٣٠٢", "Method not found"),
     (ERR_PRIVATE_ACCESS, "ص٠٤٠١", "Private access"),
     (ERR_PROTECTED_ACCESS, "ص٠٤٠٢", "Protected access"),
+    (
+        ERR_NONSTATIC_VIA_CLASS,
+        "ص٠٥٠١",
+        "Non-static member accessed via class name",
+    ),
+    (
+        ERR_STATIC_VIA_INSTANCE,
+        "ص٠٥٠٢",
+        "Static member accessed via instance",
+    ),
     // Module errors (و)
     (ERR_MODULE_NOT_FOUND, "و٠٠٠١", "Module not found"),
     (ERR_NOT_EXPORTED, "و٠٠٠٢", "Not exported"),
@@ -80,11 +90,11 @@ const ALL_ERROR_CODES: &[(ErrorCode, &str, &str)] = &[
 
 #[test]
 fn test_error_code_count() {
-    // Phase 10 verification: we should have exactly 43 error codes
+    // Phase 10 verification: 43 + ص٠٥٠١/ص٠٥٠٢ (issue #184, static-member access)
     assert_eq!(
         ALL_ERROR_CODES.len(),
-        43,
-        "Expected 43 error codes, found {}",
+        45,
+        "Expected 45 error codes, found {}",
         ALL_ERROR_CODES.len()
     );
 }

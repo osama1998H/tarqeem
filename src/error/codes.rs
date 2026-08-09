@@ -322,6 +322,12 @@ pub const ERR_PRIVATE_ACCESS: ErrorCode = ErrorCode::new(ErrorCategory::Sinf, 40
 /// ص٠٤٠٢: الوصول لعضو محمي
 pub const ERR_PROTECTED_ACCESS: ErrorCode = ErrorCode::new(ErrorCategory::Sinf, 402);
 
+/// ص٠٥٠١: الوصول لعضو غير مشترك عبر اسم الصنف
+pub const ERR_NONSTATIC_VIA_CLASS: ErrorCode = ErrorCode::new(ErrorCategory::Sinf, 501);
+
+/// ص٠٥٠٢: الوصول لعضو مشترك عبر نسخة
+pub const ERR_STATIC_VIA_INSTANCE: ErrorCode = ErrorCode::new(ErrorCategory::Sinf, 502);
+
 // ============================================================================
 // رموز أخطاء الوحدات (و) - Module Error Codes
 // ============================================================================

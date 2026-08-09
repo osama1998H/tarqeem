@@ -97,6 +97,15 @@ impl Analyzer {
         &self.class_resolver
     }
 
+    /// Assignment-position type check: like `Type::is_compatible_with`, plus
+    /// upcasting a class to one of its ancestors (issue #184). Use this for
+    /// variable initialization, assignment, and call/constructor arguments —
+    /// not for `==`, override checks, or generic constraints, which must
+    /// keep their pre-existing exact-type semantics.
+    pub(crate) fn is_assignable(&self, value: &Type, slot: &Type) -> bool {
+        value.is_assignable(slot, &self.class_resolver)
+    }
+
     /// Set the language for error messages.
     pub fn with_language(mut self, lang: Language) -> Self {
         self.language = lang;

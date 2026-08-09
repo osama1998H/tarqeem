@@ -240,6 +240,15 @@ impl IrBuilder {
                 }
             }
             ExprKind::Member { object, property } => {
+                if let Some(class) = self.class_name_receiver(object) {
+                    if let Some((_, ty)) = self.resolve_static_field(&class, property) {
+                        return ty;
+                    }
+                    if let Some((_, ty)) = self.resolve_static_property(&class, property) {
+                        return ty;
+                    }
+                    return IrType::Ptr(Box::new(IrType::Void));
+                }
                 let obj_ty = self.infer_expr_type(object);
                 if let IrType::Struct(class_id) = obj_ty {
                     self.get_field_type(&class_id.0, property)
@@ -250,6 +259,17 @@ impl IrBuilder {
             ExprKind::Call { callee, .. } => {
                 if let ExprKind::Identifier(name) = &callee.kind {
                     self.get_function_return_type(name)
+                } else if let ExprKind::Member { object, property } = &callee.kind {
+                    if let Some(class) = self.class_name_receiver(object) {
+                        if let Some(full) = self.resolve_static_method(&class, property) {
+                            return self
+                                .method_return_types
+                                .get(&full)
+                                .cloned()
+                                .unwrap_or(IrType::Void);
+                        }
+                    }
+                    IrType::Ptr(Box::new(IrType::Void))
                 } else {
                     IrType::Ptr(Box::new(IrType::Void))
                 }
@@ -334,6 +354,114 @@ impl IrBuilder {
                     return Some((idx as u32, ty.clone()));
                 }
             }
+        }
+        None
+    }
+
+    /// Is `expr` a bare identifier naming a declared class, used as a
+    /// namespace (`ClassName.member`)? Returns `None` if the identifier is
+    /// shadowed by a local/global/function of the same name, mirroring the
+    /// shadowing precedence `build_identifier` already uses (locals, then
+    /// globals/functions, only then anything else).
+    pub(crate) fn class_name_receiver(&self, expr: &Expr) -> Option<String> {
+        let ExprKind::Identifier(name) = &expr.kind else {
+            return None;
+        };
+        if self.lookup_var(name).is_some()
+            || self.global_variables.contains(name)
+            || self.global_constants.contains_key(name)
+            || self.function_names.contains(name)
+        {
+            return None;
+        }
+        self.class_names.contains(name).then(|| name.clone())
+    }
+
+    /// Walk `class` up through `class_parents` looking for a `مشترك` field
+    /// or static-property backing field, returning the *defining* class's
+    /// global key so every subclass shares one storage slot.
+    pub(crate) fn resolve_static_field(
+        &self,
+        class: &str,
+        member: &str,
+    ) -> Option<(String, IrType)> {
+        let mut current = Some(class.to_string());
+        let mut visited = std::collections::HashSet::new();
+        while let Some(c) = current {
+            if !visited.insert(c.clone()) {
+                break; // cyclic inheritance is rejected by semantic analysis; don't hang here
+            }
+            let key = format!("{}::{}", c, member);
+            if let Some(ty) = self.static_field_types.get(&key) {
+                return Some((key, ty.clone()));
+            }
+            current = self.class_parents.get(&c).cloned();
+        }
+        None
+    }
+
+    /// Walk `class` up through `class_parents` looking for a `مشترك` method,
+    /// returning the defining class's mangled function name.
+    pub(crate) fn resolve_static_method(&self, class: &str, member: &str) -> Option<String> {
+        let mut current = Some(class.to_string());
+        let mut visited = std::collections::HashSet::new();
+        while let Some(c) = current {
+            if !visited.insert(c.clone()) {
+                break;
+            }
+            let key = format!("{}::{}", c, member);
+            if self.static_methods.contains(&key) {
+                return Some(key);
+            }
+            current = self.class_parents.get(&c).cloned();
+        }
+        None
+    }
+
+    /// Walk `class` up through `class_parents` looking for a `مشترك خاصية`,
+    /// returning the defining class's getter function name and its type.
+    pub(crate) fn resolve_static_property(
+        &self,
+        class: &str,
+        member: &str,
+    ) -> Option<(String, IrType)> {
+        let mut current = Some(class.to_string());
+        let mut visited = std::collections::HashSet::new();
+        while let Some(c) = current {
+            if !visited.insert(c.clone()) {
+                break;
+            }
+            let key = format!("{}::{}", c, member);
+            if self.static_properties.contains(&key) {
+                if let Some((getter_name, ty)) = self.property_getters.get(&key) {
+                    return Some((getter_name.clone(), ty.clone()));
+                }
+            }
+            current = self.class_parents.get(&c).cloned();
+        }
+        None
+    }
+
+    /// Same as `resolve_static_property`, but for the setter side of an
+    /// assignment target.
+    pub(crate) fn resolve_static_property_setter(
+        &self,
+        class: &str,
+        member: &str,
+    ) -> Option<String> {
+        let mut current = Some(class.to_string());
+        let mut visited = std::collections::HashSet::new();
+        while let Some(c) = current {
+            if !visited.insert(c.clone()) {
+                break;
+            }
+            let key = format!("{}::{}", c, member);
+            if self.static_properties.contains(&key) {
+                if let Some(setter_name) = self.property_setters.get(&key) {
+                    return Some(setter_name.clone());
+                }
+            }
+            current = self.class_parents.get(&c).cloned();
         }
         None
     }

@@ -4,13 +4,13 @@
 
 use super::super::generics::GenericParam;
 use super::super::method_resolver::{MemberResolution, MethodResolver};
-use super::super::scope::Symbol;
+use super::super::scope::{Symbol, SymbolKind};
 use super::super::types::Type;
 use super::Analyzer;
 use crate::error::codes::{
-    ERR_CONST_ASSIGNMENT, ERR_PRIVATE_ACCESS, ERR_PROPERTY_NOT_FOUND, ERR_PROTECTED_ACCESS,
-    ERR_SUPER_OUTSIDE_CLASS, ERR_THIS_OUTSIDE_CLASS, ERR_TYPE_MISMATCH, ERR_UNDEFINED_CLASS,
-    ERR_UNDEFINED_VARIABLE,
+    ERR_CONST_ASSIGNMENT, ERR_NONSTATIC_VIA_CLASS, ERR_PRIVATE_ACCESS, ERR_PROPERTY_NOT_FOUND,
+    ERR_PROTECTED_ACCESS, ERR_STATIC_VIA_INSTANCE, ERR_SUPER_OUTSIDE_CLASS, ERR_THIS_OUTSIDE_CLASS,
+    ERR_TYPE_MISMATCH, ERR_UNDEFINED_CLASS, ERR_UNDEFINED_VARIABLE,
 };
 use crate::error::Span;
 use crate::parser::*;
@@ -60,7 +60,8 @@ impl Analyzer {
 
             ExprKind::Member { object, property } => {
                 let object_type = self.infer_type(object);
-                self.resolve_member_type(&object_type, property, expr.span)
+                let receiver_is_class = self.receiver_is_class_name(object);
+                self.resolve_member_type(&object_type, property, expr.span, receiver_is_class)
             }
 
             ExprKind::Index { object, index } => self.infer_index_expr(object, index, expr.span),
@@ -213,7 +214,7 @@ impl Analyzer {
 
                 for (i, (arg, param_type)) in args.iter().zip(params.iter()).enumerate() {
                     let arg_type = self.infer_type(arg);
-                    if !arg_type.is_compatible_with(param_type) {
+                    if !self.is_assignable(&arg_type, param_type) {
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
@@ -298,7 +299,7 @@ impl Analyzer {
                             &ERR_CONST_ASSIGNMENT.to_string(),
                         );
                     }
-                    if !value_type.is_compatible_with(&ty) {
+                    if !self.is_assignable(&value_type, &ty) {
                         self.type_mismatch_error(
                             &ty,
                             &value_type,
@@ -338,12 +339,20 @@ impl Analyzer {
                 Type::Array(Box::new(Type::Unknown))
             }
         } else {
-            let first_type = self.infer_type(&elements[0]);
+            // Fold to the widest type seen so far rather than anchoring on
+            // the first element — otherwise `[جديد مربع()، جديد شكل()]`
+            // (subclass listed before its ancestor) is rejected while the
+            // reverse order compiles, purely because of element order.
+            let mut widest_type = self.infer_type(&elements[0]);
             for elem in elements.iter().skip(1) {
                 let elem_type = self.infer_type(elem);
-                if !elem_type.is_compatible_with(&first_type) {
+                if self.is_assignable(&elem_type, &widest_type) {
+                    // Already fits — keep the current widest type.
+                } else if self.is_assignable(&widest_type, &elem_type) {
+                    widest_type = elem_type;
+                } else {
                     self.type_mismatch_error(
-                        &first_type,
+                        &widest_type,
                         &elem_type,
                         elem.span,
                         "عنصر المصفوفة",
@@ -351,7 +360,7 @@ impl Analyzer {
                     );
                 }
             }
-            Type::Array(Box::new(first_type))
+            Type::Array(Box::new(widest_type))
         }
     }
 
@@ -364,19 +373,25 @@ impl Analyzer {
                 Type::Map(Box::new(Type::String), Box::new(Type::Any))
             }
         } else {
-            let first_value_type = self.infer_type(&pairs[0].1);
-
-            let mut all_same = true;
+            // Same order-independent widening fold as infer_array_expr, so
+            // an ancestor-typed value listed after a subclass value doesn't
+            // spuriously fall back to `أي` just because of pair order.
+            let mut widest_type = self.infer_type(&pairs[0].1);
+            let mut all_compatible = true;
             for (_, value) in pairs.iter().skip(1) {
                 let value_type = self.infer_type(value);
-                if !value_type.is_compatible_with(&first_value_type) {
-                    all_same = false;
+                if self.is_assignable(&value_type, &widest_type) {
+                    // Already fits — keep the current widest type.
+                } else if self.is_assignable(&widest_type, &value_type) {
+                    widest_type = value_type;
+                } else {
+                    all_compatible = false;
                     break;
                 }
             }
 
-            if all_same {
-                Type::Map(Box::new(Type::String), Box::new(first_value_type))
+            if all_compatible {
+                Type::Map(Box::new(Type::String), Box::new(widest_type))
             } else {
                 Type::Map(Box::new(Type::String), Box::new(Type::Any))
             }
@@ -511,7 +526,7 @@ impl Analyzer {
                     args.iter().zip(expected_params.iter()).enumerate()
                 {
                     let arg_type = self.infer_type(arg);
-                    if !arg_type.is_compatible_with(param_type) {
+                    if !self.is_assignable(&arg_type, param_type) {
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
@@ -566,8 +581,14 @@ impl Analyzer {
         let then_type = self.infer_type(then_expr);
         let else_type = self.infer_type(else_expr);
 
-        if then_type.is_compatible_with(&else_type) {
-            then_type
+        // Widen to whichever branch's type the other is assignable to
+        // (rather than always taking then_type), so e.g. a مربع/شكل ternary
+        // types as شكل — the supertype — not the more specific subtype one
+        // branch happens to produce.
+        let joined = if self.is_assignable(&then_type, &else_type) {
+            else_type.clone()
+        } else if self.is_assignable(&else_type, &then_type) {
+            then_type.clone()
         } else {
             self.error(
                 &format!(
@@ -577,7 +598,21 @@ impl Analyzer {
                 ),
                 span,
             );
-            Type::Error
+            return Type::Error;
+        };
+
+        // `is_assignable` unwraps `?` in either direction (a plain value fits
+        // an Optional slot, and vice versa), so it alone can't tell "join is
+        // Optional" from "join is plain" — pick whichever branch happens to
+        // satisfy the assignability check first, which may drop the other
+        // branch's nullability. Re-add it explicitly: if either branch could
+        // be لا_شيء, the ternary as a whole can still evaluate to لا_شيء.
+        let either_optional =
+            matches!(then_type, Type::Optional(_)) || matches!(else_type, Type::Optional(_));
+        if either_optional && !matches!(joined, Type::Optional(_)) {
+            Type::Optional(Box::new(joined))
+        } else {
+            joined
         }
     }
 
@@ -638,7 +673,7 @@ impl Analyzer {
                     for (i, (arg_ty, expected_ty)) in
                         arg_types.iter().zip(&variant.fields).enumerate()
                     {
-                        if !arg_ty.is_compatible_with(expected_ty) {
+                        if !self.is_assignable(arg_ty, expected_ty) {
                             self.type_mismatch_error(
                                 expected_ty,
                                 arg_ty,
@@ -674,11 +709,22 @@ impl Analyzer {
     }
 
     /// Resolve member type from an object.
+    /// Is `object` a bare identifier naming a declared class (`اسم_الصنف.عضو`
+    /// form), as opposed to an instance? Used to reject `ClassName.member`
+    /// for non-static members and `instance.member` for static ones —
+    /// otherwise a `مشترك` member would silently behave like an instance one
+    /// (or vice versa) instead of raising a clear diagnostic.
+    fn receiver_is_class_name(&mut self, object: &Expr) -> bool {
+        matches!(&object.kind, ExprKind::Identifier(name)
+            if self.scope.lookup(name).map(|s| s.kind == SymbolKind::Class).unwrap_or(false))
+    }
+
     pub(crate) fn resolve_member_type(
         &mut self,
         object_type: &Type,
         property: &str,
         span: Span,
+        receiver_is_class: bool,
     ) -> Type {
         let mut method_resolver = MethodResolver::new(&self.class_resolver);
 
@@ -687,6 +733,9 @@ impl Analyzer {
                 field,
                 defining_class,
             } => {
+                if !self.check_static_access(receiver_is_class, field.is_static, property, span) {
+                    return Type::Error;
+                }
                 // Check visibility for field access using the defining class
                 if !self.check_member_visibility(&defining_class, field.visibility, property, span)
                 {
@@ -698,6 +747,9 @@ impl Analyzer {
                 method,
                 defining_class,
             } => {
+                if !self.check_static_access(receiver_is_class, method.is_static, property, span) {
+                    return Type::Error;
+                }
                 // Check visibility for method access using the defining class
                 if !self.check_member_visibility(&defining_class, method.visibility, property, span)
                 {
@@ -725,6 +777,40 @@ impl Analyzer {
                 Type::Any
             }
         }
+    }
+
+    /// Rejects the mismatched access forms: a non-static member reached
+    /// through a class name (`ClassName.field`), or a static (`مشترك`)
+    /// member reached through an instance (`instance.staticField`). Checked
+    /// before visibility, since "wrong access form" is the more actionable
+    /// diagnostic when both would otherwise apply.
+    fn check_static_access(
+        &mut self,
+        receiver_is_class: bool,
+        member_is_static: bool,
+        property: &str,
+        span: Span,
+    ) -> bool {
+        if receiver_is_class && !member_is_static {
+            self.error_with_code(
+                &format!(
+                    "لا يمكن الوصول للعضو '{}' عبر اسم الصنف؛ العضو ليس مشتركاً (مشترك)",
+                    property
+                ),
+                span,
+                &ERR_NONSTATIC_VIA_CLASS.to_string(),
+            );
+            return false;
+        }
+        if !receiver_is_class && member_is_static {
+            self.error_with_code(
+                &format!("العضو '{}' مشترك؛ يُستخدم عبر اسم الصنف مباشرة", property),
+                span,
+                &ERR_STATIC_VIA_INSTANCE.to_string(),
+            );
+            return false;
+        }
+        true
     }
 
     /// Check if member access is allowed based on visibility rules.

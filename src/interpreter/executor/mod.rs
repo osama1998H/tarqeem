@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 
 use crate::ir::{
-    BasicBlock, BinaryOp, BlockId, Constant, FuncId, Function, Instruction, IrType, Module,
-    UnaryOp, VarId,
+    BasicBlock, BinaryOp, BlockId, Constant, FuncId, Function, Instruction, IrType, MethodId,
+    Module, UnaryOp, VarId,
 };
 
 use super::error::{RuntimeError, RuntimeResult};
@@ -49,6 +49,11 @@ pub struct Interpreter {
     current_exception: Option<Value>,
     pub(crate) output: Vec<String>,
     pub(crate) capture_output: bool,
+    /// Memoizes `resolve_virtual_method`'s runtime-class walk, keyed by
+    /// (runtime class, method name) — every instance method call in the
+    /// interpreter's hot path goes through that walk once per inheritance
+    /// level, otherwise.
+    virtual_method_cache: HashMap<(String, String), FuncId>,
 }
 
 impl Interpreter {
@@ -60,6 +65,7 @@ impl Interpreter {
             current_exception: None,
             output: Vec::new(),
             capture_output: false,
+            virtual_method_cache: HashMap::new(),
         }
     }
 
@@ -111,6 +117,43 @@ impl Interpreter {
         }
 
         Err(RuntimeError::undefined_function("main/رئيسي/رئيسية"))
+    }
+
+    /// Resolve a virtual method call against the object's *runtime* class,
+    /// walking `Class.parent` upward until a matching function is found.
+    ///
+    /// This is what makes an inherited (non-overridden) call succeed and an
+    /// overridden call dispatch to the override, even when the receiver was
+    /// accessed through a supertype-typed variable or parameter: the search
+    /// starts at the concrete class the object was constructed with, not at
+    /// the statically-declared `method.class`.
+    fn resolve_virtual_method(&mut self, obj_val: &Value, method: &MethodId) -> FuncId {
+        if let Value::Object(obj) = obj_val {
+            let runtime_class = obj.borrow().class_id.clone();
+            let cache_key = (runtime_class.0.clone(), method.name.clone());
+            if let Some(cached) = self.virtual_method_cache.get(&cache_key) {
+                return cached.clone();
+            }
+
+            let mut current = Some(runtime_class);
+            let mut visited = std::collections::HashSet::new();
+            while let Some(class_id) = current {
+                if !visited.insert(class_id.0.clone()) {
+                    break; // cyclic inheritance is rejected by semantic analysis; don't hang here
+                }
+                let candidate = FuncId(format!("{}::{}", class_id.0, method.name));
+                if self.module.get_function(&candidate).is_some() {
+                    self.virtual_method_cache
+                        .insert(cache_key, candidate.clone());
+                    return candidate;
+                }
+                current = self
+                    .module
+                    .get_class(&class_id)
+                    .and_then(|c| c.parent.clone());
+            }
+        }
+        FuncId(format!("{}::{}", method.class.0, method.name))
     }
 
     pub fn call_function(&mut self, func_id: &FuncId, args: Vec<Value>) -> RuntimeResult<Value> {
@@ -469,6 +512,7 @@ impl Interpreter {
                 object,
                 method,
                 args,
+                virtual_dispatch,
                 ..
             } => {
                 let obj_val = self.get_local(*object)?;
@@ -478,7 +522,11 @@ impl Interpreter {
                     arg_values.push(self.get_local(*arg)?);
                 }
 
-                let method_func_id = FuncId(format!("{}::{}", method.class.0, method.name));
+                let method_func_id = if *virtual_dispatch {
+                    self.resolve_virtual_method(&obj_val, method)
+                } else {
+                    FuncId(format!("{}::{}", method.class.0, method.name))
+                };
 
                 let result = self.call_function(&method_func_id, arg_values)?;
 
