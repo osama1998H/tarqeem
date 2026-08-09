@@ -535,8 +535,15 @@ mod contextual_keywords_183 {
 
     /// stdlib files previously killed by the keyword collision must parse.
     /// (نتائج.ترقيم / http.ترقيم / مشغل.ترقيم still have independent,
-    /// out-of-scope parse blockers: enum variant named خطأ, unsupported
-    /// منشئ_كامل member syntax, and comment-only function bodies.)
+    /// out-of-scope parse blockers, verified individually via `tarqeem parse`:
+    /// نتائج.ترقيم — enum variant named خطأ (#196); http.ترقيم — a top-level
+    /// `//` banner following a `///` doc block, which parse_declaration()
+    /// never re-collects (separate follow-up; منشئ_كامل, #197, sits later in
+    /// the same file and is masked by this earlier error); مشغل.ترقيم — a
+    /// method named `عدد`, a type keyword rejected by expect_identifier
+    /// (separate follow-up extending #183's contextual-keyword pattern to
+    /// type keywords — comment-only function bodies, #198, no longer block
+    /// this file).
     #[test]
     fn test_stdlib_collections_parse_with_contextual_keywords() {
         use tarqeem::parser::Parser;

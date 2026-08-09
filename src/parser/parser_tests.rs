@@ -2151,3 +2151,728 @@ fn test_parse_object_literal_key_named_case() {
         _ => panic!("Expected VarDecl"),
     }
 }
+
+// Regression tests for #193/#194/#198 (comment handling & error-masking bundle)
+//
+// Comment tokens (`LineComment` "//", `DocComment` "///", `BlockDocComment`
+// "/** */") must be handled consistently at every "wait for a terminator
+// token" loop in the parser, and a real mid-file error must never be masked
+// by the generic end-of-file/end-marker diagnostic. The lexer/parser fixes for
+// #193/#194/#198 have landed; these tests are what keep them fixed.
+
+// ─── Group 1: a comment-only body must parse to an empty container ───
+
+#[test]
+fn test_parse_function_body_only_line_comment() {
+    let source = r#"
+        دالة س() {
+            // تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => assert!(body.statements.is_empty()),
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_function_body_only_doc_comment() {
+    let source = r#"
+        دالة س() {
+            /// تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => assert!(body.statements.is_empty()),
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_function_body_only_block_doc_comment() {
+    let source = r#"
+        دالة س() {
+            /** تعليق */
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => assert!(body.statements.is_empty()),
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_class_body_only_line_comment() {
+    let source = r#"
+        صنف س {
+            // تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => assert!(members.is_empty()),
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+#[test]
+fn test_parse_class_body_only_doc_comment() {
+    let source = r#"
+        صنف س {
+            /// تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => assert!(members.is_empty()),
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+#[test]
+fn test_parse_class_body_only_block_doc_comment() {
+    let source = r#"
+        صنف س {
+            /** تعليق */
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => assert!(members.is_empty()),
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+#[test]
+fn test_parse_interface_body_only_line_comment() {
+    let source = r#"
+        ميثاق م {
+            // تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::InterfaceDecl { methods, .. } => assert!(methods.is_empty()),
+        _ => panic!("Expected InterfaceDecl"),
+    }
+}
+
+#[test]
+fn test_parse_interface_body_only_doc_comment() {
+    // Unlike the "//" case, this doc-comment variant is currently broken
+    // even with the partial line-comment guard already in place — a new
+    // case exposed by this bundle, not just a duplicate of the "//" test.
+    let source = r#"
+        ميثاق م {
+            /// تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::InterfaceDecl { methods, .. } => assert!(methods.is_empty()),
+        _ => panic!("Expected InterfaceDecl"),
+    }
+}
+
+#[test]
+fn test_parse_interface_body_only_block_doc_comment() {
+    let source = r#"
+        ميثاق م {
+            /** تعليق */
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::InterfaceDecl { methods, .. } => assert!(methods.is_empty()),
+        _ => panic!("Expected InterfaceDecl"),
+    }
+}
+
+#[test]
+fn test_parse_enum_body_only_line_comment() {
+    let source = r#"
+        تعداد ت {
+            // تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::EnumDecl { variants, .. } => assert!(variants.is_empty()),
+        _ => panic!("Expected EnumDecl"),
+    }
+}
+
+#[test]
+fn test_parse_enum_body_only_doc_comment() {
+    let source = r#"
+        تعداد ت {
+            /// تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::EnumDecl { variants, .. } => assert!(variants.is_empty()),
+        _ => panic!("Expected EnumDecl"),
+    }
+}
+
+#[test]
+fn test_parse_enum_body_only_block_doc_comment() {
+    let source = r#"
+        تعداد ت {
+            /** تعليق */
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::EnumDecl { variants, .. } => assert!(variants.is_empty()),
+        _ => panic!("Expected EnumDecl"),
+    }
+}
+
+#[test]
+fn test_parse_match_block_only_line_comment() {
+    let source = r#"
+        دالة س(ص: عدد) {
+            تطابق (ص) {
+                // تعليق
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => match &body.statements[0].kind {
+            StmtKind::Match { arms, .. } => assert!(arms.is_empty()),
+            _ => panic!("Expected Match statement"),
+        },
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_match_block_only_doc_comment() {
+    let source = r#"
+        دالة س(ص: عدد) {
+            تطابق (ص) {
+                /// تعليق
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => match &body.statements[0].kind {
+            StmtKind::Match { arms, .. } => assert!(arms.is_empty()),
+            _ => panic!("Expected Match statement"),
+        },
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_match_block_only_block_doc_comment() {
+    let source = r#"
+        دالة س(ص: عدد) {
+            تطابق (ص) {
+                /** تعليق */
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => match &body.statements[0].kind {
+            StmtKind::Match { arms, .. } => assert!(arms.is_empty()),
+            _ => panic!("Expected Match statement"),
+        },
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_top_level_only_line_comment() {
+    let mut parser = parser_with_markers("// تعليق");
+    let ast = parser.parse().unwrap();
+    assert!(ast.statements.is_empty());
+}
+
+#[test]
+fn test_parse_top_level_only_doc_comment() {
+    let mut parser = parser_with_markers("/// تعليق");
+    let ast = parser.parse().unwrap();
+    assert!(ast.statements.is_empty());
+}
+
+#[test]
+fn test_parse_top_level_only_block_doc_comment() {
+    let mut parser = parser_with_markers("/** تعليق */");
+    let ast = parser.parse().unwrap();
+    assert!(ast.statements.is_empty());
+}
+
+#[test]
+fn test_parse_property_accessor_trailing_comment_before_close() {
+    // A comment between the last accessor and the closing '}' of a خاصية
+    // block must not be mistaken for the start of another accessor.
+    let source = r#"
+        صنف ن {
+            خاصية س: عدد {
+                احصل => 1
+                // تعليق
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => match &members[0] {
+            ClassMember::Property { accessors, .. } => assert_eq!(accessors.len(), 1),
+            _ => panic!("Expected Property member"),
+        },
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+// ─── Group 2: trailing comment before a terminator, after a real statement (#194) ───
+
+#[test]
+fn test_parse_trailing_line_comment_after_statement() {
+    let source = r#"
+        دالة س() {
+            اطبع(1) // تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => assert_eq!(body.statements.len(), 1),
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_trailing_doc_comment_after_statement() {
+    let source = r#"
+        دالة س() {
+            اطبع(1) /// وثيقة
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => {
+            assert_eq!(body.statements.len(), 1);
+            let trailing = body.statements[0]
+                .trailing_comment
+                .as_deref()
+                .expect("Expected trailing comment");
+            assert!(trailing.contains("وثيقة"));
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_trailing_block_doc_comment_after_statement() {
+    let source = r#"
+        دالة س() {
+            اطبع(1) /** وثيقة */
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => {
+            assert_eq!(body.statements.len(), 1);
+            let trailing = body.statements[0]
+                .trailing_comment
+                .as_deref()
+                .expect("Expected trailing comment");
+            assert!(trailing.contains("وثيقة"));
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_trailing_comment_does_not_swallow_next_statement() {
+    let source = r#"
+        دالة س() {
+            متغير أ = 1
+            // تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => assert_eq!(body.statements.len(), 1),
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_class_member_then_trailing_comment() {
+    let source = r#"
+        صنف س {
+            عام دالة م() {}
+            // تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => assert_eq!(members.len(), 1),
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+#[test]
+fn test_parse_top_level_trailing_comment_before_end_marker() {
+    // Built manually (not via parser_with_markers) so the trailing comment
+    // sits immediately before الحمد_لله, after a real top-level statement.
+    let source = format!("بسم_الله\nمتغير س = 5\n{}\nالحمد_لله", "// تعليق");
+    let mut parser = Parser::new(&source);
+    let ast = parser.parse().unwrap();
+
+    assert_eq!(ast.statements.len(), 1);
+}
+
+// ─── Group 3: أرجع must not swallow a trailing comment as its expression (#194) ───
+
+#[test]
+fn test_parse_return_expr_with_trailing_doc_comment() {
+    let source = r#"
+        دالة س() -> عدد {
+            أرجع 1 /// وثيقة
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => match &body.statements[0].kind {
+            StmtKind::Return(Some(expr)) => match &expr.kind {
+                ExprKind::Literal(Literal::Int(1)) => {}
+                other => panic!("Expected literal 1, got {:?}", other),
+            },
+            other => panic!("Expected Return(Some(_)), got {:?}", other),
+        },
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_bare_return_with_trailing_doc_comment() {
+    let source = r#"
+        دالة س() {
+            أرجع /// وثيقة
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => match &body.statements[0].kind {
+            StmtKind::Return(None) => {}
+            other => panic!("Expected Return(None), got {:?}", other),
+        },
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+// ─── Group 4: a trailing /// must not bleed into the next declaration's doc comment (#193 lexer fix) ───
+
+#[test]
+fn test_trailing_doc_comment_does_not_attach_to_next_declaration() {
+    let source = r#"
+        متغير س = 5 /// ملاحظة عابرة
+        /// وثيقة الدالة ب
+        دالة ب() {}
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    let var_stmt = ast
+        .statements
+        .iter()
+        .find(|s| matches!(s.kind, StmtKind::VarDecl { .. }))
+        .expect("Expected a VarDecl statement");
+    let var_trailing = var_stmt
+        .trailing_comment
+        .as_deref()
+        .expect("Expected trailing comment on VarDecl");
+    assert!(var_trailing.contains("ملاحظة عابرة"));
+
+    let func_stmt = ast
+        .statements
+        .iter()
+        .find_map(|s| match &s.kind {
+            StmtKind::FuncDecl {
+                name, doc_comment, ..
+            } if name == "ب" => Some(doc_comment.clone()),
+            _ => None,
+        })
+        .expect("Expected a FuncDecl named ب");
+    assert_eq!(func_stmt, Some("وثيقة الدالة ب".to_string()));
+}
+
+// ─── Group 5: a real mid-file error must not be masked by the end-marker diagnostic (#193) ───
+
+#[test]
+fn test_real_error_is_not_masked_by_end_marker() {
+    use crate::error::codes::ERR_EXPECTED_VARIABLE_NAME;
+
+    let source = r#"
+        دالة س() {
+            متغير = 5
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    let err = result.expect_err("Expected a parse error");
+    assert!(
+        !err.message.contains("الحمد_لله"),
+        "Real error must not be masked by the end-marker diagnostic, got: {}",
+        err.message
+    );
+    assert_eq!(
+        err.code.as_deref(),
+        Some(ERR_EXPECTED_VARIABLE_NAME.to_string().as_str())
+    );
+}
+
+// test_missing_file_end_marker_still_reports_end_marker is covered by
+// src/parser/parser/mod.rs's own test module (owned by another agent's file).
+
+#[test]
+fn test_stray_right_brace_at_top_level_terminates() {
+    let mut parser = Parser::new(&wrap_with_markers("}"));
+    let result = parser.parse();
+
+    assert!(result.is_err());
+    assert!(
+        parser.get_errors().len() < 20,
+        "Expected a bounded number of errors, got {}",
+        parser.get_errors().len()
+    );
+}
+
+#[test]
+fn test_nested_block_error_does_not_cascade() {
+    let source = r#"
+        دالة أ() {
+            إذا (س) {
+                متغير = 1
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    assert!(result.is_err());
+    assert!(
+        parser.get_errors().len() <= 2,
+        "Expected error recovery to stay local to the nested block, got {} errors",
+        parser.get_errors().len()
+    );
+}
+
+// Regression tests for the code-review fixes to #193/#194/#198's comment
+// handling: `pending_comments` is a single buffer shared across the parser,
+// but four statement-list loops (parse_class_member, and the property
+// accessor/interface-method/enum-variant loops) never drained it, so a
+// comment collected there survived until the next unrelated
+// parse_declaration() call and got misattached to whatever statement
+// followed the enclosing construct. Group A below pins the fix (the leak
+// no longer happens); Group B pins Block::dangling_comments, the new field
+// that lets parse_block preserve a comment that precedes '}' with no
+// following statement to attach to.
+
+// ─── Group A: a comment inside a class/interface/enum/property-accessor
+// body must not leak to the statement that follows the whole construct ───
+
+#[test]
+fn test_interface_method_comment_does_not_leak_to_next_statement() {
+    let source = r#"
+        ميثاق م {
+            // تعليق
+            دالة أ()
+        }
+        متغير س = 5
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    let var_stmt = ast
+        .statements
+        .iter()
+        .find(|s| matches!(s.kind, StmtKind::VarDecl { .. }))
+        .expect("Expected a VarDecl statement");
+    assert!(
+        var_stmt.leading_comments.is_empty(),
+        "Comment inside the interface body must not leak to the following statement"
+    );
+}
+
+#[test]
+fn test_enum_variant_comment_does_not_leak_to_next_statement() {
+    let source = r#"
+        تعداد م {
+            // تعليق
+            أ
+        }
+        متغير س = 5
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    let var_stmt = ast
+        .statements
+        .iter()
+        .find(|s| matches!(s.kind, StmtKind::VarDecl { .. }))
+        .expect("Expected a VarDecl statement");
+    assert!(
+        var_stmt.leading_comments.is_empty(),
+        "Comment inside the enum body must not leak to the following statement"
+    );
+}
+
+#[test]
+fn test_property_accessor_comment_does_not_leak_to_next_statement() {
+    let source = r#"
+        صنف م {
+            خاصية س: عدد {
+                // تعليق
+                احصل => 1
+            }
+        }
+        متغير ص = 5
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    let var_stmt = ast
+        .statements
+        .iter()
+        .find(|s| matches!(s.kind, StmtKind::VarDecl { .. }))
+        .expect("Expected a VarDecl statement");
+    assert!(
+        var_stmt.leading_comments.is_empty(),
+        "Comment inside the property accessor body must not leak to the following statement"
+    );
+}
+
+#[test]
+fn test_class_member_comment_stays_with_member() {
+    let source = r#"
+        صنف س {
+            // تعليق
+            عام دالة م() {}
+        }
+        متغير ص = 5
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => match &members[0] {
+            ClassMember::Method {
+                leading_comments, ..
+            } => {
+                // scan_line_comment keeps the raw text after `//`, including
+                // the leading space — it is not a DocComment, which strips it.
+                assert_eq!(leading_comments, &vec![" تعليق".to_string()]);
+            }
+            other => panic!("Expected ClassMember::Method, got {:?}", other),
+        },
+        _ => panic!("Expected ClassDecl"),
+    }
+
+    match &ast.statements[1].kind {
+        StmtKind::VarDecl { .. } => {
+            assert!(ast.statements[1].leading_comments.is_empty());
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+// ─── Group B: Block::dangling_comments preserves a comment with no
+// statement to attach to (a comment-only body, or one trailing the last
+// statement before '}') ───
+
+#[test]
+fn test_parse_block_dangling_line_comment() {
+    let source = r#"
+        دالة س() {
+            // تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => {
+            assert!(body.statements.is_empty());
+            assert_eq!(body.dangling_comments, vec![" تعليق".to_string()]);
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_block_dangling_after_statement() {
+    let source = r#"
+        دالة س() {
+            اطبع(1)
+            // تعليق
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { body, .. } => {
+            assert_eq!(body.statements.len(), 1);
+            assert_eq!(body.dangling_comments, vec![" تعليق".to_string()]);
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
+}

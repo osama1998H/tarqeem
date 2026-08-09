@@ -354,6 +354,27 @@ impl<'a> Lexer<'a> {
         self.token_start_line = self.line;
         self.token_start_column = self.column;
 
+        // A `///` that trails code on the same line (e.g. `متغير س = 5 /// ملاحظة`)
+        // must never merge with a `///` line that follows it — merging would
+        // misattribute an unrelated trailing note to the next declaration's
+        // documentation. Only a `///` that starts its own line may merge.
+        let is_line_start = {
+            let mut idx = self.token_start;
+            let mut only_whitespace = true;
+            while idx > 0 {
+                idx -= 1;
+                let ch = self.source[idx];
+                if ch == '\n' {
+                    break;
+                }
+                if ch != ' ' && ch != '\t' {
+                    only_whitespace = false;
+                    break;
+                }
+            }
+            only_whitespace
+        };
+
         self.advance(); // first /
         self.advance(); // second /
         self.advance(); // third /
@@ -373,28 +394,35 @@ impl<'a> Lexer<'a> {
                 break;
             }
 
-            let newline_pos = self.position;
+            // Captured before consuming the newline so a non-merging comment
+            // can leave it in place, letting `next_token` emit a real
+            // `Newline` token afterward (matching `scan_line_comment` and
+            // `scan_block_doc_comment`, neither of which swallows it).
+            let before_newline = (self.position, self.line, self.column);
             self.advance();
 
-            while !self.is_at_end() && (self.peek() == ' ' || self.peek() == '\t') {
-                self.advance();
+            if is_line_start {
+                while !self.is_at_end() && (self.peek() == ' ' || self.peek() == '\t') {
+                    self.advance();
+                }
+
+                if self.peek() == '/'
+                    && self.peek_next() == '/'
+                    && self.position + 2 < self.source.len()
+                    && self.source[self.position + 2] == '/'
+                {
+                    content.push('\n');
+                    self.advance(); // first /
+                    self.advance(); // second /
+                    self.advance(); // third /
+                    continue;
+                }
             }
 
-            if self.peek() == '/'
-                && self.peek_next() == '/'
-                && self.position + 2 < self.source.len()
-                && self.source[self.position + 2] == '/'
-            {
-                content.push('\n');
-                self.advance(); // first /
-                self.advance(); // second /
-                self.advance(); // third /
-                continue;
-            }
-
-            self.position = newline_pos + 1;
-            self.line = self.token_start_line + content.matches('\n').count() + 1;
-            self.column = 1;
+            let (position, line, column) = before_newline;
+            self.position = position;
+            self.line = line;
+            self.column = column;
             break;
         }
 
@@ -900,6 +928,60 @@ mod tests {
         assert!(matches!(&tokens[0].kind, TokenKind::LineComment(s) if s == " هذا تعليق عادي"));
         assert_eq!(tokens[1].kind, TokenKind::Newline);
         assert_eq!(tokens[2].kind, TokenKind::Let);
+    }
+
+    #[test]
+    fn test_doc_comment_multiline_still_merges() {
+        let source = "/// اسطر الوصف\n/// سطر ثانٍ\nدالة";
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        let doc_comments: Vec<_> = tokens
+            .iter()
+            .filter(|t| matches!(&t.kind, TokenKind::DocComment(_)))
+            .collect();
+        assert_eq!(doc_comments.len(), 1);
+        assert!(
+            matches!(&doc_comments[0].kind, TokenKind::DocComment(s) if s == "اسطر الوصف\nسطر ثانٍ")
+        );
+    }
+
+    #[test]
+    fn test_trailing_doc_comment_does_not_merge_with_next_line() {
+        let source = "متغير س = 5 /// ملاحظة\n/// وثيقة\nدالة";
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        let doc_comments: Vec<_> = tokens
+            .iter()
+            .filter(|t| matches!(&t.kind, TokenKind::DocComment(_)))
+            .collect();
+        assert_eq!(doc_comments.len(), 2);
+        assert!(matches!(&doc_comments[0].kind, TokenKind::DocComment(s) if s == "ملاحظة"));
+        assert!(matches!(&doc_comments[1].kind, TokenKind::DocComment(s) if s == "وثيقة"));
+
+        let first_doc_index = tokens
+            .iter()
+            .position(|t| matches!(&t.kind, TokenKind::DocComment(s) if s == "ملاحظة"))
+            .unwrap();
+        assert_eq!(tokens[first_doc_index + 1].kind, TokenKind::Newline);
+        assert!(matches!(
+            &tokens[first_doc_index + 2].kind,
+            TokenKind::DocComment(s) if s == "وثيقة"
+        ));
+    }
+
+    #[test]
+    fn test_trailing_doc_comment_followed_by_newline_token() {
+        let source = "اطبع(1) /// تعليق\nمتغير";
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        let doc_index = tokens
+            .iter()
+            .position(|t| matches!(&t.kind, TokenKind::DocComment(_)))
+            .expect("expected a DocComment token");
+        assert_eq!(tokens[doc_index + 1].kind, TokenKind::Newline);
     }
 
     #[test]

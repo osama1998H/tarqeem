@@ -230,6 +230,12 @@ impl Parser {
         self.skip_newlines();
 
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // A member-less tail of comments before '}' is not the start of
+            // another member; break before parse_class_member() mistakes a
+            // doc/block comment for a field name.
+            if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
+                break;
+            }
             match self.parse_class_member() {
                 Ok(member) => members.push(member),
                 Err(diagnostic) => {
@@ -247,6 +253,10 @@ impl Parser {
     /// Parse a single class member.
     pub(crate) fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
         self.collect_line_comments();
+        // Captured before the body is parsed so nothing downstream (e.g. the
+        // method's own parse_block) can steal it — pending_comments is a
+        // single shared buffer, not scoped to this member.
+        let leading_comments = self.take_pending_comments();
         let member_doc = self.consume_doc_comment();
 
         let visibility = self.parse_visibility();
@@ -261,6 +271,7 @@ impl Parser {
             Ok(ClassMember::Constructor {
                 params,
                 body,
+                leading_comments,
                 doc_comment: member_doc,
             })
         } else if self.check(&TokenKind::Function) || self.check(&TokenKind::Async) {
@@ -287,6 +298,7 @@ impl Parser {
                 body,
                 is_static,
                 is_async,
+                leading_comments,
                 doc_comment: member_doc,
             })
         } else if self.check(&TokenKind::Property) {
@@ -315,6 +327,7 @@ impl Parser {
                 accessors,
                 default_value,
                 is_static,
+                leading_comments,
                 doc_comment: member_doc,
             })
         } else {
@@ -337,6 +350,7 @@ impl Parser {
                 ty,
                 init,
                 is_static,
+                leading_comments,
                 doc_comment: member_doc,
             })
         }
@@ -350,7 +364,17 @@ impl Parser {
         self.skip_newlines();
 
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // A trailing comment before '}' is not the start of another
+            // accessor; break before parse_visibility()/match_token() below
+            // mistake it for one and report a spurious "expected احصل/عيّن".
+            if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
+                break;
+            }
             self.collect_line_comments();
+            // No field exists to preserve a leading comment here (0 real
+            // occurrences in the corpus) — drain defensively so it can't
+            // leak forward to an unrelated declaration.
+            let _ = self.take_pending_comments();
             let accessor_visibility = self.parse_visibility();
 
             if self.match_token(&TokenKind::Get) {
@@ -432,12 +456,14 @@ impl Parser {
 
         let mut methods = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            // Skip any line comments before the method
-            self.collect_line_comments();
-            if self.check(&TokenKind::RightBrace) {
-                self.take_pending_comments();
+            // A trailing comment (line, doc, or block-doc) before '}' is not
+            // the start of another method.
+            if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
                 break;
             }
+            // Skip any line comments before the method
+            self.collect_line_comments();
+            let _ = self.take_pending_comments();
             let method_doc = self.consume_doc_comment();
 
             self.expect(&TokenKind::Function, "متوقع 'دالة'")?;
@@ -495,12 +521,14 @@ impl Parser {
 
         let mut variants = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            // Skip any line comments before the variant
-            self.collect_line_comments();
-            if self.check(&TokenKind::RightBrace) {
-                self.take_pending_comments();
+            // A trailing comment (line, doc, or block-doc) before '}' is not
+            // the start of another variant.
+            if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
                 break;
             }
+            // Skip any line comments before the variant
+            self.collect_line_comments();
+            let _ = self.take_pending_comments();
             let variant = self.parse_enum_variant()?;
             variants.push(variant);
 

@@ -77,6 +77,77 @@ impl Parser {
         }
     }
 
+    /// Non-consuming lookahead: true if, after skipping any run of
+    /// `Newline` tokens and comment tokens (line, doc, or block-doc), the
+    /// next real token has the same kind as `terminator`. Stays read-only
+    /// so a caller that gets `false` can still route a genuine leading
+    /// comment to `collect_line_comments`/`consume_doc_comment` instead of
+    /// having it stolen by a terminator check that guessed wrong.
+    pub(crate) fn check_terminator_after_trivia(&self, terminator: &TokenKind) -> bool {
+        let mut idx = self.current;
+        while idx < self.tokens.len() {
+            match &self.tokens[idx].kind {
+                TokenKind::Newline => idx += 1,
+                kind if kind.is_comment() => idx += 1,
+                _ => break,
+            }
+        }
+        idx < self.tokens.len()
+            && std::mem::discriminant(&self.tokens[idx].kind) == std::mem::discriminant(terminator)
+    }
+
+    /// Advances past a run of `Newline` and comment tokens, discarding their text.
+    fn skip_trivia_run(&mut self) {
+        while self.check(&TokenKind::Newline) || self.peek().kind.is_comment() {
+            self.advance();
+        }
+    }
+
+    /// Consumes the trivia preceding `terminator` when
+    /// `check_terminator_after_trivia` confirms one is there, leaving the
+    /// terminator itself unconsumed; otherwise consumes nothing. Lets a
+    /// statement-list loop break on a terminator that follows trailing
+    /// comments or blank lines without misattaching those comments to the
+    /// next declaration.
+    pub(crate) fn match_terminator_after_trivia(&mut self, terminator: &TokenKind) -> bool {
+        if !self.check_terminator_after_trivia(terminator) {
+            return false;
+        }
+        self.skip_trivia_run();
+        // A statement list that reached its terminator has nothing left to attach
+        // a pending comment to — anything still here escaped a loop that collected
+        // it (parse_class_member, the accessor/interface/enum loops) and would
+        // otherwise be stolen by the next parse_declaration().
+        self.pending_comments.clear();
+        true
+    }
+
+    /// Like `match_terminator_after_trivia`, but hands back the comments it
+    /// consumed instead of discarding them. Used only by `parse_block`, which
+    /// has somewhere to put them (`Block::dangling_comments`); every other
+    /// statement-list loop terminates a node with no field for a comment and
+    /// keeps using the discarding sibling above.
+    pub(crate) fn take_terminator_trivia_comments(
+        &mut self,
+        terminator: &TokenKind,
+    ) -> Option<Vec<String>> {
+        if !self.check_terminator_after_trivia(terminator) {
+            return None;
+        }
+        let mut comments = Vec::new();
+        while self.check(&TokenKind::Newline) || self.peek().kind.is_comment() {
+            if let TokenKind::LineComment(c)
+            | TokenKind::DocComment(c)
+            | TokenKind::BlockDocComment(c) = &self.peek().kind
+            {
+                comments.push(c.clone());
+            }
+            self.advance();
+        }
+        self.pending_comments.clear();
+        Some(comments)
+    }
+
     /// Synchronize after an error to continue parsing.
     pub(crate) fn synchronize(&mut self) {
         self.panic_mode = false;
@@ -102,6 +173,7 @@ impl Parser {
                 | TokenKind::Match    // تطابق
                 | TokenKind::Import   // استورد
                 | TokenKind::Export   // صدّر
+                | TokenKind::RightBrace
                 | TokenKind::Alhamdulillah => {
                     return;
                 }
@@ -211,12 +283,15 @@ impl Parser {
 
     /// Capture a trailing comment on the same line.
     pub(crate) fn capture_trailing_comment(&mut self) -> Option<String> {
-        if let TokenKind::LineComment(comment) = &self.peek().kind {
-            let comment = comment.clone();
-            self.advance();
-            Some(comment)
-        } else {
-            None
+        match &self.peek().kind {
+            TokenKind::LineComment(comment)
+            | TokenKind::DocComment(comment)
+            | TokenKind::BlockDocComment(comment) => {
+                let comment = comment.clone();
+                self.advance();
+                Some(comment)
+            }
+            _ => None,
         }
     }
 
@@ -242,11 +317,14 @@ impl Parser {
         let mut statements = Vec::new();
 
         while !self.is_at_end() {
-            // Check for end marker
-            if self.check(&TokenKind::Alhamdulillah) {
+            // Stop at the end marker, even when it is preceded by trailing
+            // comments or blank lines — those belong to nothing else in
+            // the file, so they must not be handed to parse_declaration.
+            if self.match_terminator_after_trivia(&TokenKind::Alhamdulillah) {
                 break;
             }
 
+            let before = self.current;
             match self.parse_declaration() {
                 Ok(stmt) => statements.push(stmt),
                 Err(diagnostic) => {
@@ -255,8 +333,23 @@ impl Parser {
                 }
             }
 
+            // synchronize() may land on a token it does not consume (e.g.
+            // RightBrace); force forward progress so a future non-consuming
+            // error path can never loop forever.
+            if self.current == before && !self.is_at_end() {
+                self.advance();
+            }
+
             // Skip newlines after each statement
             self.skip_newlines();
+        }
+
+        // A real error found during recovery must win over the generic
+        // end-marker diagnostic below, which fires whenever synchronize()
+        // overshot to EOF and (unlike most parser errors) carries no error
+        // code.
+        if !self.errors.is_empty() {
+            return Err(self.errors[0].clone());
         }
 
         // Check for the end marker (الحمد_لله)
@@ -280,11 +373,6 @@ impl Parser {
                 "لا يُسمح بأي كود بعد علامة 'الحمد_لله'",
                 self.current_span(),
             ));
-        }
-
-        // Return errors if there were any during parsing
-        if !self.errors.is_empty() {
-            return Err(self.errors[0].clone());
         }
 
         Ok(Ast::with_markers(
@@ -436,15 +524,14 @@ impl Parser {
                 return Ok(());
             }
 
-            // Allow omission if current token is a line comment (trailing comment)
+            // Allow omission if current token is any comment (trailing comment)
             // or a newline (next statement is on next line)
-            if matches!(
-                self.peek().kind,
-                TokenKind::LineComment(_) | TokenKind::Newline
-            ) {
+            if self.peek().kind.is_comment() || self.check(&TokenKind::Newline) {
                 return Ok(());
             }
 
+            // Needed for /* */ comments, which produce no token — only the
+            // line-number bump reveals a line break occurred.
             let prev_line = self.previous_span().line;
             let curr_line = self.current_span().line;
             if curr_line > prev_line {
