@@ -345,6 +345,11 @@ pub enum Instruction {
         method: MethodId,
         args: Vec<VarId>,
         ret_ty: IrType,
+        /// True for ordinary member calls (dispatch on the object's runtime
+        /// class); false for `الأصل.method()` super calls, which must stay
+        /// bound to `method.class` or an override calling its super would
+        /// recurse into itself forever.
+        virtual_dispatch: bool,
     },
 
     CallVirtual {
@@ -573,11 +578,17 @@ impl fmt::Display for Instruction {
                 method,
                 args,
                 ret_ty,
+                virtual_dispatch,
             } => {
                 if let Some(d) = dest {
                     write!(f, "{}: {} = ", d, ret_ty)?;
                 }
-                write!(f, "call_method {}, {}(", object, method)?;
+                let mnemonic = if *virtual_dispatch {
+                    "call_method_virtual"
+                } else {
+                    "call_method"
+                };
+                write!(f, "{} {}, {}(", mnemonic, object, method)?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;

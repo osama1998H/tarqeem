@@ -11,7 +11,9 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use crate::interpreter::{RuntimeError, RuntimeResult, Value};
-use crate::ir::{BasicBlock, BlockId, Constant, FuncId, Function, Instruction, Module, VarId};
+use crate::ir::{
+    BasicBlock, BlockId, Constant, FuncId, Function, Instruction, MethodId, Module, VarId,
+};
 
 use super::context::{BreakpointId, DebugContext};
 use super::source_map::SourceLocation;
@@ -65,6 +67,9 @@ pub struct DebugInterpreter {
     event_callback: Option<Box<dyn FnMut(DebugEvent)>>,
     current_file: PathBuf,
     frame_id_counter: u32,
+    /// Mirrors `Interpreter::virtual_method_cache` — memoizes
+    /// `resolve_virtual_method`'s runtime-class walk.
+    virtual_method_cache: HashMap<(String, String), FuncId>,
 }
 
 impl DebugInterpreter {
@@ -78,6 +83,7 @@ impl DebugInterpreter {
             event_callback: None,
             current_file: PathBuf::from("unknown"),
             frame_id_counter: 0,
+            virtual_method_cache: HashMap::new(),
         }
     }
 
@@ -779,6 +785,38 @@ impl DebugInterpreter {
         Err(DebugError::new("الدالة الرئيسية غير موجودة"))
     }
 
+    /// Mirrors `Interpreter::resolve_virtual_method` so stepping through an
+    /// inherited or overridden method call in the debugger matches normal
+    /// execution instead of diverging from it.
+    fn resolve_virtual_method(&mut self, obj_val: &Value, method: &MethodId) -> FuncId {
+        if let Value::Object(obj) = obj_val {
+            let runtime_class = obj.borrow().class_id.clone();
+            let cache_key = (runtime_class.0.clone(), method.name.clone());
+            if let Some(cached) = self.virtual_method_cache.get(&cache_key) {
+                return cached.clone();
+            }
+
+            let mut current = Some(runtime_class);
+            let mut visited = std::collections::HashSet::new();
+            while let Some(class_id) = current {
+                if !visited.insert(class_id.0.clone()) {
+                    break; // cyclic inheritance is rejected by semantic analysis; don't hang here
+                }
+                let candidate = FuncId(format!("{}::{}", class_id.0, method.name));
+                if self.module.get_function(&candidate).is_some() {
+                    self.virtual_method_cache
+                        .insert(cache_key, candidate.clone());
+                    return candidate;
+                }
+                current = self
+                    .module
+                    .get_class(&class_id)
+                    .and_then(|c| c.parent.clone());
+            }
+        }
+        FuncId(format!("{}::{}", method.class.0, method.name))
+    }
+
     fn call_function(&mut self, func_id: &FuncId, args: Vec<Value>) -> RuntimeResult<Value> {
         if self.call_stack.len() >= MAX_STACK_DEPTH {
             return Err(RuntimeError::stack_overflow());
@@ -1167,6 +1205,7 @@ impl DebugInterpreter {
                 object,
                 method,
                 args,
+                virtual_dispatch,
                 ..
             } => {
                 let obj_val = self.get_local(*object)?;
@@ -1175,7 +1214,11 @@ impl DebugInterpreter {
                     arg_values.push(self.get_local(*arg)?);
                 }
 
-                let method_func_id = FuncId(format!("{}::{}", method.class.0, method.name));
+                let method_func_id = if *virtual_dispatch {
+                    self.resolve_virtual_method(&obj_val, method)
+                } else {
+                    FuncId(format!("{}::{}", method.class.0, method.name))
+                };
                 let result = self.call_function(&method_func_id, arg_values)?;
 
                 if let Some(d) = dest {

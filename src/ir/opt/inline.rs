@@ -480,12 +480,14 @@ impl FunctionInliner {
                 method,
                 args,
                 ret_ty,
+                virtual_dispatch,
             } => Instruction::CallMethod {
                 dest: dest.map(|d| map_var(&d)),
                 object: map_var(object),
                 method: method.clone(),
                 args: args.iter().map(map_var).collect(),
                 ret_ty: ret_ty.clone(),
+                virtual_dispatch: *virtual_dispatch,
             },
 
             Instruction::CallVirtual {

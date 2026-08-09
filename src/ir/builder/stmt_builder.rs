@@ -272,16 +272,25 @@ impl IrBuilder {
                     params,
                     return_type,
                     body,
+                    is_static,
                     is_async,
                     ..
                 } => {
                     let mangled_name = format!("{}::{}", name, method_name);
 
-                    let mut method_params: Vec<Parameter> = vec![Parameter {
-                        id: VarId(0),
-                        name: "هذا".to_string(), // "this" in Arabic
-                        ty: IrType::Struct(ClassId(name.to_string())),
-                    }];
+                    // مشترك methods have no receiver: omit هذا entirely rather
+                    // than binding it to a parameter the caller never passes
+                    // (mirrors the static branch of build_property_getter/setter).
+                    let mut method_params: Vec<Parameter> = if *is_static {
+                        Vec::new()
+                    } else {
+                        vec![Parameter {
+                            id: VarId(0),
+                            name: "هذا".to_string(), // "this" in Arabic
+                            ty: IrType::Struct(ClassId(name.to_string())),
+                        }]
+                    };
+                    let base_index = method_params.len() as u32;
 
                     for (i, p) in params.iter().enumerate() {
                         let ty =
@@ -289,7 +298,7 @@ impl IrBuilder {
                                 .map(|t| self.convert_type(t))
                                 .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                         method_params.push(Parameter {
-                            id: VarId((i + 1) as u32),
+                            id: VarId(base_index + i as u32),
                             name: p.name.clone(),
                             ty,
                         });
@@ -309,8 +318,10 @@ impl IrBuilder {
                         func.is_async = *is_async;
                     }
 
-                    self.variables.insert("هذا".to_string(), VarId(0));
-                    self.variables.insert("this".to_string(), VarId(0));
+                    if !*is_static {
+                        self.variables.insert("هذا".to_string(), VarId(0));
+                        self.variables.insert("this".to_string(), VarId(0));
+                    }
 
                     for stmt in &body.statements {
                         self.build_stmt(stmt)?;
@@ -461,19 +472,29 @@ impl IrBuilder {
         }
 
         if accessors.is_empty() {
-            let this_var = VarId(0);
-            let backing_field = format!("_{}", prop_name);
             let result = self.new_var();
-            self.emit(Instruction::GetField {
-                dest: result,
-                object: this_var,
-                field: FieldId {
-                    class: ClassId(class_name.to_string()),
-                    name: backing_field,
-                    index: 0,
-                },
-                ty: prop_type.clone(),
-            });
+            if is_static {
+                // مشترك خاصية has no هذا: the backing field lives as a
+                // global, not an instance slot (see register_static_global).
+                self.emit(Instruction::GlobalLoad {
+                    dest: result,
+                    name: format!("{}::_{}", class_name, prop_name),
+                    ty: prop_type.clone(),
+                });
+            } else {
+                let this_var = VarId(0);
+                let backing_field = format!("_{}", prop_name);
+                self.emit(Instruction::GetField {
+                    dest: result,
+                    object: this_var,
+                    field: FieldId {
+                        class: ClassId(class_name.to_string()),
+                        name: backing_field,
+                        index: 0,
+                    },
+                    ty: prop_type.clone(),
+                });
+            }
             self.emit(Instruction::Return {
                 value: Some(result),
             });
@@ -539,18 +560,26 @@ impl IrBuilder {
         }
 
         if accessors.is_empty() {
-            let this_var = VarId(0);
-            let value_var = VarId(1);
-            let backing_field = format!("_{}", prop_name);
-            self.emit(Instruction::SetField {
-                object: this_var,
-                field: FieldId {
-                    class: ClassId(class_name.to_string()),
-                    name: backing_field,
-                    index: 0,
-                },
-                value: value_var,
-            });
+            if is_static {
+                // See build_property_getter: the backing field is a global.
+                self.emit(Instruction::GlobalStore {
+                    name: format!("{}::_{}", class_name, prop_name),
+                    value: VarId(0), // قيمة is the only (and first) parameter
+                });
+            } else {
+                let this_var = VarId(0);
+                let value_var = VarId(1);
+                let backing_field = format!("_{}", prop_name);
+                self.emit(Instruction::SetField {
+                    object: this_var,
+                    field: FieldId {
+                        class: ClassId(class_name.to_string()),
+                        name: backing_field,
+                        index: 0,
+                    },
+                    value: value_var,
+                });
+            }
         }
 
         self.emit(Instruction::Return { value: None });
