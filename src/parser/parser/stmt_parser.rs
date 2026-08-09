@@ -198,11 +198,15 @@ impl Parser {
 
         let mut arms = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            // Skip any line comments before the arm
-            self.collect_line_comments();
-            if self.check(&TokenKind::RightBrace) {
-                self.take_pending_comments();
+            if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
                 break;
+            }
+            // A comment here precedes a real arm rather than '}' (the case
+            // just ruled out above); discard it so parse_match_arm sees the
+            // arm's actual head token.
+            while self.peek().kind.is_comment() {
+                self.advance();
+                self.skip_newlines();
             }
             match self.parse_match_arm() {
                 Ok(arm) => arms.push(arm),
@@ -334,7 +338,7 @@ impl Parser {
             || self.check(&TokenKind::ArabicSemicolon)
             || self.check(&TokenKind::RightBrace)
             || self.check(&TokenKind::Newline)
-            || matches!(self.peek().kind, TokenKind::LineComment(_))
+            || self.peek().kind.is_comment()
             || self.is_at_end()
         {
             None
@@ -431,6 +435,9 @@ impl Parser {
 
         let mut statements = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
+                break;
+            }
             match self.parse_declaration() {
                 Ok(stmt) => statements.push(stmt),
                 Err(diagnostic) => {

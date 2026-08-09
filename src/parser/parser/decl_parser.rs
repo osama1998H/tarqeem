@@ -230,6 +230,12 @@ impl Parser {
         self.skip_newlines();
 
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // A member-less tail of comments before '}' is not the start of
+            // another member; break before parse_class_member() mistakes a
+            // doc/block comment for a field name.
+            if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
+                break;
+            }
             match self.parse_class_member() {
                 Ok(member) => members.push(member),
                 Err(diagnostic) => {
@@ -350,6 +356,12 @@ impl Parser {
         self.skip_newlines();
 
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // A trailing comment before '}' is not the start of another
+            // accessor; break before parse_visibility()/match_token() below
+            // mistake it for one and report a spurious "expected احصل/عيّن".
+            if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
+                break;
+            }
             self.collect_line_comments();
             let accessor_visibility = self.parse_visibility();
 
@@ -432,12 +444,13 @@ impl Parser {
 
         let mut methods = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            // Skip any line comments before the method
-            self.collect_line_comments();
-            if self.check(&TokenKind::RightBrace) {
-                self.take_pending_comments();
+            // A trailing comment (line, doc, or block-doc) before '}' is not
+            // the start of another method.
+            if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
                 break;
             }
+            // Skip any line comments before the method
+            self.collect_line_comments();
             let method_doc = self.consume_doc_comment();
 
             self.expect(&TokenKind::Function, "متوقع 'دالة'")?;
@@ -495,12 +508,13 @@ impl Parser {
 
         let mut variants = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-            // Skip any line comments before the variant
-            self.collect_line_comments();
-            if self.check(&TokenKind::RightBrace) {
-                self.take_pending_comments();
+            // A trailing comment (line, doc, or block-doc) before '}' is not
+            // the start of another variant.
+            if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
                 break;
             }
+            // Skip any line comments before the variant
+            self.collect_line_comments();
             let variant = self.parse_enum_variant()?;
             variants.push(variant);
 
