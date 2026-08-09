@@ -526,3 +526,107 @@ const y = 10
         assert!(!parses_ok(source));
     }
 }
+
+/// Regression tests for issue #183: احصل/عيّن/حالة are contextual keywords.
+/// The stdlib collections module was unusable because its method names
+/// collided with the property-accessor and match-arm keywords.
+mod contextual_keywords_183 {
+    use super::*;
+
+    /// stdlib files previously killed by the keyword collision must parse.
+    /// (نتائج.ترقيم / http.ترقيم / مشغل.ترقيم still have independent,
+    /// out-of-scope parse blockers: enum variant named خطأ, unsupported
+    /// منشئ_كامل member syntax, and comment-only function bodies.)
+    #[test]
+    fn test_stdlib_collections_parse_with_contextual_keywords() {
+        use tarqeem::parser::Parser;
+
+        for file in ["مجموعات/قائمة.ترقيم", "مجموعات/قاموس.ترقيم"]
+        {
+            let path = project_root().join("stdlib_trq").join(file);
+            let source = fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e));
+            let mut parser = Parser::new(&source);
+            let result = parser.parse();
+            assert!(
+                result.is_ok(),
+                "{} failed to parse: {:?}",
+                file,
+                result.err().map(|d| d.message)
+            );
+        }
+    }
+
+    /// The قائمة module must load without a parse failure. Before the fix,
+    /// the parse error made the analyzer emit 'خطأ تحليل في الوحدة' and
+    /// silently register all imports as أي.
+    /// (Constructing the imported class with جديد still fails with د٠٠٠٣
+    /// because imports are not registered in the class resolver — that is
+    /// issue #182, independent of the keyword collision fixed here.)
+    #[test]
+    fn test_list_module_loads_without_parse_error() {
+        use tarqeem::parser::Parser;
+        use tarqeem::semantic::Analyzer;
+
+        let source = wrap_with_markers(
+            r#"
+            استورد { قائمة } من "مجموعات/قائمة"
+            "#,
+        );
+
+        let mut parser = Parser::new(&source);
+        let ast = parser.parse().expect("import program should parse");
+
+        let mut analyzer = Analyzer::new();
+        analyzer.add_search_path(project_root().join("stdlib_trq"));
+
+        let diagnostics = match analyzer.analyze(&ast) {
+            Ok(()) => Vec::new(),
+            Err(diagnostics) => diagnostics,
+        };
+        for d in &diagnostics {
+            assert!(
+                !d.message.contains("خطأ تحليل في الوحدة"),
+                "stdlib module failed to parse: {}",
+                d.message
+            );
+            assert!(
+                !d.message.contains("لا تحتوي على تصدير باسم"),
+                "قائمة export not found in module: {}",
+                d.message
+            );
+        }
+    }
+
+    /// End-to-end: define and call methods named احصل/عيّن and use حالة as
+    /// a variable, all in one interpreted program.
+    #[test]
+    fn test_methods_named_get_set_execute() {
+        let source = r#"
+            صنف صندوق {
+                خاص قيمة: عدد
+
+                منشئ() {
+                    هذا.قيمة = 0
+                }
+
+                عام دالة عيّن(قيمة: عدد) {
+                    هذا.قيمة = قيمة
+                }
+
+                عام دالة احصل() -> عدد {
+                    أرجع هذا.قيمة
+                }
+            }
+
+            دالة رئيسية() -> عدد {
+                متغير ص = جديد صندوق()
+                ص.عيّن(5)
+                متغير حالة = ص.احصل()
+                أرجع حالة
+            }
+        "#;
+        let result = interpret_source(source);
+        assert_eq!(result, Ok("5".to_string()));
+    }
+}

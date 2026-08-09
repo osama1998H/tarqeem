@@ -9,7 +9,7 @@ use crate::lexer::TokenKind;
 
 use super::super::ast::*;
 use super::super::precedence::Precedence;
-use super::Parser;
+use super::{identifier_like_name, Parser};
 
 impl Parser {
     /// Parse an expression.
@@ -51,8 +51,10 @@ impl Parser {
             TokenKind::False => Ok(Expr::new(ExprKind::Literal(Literal::Bool(false)), span)),
             TokenKind::Null => Ok(Expr::new(ExprKind::Literal(Literal::Null), span)),
 
-            TokenKind::Identifier(name) => {
-                let name = name.clone();
+            TokenKind::Identifier(_) | TokenKind::Get | TokenKind::Set | TokenKind::Case => {
+                // Get/Set/Case are contextual keywords acting as identifiers here
+                let name =
+                    identifier_like_name(&token.kind).unwrap_or_else(|| token.lexeme.clone());
 
                 // Check for generic type args: Identifier<T>
                 let type_args = if self.check(&TokenKind::Less) {
@@ -586,13 +588,12 @@ impl Parser {
         loop {
             let param_start = self.current_span();
 
-            let name = match &self.peek().kind {
-                TokenKind::Identifier(name) => {
-                    let name = name.clone();
+            let name = match identifier_like_name(&self.peek().kind) {
+                Some(name) => {
                     self.advance();
                     name
                 }
-                _ => return Ok(None), // Not an arrow function
+                None => return Ok(None), // Not an arrow function
             };
 
             let ty = if self.check(&TokenKind::Colon) {

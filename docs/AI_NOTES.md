@@ -2,6 +2,41 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-09 — Issue #183: احصل/عيّن/حالة become contextual keywords
+
+### Decision: parser-level contextual keywords, lexer untouched
+The lexer keeps emitting `Get`/`Set`/`Case`; the parser maps them back to
+identifier strings everywhere except their reserved contexts (خاصية accessor
+blocks, تطابق arm heads). New helper `identifier_like_name` in
+`src/parser/parser/mod.rs` mirrors the existing `expect_type_name` pattern
+(type keywords as names). Canonical strings: Get→"احصل", Set→"عيّن"
+(the no-shadda spelling عين also lexes as `Set` and therefore normalizes to
+عيّن), Case→"حالة". Chosen over de-reserving in the lexer because it leaves
+property/match parsing, `synchronize_to_arm` recovery, LSP highlighting, and
+lexer tests untouched.
+
+Widened sites: `expect_identifier`, `check_identifier`, `expect_type_name`
+(mod.rs); `parse_prefix` identifier arm + `try_parse_arrow_params`
+(expr_parser.rs); `parse_pattern` enum lookahead (stmt_parser.rs). Safe
+because `Precedence::of` returns `None` for these kinds (Pratt loop stops
+before an arm-head `حالة`) and both reserved contexts dispatch on the token
+kind before any identifier path.
+
+### Discoveries — remaining stdlib parse blockers are NOT this bug
+After the fix, `مجموعات/قائمة.ترقيم` and `مجموعات/قاموس.ترقيم` parse. Files
+still failing have independent causes:
+- `اختبار/نتائج.ترقيم:27` — enum variant named `خطأ` collides with the
+  boolean-false keyword (separate collision, not #183's keywords).
+- `شبكة/http.ترقيم:77` — `منشئ_كامل(...)` named-constructor member syntax
+  is not supported by the parser at all.
+- `اختبار/مشغل.ترقيم:257` — a function body containing only a line comment
+  fails to parse (same family as #194's comment handling).
+- Importing قائمة still can't `جديد قائمة()` (د٠٠٠٣): imported classes are
+  registered as scope Symbols only, never into `class_resolver` — that is
+  issue #182's import machinery, not the keyword collision.
+- `TARQEEM_HOME` (set on this machine) shadows the repo `stdlib_trq` in
+  `find_stdlib_path`; unset it when verifying stdlib changes with the CLI.
+
 ## 2026-08-07 — Issue #186 part 2: hoist top-level functions and enums
 
 ### Decision: hoist in the analyzer only
@@ -92,7 +127,8 @@ between `register_types` and `add_type_members`.
 ### Open confirmed bugs (multi-agent audit, adversarially verified)
 Filed as issues #180–#187: lambdas/first-class functions unfinished at IR
 stage; exception system (استثناء class missing, propagation, `_trq_throw`);
-local module imports; stdlib collections keyword collision (احصل/عيّن);
+local module imports; stdlib collections keyword collision (احصل/عيّن —
+fixed by #183, contextual keywords);
 core OOP (inherited methods, مشترك access, upcasting); native divergences
 (طول bytes-vs-chars, نوع symbol, stdlib segfault, نص? IR); parser blockers
 (bare أرجع, forward references). Raw audit: 40 findings across 6 lenses;
