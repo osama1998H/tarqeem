@@ -2,6 +2,65 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-09 — Code-review fixes on the #193/#194/#198 bundle: 6 findings
+
+A high-effort automated review of the bundle below found 6 confirmed issues.
+Two design agents proposed fixes at different scopes; the deciding factor was
+measuring rather than guessing.
+
+### Decision: measure real usage before sizing the AST change
+One agent proposed extending `leading_comments`/`trailing_comments: Vec<String>`
+across ~8 AST types (`Block`, `ClassDecl`, `InterfaceDecl`, `EnumDecl`, `Match`,
+`ClassMember`, `MethodSignature`, `EnumVariant`, `PropertyAccessor`, `Ast`).
+A scan of all 65 real `.ترقيم` files in `stdlib_trq/`+`examples/` found the
+speculative patterns (comment before a class/interface/enum/match/accessor
+body's closing `}`, or before `الحمد_لله`) occur **0 times** — but surfaced a
+**worse, previously unreported** bug with hard evidence: 92 real lines across 7
+stdlib files (`مجموعات/{مكدس,طابور,قائمة,قاموس,مجموعة}`, `وقت/{وقت,تاريخ}`)
+where a `//` section-banner comment before a class method gets silently
+*relocated* into the method's body instead of staying above it — `tarqeem fmt`
+was structurally corrupting real, shipped code. Sized the fix to the evidence:
+two new AST fields, not eight.
+
+### `Block.dangling_comments` (issue #205, resolved) + `ClassMember.leading_comments`
+`Block` gained a field for comments between the last statement and `}`
+(covers every construct `parse_block` builds — function/if/while/for/do/try/
+lambda/accessor/brace-match-arm bodies — so it closes #205 for every real
+occurrence, not just "function bodies" as originally filed). `ClassMember`'s 4
+variants gained `leading_comments`, fixing the 92-line relocation bug: a
+banner comment before a method was being collected into the shared
+`pending_comments` buffer and, since nothing drained it before the method's
+own `parse_block` ran, ending up attached as the *first statement inside the
+method* instead of staying above it.
+
+### Root cause of the misattachment (issue not previously filed under its own number)
+`pending_comments` (`Parser` field) is pushed to by `collect_line_comments()`
+at 5 sites but drained by exactly 1 (`parse_declaration`). The other 4 —
+`parse_class_member`, the property-accessor/interface-method/enum-variant
+loops — leaked a collected comment forward to whatever unrelated
+`parse_declaration()` call happened next. Fixed with one choke point
+(`pending_comments.clear()` inside `match_terminator_after_trivia`'s
+confirmed-terminator path, safe because that field is only ever legitimately
+non-empty in the two-line window between `collect_line_comments()` and
+`take_pending_comments()`) plus 3 local one-line drains for paths the choke
+point can't reach.
+
+### What stayed out of scope, deliberately
+Comments at the tail of a class/interface/enum body's member list, an
+accessor list, a match-arm list, or immediately before `الحمد_لله` are still
+silently dropped — measured at 0 real occurrences, not fixed. Restoring a
+diagnostic there (the review's finding #3) would just reintroduce bug #198;
+`Parser::parse` returns `Err(self.errors[0].clone())` regardless of
+`DiagnosticLevel`, so even a warning-level diagnostic would hard-fail the
+parse (needs the return-type change already tracked as #206).
+
+Multi-line trailing block-doc-comments (`/** a\nb */`) were also corrupted by
+the formatter (one `//` prefix for possibly multi-line content, so
+continuation lines became bare, unparseable code) — fixed with a
+`write_comment_lines` helper that re-prefixes every line, reused for the new
+`Block.dangling_comments` emission too (which can also come from a multi-line
+`BlockDocComment` — the same bug would have reappeared there otherwise).
+
 ## 2026-08-09 — Issues #193/#194/#198: comment handling & error-masking bundle
 
 ### Root cause: one defect, three symptoms
@@ -70,8 +129,9 @@ immediately after a leading `///` module doc fails — the real first blocker
 on `http.ترقيم`, surfacing *before* the already-known #197 `منشئ_كامل` issue
 since it occurs earlier in the file), #204 (doc comments on `صدّر`/`استورد`
 silently dropped), #205 (`Block` has no field for a comment-only body, so
-`tarqeem fmt` silently drops one), #206 (parser returns only `errors[0]`,
-unlike semantic analysis), #207 (marker diagnostics carry no error code).
+`tarqeem fmt` silently drops one — **fixed**, see the 2026-08-09 code-review
+entry above), #206 (parser returns only `errors[0]`, unlike semantic
+analysis), #207 (marker diagnostics carry no error code).
 
 ## 2026-08-09 — Issue #183: احصل/عيّن/حالة become contextual keywords
 
