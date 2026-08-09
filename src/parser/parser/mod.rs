@@ -117,6 +117,11 @@ impl Parser {
         self.panic_mode = false;
 
         while !self.is_at_end() {
+            // Field/method names, including the contextual keywords احصل/عيّن/حالة
+            if self.check_identifier() {
+                return;
+            }
+
             match self.peek().kind {
                 TokenKind::Public     // عام
                 | TokenKind::Private  // خاص
@@ -127,13 +132,6 @@ impl Parser {
                 | TokenKind::Constructor // منشئ
                 | TokenKind::Property // خاصية
                 | TokenKind::RightBrace => {
-                    return;
-                }
-                // Field/method names, including the contextual keywords احصل/عيّن/حالة
-                TokenKind::Identifier(_)
-                | TokenKind::Get
-                | TokenKind::Set
-                | TokenKind::Case => {
                     return;
                 }
                 _ => {}

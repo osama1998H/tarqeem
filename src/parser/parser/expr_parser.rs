@@ -485,20 +485,17 @@ impl Parser {
 
         // Check if this looks like type args (identifier, contextual keyword,
         // or type keyword after '<')
-        let looks_like_type = matches!(
-            &self.peek().kind,
-            TokenKind::Identifier(_)
-                | TokenKind::Get
-                | TokenKind::Set
-                | TokenKind::Case
-                | TokenKind::TypeInt
-                | TokenKind::TypeFloat
-                | TokenKind::TypeString
-                | TokenKind::TypeBool
-                | TokenKind::TypeArray
-                | TokenKind::TypeMap
-                | TokenKind::TypeAny
-        );
+        let looks_like_type = self.check_identifier()
+            || matches!(
+                &self.peek().kind,
+                TokenKind::TypeInt
+                    | TokenKind::TypeFloat
+                    | TokenKind::TypeString
+                    | TokenKind::TypeBool
+                    | TokenKind::TypeArray
+                    | TokenKind::TypeMap
+                    | TokenKind::TypeAny
+            );
 
         if !looks_like_type {
             // Not type args, rollback
