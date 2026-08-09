@@ -334,12 +334,20 @@ pub enum UnaryOp {
 #[derive(Debug, Clone, Serialize)]
 pub struct Block {
     pub statements: Vec<Stmt>,
+    /// Comments between the last statement and the closing `}` — including a
+    /// body that is nothing but comments. No Stmt exists to attach them to,
+    /// so tarqeem fmt would otherwise silently delete them.
+    pub dangling_comments: Vec<String>,
     pub span: Span,
 }
 
 impl Block {
     pub fn new(statements: Vec<Stmt>, span: Span) -> Self {
-        Self { statements, span }
+        Self {
+            statements,
+            dangling_comments: Vec::new(),
+            span,
+        }
     }
 }
 
@@ -515,6 +523,11 @@ pub enum ClassMember {
         ty: Option<TypeAnnotation>,
         init: Option<Expr>,
         is_static: bool,
+        /// Line comments (banner-style `//` comments) appearing directly
+        /// before this member. Populated only from LineComment tokens (never
+        /// multi-line by construction — scan_line_comment stops at `\n`),
+        /// mirroring Stmt::leading_comments.
+        leading_comments: Vec<String>,
         doc_comment: Option<String>,
     },
 
@@ -526,12 +539,16 @@ pub enum ClassMember {
         body: Block,
         is_static: bool,
         is_async: bool,
+        /// See ClassMember::Field::leading_comments.
+        leading_comments: Vec<String>,
         doc_comment: Option<String>,
     },
 
     Constructor {
         params: Vec<Param>,
         body: Block,
+        /// See ClassMember::Field::leading_comments.
+        leading_comments: Vec<String>,
         doc_comment: Option<String>,
     },
 
@@ -542,6 +559,8 @@ pub enum ClassMember {
         accessors: Vec<PropertyAccessor>,
         default_value: Option<Expr>,
         is_static: bool,
+        /// See ClassMember::Field::leading_comments.
+        leading_comments: Vec<String>,
         doc_comment: Option<String>,
     },
 }
