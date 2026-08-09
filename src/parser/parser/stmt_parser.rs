@@ -7,7 +7,7 @@ use crate::error::Diagnostic;
 use crate::lexer::TokenKind;
 
 use super::super::ast::*;
-use super::Parser;
+use super::{identifier_like_name, Parser};
 
 impl Parser {
     /// Parse a statement (not a declaration).
@@ -275,7 +275,8 @@ impl Parser {
         let start_span = self.current_span();
 
         // Check for enum variant pattern: identifier::identifier
-        if let TokenKind::Identifier(name) = self.peek().kind.clone() {
+        // (includes contextual keywords احصل/عيّن/حالة as enum names)
+        if let Some(name) = identifier_like_name(self.peek()).map(str::to_string) {
             // Look ahead for ::
             if self.peek_next().map(|t| &t.kind) == Some(&TokenKind::ColonColon) {
                 self.advance(); // consume enum name

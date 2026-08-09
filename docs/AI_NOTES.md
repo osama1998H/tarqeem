@@ -2,6 +2,54 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-09 — Issue #183: احصل/عيّن/حالة become contextual keywords
+
+### Decision: parser-level contextual keywords, lexer untouched
+The lexer keeps emitting `Get`/`Set`/`Case`; the parser maps them back to
+identifier strings everywhere except their reserved contexts (خاصية accessor
+blocks, تطابق arm heads). New helper `identifier_like_name(&Token) ->
+Option<&str>` in `src/parser/parser/mod.rs` mirrors the existing
+`expect_type_name` pattern (type keywords as names). It returns the token's
+lexeme, so the user's spelling is preserved: عين (no shadda) and عيّن both lex
+to `Set` but are distinct identifiers, exactly as they would be if they
+weren't keywords — stdlib's `دالة عيّن` must be called with the same spelling.
+(An earlier draft normalized عين→عيّن; the code review flagged that as silent
+identifier renaming — `tarqeem fmt` would rewrite user source — so it was
+dropped. The lexeme is safe to use directly because the lexer NFC-normalizes
+the entire source in `Lexer::new`.) Chosen over de-reserving in the lexer
+because it leaves property/match parsing, LSP highlighting, and lexer tests
+untouched.
+
+Widened sites: `expect_identifier`, `check_identifier`, `expect_type_name`
+(mod.rs); `parse_prefix` (identifier handling hoisted to an early return
+before the match, single source of truth for the kind set) +
+`try_parse_arrow_params` + `try_parse_type_args`'s `looks_like_type` gate
+(expr_parser.rs); `parse_pattern` enum lookahead (stmt_parser.rs). Safe
+because `Precedence::of` returns `None` for these kinds (Pratt loop stops
+before an arm-head `حالة`) and both reserved contexts dispatch on the token
+kind before any identifier path. Error recovery updated to match:
+`synchronize_to_member` resumes at Get/Set/Case (and خاصية, a pre-existing
+omission); `synchronize_to_arm` treats `Case` as the next arm head only at a
+plausible arm start (after Newline/LeftBrace/comment — comment tokens swallow
+their trailing newline), since mid-line حالة is now an identifier use.
+Beware: `Parser::previous()` indexes `current - 1` and panics at position 0 —
+guard any `previous()` call reachable at the stream start.
+
+### Discoveries — remaining stdlib parse blockers are NOT this bug
+After the fix, `مجموعات/قائمة.ترقيم` and `مجموعات/قاموس.ترقيم` parse. Files
+still failing have independent causes:
+- `اختبار/نتائج.ترقيم:27` — enum variant named `خطأ` collides with the
+  boolean-false keyword (separate collision, not #183's keywords).
+- `شبكة/http.ترقيم:77` — `منشئ_كامل(...)` named-constructor member syntax
+  is not supported by the parser at all.
+- `اختبار/مشغل.ترقيم:257` — a function body containing only a line comment
+  fails to parse (same family as #194's comment handling).
+- Importing قائمة still can't `جديد قائمة()` (د٠٠٠٣): imported classes are
+  registered as scope Symbols only, never into `class_resolver` — that is
+  issue #182's import machinery, not the keyword collision.
+- `TARQEEM_HOME` (set on this machine) shadows the repo `stdlib_trq` in
+  `find_stdlib_path`; unset it when verifying stdlib changes with the CLI.
+
 ## 2026-08-07 — Issue #186 part 2: hoist top-level functions and enums
 
 ### Decision: hoist in the analyzer only
@@ -92,7 +140,8 @@ between `register_types` and `add_type_members`.
 ### Open confirmed bugs (multi-agent audit, adversarially verified)
 Filed as issues #180–#187: lambdas/first-class functions unfinished at IR
 stage; exception system (استثناء class missing, propagation, `_trq_throw`);
-local module imports; stdlib collections keyword collision (احصل/عيّن);
+local module imports; stdlib collections keyword collision (احصل/عيّن —
+fixed by #183, contextual keywords);
 core OOP (inherited methods, مشترك access, upcasting); native divergences
 (طول bytes-vs-chars, نوع symbol, stdlib segfault, نص? IR); parser blockers
 (bare أرجع, forward references). Raw audit: 40 findings across 6 lenses;

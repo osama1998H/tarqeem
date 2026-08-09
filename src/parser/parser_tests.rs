@@ -1822,3 +1822,332 @@ fn test_error_recovery_get_errors_returns_all() {
         assert!(!err.message.is_empty());
     }
 }
+
+// ─── Contextual keywords: احصل/عيّن/حالة as identifiers (issue #183) ───
+// These keywords are reserved only inside خاصية accessor blocks and تطابق
+// arms; everywhere else they must parse as ordinary identifiers.
+
+#[test]
+fn test_parse_method_named_get_and_set() {
+    // Mirrors stdlib_trq/مجموعات/قائمة.ترقيم methods
+    let source = r#"
+        صنف قائمة {
+            عام دالة احصل(فهرس: عدد) -> عدد {
+                أرجع فهرس;
+            }
+
+            عام دالة عيّن(فهرس: عدد، قيمة: عدد) {
+                اطبع(قيمة);
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => {
+            assert_eq!(members.len(), 2);
+            match &members[0] {
+                ClassMember::Method { name, .. } => assert_eq!(name, "احصل"),
+                _ => panic!("Expected method named احصل"),
+            }
+            match &members[1] {
+                ClassMember::Method { name, .. } => assert_eq!(name, "عيّن"),
+                _ => panic!("Expected method named عيّن"),
+            }
+        }
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+#[test]
+fn test_parse_field_named_case() {
+    // Mirrors stdlib_trq/اختبار/نتائج.ترقيم field
+    let source = r#"
+        صنف نتيجة {
+            عام حالة: عدد;
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => match &members[0] {
+            ClassMember::Field { name, .. } => assert_eq!(name, "حالة"),
+            _ => panic!("Expected field named حالة"),
+        },
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+#[test]
+fn test_parse_variable_named_case() {
+    let source = r#"
+        متغير حالة = 5;
+        حالة = حالة + 1;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { name, .. } => assert_eq!(name, "حالة"),
+        _ => panic!("Expected VarDecl"),
+    }
+    match &ast.statements[1].kind {
+        StmtKind::Expr(expr) => match &expr.kind {
+            ExprKind::Assignment { target, .. } => match &target.kind {
+                ExprKind::Identifier(name) => assert_eq!(name, "حالة"),
+                _ => panic!("Expected identifier target"),
+            },
+            _ => panic!("Expected assignment"),
+        },
+        _ => panic!("Expected expression statement"),
+    }
+}
+
+#[test]
+fn test_parse_member_call_get_set_spelling_preserved() {
+    // عين (no shadda) and عيّن lex to the same keyword token, but as
+    // identifiers they are distinct — the AST keeps the spelling the user wrote
+    let source = r#"
+        قائمتي.احصل(0);
+        قائمتي.عين(0، 5);
+        قائمتي.عيّن(1، 2);
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    let property_of = |stmt: &Stmt| -> String {
+        match &stmt.kind {
+            StmtKind::Expr(expr) => match &expr.kind {
+                ExprKind::Call { callee, .. } => match &callee.kind {
+                    ExprKind::Member { property, .. } => property.clone(),
+                    _ => panic!("Expected member access callee"),
+                },
+                _ => panic!("Expected call"),
+            },
+            _ => panic!("Expected expression statement"),
+        }
+    };
+    assert_eq!(property_of(&ast.statements[0]), "احصل");
+    assert_eq!(property_of(&ast.statements[1]), "عين");
+    assert_eq!(property_of(&ast.statements[2]), "عيّن");
+}
+
+#[test]
+fn test_parse_enum_variant_with_contextual_keyword_type_arg() {
+    // A type named حالة must be accepted as a generic type argument in the
+    // speculative Enum<T>::Variant path, like any other identifier
+    let source = r#"
+        متغير س = اختياري<حالة>::عدم;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init = init.as_ref().expect("Expected initializer");
+            match &init.kind {
+                ExprKind::EnumVariant {
+                    enum_name,
+                    type_args,
+                    variant_name,
+                    ..
+                } => {
+                    assert_eq!(enum_name, "اختياري");
+                    assert_eq!(variant_name, "عدم");
+                    assert_eq!(type_args.len(), 1);
+                }
+                _ => panic!("Expected EnumVariant expression"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_synchronize_to_member_stops_at_contextual_keyword_names() {
+    use crate::lexer::TokenKind;
+
+    // Error recovery inside a class body must resume at a member named with a
+    // contextual keyword instead of consuming it as garbage
+    let mut parser = Parser::new("= 5 حالة: نص");
+    parser.synchronize_to_member();
+    assert!(matches!(parser.peek().kind, TokenKind::Case));
+
+    let mut parser = Parser::new("= 5 خاصية اسم: نص");
+    parser.synchronize_to_member();
+    assert!(matches!(parser.peek().kind, TokenKind::Property));
+}
+
+#[test]
+fn test_synchronize_to_arm_skips_midline_case_identifier() {
+    use crate::lexer::TokenKind;
+
+    // A mid-line حالة is an identifier use inside the broken arm; recovery
+    // must resume at the next line-start حالة (the real arm head)
+    let mut parser = Parser::new("=> حالة + 1\nحالة 2 => 3");
+    parser.synchronize_to_arm();
+    assert!(matches!(parser.peek().kind, TokenKind::Case));
+    assert!(matches!(parser.previous().kind, TokenKind::Newline));
+}
+
+#[test]
+fn test_parse_top_level_function_named_get() {
+    // Mirrors stdlib_trq/شبكة/http.ترقيم: صدّر دالة احصل
+    let source = r#"
+        دالة احصل(رابط: نص) -> نص {
+            أرجع رابط;
+        }
+
+        صدّر دالة عيّن(قيمة: عدد) {
+            اطبع(قيمة);
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { name, .. } => assert_eq!(name, "احصل"),
+        _ => panic!("Expected FuncDecl named احصل"),
+    }
+    match &ast.statements[1].kind {
+        StmtKind::Export(ExportItems::Declaration(stmt)) => match &stmt.kind {
+            StmtKind::FuncDecl { name, .. } => assert_eq!(name, "عيّن"),
+            _ => panic!("Expected exported FuncDecl named عيّن"),
+        },
+        _ => panic!("Expected Export declaration"),
+    }
+}
+
+#[test]
+fn test_parse_import_item_named_get() {
+    let source = r#"
+        استورد { احصل، حالة } من "شبكة";
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::Import { items, .. } => match items {
+            ImportItems::Named(imports) => {
+                assert_eq!(imports.len(), 2);
+                assert_eq!(imports[0].name, "احصل");
+                assert_eq!(imports[1].name, "حالة");
+            }
+            _ => panic!("Expected named imports"),
+        },
+        _ => panic!("Expected Import statement"),
+    }
+}
+
+#[test]
+fn test_parse_property_accessors() {
+    // Guards the contexts where احصل/عيّن remain keywords
+    let source = r#"
+        صنف شخص {
+            خاص _اسم: نص;
+
+            خاصية اسم: نص {
+                احصل {
+                    أرجع هذا._اسم;
+                }
+                عيّن(قيمة) {
+                    هذا._اسم = قيمة;
+                }
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => match &members[1] {
+            ClassMember::Property {
+                name, accessors, ..
+            } => {
+                assert_eq!(name, "اسم");
+                assert_eq!(accessors.len(), 2);
+                assert!(matches!(accessors[0], PropertyAccessor::Get { .. }));
+                match &accessors[1] {
+                    PropertyAccessor::Set { param_name, .. } => assert_eq!(param_name, "قيمة"),
+                    _ => panic!("Expected Set accessor"),
+                }
+            }
+            _ => panic!("Expected Property member"),
+        },
+        _ => panic!("Expected ClassDecl"),
+    }
+}
+
+#[test]
+fn test_parse_match_with_case_named_scrutinee() {
+    // حالة stays the arm keyword inside تطابق while acting as a variable outside
+    let source = r#"
+        متغير حالة = 2;
+        تطابق (حالة) {
+            حالة 1 => اطبع("واحد")
+            حالة 2 => اطبع("اثنان")
+            غير_ذلك => اطبع("غير معروف")
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[1].kind {
+        StmtKind::Match { expr, arms } => {
+            assert_eq!(arms.len(), 3);
+            match &expr.kind {
+                ExprKind::Identifier(name) => assert_eq!(name, "حالة"),
+                _ => panic!("Expected identifier scrutinee"),
+            }
+        }
+        _ => panic!("Expected Match statement"),
+    }
+}
+
+#[test]
+fn test_parse_arrow_param_named_case() {
+    let source = r#"
+        متغير د = (حالة: عدد) => حالة + 1;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init = init.as_ref().expect("Expected initializer");
+            match &init.kind {
+                ExprKind::Lambda { params, .. } => {
+                    assert_eq!(params.len(), 1);
+                    assert_eq!(params[0].name, "حالة");
+                }
+                _ => panic!("Expected Lambda expression"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_object_literal_key_named_case() {
+    let source = r#"
+        متغير م = {حالة: 1};
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init = init.as_ref().expect("Expected initializer");
+            match &init.kind {
+                ExprKind::Object(pairs) => {
+                    assert_eq!(pairs.len(), 1);
+                    assert_eq!(pairs[0].0, "حالة");
+                }
+                _ => panic!("Expected object literal"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
