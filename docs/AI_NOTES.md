@@ -2,6 +2,109 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-10 — Issue #182 step 8: execution tests, and و٠٣٠١ starts reaching the user
+
+New `tests/module_execution_tests.rs` — the first module tests that *execute*
+programs instead of stopping at `analyzes_ok` (issue #187). 12 tests, each swept
+over three backends (`run`, `run --jit`, `compile` + execute the binary) and two
+working directories (CWD inside the fixture; repo root with an absolute path to
+main — only the second catches the original defect, since CWD-relative
+resolution used to succeed by accident).
+
+### Cycle detection was implemented but discarded before reaching the user
+Writing the circular-import case revealed that `أ` ⇄ `ب` compiled and ran
+silently, exit 0, despite `ModuleLoader` correctly detecting the cycle. Cause:
+`preload_imported_modules` ended with `let _ = self.module_loader
+.take_diagnostics()`, deliberately dropping loader diagnostics because
+`analyze_import` re-reports load *failures* in the third pass and would
+otherwise double-report them. That rationale does not extend to cycles: every
+module on a cycle still lands in the cache, so the third pass finds them all
+present and never re-reports it. The diagnostic was produced and thrown away.
+
+Fix is one filter — keep و٠٣٠١, discard the rest — so the de-dup guarantee for
+load failures is untouched. Verified no false positive on the diamond
+(A→B, A→C, both→D): the cache hit returns before the `loading_stack` push.
+`modules.rs::test_circular_dependency_detection` only ever asserted on the
+loader in isolation, which is why the gap survived it.
+
+### Discovery: native stdlib imports segfault (pre-existing, issue #185 item 3)
+`استورد * كـ رياض من "رياضيات"` — and equally a plain named stdlib import —
+prints correctly under the interpreter and JIT but segfaults (exit 139, no
+output) once natively compiled. Stdlib names short-circuit to a builtin table
+and are never read from disk, so no body is linked into the object file. Already
+filed as #185 item 3; unrelated to the module merge (it crashes identically with
+`link_program` stubbed out), and every *local-file* fixture passes natively. The
+test asserts the current failure rather than skipping it, so whoever fixes it
+sees the assertion trip and re-enables the native leg.
+
+### Also noted
+`codegen::linker::tests::test_find_runtime_with_env_var` is flaky under the full
+suite: it and `test_find_runtime_nonexistent_env_path` both mutate the
+process-global `TARQEEM_RUNTIME_PATH` concurrently. Passes in isolation and in 5
+consecutive `cargo test --lib` runs. Pre-existing, unrelated, unfiled.
+
+## 2026-08-10 — Issue #182 step 5: imported module bodies now execute (AST merge)
+
+`check` already passed after steps 1–4, but `tarqeem run` still died with
+`دالة غير معرّفة: جمع`. Cause: `ModuleLoader` cached a full `LoadedModule`
+including `.ast`, and *nothing read it* — `analyze_import` kept only
+`exports.clone()`, and `IrBuilder::build` takes exactly one `Ast` while
+`build_stmt` returns `Ok(())` for `Import`. New `src/semantic/linker.rs` merges
+every cached module's declarations into main ahead of IR, which repairs the
+interpreter, the JIT and native codegen at once (all three consume the same IR
+`Module`) and leaves `IrBuilder::build`'s signature — and its ~20 non-pipeline
+callers in tests/benches/codegen — untouched.
+
+### Why merging in `semantic`, not in `IrBuilder`
+`semantic` may not import `ir`, and `ir` merging would force a second `Ast`
+parameter through every existing caller. Placing it behind
+`Analyzer::linked_ast` also means the merge sees the module cache that
+`analyze` just populated, for free.
+
+### Deliberate deviations from the approved design
+- Signature is `link_program(main, loader, main_path, warnings)` rather than
+  `(main, loader)`. `Result<Ast, Vec<Diagnostic>>` cannot carry *warnings* on
+  its `Ok` arm, so dropped-module-executable warnings need an out-parameter;
+  and `main_path` is required to skip main's own cache entry (see below).
+- و٠١٠١ (`ERR_DUPLICATE_EXPORT`, previously unused) is reused for merged-name
+  collisions, but worded "duplicate top-level definition", because the merge
+  carries *non-exported* module declarations too — an exported function must be
+  able to call its private helpers.
+
+### Main can appear in its own module cache
+A module that imports the main file back caches main under its own path: the
+cycle diagnostic lands in `loader.diagnostics`, but the outer `load_module`
+still returns `Ok` and `analyze_import`'s Ok path never drains it. Merging that
+entry would duplicate every main declaration into a bogus و٠١٠١. The merge skips
+any cached module whose canonical path is main's; surfacing the cycle stays the
+loader's job.
+
+### Module top-level executables are dropped, not run
+Strict no-regression: that code has never run, since imports were always dropped
+at IR. Running it would need a module-initialization ordering model. It also
+keeps `has_top_level_executable` answering the same for the merged AST as for
+main alone — otherwise one stray statement in a library would flip a
+Program-mode main into ت٠٢٠١.
+
+### `Span` has no file identity
+`Diagnostic::emit` renders every span against the *main* file's source, so a
+diagnostic about a module may only ever be anchored to a main-file span. Both
+file paths therefore go in the message text, and module-scoped diagnostics are
+anchored to the `استورد` statement in main that pulled the module in (falling
+back to `Span::default()`, whose line 0 makes `emit` skip the snippet).
+
+### Still broken after this step (pre-existing, verified identical before/after)
+- **Aliased imports** (`استورد { جمع كـ اجمع }`) fail at run time: the merge
+  carries the original declaration name and nothing rewrites call sites. Needs a
+  rename pass.
+- **Imported classes** fail earlier, in semantic analysis (`د٠٠٠٣ صنف غير
+  معروف`): `ExportKind::Class` defines a symbol but never registers the class
+  with `ClassResolver`. Never reaches the linker.
+- **`check` does not see merge collisions.** It stops after `analyze` and never
+  calls `linked_ast`, so a program that redefines an imported name passes
+  `check` and then fails و٠١٠١ at `run`/`compile`. Wiring `check` would mean
+  running the merge purely for its diagnostics; left for a follow-up.
+
 ## 2026-08-10 — Issues #201/#204/#225: `tarqeem fmt` was source-destructive
 
 `fmt` emitted doc-comment text with no `///` marker, so its own output stopped

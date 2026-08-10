@@ -5,7 +5,7 @@ use crate::error::Span;
 use indexmap::IndexMap;
 use unicode_normalization::UnicodeNormalization;
 
-fn normalize_name(name: &str) -> String {
+pub(crate) fn normalize_name(name: &str) -> String {
     name.nfc().collect()
 }
 

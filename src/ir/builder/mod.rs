@@ -14,8 +14,10 @@ mod expr_builder;
 mod stmt_builder;
 mod type_helpers;
 
-use crate::error::codes::ERR_ENTRY_POINT_CONFLICT;
-use crate::parser::{Ast, ClassMember, Expr, Param, StmtKind, TypeAnnotation};
+use crate::error::codes::{ERR_ENTRY_POINT_CONFLICT, ERR_NO_ENTRY_POINT};
+use crate::parser::{
+    Ast, ClassMember, ExportItems, Expr, ImportItems, Param, Stmt, StmtKind, TypeAnnotation,
+};
 
 use super::{
     BasicBlock, BlockId, Class, ClassId, Constant, FuncId, Function, Instruction, IrType, Module,
@@ -121,6 +123,43 @@ pub struct IrBuilder {
     /// Static field/property initializers that are not compile-time
     /// constants, keyed by their "Class::member" global name.
     pub(crate) pending_static_inits: Vec<(String, Expr)>,
+    /// Wildcard-import namespaces (`استورد * كـ رياض`). These name no value:
+    /// they only qualify the bare names the linker merged.
+    pub(crate) namespace_aliases: HashSet<String>,
+    /// Named-import aliases: alias -> the original name the declaration was
+    /// merged under (`استورد { ضاعف كـ اضعف }` records `اضعف` -> `ضاعف`).
+    pub(crate) import_aliases: HashMap<String, String>,
+}
+
+/// The builder state that belongs to one function's build and must survive a
+/// nested one.
+///
+/// A class method, a constructor, a property accessor, a nested `دالة` and a
+/// lifted lambda are all built by opening a second function in the middle of
+/// the enclosing function's build. Every field here is per-function — block
+/// and variable ids restart, and the loop targets name blocks of the function
+/// that pushed them — so the enclosing build must get its own values back.
+/// Module-wide tables (class layouts, function signatures, `lambda_counter`,
+/// …) are deliberately absent: those accumulate across functions on purpose.
+pub(crate) struct FunctionContext {
+    function: Option<Function>,
+    block: BlockId,
+    var_counter: u32,
+    block_counter: u32,
+    variables: HashMap<String, VarId>,
+}
+
+/// Unwraps `صدّر <declaration>` to the declaration it exports.
+///
+/// Every top-level scan in `build` classifies statements by `StmtKind`, so
+/// without this an exported function/class/global stays invisible to those
+/// scans even though `build_stmt` descends into it — mirrors
+/// `hoist_func_decl`/`hoist_enum_decl` in the semantic analyzer.
+fn as_top_level_decl(stmt: &Stmt) -> &Stmt {
+    match &stmt.kind {
+        StmtKind::Export(ExportItems::Declaration(inner)) => inner,
+        _ => stmt,
+    }
 }
 
 impl IrBuilder {
@@ -155,6 +194,8 @@ impl IrBuilder {
             static_methods: HashSet::new(),
             static_properties: HashSet::new(),
             pending_static_inits: Vec::new(),
+            namespace_aliases: HashSet::new(),
+            import_aliases: HashMap::new(),
         };
         builder.register_builtin_return_types();
         builder
@@ -234,6 +275,16 @@ impl IrBuilder {
         self.function_return_types
             .insert("اكتب_ملف".to_string(), IrType::Bool);
 
+        // جذر (sqrt) returns float. Unregistered, its call result carried the
+        // `Ptr(Void)` unknown sentinel, so `اطبع(جذر(١٦.٠))` natively emitted
+        // `trq_print(ptr %x)` on a double and dereferenced it — a segfault in
+        // every native binary using it, whether reached bare or through a
+        // wildcard namespace. The sibling math builtins listed beside `جذر` in
+        // codegen's `get_runtime_function_name` still lack return types and
+        // remain affected.
+        self.function_return_types
+            .insert("جذر".to_string(), IrType::Float);
+
         // اقرأ_سطر (read_line) returns string
         self.function_return_types
             .insert("اقرأ_سطر".to_string(), IrType::String);
@@ -241,10 +292,43 @@ impl IrBuilder {
             .insert("read_line".to_string(), IrType::String);
     }
 
-    /// Build IR from an AST.
+    /// Build IR from an AST for an executable program.
     ///
-    /// This is the main entry point for converting a parsed AST to IR.
-    pub fn build(mut self, ast: &Ast) -> Result<Module> {
+    /// This is the main entry point for converting a parsed AST to IR. The
+    /// AST must supply an entry point — top-level executable statements
+    /// (Script mode) or `دالة رئيسية()` (Program mode) — or the build fails
+    /// with ت٠٢٠٢. Use [`IrBuilder::build_library`] to lower a declarations-only
+    /// module that is never meant to run on its own.
+    pub fn build(self, ast: &Ast) -> Result<Module> {
+        self.build_with_entry_point_policy(ast, true)
+    }
+
+    /// Build IR from an AST that is not required to define an entry point.
+    ///
+    /// A declarations-only file is a valid library module: it produces no
+    /// `__main__`, and demanding one would be wrong. Everything else matches
+    /// [`IrBuilder::build`].
+    pub fn build_library(self, ast: &Ast) -> Result<Module> {
+        self.build_with_entry_point_policy(ast, false)
+    }
+
+    fn build_with_entry_point_policy(
+        mut self,
+        ast: &Ast,
+        require_entry_point: bool,
+    ) -> Result<Module> {
+        // Import-naming pre-pass, ahead of every name-collecting pass:
+        // `src/semantic/linker.rs` merges each imported declaration into this
+        // AST under its ORIGINAL bare name, and IR names are flat and
+        // unmangled. A wildcard namespace (`* كـ رياض`) and a named-import
+        // alias (`{ ضاعف كـ اضعف }`) are therefore compile-time naming only,
+        // and must resolve back to that bare name at every lookup.
+        for stmt in &ast.statements {
+            if let StmtKind::Import { items, .. } = &stmt.kind {
+                self.collect_import_names(items);
+            }
+        }
+
         // First pass: collect function signatures (needed for global variable type inference)
         for stmt in &ast.statements {
             if let StmtKind::FuncDecl {
@@ -252,7 +336,7 @@ impl IrBuilder {
                 params,
                 return_type,
                 ..
-            } = &stmt.kind
+            } = &as_top_level_decl(stmt).kind
             {
                 self.collect_function_signature(name, params, return_type)?;
             }
@@ -265,7 +349,7 @@ impl IrBuilder {
                 extends,
                 members,
                 ..
-            } = &stmt.kind
+            } = &as_top_level_decl(stmt).kind
             {
                 self.collect_class(name, extends.as_ref(), members)?;
             }
@@ -279,7 +363,7 @@ impl IrBuilder {
                 ty,
                 init,
                 ..
-            } = &stmt.kind
+            } = &as_top_level_decl(stmt).kind
             {
                 let ir_type = if let Some(t) = ty {
                     self.convert_type(t)
@@ -321,22 +405,25 @@ impl IrBuilder {
         }
 
         // Check if user defined دالة رئيسية() (Program mode entry point)
-        let has_user_main = ast
-            .statements
-            .iter()
-            .any(|stmt| matches!(&stmt.kind, StmtKind::FuncDecl { name, .. } if name == "رئيسية"));
+        let has_user_main = ast.statements.iter().any(
+            |stmt| matches!(&as_top_level_decl(stmt).kind, StmtKind::FuncDecl { name, .. } if name == "رئيسية"),
+        );
 
         // Check if there's top-level EXECUTABLE code (Script mode entry point)
         // VarDecl is allowed (global variables), but other statements are executable code
         // Import statements are declarations, not executable code
         let has_top_level_executable = ast.statements.iter().any(|stmt| {
             !matches!(
-                &stmt.kind,
+                &as_top_level_decl(stmt).kind,
                 StmtKind::FuncDecl { .. }
                     | StmtKind::ClassDecl { .. }
                     | StmtKind::InterfaceDecl { .. }
+                    | StmtKind::EnumDecl { .. }
                     | StmtKind::VarDecl { .. }
                     | StmtKind::Import { .. }
+                    // Named/wildcard/re-exports survive `as_top_level_decl`
+                    // unwrapping; all are module metadata that emits no IR.
+                    | StmtKind::Export(..)
             )
         });
 
@@ -349,13 +436,31 @@ impl IrBuilder {
             )));
         }
 
+        // Neither mode means no `__main__` is produced at all. Reported here,
+        // off the same two flags the entry-point decision itself uses, because
+        // downstream the absence is not recoverable and not explainable: the
+        // linker fails on an undefined `___main__` C symbol, and the
+        // interpreter just exits 0 having run nothing. A merged program keeps
+        // its main file's entry point, so this can only fire on a file that
+        // declares but never runs anything.
+        if require_entry_point && !has_user_main && !has_top_level_executable {
+            return Err(IrError::new(format!(
+                "[{}] لا يحتوي الملف على نقطة دخول: لا جمل تنفيذية عليا ولا دالة رئيسية(). \
+                     الملف الذي يحتوي تعريفات فقط هو وحدة تُستورَد، لا برنامج يُترجَم وحده. \
+                     / File has no entry point: neither top-level executable statements nor \
+                     دالة رئيسية(). A declarations-only file is a module to import, not a \
+                     program to compile on its own.",
+                ERR_NO_ENTRY_POINT
+            )));
+        }
+
         // Collect global variables that need runtime initialization (non-constant initializers)
         // This is needed for Program mode where VarDecl is processed outside function context
         let globals_needing_init: Vec<(String, Expr)> = ast
             .statements
             .iter()
             .filter_map(|stmt| {
-                if let StmtKind::VarDecl { name, init, .. } = &stmt.kind {
+                if let StmtKind::VarDecl { name, init, .. } = &as_top_level_decl(stmt).kind {
                     if self.global_variables.contains(name) {
                         if let Some(init_expr) = init {
                             // Only include if it's NOT a constant (arrays, objects, etc.)
@@ -443,6 +548,30 @@ impl IrBuilder {
         }
 
         Ok(self.module)
+    }
+
+    /// Record the compile-time-only names one `استورد` introduces.
+    fn collect_import_names(&mut self, items: &ImportItems) {
+        match items {
+            ImportItems::Wildcard(namespace) => {
+                self.namespace_aliases.insert(namespace.clone());
+            }
+            ImportItems::Named(names) => {
+                for item in names {
+                    match &item.alias {
+                        // A self-alias (`{ ضاعف كـ ضاعف }`) would map a name
+                        // onto itself; there is nothing to redirect.
+                        Some(alias) if *alias != item.name => {
+                            self.import_aliases.insert(alias.clone(), item.name.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            // A default import names the module's single default export
+            // directly — there is no second name to redirect it to.
+            ImportItems::Default(_) => {}
+        }
     }
 
     /// Collect class information for later use.
@@ -628,6 +757,40 @@ impl IrBuilder {
         }
     }
 
+    /// Detach the enclosing function's build state so a nested declaration
+    /// can be built from a clean slate, and hand it back for
+    /// [`IrBuilder::resume_function_context`].
+    ///
+    /// `begin_function` resets every field captured here and `end_function`
+    /// restores none of them, so any site that builds a declaration *while*
+    /// another function is open has to round-trip them itself. Doing that by
+    /// hand is what broke: `build_class_decl` saved only `current_function`
+    /// and `variables`, so a class method with more than one basic block left
+    /// `current_block` pointing at a block id that exists only in the method.
+    /// `emit` silently drops instructions aimed at a block the current
+    /// function does not own, so every statement after a class declaration in
+    /// Script mode vanished from the synthesized `__main__` — no diagnostic,
+    /// no output, exit 0.
+    pub(crate) fn suspend_function_context(&mut self) -> FunctionContext {
+        FunctionContext {
+            function: self.current_function.take(),
+            block: self.current_block,
+            var_counter: self.var_counter,
+            block_counter: self.block_counter,
+            variables: std::mem::take(&mut self.variables),
+        }
+    }
+
+    /// Put the enclosing function's build state back after a nested
+    /// declaration finished (its `end_function` must already have run).
+    pub(crate) fn resume_function_context(&mut self, saved: FunctionContext) {
+        self.current_function = saved.function;
+        self.current_block = saved.block;
+        self.var_counter = saved.var_counter;
+        self.block_counter = saved.block_counter;
+        self.variables = saved.variables;
+    }
+
     /// Begin building a new function.
     pub(crate) fn begin_function(
         &mut self,
@@ -700,6 +863,20 @@ impl IrBuilder {
 
     /// Emit an instruction to the current block.
     pub(crate) fn emit(&mut self, inst: Instruction) {
+        // Emitting into a block the current function does not own can only
+        // mean its context was not restored after a nested build, and the
+        // instruction is about to be dropped on the floor. That silent drop is
+        // exactly how a whole `__main__` body went missing with no diagnostic
+        // and exit 0; fail loudly in debug builds instead. Emitting with *no*
+        // current function stays a legitimate no-op — top-level declarations
+        // in Program mode take that path.
+        debug_assert!(
+            self.current_function
+                .as_ref()
+                .is_none_or(|func| func.get_block(self.current_block).is_some()),
+            "تعليمة موجّهة إلى كتلة غير موجودة في الدالة الحالية / instruction \
+             emitted into a block absent from the current function"
+        );
         if let Some(ref mut func) = self.current_function {
             if let Some(block) = func.get_block_mut(self.current_block) {
                 block.instructions.push(inst);
@@ -739,7 +916,19 @@ mod tests {
         format!("بسم_الله\n{}\nالحمد_لله", source.trim())
     }
 
+    /// Most tests below assert on the *shape* of the emitted IR for a
+    /// declaration, not on entry-point policy, so they lower as library
+    /// modules — `build` would reject a bare `متغير س = ٥` for having no
+    /// entry point. `build_program` covers that policy separately.
     fn build_ir(source: &str) -> Result<Module> {
+        let wrapped = wrap_with_markers(source);
+        let mut parser = Parser::new(&wrapped);
+        let ast = parser.parse().expect("Failed to parse");
+        let builder = IrBuilder::new("test".to_string());
+        builder.build_library(&ast)
+    }
+
+    fn build_program(source: &str) -> Result<Module> {
         let wrapped = wrap_with_markers(source);
         let mut parser = Parser::new(&wrapped);
         let ast = parser.parse().expect("Failed to parse");
@@ -1121,6 +1310,355 @@ mod tests {
         assert!(
             has_int_to_float,
             "float-typed local with int initializer must emit IntToFloat"
+        );
+    }
+
+    #[test]
+    fn test_exported_function_signature_reaches_return_types() {
+        // `function_return_types` isn't observable after `build` consumes the
+        // builder, so assert through the global whose type it drives. Program
+        // mode is required: `__global_init__` is emitted before any function
+        // body exists, so the global's type can only come from the first-pass
+        // signature scan. (Script mode re-infers it once the body is built,
+        // which masks a missed signature.)
+        let source = r#"
+            صدّر دالة تحية() -> نص {
+                أرجع "مرحبا"
+            }
+            متغير رسالة = تحية()
+            دالة رئيسية() {
+                اطبع(رسالة)
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+        let (name, ty, _) = &module.globals[0];
+        assert_eq!(name, "رسالة");
+        assert!(
+            matches!(ty, IrType::String),
+            "exported function's return type must reach function_return_types, got {:?}",
+            ty
+        );
+    }
+
+    #[test]
+    fn test_exported_declarations_are_not_top_level_executable() {
+        let source = r#"
+            صدّر دالة مساعدة() -> عدد {
+                أرجع 5
+            }
+            صدّر صنف أداة {}
+            صدّر ثابت الإصدار = 1
+            دالة رئيسية() {
+                اطبع(مساعدة())
+            }
+        "#;
+        assert!(
+            build_ir(source).is_ok(),
+            "a file of صدّر declarations plus دالة رئيسية must not trigger ت٠٢٠١"
+        );
+    }
+
+    #[test]
+    fn test_named_export_is_not_top_level_executable() {
+        // Named/wildcard exports never unwrap to a declaration, so they need
+        // their own exclusion from the executable-code scan.
+        let source = r#"
+            دالة مساعدة() -> عدد {
+                أرجع 5
+            }
+            صدّر { مساعدة }
+            دالة رئيسية() {
+                اطبع(مساعدة())
+            }
+        "#;
+        assert!(
+            build_ir(source).is_ok(),
+            "a named export must not count as top-level executable code"
+        );
+    }
+
+    /// Does `func` call `name` directly (the shape the linker's flat, unmangled
+    /// names require of every resolved import reference)?
+    fn calls_function(module: &Module, func: &str, name: &str) -> bool {
+        module
+            .functions
+            .iter()
+            .filter(|f| f.name == func)
+            .flat_map(|f| &f.blocks)
+            .flat_map(|b| &b.instructions)
+            .any(|inst| matches!(inst, Instruction::Call { func, .. } if func.0 == name))
+    }
+
+    #[test]
+    fn test_wildcard_namespace_call_lowers_to_bare_function() {
+        // Models the post-link AST: the module's declaration is merged in
+        // under its bare name while main's `استورد` survives.
+        let source = r#"
+            استورد * كـ أدوات من "./مكتبة"
+            دالة جمع(أ: عدد، ب: عدد) -> عدد {
+                أرجع أ + ب
+            }
+            دالة رئيسية() {
+                اطبع(أدوات.جمع(2، 3))
+            }
+        "#;
+        let module = build_ir(source).expect("namespaced call must build");
+        assert!(
+            calls_function(&module, "__main__", "جمع"),
+            "أدوات.جمع must lower to a direct call to جمع"
+        );
+    }
+
+    #[test]
+    fn test_named_import_alias_resolves_to_original_name() {
+        let source = r#"
+            استورد { ضاعف كـ اضعف } من "./مكتبة"
+            دالة ضاعف(س: عدد) -> عدد {
+                أرجع س * 2
+            }
+            دالة رئيسية() {
+                اطبع(اضعف(5))
+            }
+        "#;
+        let module = build_ir(source).expect("aliased import must build");
+        assert!(
+            calls_function(&module, "__main__", "ضاعف"),
+            "the alias اضعف must call the merged declaration ضاعف"
+        );
+    }
+
+    #[test]
+    fn test_local_binding_shadows_import_alias() {
+        // An alias is module-scope naming; a local of the same name wins, as
+        // it does over any other module-level binding.
+        let source = r#"
+            استورد { ضاعف كـ اضعف } من "./مكتبة"
+            دالة ضاعف(س: عدد) -> عدد {
+                أرجع س * 2
+            }
+            دالة رئيسية() {
+                متغير اضعف = 7
+                اطبع(اضعف)
+            }
+        "#;
+        let module = build_ir(source).expect("shadowed alias must build");
+        let main = module
+            .functions
+            .iter()
+            .find(|f| f.name == "__main__")
+            .expect("__main__ must exist");
+        assert!(
+            main.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .any(|inst| matches!(inst, Instruction::Alloca { .. })),
+            "the local اضعف must still be allocated"
+        );
+        assert!(
+            !calls_function(&module, "__main__", "ضاعف"),
+            "a local must shadow the import alias, not resolve through it"
+        );
+    }
+
+    #[test]
+    fn test_function_declaration_shadows_import_alias() {
+        // An alias is module-scope naming layered over the merged AST; a
+        // function the importing file declares itself outranks it. Guarding
+        // only on locals let the alias silently redirect to the imported
+        // ضاعف, so this printed 10 instead of 105 with no diagnostic.
+        let source = r#"
+            استورد { ضاعف كـ اضعف } من "./مكتبة"
+            دالة ضاعف(س: عدد) -> عدد {
+                أرجع س * 2
+            }
+            دالة اضعف(س: عدد) -> عدد {
+                أرجع س + 100
+            }
+            دالة رئيسية() {
+                اطبع(اضعف(5))
+            }
+        "#;
+        let module = build_ir(source).expect("shadowed alias must build");
+        assert!(
+            calls_function(&module, "__main__", "اضعف"),
+            "the file's own دالة اضعف must win over the import alias"
+        );
+        assert!(
+            !calls_function(&module, "__main__", "ضاعف"),
+            "the import alias must not hijack a declared function of that name"
+        );
+    }
+
+    #[test]
+    fn test_global_declaration_shadows_import_alias() {
+        // Same precedence for a global holding a function value: reading
+        // `اضعف` must load the file's own global, not redirect to ضاعف.
+        let source = r#"
+            استورد { ضاعف كـ اضعف } من "./مكتبة"
+            متغير ضاعف = 1
+            متغير اضعف = 7
+            دالة رئيسية() {
+                اطبع(اضعف)
+            }
+        "#;
+        let module = build_ir(source).expect("shadowed alias must build");
+        assert!(
+            module
+                .functions
+                .iter()
+                .filter(|f| f.name == "__main__")
+                .flat_map(|f| &f.blocks)
+                .flat_map(|b| &b.instructions)
+                .any(|inst| matches!(inst, Instruction::GlobalLoad { name, .. } if name == "اضعف")),
+            "the file's own global اضعف must win over the import alias"
+        );
+    }
+
+    #[test]
+    fn test_increment_through_import_alias_resolves_to_original_name() {
+        // `ع++` never went through the import-alias rewrite that `ع = ع + ١`
+        // and `ع += ١` already did, so an aliased global failed IR building
+        // with "لا يمكن تعديل متغير غير معرّف". The linker merges the module's
+        // declaration under its bare name, modelled here by declaring عداد.
+        let source = r#"
+            استورد { عداد كـ ع } من "./مكتبة"
+            متغير عداد = 0
+            دالة رئيسية() {
+                ع++
+                اطبع(ع)
+            }
+        "#;
+        let module = build_ir(source).expect("aliased increment must build");
+        assert!(
+            module
+                .functions
+                .iter()
+                .filter(|f| f.name == "__main__")
+                .flat_map(|f| &f.blocks)
+                .flat_map(|b| &b.instructions)
+                .any(
+                    |inst| matches!(inst, Instruction::GlobalStore { name, .. } if name == "عداد")
+                ),
+            "the alias ع++ must write back to the merged declaration عداد"
+        );
+    }
+
+    #[test]
+    fn test_declarations_only_program_reports_no_entry_point() {
+        // Compiled as a program, a declarations-only file used to reach the C
+        // linker and fail there on an undefined `___main__` symbol.
+        let source = r#"
+            صدّر دالة مساعدة() -> عدد {
+                أرجع 5
+            }
+            صدّر صنف أداة { }
+        "#;
+        let err = build_program(source).expect_err("a file with no entry point must be rejected");
+        assert!(
+            err.message.contains("ت٠٢٠٢"),
+            "the diagnostic must carry the ت٠٢٠٢ code, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn test_script_and_program_modes_still_supply_an_entry_point() {
+        build_program("اطبع(5)").expect("script mode supplies an entry point");
+        build_program("دالة رئيسية() { اطبع(5) }").expect("program mode supplies an entry point");
+    }
+
+    /// A method body that branches, so the method ends in a block whose id
+    /// exists only inside that method. `طالما` in the reported repro; `إذا`
+    /// does it just as well — the trigger is the extra basic block, not the
+    /// keyword.
+    const CLASS_WITH_BRANCHING_METHOD: &str = r#"
+        صنف عداد {
+            عام دالة عد() {
+                متغير س = 0
+                طالما (س < 3) {
+                    س = س + 1
+                }
+            }
+        }
+    "#;
+
+    /// How many `اطبع` calls actually landed in `func`'s blocks.
+    fn print_count(module: &Module, func: &str) -> usize {
+        module
+            .functions
+            .iter()
+            .filter(|f| f.name == func)
+            .flat_map(|f| &f.blocks)
+            .flat_map(|b| &b.instructions)
+            .filter(|inst| matches!(inst, Instruction::Print { .. }))
+            .count()
+    }
+
+    #[test]
+    fn test_script_code_after_a_class_declaration_reaches_main() {
+        // Script mode holds __main__ open across the whole statement pass, so
+        // the class methods are built *inside* it. build_class_decl restored
+        // only current_function, leaving current_block pointing into the
+        // method — and `emit` drops instructions aimed at a block the current
+        // function does not own. Every top-level statement after the class
+        // silently vanished: __main__ lowered to `entry: unreachable`, the
+        // program printed nothing and exited 0.
+        let source = format!("{}\nاطبع(7)", CLASS_WITH_BRANCHING_METHOD);
+        let module = build_program(&source).expect("script with a class must build");
+        assert_eq!(
+            print_count(&module, "__main__"),
+            1,
+            "top-level code after a class declaration must still land in __main__"
+        );
+    }
+
+    #[test]
+    fn test_main_is_terminated_when_a_class_declaration_follows_script_code() {
+        // The mirror case: the statements land (they precede the class), but
+        // the end-of-__main__ terminator check looks up current_block, finds
+        // no such block, and skips the Return — leaving __main__ falling off
+        // the end into codegen's `unreachable`.
+        let source = format!("اطبع(7)\n{}", CLASS_WITH_BRANCHING_METHOD);
+        let module = build_program(&source).expect("script with a class must build");
+        let main = module
+            .functions
+            .iter()
+            .find(|f| f.name == "__main__")
+            .expect("script mode synthesizes __main__");
+        assert!(
+            main.blocks.iter().all(|b| b.has_terminator()),
+            "__main__ must not be left falling off the end of a block"
+        );
+    }
+
+    #[test]
+    fn test_class_declaration_does_not_leak_block_ids_into_the_enclosing_build() {
+        // The state that must round-trip, asserted directly: after building a
+        // class whose method opens extra blocks, the enclosing function keeps
+        // emitting into blocks it owns.
+        let source = format!(
+            "{}\nمتغير ن = 1\nاطبع(ن)\nاطبع(ن + 1)",
+            CLASS_WITH_BRANCHING_METHOD
+        );
+        let module = build_program(&source).expect("script with a class must build");
+        assert_eq!(
+            print_count(&module, "__main__"),
+            2,
+            "both statements after the class must reach __main__"
+        );
+    }
+
+    #[test]
+    fn test_pure_export_declarations_generate_no_main() {
+        let source = r#"
+            صدّر دالة مساعدة() -> عدد {
+                أرجع 5
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+        assert!(
+            !module.functions.iter().any(|f| f.name == "__main__"),
+            "a declarations-only module must not synthesize a script-mode __main__"
         );
     }
 }

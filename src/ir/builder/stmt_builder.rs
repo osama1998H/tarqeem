@@ -281,11 +281,7 @@ impl IrBuilder {
             .unwrap_or(IrType::Void);
         let is_void_function = ret_type == IrType::Void;
 
-        let saved_function = self.current_function.take();
-        let saved_block = self.current_block;
-        let saved_var_counter = self.var_counter;
-        let saved_block_counter = self.block_counter;
-        let saved_variables = self.variables.clone();
+        let saved = self.suspend_function_context();
 
         let unlowerable = self.unlowerable_param_names(params, &[]);
         self.begin_function(name.to_string(), ir_params, ret_type)?;
@@ -325,11 +321,7 @@ impl IrBuilder {
 
         self.end_function()?;
 
-        self.current_function = saved_function;
-        self.current_block = saved_block;
-        self.var_counter = saved_var_counter;
-        self.block_counter = saved_block_counter;
-        self.variables = saved_variables;
+        self.resume_function_context(saved);
 
         Ok(())
     }
@@ -395,8 +387,7 @@ impl IrBuilder {
                         .map(|t| self.convert_type(t))
                         .unwrap_or(IrType::Void);
 
-                    let saved_function = self.current_function.take();
-                    let saved_variables = self.variables.clone();
+                    let saved = self.suspend_function_context();
 
                     self.begin_function(mangled_name, method_params, ret_type)?;
 
@@ -423,8 +414,7 @@ impl IrBuilder {
 
                     self.end_function()?;
 
-                    self.current_function = saved_function;
-                    self.variables = saved_variables;
+                    self.resume_function_context(saved);
                 }
                 ClassMember::Constructor { params, body, .. } => {
                     let mangled_name = format!("{}::منشئ", name);
@@ -447,8 +437,7 @@ impl IrBuilder {
                         });
                     }
 
-                    let saved_function = self.current_function.take();
-                    let saved_variables = self.variables.clone();
+                    let saved = self.suspend_function_context();
 
                     self.begin_function(mangled_name, ctor_params, IrType::Void)?;
 
@@ -469,8 +458,7 @@ impl IrBuilder {
 
                     self.end_function()?;
 
-                    self.current_function = saved_function;
-                    self.variables = saved_variables;
+                    self.resume_function_context(saved);
                 }
                 ClassMember::Field { .. } => {}
 
@@ -529,8 +517,7 @@ impl IrBuilder {
             }]
         };
 
-        let saved_function = self.current_function.take();
-        let saved_variables = std::mem::take(&mut self.variables);
+        let saved = self.suspend_function_context();
 
         self.begin_function(getter_name, getter_params, prop_type.clone())?;
 
@@ -588,8 +575,7 @@ impl IrBuilder {
 
         self.end_function()?;
 
-        self.current_function = saved_function;
-        self.variables = saved_variables;
+        self.resume_function_context(saved);
 
         Ok(())
     }
@@ -619,8 +605,7 @@ impl IrBuilder {
             ty: prop_type.clone(),
         });
 
-        let saved_function = self.current_function.take();
-        let saved_variables = std::mem::take(&mut self.variables);
+        let saved = self.suspend_function_context();
 
         self.begin_function(setter_name, setter_params, IrType::Void)?;
 
@@ -671,8 +656,7 @@ impl IrBuilder {
         self.emit(Instruction::Return { value: None });
         self.end_function()?;
 
-        self.current_function = saved_function;
-        self.variables = saved_variables;
+        self.resume_function_context(saved);
 
         Ok(())
     }

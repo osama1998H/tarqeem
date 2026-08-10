@@ -5,7 +5,9 @@
 use crate::error::codes::ERR_ENTRY_POINT_CONFLICT;
 use crate::error::{Diagnostic, DiagnosticLevel, Language, Span};
 use crate::lexer::{Lexer, Token, TokenKind};
-use crate::parser::{Ast, ClassMember, Parser, StmtKind, TypeAnnotation, TypeKind};
+use crate::parser::{
+    Ast, ClassMember, ExportItems, Parser, Stmt, StmtKind, TypeAnnotation, TypeKind,
+};
 use crate::semantic::{Analyzer, Type};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::Url;
@@ -150,7 +152,13 @@ impl DocumentState {
         };
 
         if let Some(ref ast) = ast {
-            let mut analyzer = Analyzer::new();
+            // Relative imports (`./وحدة`) resolve against the importing file's
+            // directory, so the analyzer needs this document's path. Non-file
+            // URIs (untitled buffers) have no directory to resolve against.
+            let mut analyzer = match self.uri.to_file_path() {
+                Ok(path) => Analyzer::for_file(path),
+                Err(_) => Analyzer::new(),
+            };
 
             self.collect_symbols(ast, &mut symbols);
 
@@ -159,6 +167,18 @@ impl DocumentState {
                     diagnostics.push(err);
                 }
                 has_errors = true;
+            } else {
+                // Cross-module defects — a top-level name defined by two merged
+                // modules (و٠١٠١) above all — are only found by the link step,
+                // which `check` and `run` both run. Without it the editor
+                // showed a clean file that the CLI then rejected. The merged
+                // AST is discarded: the LSP builds no IR.
+                let mut link_warnings = Vec::new();
+                if let Err(errs) = analyzer.linked_ast(ast, &mut link_warnings) {
+                    diagnostics.extend(errs);
+                    has_errors = true;
+                }
+                diagnostics.extend(link_warnings);
             }
 
             // Check for entry point mode conflict (Script mode vs Program mode)
@@ -177,13 +197,26 @@ impl DocumentState {
         }
     }
 
+    /// Unwraps `صدّر <declaration>` to the declaration it exports.
+    ///
+    /// Duplicated from `ir::builder::as_top_level_decl` rather than shared:
+    /// the LSP layer must not reach into the IR layer. Both classifications
+    /// of "top-level executable code" must stay in step, or the editor and
+    /// the compiler disagree about ت٠٢٠١.
+    fn unwrap_exported_decl(stmt: &Stmt) -> &Stmt {
+        match &stmt.kind {
+            StmtKind::Export(ExportItems::Declaration(inner)) => inner,
+            _ => stmt,
+        }
+    }
+
     /// Check for entry point mode conflict (Script mode vs Program mode).
     /// Returns an error diagnostic if both top-level executable statements
     /// AND دالة رئيسية() exist in the same file.
     fn check_entry_point_conflict(&self, ast: &Ast) -> Option<Diagnostic> {
         // Find دالة رئيسية() declaration (Program mode entry point)
         let main_func_span = ast.statements.iter().find_map(|stmt| {
-            if let StmtKind::FuncDecl { name, .. } = &stmt.kind {
+            if let StmtKind::FuncDecl { name, .. } = &Self::unwrap_exported_decl(stmt).kind {
                 if name == "رئيسية" {
                     return Some(stmt.span);
                 }
@@ -196,13 +229,16 @@ impl DocumentState {
         // Everything else is executable code
         let first_executable_span = ast.statements.iter().find_map(|stmt| {
             if !matches!(
-                &stmt.kind,
+                &Self::unwrap_exported_decl(stmt).kind,
                 StmtKind::FuncDecl { .. }
                     | StmtKind::ClassDecl { .. }
                     | StmtKind::InterfaceDecl { .. }
                     | StmtKind::EnumDecl { .. }
                     | StmtKind::VarDecl { .. }
                     | StmtKind::Import { .. }
+                    // Named/wildcard/re-exports survive the unwrapping above;
+                    // all are module metadata, never executable code.
+                    | StmtKind::Export(..)
             ) {
                 return Some(stmt.span);
             }
@@ -664,6 +700,75 @@ mod tests {
         assert!(
             arabic.contains("خطأ معجمي"),
             "Unknown errors should have Arabic prefix"
+        );
+    }
+
+    /// A top-level name defined by two merged modules (و٠١٠١) is found only by
+    /// the link step. The editor skipped it, so a file that `check` and `run`
+    /// both reject showed clean in VS Code.
+    #[test]
+    fn test_cross_module_collision_is_reported_to_the_editor() {
+        let dir = tempfile::TempDir::new().unwrap();
+
+        for (name, value) in [("ك1.ترقيم", "1"), ("ك2.ترقيم", "2")] {
+            let body = format!("صدّر دالة مكرر() -> عدد {{\n أرجع {}\n}}", value);
+            std::fs::write(dir.path().join(name), wrap_with_markers(&body)).unwrap();
+        }
+
+        let content = wrap_with_markers(
+            "استورد { مكرر } من \"./ك1\"\n\
+             استورد { مكرر كـ مكرر2 } من \"./ك2\"\n\
+             اطبع(مكرر())",
+        );
+        let main_path = dir.path().join("رئيسي.ترقيم");
+        std::fs::write(&main_path, &content).unwrap();
+
+        let mut doc =
+            DocumentState::new(Url::from_file_path(&main_path).unwrap(), 1, content.clone());
+        let analysis = doc.get_analysis(Language::Arabic);
+
+        assert!(analysis.has_errors, "the collision must fail the document");
+        assert!(
+            analysis
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("تعريف علوي مكرر")),
+            "expected a link-stage collision diagnostic, got {:?}",
+            analysis
+                .diagnostics
+                .iter()
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// The link step must stay silent on a program that links cleanly.
+    #[test]
+    fn test_valid_cross_module_program_stays_clean_in_the_editor() {
+        let dir = tempfile::TempDir::new().unwrap();
+
+        std::fs::write(
+            dir.path().join("أدوات.ترقيم"),
+            wrap_with_markers("صدّر دالة جمع(أ: عدد، ب: عدد) -> عدد {\n أرجع أ + ب\n}"),
+        )
+        .unwrap();
+
+        let content = wrap_with_markers("استورد { جمع } من \"./أدوات\"\nاطبع(جمع(2، 3))");
+        let main_path = dir.path().join("رئيسي.ترقيم");
+        std::fs::write(&main_path, &content).unwrap();
+
+        let mut doc =
+            DocumentState::new(Url::from_file_path(&main_path).unwrap(), 1, content.clone());
+        let analysis = doc.get_analysis(Language::Arabic);
+
+        assert!(
+            !analysis.has_errors,
+            "expected a clean document, got {:?}",
+            analysis
+                .diagnostics
+                .iter()
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
         );
     }
 }

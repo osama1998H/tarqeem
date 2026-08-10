@@ -385,7 +385,12 @@ impl DapAdapter {
             Err(e) => return DapResponse::error(request, format!("خطأ في التحليل: {}", e.message)),
         };
 
-        let mut analyzer = crate::semantic::Analyzer::new();
+        // Relative imports resolve against the launched program's directory.
+        let mut analyzer = crate::semantic::Analyzer::for_file(
+            program_path
+                .canonicalize()
+                .unwrap_or_else(|_| program_path.clone()),
+        );
         if let Err(diagnostics) = analyzer.analyze(&ast) {
             let msg = diagnostics
                 .iter()
@@ -395,8 +400,26 @@ impl DapAdapter {
             return DapResponse::error(request, format!("Semantic errors:\n{}", msg));
         }
 
+        // Imported module bodies only reach the debug interpreter through this
+        // merge; the IR builder itself accepts a single Ast and drops `استورد`.
+        let mut link_warnings = Vec::new();
+        let linked = match analyzer.linked_ast(&ast, &mut link_warnings) {
+            Ok(linked) => linked,
+            Err(diagnostics) => {
+                let msg = diagnostics
+                    .iter()
+                    .map(|d| format!("{}: {}", d.span, d.message))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                return DapResponse::error(request, format!("Link errors:\n{}", msg));
+            }
+        };
+        for diag in &link_warnings {
+            self.queue_event(DapEvent::output("stderr", &format!("{}\n", diag.message)));
+        }
+
         let ir_builder = crate::ir::IrBuilder::new("debug".to_string());
-        let ir_module = match ir_builder.build(&ast) {
+        let ir_module = match ir_builder.build(&linked) {
             Ok(m) => m,
             Err(e) => return DapResponse::error(request, format!("IR error: {}", e.message)),
         };

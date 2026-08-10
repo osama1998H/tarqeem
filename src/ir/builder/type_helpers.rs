@@ -229,7 +229,9 @@ impl IrBuilder {
             }
             ExprKind::New { class, .. } => {
                 if let ExprKind::Identifier(name) = &class.kind {
-                    IrType::Ptr(Box::new(IrType::Struct(ClassId(name.clone()))))
+                    IrType::Ptr(Box::new(IrType::Struct(ClassId(
+                        self.resolve_class_name(name),
+                    ))))
                 } else {
                     IrType::Ptr(Box::new(IrType::Void))
                 }

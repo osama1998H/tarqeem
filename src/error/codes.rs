@@ -362,6 +362,14 @@ pub const ERR_LINKING_FAILED: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed,
 /// and دالة رئيسية() (Program mode) in the same file.
 pub const ERR_ENTRY_POINT_CONFLICT: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 201);
 
+/// ت٠٢٠٢: لا توجد نقطة دخول للبرنامج
+/// No entry point: the file has neither top-level executable code (Script
+/// mode) nor دالة رئيسية() (Program mode), so no `__main__` is produced. A
+/// declarations-only file is a valid library module — it is meant to be
+/// imported, not compiled on its own. Without this check the absence surfaced
+/// only as a raw C linker error naming the internal `__main__` symbol.
+pub const ERR_NO_ENTRY_POINT: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 202);
+
 /// ت٠٣٠١: معامل دالة سهمية بدون نوع في الترجمة الأصلية
 /// Native codegen cannot lower an arrow-function parameter that never
 /// resolved to a concrete type (no annotation, no inferable hint) — the
@@ -422,6 +430,7 @@ mod tests {
         assert_eq!(ERR_MODULE_NOT_FOUND.to_string(), "و٠٠٠١");
         assert_eq!(ERR_LLVM_INTERNAL.to_string(), "ت٠٠٠١");
         assert_eq!(ERR_ENTRY_POINT_CONFLICT.to_string(), "ت٠٢٠١");
+        assert_eq!(ERR_NO_ENTRY_POINT.to_string(), "ت٠٢٠٢");
     }
 
     #[test]

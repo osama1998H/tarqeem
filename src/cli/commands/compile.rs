@@ -40,7 +40,9 @@ impl CompilationTiming {
     }
 }
 
-use super::{configure_analyzer, find_runtime, find_wasm_runtime, warn_invalid_extension};
+use super::{
+    analyzer_file_path, configure_analyzer, find_runtime, find_wasm_runtime, warn_invalid_extension,
+};
 
 /// Arguments for the compile command
 pub struct CompileArgs {
@@ -115,7 +117,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
 
     // Semantic analysis timing
     let semantic_start = Instant::now();
-    let mut analyzer = Analyzer::new();
+    let mut analyzer = Analyzer::for_file(analyzer_file_path(&args.file));
     configure_analyzer(&mut analyzer, args.verbose);
     if let Err(diagnostics) = analyzer.analyze(&ast) {
         for diag in &diagnostics {
@@ -134,9 +136,24 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
 
     // IR generation timing
     let ir_start = Instant::now();
+    // Imported module bodies only reach codegen through this merge; the IR
+    // builder itself accepts a single Ast and drops `استورد`.
+    let mut link_warnings = Vec::new();
+    let linked = analyzer
+        .linked_ast(&ast, &mut link_warnings)
+        .map_err(|diagnostics| {
+            for diag in &diagnostics {
+                diag.emit(&source, &filename, lang);
+            }
+            format!("وُجد {} خطأ/أخطاء", diagnostics.len())
+        })?;
+    for diag in &link_warnings {
+        diag.emit(&source, &filename, lang);
+    }
+
     let ir_builder = IrBuilder::new(module_name);
     let mut ir_module = ir_builder
-        .build(&ast)
+        .build(&linked)
         .map_err(|e| format!("خطأ في توليد التمثيل الوسيط: {}", e.message))?;
     timing.ir_build = ir_start.elapsed();
 
