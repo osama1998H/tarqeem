@@ -35,9 +35,10 @@ with it.
 
 Two consequences of always having one module in the cache:
 - `link_program`'s empty-cache fast path (`main.clone()`) never fires now, so
-  every program pays the merge. Left as is — measured no impact worth a
-  special case, and gating it on "nothing but the prelude" would duplicate the
-  skip logic.
+  every program pays the merge. Left as is: the merge is one pass over a
+  three-statement AST plus a `HashMap` insert per declared name, judged
+  negligible against parse and analysis. **Not measured** — `benches/end_to_end.rs`
+  was not run, so if compile-time regressions ever surface, start here.
 - `register_class` is a `HashMap::insert`, so a user's own `صنف استثناء` would
   have replaced the base class *silently* while `link_program` merged both
   declarations into the IR. The name is now reserved (ص٠٦٠٢). The four semantic
@@ -83,13 +84,21 @@ when the slot is empty, so a genuine interpreter failure is never swallowed.
 
 An uncaught exception now reports its `رسالة` rather than `<استثناء>`.
 
+`src/debug/interpreter/` needed the identical port. It duplicates the main
+interpreter's instruction handling (issue #223) — including its own
+`DebugCallFrame.try_stack` and its own four call sites — so the IR-level fixes
+reached it for free while the propagation fix did not. Left alone, `tarqeem debug`
+would abort on an exception `tarqeem run` catches. Verified by
+`test_debug_interpreter_catches_exception_from_callee`, which drives
+`DebugInterpreter` directly (the DAP wire protocol needs a client).
+
 ### 4. Native: not broken — unimplemented, and now refused
 
 `TryBegin`/`TryEnd` lower to LLVM *comments*, the `catch.N:` block is emitted
 with **zero predecessors**, and `@trq_throw`/`@trq_get_exception` are declared but
 defined nowhere in `runtime-rs` (`nm libtrq.a` confirms). There is no `invoke`,
 no `landingpad`, no `personality`, no setjmp. Real native EH is a design project,
-so `build_throw` now blocks native lowering with ت٠٣٠٣ instead.
+so `build_throw` now blocks native lowering with ت٠٣٠٣ instead. Design deferred to #238.
 
 The block keys on `Instruction::Throw` **only**. A `حاول`/`التقط`/`أخيراً` with
 nothing thrown compiles and runs natively today, and
@@ -114,10 +123,11 @@ visible too.
 
 - `أخيراً` does not run when an exception propagates out of a frame, nor on an
   early `أرجع` from a try body. Expressing it needs a `Rethrow` the IR does not
-  have. Documented in LANGUAGE_SPEC §11.4.
+  have. Documented in LANGUAGE_SPEC §11.4, filed as #242.
 - The six spec'd `استثناء_*` subclasses, and the spec's two-constructor
   `استثناء` (Tarqeem has no constructor overloading). Both recorded as spec
-  deviations rather than silently ignored.
+  deviations rather than silently ignored; the stdlib's `أخطاء` module, which
+  still declares the hierarchy as the unparseable `خطأ`, is #243.
 - The JIT's Cranelift compilers used to *skip* exception instructions via
   `_ => {}`, i.e. compile the function with the throw deleted. They now raise
   `JitError::unsupported_instruction`. Latent today — `JitExecutor` always
@@ -125,9 +135,18 @@ visible too.
 
 ### Verification
 
-`tests/exception_execution_tests.rs`, 15 cases through the real binary.
-Mutation-verified: removing the `parameters.insert` fails 5, reverting the
-cross-frame routing fails 4, removing the native block fails 8.
+`tests/exception_execution_tests.rs`, 16 cases — 15 through the real binary, one
+driving `DebugInterpreter` directly. Mutation-verified: removing the
+`parameters.insert` fails 5, reverting the cross-frame routing fails 4, removing
+the native block fails 8, reverting the debug-interpreter port fails 1.
+
+All 19 `examples/*.ترقيم` were run under all three backends and their outputs
+cross-compared. Two diverge natively — `ضغط` (`طول` counts bytes, #185 item 1) and
+`خواص` (auto-property getter returns 4 where `س` is 3) — both byte-identical on a
+`develop` worktree build, so pre-existing. The `خواص` one is not among #185's
+items and was filed as #239. Two more found the same way: native `sdiv` by zero
+silently yields 0 (#240), and 22 `@trq_*` symbols codegen declares are defined
+nowhere in `runtime-rs` (#241).
 
 ## 2026-08-10 — Issue #182 step 8: execution tests, and و٠٣٠١ starts reaching the user
 

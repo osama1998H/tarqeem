@@ -635,3 +635,68 @@ fn test_program_without_exceptions_is_unaffected() {
         &Backend::ALL,
     );
 }
+
+// ==========================================================================
+// The debug interpreter (`tarqeem debug`)
+// ==========================================================================
+
+/// `src/debug/interpreter/` duplicates the main interpreter's instruction
+/// handling and must be edited in lockstep (issue #223) — it had its own copy of
+/// the per-frame `try_stack`, so the cross-frame fix in
+/// `interpreter::executor` did not reach it. Without the port, a program whose
+/// exception `tarqeem run` catches would abort under `tarqeem debug`: a
+/// debug-vs-run divergence, which is the same silent-difference class this whole
+/// issue is about.
+///
+/// This drives `DebugInterpreter` directly rather than the DAP wire protocol,
+/// which needs a client on the other end.
+#[test]
+fn test_debug_interpreter_catches_exception_from_callee() {
+    use tarqeem::debug::{DebugContext, DebugInterpreter, StepResult};
+    use tarqeem::ir::IrBuilder;
+    use tarqeem::parser::Parser;
+    use tarqeem::semantic::Analyzer;
+
+    let source = "بسم_الله
+دالة يرمي() {
+    ارمِ جديد استثناء(\"من الدالة\")
+}
+دالة رئيسية() {
+    حاول {
+        يرمي()
+    } التقط (خ) {
+        اطبع(\"التقطت: \" + خ.رسالة)
+    }
+}
+الحمد_لله";
+
+    let ast = Parser::new(source).parse().expect("يجب أن يُحلَّل البرنامج");
+
+    let mut analyzer = Analyzer::new();
+    analyzer
+        .analyze(&ast)
+        .unwrap_or_else(|d| panic!("فشل التحليل الدلالي: {:?}", d));
+
+    let mut warnings = Vec::new();
+    let linked = analyzer
+        .linked_ast(&ast, &mut warnings)
+        .expect("يجب أن يُدمَج التمهيد");
+
+    let module = IrBuilder::new("تنقيح".to_string())
+        .build(&linked)
+        .expect("يجب أن يُبنى التمثيل الوسيط");
+
+    let mut debugger = DebugInterpreter::new(module, DebugContext::new());
+    let result = debugger.run().expect("يجب أن يكتمل التنفيذ");
+
+    assert!(
+        !matches!(result, StepResult::Exception(_)),
+        "المنقح أبلغ عن استثناء غير معالج مع وجود «التقط»: {:?}",
+        debugger.context().output()
+    );
+    assert_eq!(
+        debugger.context().output(),
+        ["التقطت: من الدالة"],
+        "خرج المنقح غير متطابق"
+    );
+}
