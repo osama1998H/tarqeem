@@ -4,12 +4,14 @@
 //! declarations, function declarations, class declarations, control flow, etc.
 
 use super::super::modules::ExportKind;
+use super::super::prelude;
 use super::super::scope::{Scope, ScopeKind, Symbol, SymbolKind};
 use super::super::types::Type;
 use super::{Analyzer, EnumInfo, EnumVariantInfo};
 use crate::error::codes::{
     ERR_BREAK_OUTSIDE_LOOP, ERR_CLASS_NOT_FOUND, ERR_CONTINUE_OUTSIDE_LOOP, ERR_NOT_EXPORTED,
-    ERR_RETURN_OUTSIDE_FUNCTION, ERR_TYPE_MISMATCH, ERR_UNDEFINED_CLASS, ERR_VARIABLE_REDEFINITION,
+    ERR_RETURN_OUTSIDE_FUNCTION, ERR_THROW_NON_EXCEPTION, ERR_TYPE_MISMATCH, ERR_UNDEFINED_CLASS,
+    ERR_VARIABLE_REDEFINITION,
 };
 use crate::error::Span;
 use crate::parser::*;
@@ -950,16 +952,33 @@ impl Analyzer {
     }
 
     /// Analyze a throw statement.
+    ///
+    /// The message names `استثناء`, not `خطأ`: `خطأ` is the boolean-false
+    /// literal, and calling it the base class is what sent readers looking for
+    /// a class they could never declare (issue #181).
     pub(crate) fn analyze_throw(&mut self, expr: &Expr, span: Span) {
         let expr_type = self.analyze_expr(expr);
 
+        // `Type::Error` means the operand was already diagnosed. Reporting it
+        // again renders as `'خطأ'` — `Type::Error::arabic_name()` — reading as
+        // if the user had thrown a boolean.
+        if expr_type == Type::Error {
+            return;
+        }
+
         if !self.is_error_type(&expr_type) {
-            self.error(
+            self.error_with_code(
                 &format!(
-                    "لا يمكن رمي نوع غير خطأ '{}'. يمكن رمي كائنات الخطأ (خطأ أو أصنافه الفرعية) فقط",
-                    expr_type.arabic_name()
+                    "لا يمكن رمي '{}': «ارمِ» تقبل نسخة من «{}» أو أحد أصنافه الفرعية فقط. / \
+                     Cannot throw '{}': «ارمِ» accepts only an instance of «{}» \
+                     or one of its subclasses.",
+                    expr_type.arabic_name(),
+                    prelude::EXCEPTION_CLASS,
+                    expr_type.arabic_name(),
+                    prelude::EXCEPTION_CLASS
                 ),
                 span,
+                &ERR_THROW_NON_EXCEPTION.to_string(),
             );
         }
     }

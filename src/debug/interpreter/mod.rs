@@ -10,10 +10,11 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use crate::interpreter::{RuntimeError, RuntimeResult, Value};
+use crate::interpreter::{ErrorKind, RuntimeError, RuntimeResult, Value};
 use crate::ir::{
     BasicBlock, BlockId, Constant, FuncId, Function, Instruction, MethodId, Module, VarId,
 };
+use crate::semantic::EXCEPTION_MESSAGE_FIELD;
 
 use super::context::{BreakpointId, DebugContext};
 use super::source_map::SourceLocation;
@@ -894,7 +895,11 @@ impl DebugInterpreter {
                             frame.inst_idx = 0;
                         }
                     } else {
-                        let msg = exception.to_display_string();
+                        // Parked so the caller's `Call` site can convert this
+                        // `Err` back into a throw against its own handler stack —
+                        // the same fix as `interpreter::executor` (issue #181).
+                        let msg = Self::exception_message(&exception);
+                        self.current_exception = Some(exception);
                         return Err(RuntimeError::unhandled_exception(&msg));
                     }
                 }
@@ -1111,16 +1116,13 @@ impl DebugInterpreter {
                     .map(|v| self.get_local(*v))
                     .collect::<RuntimeResult<Vec<_>>>()?;
 
-                let result = if self.is_builtin(&func.0) {
-                    self.call_builtin(&func.0, arg_values)?
+                let outcome = if self.is_builtin(&func.0) {
+                    self.call_builtin(&func.0, arg_values)
                 } else {
-                    self.call_function(func, arg_values)?
+                    self.call_function(func, arg_values)
                 };
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::CallIndirect {
@@ -1140,12 +1142,9 @@ impl DebugInterpreter {
                     .map(|v| self.get_local(*v))
                     .collect::<RuntimeResult<Vec<_>>>()?;
 
-                let result = self.call_function(&FuncId(func_name), arg_values)?;
+                let outcome = self.call_function(&FuncId(func_name), arg_values);
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::NewObject { dest, class } => {
@@ -1219,12 +1218,9 @@ impl DebugInterpreter {
                 } else {
                     FuncId(format!("{}::{}", method.class.0, method.name))
                 };
-                let result = self.call_function(&method_func_id, arg_values)?;
+                let outcome = self.call_function(&method_func_id, arg_values);
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::CallVirtual {
@@ -1265,12 +1261,9 @@ impl DebugInterpreter {
                 }
 
                 let method_func_id = FuncId(format!("{}::{}", method_id.class.0, method_id.name));
-                let result = self.call_function(&method_func_id, arg_values)?;
+                let outcome = self.call_function(&method_func_id, arg_values);
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::NewArray { dest, elements, .. } => {
@@ -1520,6 +1513,56 @@ impl DebugInterpreter {
         self.call_stack
             .last_mut()
             .and_then(|frame| frame.try_stack.pop())
+    }
+
+    /// Bind a callee's result, or turn a throw the callee did not handle into one
+    /// this frame's `try_stack` can catch.
+    ///
+    /// Kept identical to `interpreter::executor::Interpreter::finish_call`. This
+    /// file duplicates the main interpreter's instruction handling (issue #223),
+    /// so `tarqeem debug` would otherwise abort on an exception that
+    /// `tarqeem run` catches — a debug-vs-run divergence (issue #181).
+    fn finish_call(
+        &mut self,
+        outcome: RuntimeResult<Value>,
+        dest: Option<&VarId>,
+    ) -> RuntimeResult<InstructionResult> {
+        match outcome {
+            Ok(result) => {
+                if let Some(d) = dest {
+                    self.set_local(*d, result);
+                }
+                Ok(InstructionResult::Continue)
+            }
+            Err(err) => match self.take_propagating_exception(&err) {
+                Some(exception) => Ok(InstructionResult::Throw(exception)),
+                None => Err(err),
+            },
+        }
+    }
+
+    fn take_propagating_exception(&mut self, err: &RuntimeError) -> Option<Value> {
+        if err.kind == ErrorKind::UnhandledException {
+            self.current_exception.take()
+        } else {
+            None
+        }
+    }
+
+    /// An uncaught exception's `رسالة`, rather than `<استثناء>`. Mirrors
+    /// `interpreter::executor::Interpreter::exception_message`.
+    ///
+    /// `pub(crate)` because the DAP adapter renders `StepResult::Exception`
+    /// itself on the step-driven path, which never passes through the recursive
+    /// `execute` loop below (issue #181).
+    pub(crate) fn exception_message(exception: &Value) -> String {
+        if let Value::Object(obj) = exception {
+            if let Some(message) = obj.borrow().fields.get(EXCEPTION_MESSAGE_FIELD) {
+                return message.to_display_string();
+            }
+        }
+
+        exception.to_display_string()
     }
 }
 

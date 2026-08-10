@@ -780,7 +780,11 @@ impl DapAdapter {
                 self.queue_event(DapEvent::terminated());
             }
             StepResult::Exception(exc) => {
-                let msg = exc.to_display_string();
+                // `to_display_string` renders an object as `<اسم_الصنف>`, so the
+                // editor showed `Exception: <استثناء>` while `tarqeem run` printed
+                // the reason — the same debug-vs-run divergence, one path over
+                // (issue #181).
+                let msg = DebugInterpreter::exception_message(&exc);
                 self.queue_event(DapEvent::output("stderr", &format!("Exception: {}\n", msg)));
                 self.queue_event(DapEvent::stopped(
                     "exception",

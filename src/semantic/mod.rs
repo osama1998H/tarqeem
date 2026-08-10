@@ -17,6 +17,7 @@ mod generics;
 mod linker;
 mod method_resolver;
 mod modules;
+mod prelude;
 mod scope;
 mod types;
 
@@ -31,5 +32,6 @@ pub use generics::{GenericContext, GenericResolver};
 pub use linker::link_program;
 pub use method_resolver::{MemberResolution, MethodCallResolution, MethodResolver};
 pub use modules::{ExportKind, ExportedSymbol, LoadedModule, ModuleId, ModuleLoader};
+pub use prelude::{EXCEPTION_CLASS, EXCEPTION_MESSAGE_FIELD};
 pub use scope::{Scope, Symbol, SymbolKind};
 pub use types::{parse_type_name, Type};

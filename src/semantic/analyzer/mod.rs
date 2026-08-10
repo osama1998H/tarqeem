@@ -16,10 +16,12 @@ use super::class_resolver::ClassResolver;
 use super::generics::{GenericContext, GenericParam, GenericResolver};
 use super::linker::{link_program, unwrap_exported_decl};
 use super::modules::ModuleLoader;
-use super::scope::{Scope, ScopeKind, SymbolKind};
+use super::prelude;
+use super::scope::{normalize_name, Scope, ScopeKind, SymbolKind};
 use super::types::{parse_type_name, Type};
 use crate::error::codes::{
-    ERR_CIRCULAR_DEPENDENCY, WARN_UNUSED_FUNCTION, WARN_UNUSED_IMPORT, WARN_UNUSED_VARIABLE,
+    ERR_CIRCULAR_DEPENDENCY, ERR_REDEFINE_PRELUDE_CLASS, WARN_UNUSED_FUNCTION, WARN_UNUSED_IMPORT,
+    WARN_UNUSED_VARIABLE,
 };
 use crate::error::{Diagnostic, Language, Span};
 use crate::parser::*;
@@ -150,6 +152,10 @@ impl Analyzer {
         // hierarchy in time (issue #182). Rebuilding vtables afterwards is not
         // an option: `validate` drains its own diagnostics, so a second run
         // would report every main-file class error twice.
+        // Before any module load, so `modules_in_load_order` yields the prelude
+        // first and a user class can inherit from `استثناء` (issue #181).
+        self.inject_prelude();
+
         let module_spans = self.preload_imported_modules(ast);
 
         // First pass: register all types (classes and interfaces)
@@ -218,7 +224,10 @@ impl Analyzer {
 
     /// Register types in the first pass.
     fn register_types(&mut self, stmt: &Stmt) {
-        match &stmt.kind {
+        // `صدّر صنف س` declares `س` just as `صنف س` does; without unwrapping,
+        // the reserved-name check below missed the exported form and the clash
+        // surfaced from the linker instead (issue #181).
+        match &unwrap_exported_decl(stmt).kind {
             StmtKind::ClassDecl {
                 name,
                 type_params,
@@ -226,6 +235,26 @@ impl Analyzer {
                 implements,
                 ..
             } => {
+                // `register_class` is a `HashMap::insert`, so a user class of
+                // the same name would replace the prelude's `استثناء` without a
+                // word — and `link_program` would then merge two declarations of
+                // it into the IR. Refuse instead; inheriting is the supported
+                // way to add an exception type (issue #181).
+                if normalize_name(name) == normalize_name(prelude::EXCEPTION_CLASS) {
+                    self.error_with_code(
+                        &format!(
+                            "لا يمكن إعادة تعريف صنف الاستثناء الأساسي '{}'؛ ورّثه بدلاً من ذلك: صنف اسمك يرث {}. / \
+                             Cannot redefine the built-in base exception class '{}'; \
+                             inherit from it instead: صنف اسمك يرث {}.",
+                            prelude::EXCEPTION_CLASS, prelude::EXCEPTION_CLASS,
+                            prelude::EXCEPTION_CLASS, prelude::EXCEPTION_CLASS
+                        ),
+                        stmt.span,
+                        &ERR_REDEFINE_PRELUDE_CLASS.to_string(),
+                    );
+                    return;
+                }
+
                 self.class_resolver.register_class(
                     name,
                     type_params,
@@ -238,6 +267,21 @@ impl Analyzer {
                 self.class_resolver.register_interface(name, &[], stmt.span);
             }
             _ => {}
+        }
+    }
+
+    /// Seed the module cache with the implicit prelude, so `استثناء` reaches
+    /// the class hierarchy and the merged AST like any other module's classes
+    /// (see `super::prelude`).
+    ///
+    /// A parse failure here is a defect in the compiler's own source, not the
+    /// user's, and `prelude::tests` guards it. Silently skipping beats failing
+    /// the user's build with a diagnostic they cannot act on; the consequence is
+    /// the pre-#181 behaviour, not a crash.
+    fn inject_prelude(&mut self) {
+        if let Ok((path, source, ast)) = prelude::prelude_ast() {
+            self.module_loader
+                .insert_synthetic_module(path, source, ast);
         }
     }
 
@@ -878,22 +922,19 @@ impl Analyzer {
 
     // Error type checking
 
-    const ERROR_BASE_CLASSES: &'static [&'static str] = &["استثناء", "Exception", "Error"];
+    /// `Exception`/`Error` are carried for the pre-#181 tests and sources that
+    /// hand-declared a base class under an English name; `استثناء` is the one
+    /// the prelude actually provides.
+    const ERROR_BASE_CLASSES: &'static [&'static str] =
+        &[prelude::EXCEPTION_CLASS, "Exception", "Error"];
 
-    /// Check if a type is an error type.
+    /// Whether `ty` may be thrown: `استثناء` itself, or any subclass of it.
     pub(crate) fn is_error_type(&self, ty: &Type) -> bool {
         match ty {
-            Type::Class(class_name) => {
-                if Self::ERROR_BASE_CLASSES.contains(&class_name.as_str()) {
-                    return true;
-                }
-                for base_error in Self::ERROR_BASE_CLASSES {
-                    if self.class_resolver.is_subclass(class_name, base_error) {
-                        return true;
-                    }
-                }
-                false
-            }
+            // `is_subclass` is reflexive, so this covers the base class too.
+            Type::Class(class_name) => Self::ERROR_BASE_CLASSES
+                .iter()
+                .any(|base| self.class_resolver.is_subclass(class_name, base)),
             Type::Any => true, // Allow Any for backwards compatibility
             _ => false,
         }
@@ -954,7 +995,7 @@ pub fn resolve_type_annotation(type_ann: &TypeAnnotation) -> Type {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::codes::ERR_NOT_EXPORTED;
+    use crate::error::codes::{ERR_NOT_EXPORTED, ERR_THROW_NON_EXCEPTION};
     use crate::parser::Parser;
     use tempfile::TempDir;
 
@@ -1166,31 +1207,26 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    /// The class is *not* declared here: `استثناء` comes from the prelude
+    /// (`semantic::prelude`). Before #181 every one of these tests had to
+    /// hand-declare it, which is precisely why the base class being missing went
+    /// unnoticed for the whole v1.0 release.
     #[test]
     fn test_throw_error_object() {
         let result = analyze(
             r#"
-            صنف استثناء {
-                عام رسالة: نص;
-                منشئ(رسالة: نص) {
-                    هذا.رسالة = رسالة;
-                }
-            }
             دالة ف() {
                 ارمِ جديد استثناء("حدث خطأ");
             }
         "#,
         );
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "{:?}", result.unwrap_err());
     }
 
     #[test]
     fn test_throw_error_subclass() {
         let result = analyze(
             r#"
-            صنف استثناء {
-                عام رسالة: نص;
-            }
             صنف استثناء_قيمة يرث استثناء {
                 عام القيمة: عدد;
             }
@@ -1199,7 +1235,7 @@ mod tests {
             }
         "#,
         );
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "{:?}", result.unwrap_err());
     }
 
     #[test]
@@ -1215,7 +1251,7 @@ mod tests {
         let errors = result.unwrap_err();
         assert!(errors
             .iter()
-            .any(|e| e.message.contains("لا يمكن رمي نوع غير خطأ")));
+            .any(|e| e.code.as_deref() == Some(ERR_THROW_NON_EXCEPTION.to_string().as_str())));
     }
 
     #[test]
@@ -1229,7 +1265,9 @@ mod tests {
         );
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("غير خطأ")));
+        assert!(errors
+            .iter()
+            .any(|e| e.code.as_deref() == Some(ERR_THROW_NON_EXCEPTION.to_string().as_str())));
     }
 
     #[test]
@@ -1246,16 +1284,15 @@ mod tests {
         );
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("غير خطأ")));
+        assert!(errors
+            .iter()
+            .any(|e| e.code.as_deref() == Some(ERR_THROW_NON_EXCEPTION.to_string().as_str())));
     }
 
     #[test]
     fn test_catch_parameter_typed_as_error() {
         let result = analyze(
             r#"
-            صنف استثناء {
-                عام رسالة: نص;
-            }
             دالة ف() {
                 حاول {
                     متغير س = 1;
@@ -1265,19 +1302,13 @@ mod tests {
             }
         "#,
         );
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "{:?}", result.unwrap_err());
     }
 
     #[test]
     fn test_try_catch_finally() {
         let result = analyze(
             r#"
-            صنف استثناء {
-                عام رسالة: نص;
-                منشئ(رسالة: نص) {
-                    هذا.رسالة = رسالة;
-                }
-            }
             دالة ف() {
                 حاول {
                     ارمِ جديد استثناء("حدث استثناء");
@@ -1289,7 +1320,7 @@ mod tests {
             }
         "#,
         );
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "{:?}", result.unwrap_err());
     }
 
     // ==========================================================================

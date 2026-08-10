@@ -13,11 +13,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::error::codes::ERR_DUPLICATE_EXPORT;
+use crate::error::codes::{ERR_DUPLICATE_EXPORT, ERR_REDEFINE_PRELUDE_CLASS};
 use crate::error::{Diagnostic, Span};
 use crate::parser::{Ast, ExportItems, Stmt, StmtKind};
 
 use super::modules::ModuleLoader;
+use super::prelude::PRELUDE_PATH;
 use super::scope::normalize_name;
 
 /// Stands in for the main file's path in diagnostics when the caller had none
@@ -264,6 +265,22 @@ fn record_origin(
     let key = normalize_name(name);
 
     match origins.get(&key) {
+        // A clash with the implicit prelude is not a module problem and must not
+        // be reported as one: the user imported nothing, and `<تمهيد ترقيم>` is
+        // not a path they can open. Name the real cause instead (issue #181).
+        Some(first_owner) if first_owner == Path::new(PRELUDE_PATH) => errors.push(
+            Diagnostic::error(
+                format!(
+                    "الاسم '{}' محجوز لصنف الاستثناء الأساسي المعرَّف تلقائياً؛ \
+                     اختر اسماً آخر، أو ورّثه: صنف اسمك يرث {}. / \
+                     The name '{}' is reserved for the built-in base exception \
+                     class; pick another name, or inherit from it instead.",
+                    name, name, name
+                ),
+                span,
+            )
+            .with_code(ERR_REDEFINE_PRELUDE_CLASS.to_string()),
+        ),
         Some(first_owner) => errors.push(
             Diagnostic::error(
                 format!(

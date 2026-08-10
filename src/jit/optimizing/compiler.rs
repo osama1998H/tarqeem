@@ -557,6 +557,15 @@ fn compile_optimized_instruction(
             // Function call with no destination - nothing to do
         }
 
+        // See the matching arm in `jit::baseline::compiler`: skipping these
+        // would delete the throw from the compiled function (issue #181).
+        Instruction::TryBegin { .. }
+        | Instruction::TryEnd
+        | Instruction::Throw { .. }
+        | Instruction::GetException { .. } => {
+            return Err(JitError::unsupported_instruction(format!("{}", inst)));
+        }
+
         _ => {
             // Skip unsupported instructions
         }

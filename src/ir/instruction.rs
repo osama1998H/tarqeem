@@ -6,6 +6,8 @@
 
 use std::fmt;
 
+use crate::error::codes::{ErrorCode, ERR_UNTYPED_LAMBDA_PARAM};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VarId(pub u32);
 
@@ -811,6 +813,55 @@ pub struct Parameter {
     pub ty: IrType,
 }
 
+/// A function's refusal to be lowered to native code, carrying the diagnostic
+/// verbatim so codegen reports the right advice for the right cause.
+///
+/// The two constructors differ in more than wording: an untyped parameter is
+/// something the *user* can fix by annotating, while an unsupported construct
+/// can only be worked around by choosing another backend.
+#[derive(Debug, Clone)]
+pub struct NativeBlock {
+    pub message: String,
+    pub code: String,
+    /// An unsupported *construct* outranks an untyped *type*: no annotation
+    /// fixes `ارمِ`, so reporting ت٠٣٠١'s "declare concrete types" for a
+    /// function that has both sends the user to annotate parameters, recompile,
+    /// and hit the same wall (issue #181).
+    pub overrides_types: bool,
+}
+
+impl NativeBlock {
+    /// A type native codegen cannot pick an ABI for. `detail` names what.
+    pub fn untyped(detail: impl fmt::Display) -> Self {
+        Self {
+            message: format!(
+                "الترجمة الأصلية غير مدعومة هنا بعد: {} — صرّح بالأنواع المحددة أو شغّل البرنامج بالمفسّر (tarqeem run). / \
+                 Native compilation is not supported here yet: {} — declare \
+                 concrete types, or run the program with the interpreter \
+                 (tarqeem run).",
+                detail, detail
+            ),
+            code: ERR_UNTYPED_LAMBDA_PARAM.to_string(),
+            overrides_types: false,
+        }
+    }
+
+    /// A construct with no native lowering at all, whatever its types. No
+    /// annotation helps, so the advice is to pick a backend that supports it.
+    pub fn unsupported(detail: impl fmt::Display, code: &ErrorCode) -> Self {
+        Self {
+            message: format!(
+                "{} غير مدعوم في الترجمة الأصلية بعد — شغّل البرنامج بالمفسّر (tarqeem run) أو بالترجمة الفورية (tarqeem run --jit). / \
+                 {} is not supported in native compilation yet — run the program \
+                 with the interpreter (tarqeem run) or the JIT (tarqeem run --jit).",
+                detail, detail
+            ),
+            code: code.to_string(),
+            overrides_types: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Function {
     pub id: FuncId,
@@ -821,14 +872,15 @@ pub struct Function {
     pub var_counter: u32,
     pub block_counter: u32,
     pub is_async: bool,
-    /// Why this function cannot be lowered to native code, if it can't —
-    /// an unannotated (or `أي`) parameter, or returns whose types don't
-    /// unify. A parameter's `IrType` alone cannot carry the first case: an
-    /// unannotated parameter and an explicitly-annotated `قاموس<…>` both
-    /// lower to `Ptr(Void)`, so the distinction has to be recorded when it
-    /// is still known. `None` for every natively-lowerable function; the
-    /// interpreter ignores this entirely (see ت٠٣٠١).
-    pub native_block_reason: Option<String>,
+    /// Why this function cannot be lowered to native code, if it can't — an
+    /// unannotated (or `أي`) parameter, returns whose types don't unify, or a
+    /// construct with no native lowering such as `ارمِ`. A parameter's `IrType`
+    /// alone cannot carry the first case: an unannotated parameter and an
+    /// explicitly-annotated `قاموس<…>` both lower to `Ptr(Void)`, so the
+    /// distinction has to be recorded when it is still known. `None` for every
+    /// natively-lowerable function; the interpreter ignores this entirely
+    /// (see ت٠٣٠١، ت٠٣٠٢، ت٠٣٠٣).
+    pub native_block: Option<NativeBlock>,
 }
 
 impl Function {
@@ -842,7 +894,7 @@ impl Function {
             var_counter: 0,
             block_counter: 0,
             is_async: false,
-            native_block_reason: None,
+            native_block: None,
         }
     }
 

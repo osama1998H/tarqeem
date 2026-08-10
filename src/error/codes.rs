@@ -331,6 +331,12 @@ pub const ERR_NONSTATIC_VIA_CLASS: ErrorCode = ErrorCode::new(ErrorCategory::Sin
 /// ص٠٥٠٢: الوصول لعضو مشترك عبر نسخة
 pub const ERR_STATIC_VIA_INSTANCE: ErrorCode = ErrorCode::new(ErrorCategory::Sinf, 502);
 
+/// ص٠٦٠١: رمي قيمة ليست استثناءً
+pub const ERR_THROW_NON_EXCEPTION: ErrorCode = ErrorCode::new(ErrorCategory::Sinf, 601);
+
+/// ص٠٦٠٢: إعادة تعريف صنف الاستثناء الأساسي
+pub const ERR_REDEFINE_PRELUDE_CLASS: ErrorCode = ErrorCode::new(ErrorCategory::Sinf, 602);
+
 // ============================================================================
 // رموز أخطاء الوحدات (و) - Module Error Codes
 // ============================================================================
@@ -386,6 +392,15 @@ pub const ERR_UNTYPED_LAMBDA_PARAM: ErrorCode = ErrorCode::new(ErrorCategory::Ta
 /// interpreter dispatches on runtime values and is unaffected; only
 /// `tarqeem compile`/native rejects this (see issue #180).
 pub const ERR_UNTYPED_INDIRECT_CALL: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 302);
+
+/// ت٠٣٠٣: رمي الاستثناءات غير مدعوم في الترجمة الأصلية
+/// Native codegen has no unwinding strategy at all: `TryBegin`/`TryEnd` lower to
+/// LLVM comments, the catch block is emitted with no predecessor, and the
+/// `@trq_throw` it would call is not defined in the runtime. A program with
+/// `ارمِ` therefore used to fail as an undefined-symbol link error naming an
+/// internal symbol. The interpreter and the JIT run it correctly, so this is a
+/// native-only refusal (see issue #181).
+pub const ERR_NATIVE_EXCEPTIONS: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 303);
 
 // ============================================================================
 // رموز التحذيرات (ح) - Warning Codes

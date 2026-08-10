@@ -7,8 +7,8 @@ use crate::parser::{
 };
 
 use super::super::{
-    BinaryOp, ClassId, Constant, EnumId, FieldId, FuncId, Instruction, IrType, MethodId, UnaryOp,
-    VarId, VariantId,
+    BinaryOp, ClassId, Constant, EnumId, FieldId, FuncId, Instruction, IrType, MethodId,
+    NativeBlock, UnaryOp, VarId, VariantId,
 };
 use super::{IrBuilder, IrError, Result};
 
@@ -1369,7 +1369,7 @@ impl IrBuilder {
             IrType::Ptr(Box::new(IrType::Void)), // provisional; patched below
         )?;
         if let Some(name) = unlowerable.first() {
-            self.block_native_lowering(Self::untyped_param_reason(name));
+            self.block_native_lowering(NativeBlock::untyped(Self::untyped_param_reason(name)));
         }
 
         // Read whatever the lambda's own build produces (return type) from
@@ -1463,9 +1463,9 @@ impl IrBuilder {
                     // IR stays well-formed for the interpreter, and block
                     // native lowering so the user gets a Tarqeem diagnostic
                     // instead of a leaked clang type error.
-                    self.block_native_lowering(
-                        "قيم الإرجاع في الدالة السهمية ذات أنواع غير متوافقة".to_string(),
-                    );
+                    self.block_native_lowering(NativeBlock::untyped(
+                        "قيم الإرجاع في الدالة السهمية ذات أنواع غير متوافقة",
+                    ));
                     valued[0].clone()
                 };
 

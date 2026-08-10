@@ -21,7 +21,7 @@ use crate::parser::{
 
 use super::{
     BasicBlock, BlockId, Class, ClassId, Constant, FuncId, Function, Instruction, IrType, Module,
-    Parameter, VarId,
+    NativeBlock, Parameter, VarId,
 };
 
 use std::collections::{HashMap, HashSet};
@@ -147,6 +147,7 @@ pub(crate) struct FunctionContext {
     var_counter: u32,
     block_counter: u32,
     variables: HashMap<String, VarId>,
+    parameters: HashSet<u32>,
 }
 
 /// Unwraps `صدّر <declaration>` to the declaration it exports.
@@ -747,12 +748,19 @@ impl IrBuilder {
     }
 
     /// Records why the function currently being built cannot be lowered to
-    /// native code (see `Function::native_block_reason`). First reason wins,
-    /// so the earliest/most specific diagnosis is the one reported.
-    pub(crate) fn block_native_lowering(&mut self, reason: String) {
+    /// native code (see `Function::native_block`).
+    ///
+    /// First reason wins among equals, so the earliest diagnosis is reported —
+    /// except that an unsupported construct replaces an untyped-parameter
+    /// reason, whose advice ("declare concrete types") cannot resolve it.
+    pub(crate) fn block_native_lowering(&mut self, block: NativeBlock) {
         if let Some(func) = self.current_function.as_mut() {
-            if func.native_block_reason.is_none() {
-                func.native_block_reason = Some(reason);
+            let replaces = match &func.native_block {
+                None => true,
+                Some(existing) => block.overrides_types && !existing.overrides_types,
+            };
+            if replaces {
+                func.native_block = Some(block);
             }
         }
     }
@@ -771,6 +779,20 @@ impl IrBuilder {
     /// function does not own, so every statement after a class declaration in
     /// Script mode vanished from the synthesized `__main__` — no diagnostic,
     /// no output, exit 0.
+    ///
+    /// `parameters` is captured for the same reason, and was the same bug one
+    /// layer down: `begin_function` clears `parameters` and
+    /// fills it with the nested declaration's own parameter ids, so on return
+    /// the enclosing function saw *those* ids as direct values. In Script mode
+    /// a class declared before a C-style `لكل` left id 0 (the method's `هذا`)
+    /// marked as a parameter, so the loop variable — also id 0 in the
+    /// synthesized `__main__` — stopped emitting its `Load` and the condition
+    /// compared the raw alloca pointer: `متوقع comparable، وُجد ptr`.
+    ///
+    /// `var_types` is deliberately *not* captured: the lambda lift reads the
+    /// types its nested build recorded after resuming, to thread a declared
+    /// function-type annotation into the lifted body. Restoring it here makes
+    /// `test_lambda_assigned_to_annotated_slot_threads_hint` fail with ت٠٣٠١.
     pub(crate) fn suspend_function_context(&mut self) -> FunctionContext {
         FunctionContext {
             function: self.current_function.take(),
@@ -778,6 +800,7 @@ impl IrBuilder {
             var_counter: self.var_counter,
             block_counter: self.block_counter,
             variables: std::mem::take(&mut self.variables),
+            parameters: std::mem::take(&mut self.parameters),
         }
     }
 
@@ -789,6 +812,7 @@ impl IrBuilder {
         self.var_counter = saved.var_counter;
         self.block_counter = saved.block_counter;
         self.variables = saved.variables;
+        self.parameters = saved.parameters;
     }
 
     /// Begin building a new function.
@@ -852,6 +876,19 @@ impl IrBuilder {
     /// Switch the current block for instruction emission.
     pub(crate) fn switch_to_block(&mut self, block_id: BlockId) {
         self.current_block = block_id;
+    }
+
+    /// Whether the current block still needs a terminator — false once it ends
+    /// in `Return`, `Jump`, `Branch` or `Throw`.
+    ///
+    /// Emitting past a terminator produces IR that LLVM rejects outright, so
+    /// every branch-joining `Jump` has to be guarded by this.
+    pub(crate) fn current_block_needs_terminator(&self) -> bool {
+        self.current_function
+            .as_ref()
+            .and_then(|func| func.get_block(self.current_block))
+            .map(|block| !block.has_terminator())
+            .unwrap_or(false)
     }
 
     /// Generate a new unique variable ID.

@@ -4,7 +4,7 @@
 
 use super::{mangle_name, TypeMapper};
 use crate::codegen::Target;
-use crate::error::codes::{ERR_LLVM_INTERNAL, ERR_UNTYPED_INDIRECT_CALL, ERR_UNTYPED_LAMBDA_PARAM};
+use crate::error::codes::{ERR_LLVM_INTERNAL, ERR_UNTYPED_INDIRECT_CALL};
 use crate::ir::{
     BasicBlock, BinaryOp, BlockId, Class, ClassId, Constant, Function, Instruction, IrType, Module,
     UnaryOp, VarId,
@@ -790,13 +790,13 @@ impl LlvmCodegen {
         // would silently reinterpret whatever bit pattern the caller passed
         // (issue #185's divergence class). The interpreter is dynamically
         // typed and unaffected; only native codegen needs this guard.
-        if let Some(reason) = &func.native_block_reason {
+        // The message and code come from the block itself: the advice for an
+        // untyped parameter ("declare concrete types") is wrong for a construct
+        // with no native lowering at all, such as `ارمِ` (issue #181).
+        if let Some(block) = &func.native_block {
             return Err(CodegenError::with_code(
-                format!(
-                    "الترجمة الأصلية غير مدعومة هنا بعد: {} — صرّح بالأنواع المحددة أو شغّل البرنامج بالمفسّر (tarqeem run)",
-                    reason
-                ),
-                ERR_UNTYPED_LAMBDA_PARAM.to_string(),
+                block.message.clone(),
+                block.code.clone(),
             ));
         }
 
@@ -2553,6 +2553,9 @@ fn escape_llvm_string(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // No longer used by `generate` itself — the code now travels on the
+    // `NativeBlock` — but these tests assert which code a given source produces.
+    use crate::error::codes::ERR_UNTYPED_LAMBDA_PARAM;
 
     #[test]
     fn test_mangle_function_name() {
