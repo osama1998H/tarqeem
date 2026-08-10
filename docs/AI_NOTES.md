@@ -2,6 +2,87 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-10 — Issues #201/#204/#225: `tarqeem fmt` was source-destructive
+
+`fmt` emitted doc-comment text with no `///` marker, so its own output stopped
+being a program; `fmt -w` wrote that to disk with no verification anywhere in the
+pipeline. Fixed together with #204 (docs dropped on `صدّر` declarations) and a
+newly-filed #225, plus a guard that makes the whole class impossible to ship
+again.
+
+### The issue's "same root cause each time" was empirically false
+#201's comments assert that all 12 fmt-idempotence failures share one root
+cause. Measured with a freshly built binary (the earlier count came from a stale
+`target/release/tarqeem`, so it was re-run before touching code, per this file's
+own precedent): 66 corpus files, 33 parseable, 12 idempotence failures — but
+`examples/تحكم.ترقيم`, `examples/تعداد.ترقيم` and
+`examples/حاسبة/مصدر/رئيسي.ترقيم` contain **zero** doc comments. They failed
+through an unrelated defect: `format_match_arm` wrote `حالة` unconditionally, so
+a wildcard arm became `حالة غير_ذلك`, rejected as `رمز غير متوقع: Default`
+(`غير_ذلك` is its own arm production — LANGUAGE_SPEC §15.6). Split out as #225
+rather than folded silently into #201. Post-fix: 33/33 idempotent, and the
+33-file non-parseable set is byte-identical to the baseline (nothing regressed
+into unparseable).
+
+### `trim_end()`, not `trim()` — the trailing-comment helper could not be reused
+The obvious fix was to parameterize `write_comment_lines`' marker. That would
+have introduced a second, quieter data loss: the lexer strips exactly one leading
+space per `///` line, so indentation *inside* a doc block is content, and the
+trailing path's per-line `trim()` would flatten an indented example on the first
+format. `write_doc_comment_lines` is a deliberate sibling that trims only the
+line end, which also round-trips exactly — the emitted `/// ` + line re-lexes
+back to the same content, so indentation cannot erode across repeated runs. The
+trailing path keeps its full `trim()`; existing tests assert that normalization.
+
+### #204 could not be fixed parser-only without creating new corruption
+Threading the doc comment into `parse_export_statement` is the whole parser-side
+fix, but on its own it makes the formatter emit `صدّر /// وثيقة\nدالة ...` — the
+doc lands *mid-line* and comments out the declaration it documents. The `Export`
+arm delegates through `format_stmt_inline`, whose fallthrough called
+`format_stmt`, which emits leading trivia. So `format_stmt` was split into
+`format_leading_trivia` + `format_stmt_no_leading_trivia`; the inline path takes
+the latter and the `Export` arm hoists the inner doc above `صدّر` itself. This is
+why #204 belonged in the same change as #201 and not in a follow-up: the parser
+half alone is a regression. Anything rendered mid-line must now use the
+trivia-free path.
+
+### Decision: verify in `format_source`, not in the CLI
+The re-parse guard lives in `fmt::format_source`, so `--check`, `--diff` and
+library callers inherit it, and `FormatError::OutputNotReparsable` names it an
+internal formatter bug rather than blaming the user's source (which parsed on the
+way in). It bounds *unparseable* output only — a formatter that silently drops a
+comment still parses fine, so the guard is not a completeness claim. Fixing #225
+was a prerequisite: with that bug present the guard would have turned silent
+corruption of 4 example files into a hard `fmt` failure.
+
+### Verification method: prove the tests fail without the fixes
+All four defects were re-introduced simultaneously and the suite re-run: exactly
+18 failures, exactly the 18 new tests — no new test is vacuous, and the
+pre-existing trailing-comment tests stayed green, confirming trailing behaviour
+was untouched. Also confirmed `check` on formatted output yields diagnostics
+byte-identical to `check` on the original (18 pre-existing semantic diagnostics
+on `طابور.ترقيم`, 0 `ب`-category), so formatting is semantically transparent, and
+that `tarqeem doc` now emits the `صدّر` doc strings it previously dropped. The
+corpus test walks the tree at runtime instead of `include_str!`, so it needs no
+CI YAML edits (`cargo test fmt` matches `fmt::formatter::tests::*`), and asserts
+a floor of 33 parseable files so a parser regression cannot hide behind its skip
+branch.
+
+### Known limitations, deliberately not fixed
+- Only the five doc-bearing declaration branches consume the doc comment, so a
+  doc before `إذا`/`طالما`/an expression is consumed and dropped. Pre-existing
+  for `///`; accepting `BlockDocComment` extends it to `/** */`.
+- `صدّر\n/// وثيقة\nدالة` is still a hard parse error (#203 class — the token sits
+  where a declaration keyword is expected). Unaffected by the threading, since
+  `inherited_doc` is `None` there and `or_else` reduces to the original call.
+  Pinned by a test so it cannot degrade into a silent drop.
+- `ExportItems::Named`/`Wildcard`/`NamedReexport` and `استورد` have no doc field,
+  so a doc comment on those forms is still dropped.
+- `format_stmt_inline`'s `VarDecl` arm still drops a trailing comment on
+  `صدّر ثابت … // تعليق`. Lossy but parseable, so neither the guard nor the
+  idempotence test flags it.
+- Plain `/* */` produces no token at all and is still deleted by `fmt`.
+
 ## 2026-08-10 — Second review round on #180: native-path soundness
 
 A 33-agent adversarial review of the full #180 diff confirmed 10 findings —
