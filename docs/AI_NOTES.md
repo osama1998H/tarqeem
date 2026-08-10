@@ -2,6 +2,133 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-10 — Issue #181: the exception system, from unusable to usable
+
+`ارمِ` could not be used in **any** program. `Analyzer::is_error_type` accepts
+`استثناء` or a subclass and the catch parameter was already typed
+`Type::Class("استثناء")` — both correct, both **inert**, because no `استثناء`
+class was ever registered and there was no mechanism anywhere to predeclare one.
+The stdlib declared the hierarchy under the name `خطأ`
+(`stdlib_trq/أخطاء/فهرس.ترقيم:21`), which is `TokenKind::False` and cannot parse
+as a class name — so there was no reachable way to make anything throwable.
+
+Four independent root causes, one per layer:
+
+### 1. Semantic: the class did not exist → an injected prelude module
+
+`src/semantic/prelude.rs` holds `صنف استثناء` as embedded Tarqeem source, parsed
+and inserted into `ModuleLoader` under the synthetic path `<تمهيد ترقيم>`.
+
+Registering it directly in `ClassResolver` would not have been enough:
+`جديد استثناء(…)` needs an object layout and a constructor body in the `Ast` that
+`IrBuilder::build` consumes. Going through the module cache reuses the entire
+#182 pipeline — `register_module_types` puts the class in the hierarchy ahead of
+`build_vtables`, `add_module_type_members` attaches `رسالة`, and `link_program`
+merges the declaration into the program AST — so one insertion serves the
+interpreter, the JIT and native codegen. Both of those consumers iterate
+`loader.modules_in_load_order()`, the raw cache, not the import graph, which is
+why a module nothing imports is still picked up.
+
+Embedded rather than read from `stdlib_trq/`: the LSP and DAP have no stdlib
+search path (#230), and a prelude that can go missing at run time takes `ارمِ`
+with it.
+
+Two consequences of always having one module in the cache:
+- `link_program`'s empty-cache fast path (`main.clone()`) never fires now, so
+  every program pays the merge. Left as is — measured no impact worth a
+  special case, and gating it on "nothing but the prelude" would duplicate the
+  skip logic.
+- `register_class` is a `HashMap::insert`, so a user's own `صنف استثناء` would
+  have replaced the base class *silently* while `link_program` merged both
+  declarations into the IR. The name is now reserved (ص٠٦٠٢). The four semantic
+  tests that used to hand-declare `استثناء` are exactly the evidence this
+  mattered: they passed for years on top of that silent overwrite.
+
+Also: `analyze_throw` now returns early on `Type::Error`. A failed `جديد` already
+reported د٠٠٠٣, and the follow-up rendered as `لا يمكن رمي نوع غير خطأ 'خطأ'` —
+`Type::Error::arabic_name()` is `خطأ` — reading as if the user had thrown a
+boolean. The message itself now names `استثناء` and carries ص٠٦٠١.
+
+### 2. IR: the catch parameter was bound as a slot, not a value
+
+`build_try` inserted the parameter into `variables` but not `parameters`, so
+`build_identifier` treated it as an alloca and emitted `Load` on a non-pointer:
+`متوقع ptr، وُجد object` on *any* use of `خ`, not just field access.
+`add_pattern_bindings` had this right for `تطابق` bindings all along.
+
+It also needed `var_types[exception_var] = Struct(ClassId("استثناء"))`. Without
+it, member access took `build_member`'s unknown-class branch, `خ.رسالة` came back
+as `Ptr(Void)`, and `"…" + خ.رسالة` lowered to *integer* addition — a fix that
+looked complete and still printed the wrong thing.
+
+Two more defects in the same function: `TryBegin` was emitted even with no
+`التقط`, registering a handler whose whole body was a jump past the exception
+(so `حاول { ارمِ … } أخيراً { … }` silently discarded it); and `TryEnd` + `Jump`
+were appended unconditionally after a body ending in `ارمِ`, which
+`has_terminator` classifies as a terminator — instructions after a terminator are
+invalid LLVM IR. Both blocks are now created only for the clauses that exist, and
+every join jump is guarded by the new `current_block_needs_terminator`.
+
+### 3. Interpreter: unwinding stopped at the throwing frame
+
+`try_stack` lives on the `CallFrame`, so a callee that found no handler could
+only return a Rust `Err`, and `?` at the four call sites carried it past every
+enclosing `حاول`. One call level was enough to defeat `التقط`.
+
+The payload is now parked in the existing `current_exception` slot before the
+`Err`, and all four call sites route through `finish_call`, which converts an
+`ErrorKind::UnhandledException` back into `InstructionResult::Throw` so the
+caller's own handler stack is consulted. It falls back to propagating the `Err`
+when the slot is empty, so a genuine interpreter failure is never swallowed.
+
+An uncaught exception now reports its `رسالة` rather than `<استثناء>`.
+
+### 4. Native: not broken — unimplemented, and now refused
+
+`TryBegin`/`TryEnd` lower to LLVM *comments*, the `catch.N:` block is emitted
+with **zero predecessors**, and `@trq_throw`/`@trq_get_exception` are declared but
+defined nowhere in `runtime-rs` (`nm libtrq.a` confirms). There is no `invoke`,
+no `landingpad`, no `personality`, no setjmp. Real native EH is a design project,
+so `build_throw` now blocks native lowering with ت٠٣٠٣ instead.
+
+The block keys on `Instruction::Throw` **only**. A `حاول`/`التقط`/`أخيراً` with
+nothing thrown compiles and runs natively today, and
+`test_try_catch_finally_without_throw_runs_natively` guards it. That case links
+only because LLVM discards the unreachable catch block — which still contains a
+call to the undefined `@trq_get_exception` — before the reference reaches the
+linker. **Nothing in `codegen.rs` was touched for this reason**: deleting the
+declaration would make the module unparseable, and erroring the `GetException`
+arm would fail every try/catch program.
+
+`Function::native_block_reason: Option<String>` became
+`native_block: Option<NativeBlock>` carrying its own message and code. The old
+shape hard-coded ERR_UNTYPED_LAMBDA_PARAM and wrapped every reason in advice to
+"declare concrete types" — wrong for a construct no annotation can fix.
+
+Discovery along the way: `CodegenError` has carried a `code` since ت٠٣٠١ but
+`compile.rs` dropped it, so **no codegen error code had ever been printed** and
+none could be passed to `tarqeem اشرح`. One-line fix; ت٠٣٠١ and ت٠٣٠٢ become
+visible too.
+
+### Deliberately left undone
+
+- `أخيراً` does not run when an exception propagates out of a frame, nor on an
+  early `أرجع` from a try body. Expressing it needs a `Rethrow` the IR does not
+  have. Documented in LANGUAGE_SPEC §11.4.
+- The six spec'd `استثناء_*` subclasses, and the spec's two-constructor
+  `استثناء` (Tarqeem has no constructor overloading). Both recorded as spec
+  deviations rather than silently ignored.
+- The JIT's Cranelift compilers used to *skip* exception instructions via
+  `_ => {}`, i.e. compile the function with the throw deleted. They now raise
+  `JitError::unsupported_instruction`. Latent today — `JitExecutor` always
+  delegates to the interpreter — but a miscompile the moment dispatch is wired.
+
+### Verification
+
+`tests/exception_execution_tests.rs`, 15 cases through the real binary.
+Mutation-verified: removing the `parameters.insert` fails 5, reverting the
+cross-frame routing fails 4, removing the native block fails 8.
+
 ## 2026-08-10 — Issue #182 step 8: execution tests, and و٠٣٠١ starts reaching the user
 
 New `tests/module_execution_tests.rs` — the first module tests that *execute*

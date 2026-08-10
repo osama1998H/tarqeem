@@ -13,8 +13,11 @@ use crate::ir::{
     Module, UnaryOp, VarId,
 };
 
-use super::error::{RuntimeError, RuntimeResult};
+use super::error::{ErrorKind, RuntimeError, RuntimeResult};
 use super::value::Value;
+// A forward dependency in pipeline order (semantic precedes ir, which precedes
+// execution): the exception field name has to match what the prelude declares.
+use crate::semantic::EXCEPTION_MESSAGE_FIELD;
 
 const MAX_STACK_DEPTH: usize = 1000;
 
@@ -215,11 +218,72 @@ impl Interpreter {
                         self.current_exception = Some(exception);
                         block_idx = self.find_block_index(func, catch_block)?;
                     } else {
-                        let msg = exception.to_display_string();
+                        // No handler in *this* frame. The payload is parked so
+                        // the caller's `Call` site can turn this `Err` back into
+                        // a throw against its own handler stack; without that,
+                        // `?` carried it past every enclosing `حاول` and one
+                        // call level was enough to defeat `التقط` (issue #181).
+                        let msg = Self::exception_message(&exception);
+                        self.current_exception = Some(exception);
                         return Err(RuntimeError::unhandled_exception(&msg));
                     }
                 }
             }
+        }
+    }
+
+    /// What to print when an exception reaches the top uncaught.
+    ///
+    /// `Value::to_display_string` renders an object as `<اسم_الصنف>`, which told
+    /// the user only that *something* was thrown. Every `استثناء` carries the
+    /// reason in `رسالة`, so read that when it is there.
+    fn exception_message(exception: &Value) -> String {
+        if let Value::Object(obj) = exception {
+            if let Some(message) = obj.borrow().fields.get(EXCEPTION_MESSAGE_FIELD) {
+                return message.to_display_string();
+            }
+        }
+
+        exception.to_display_string()
+    }
+
+    /// Bind a callee's result, or turn a throw the callee did not handle into
+    /// one this frame's `try_stack` can catch.
+    ///
+    /// Every call instruction routes through here. `try_stack` lives on the
+    /// `CallFrame`, so a callee that runs out of handlers can only report an
+    /// `Err`; propagating that with `?` skipped the caller's own `حاول`
+    /// entirely, which is why `التقط` never caught anything thrown one call
+    /// deep (issue #181).
+    fn finish_call(
+        &mut self,
+        outcome: RuntimeResult<Value>,
+        dest: Option<&VarId>,
+    ) -> RuntimeResult<InstructionResult> {
+        match outcome {
+            Ok(result) => {
+                if let Some(d) = dest {
+                    self.set_local(*d, result);
+                }
+                Ok(InstructionResult::Continue)
+            }
+            Err(err) => match self.take_propagating_exception(&err) {
+                Some(exception) => Ok(InstructionResult::Throw(exception)),
+                None => Err(err),
+            },
+        }
+    }
+
+    /// The value `execute_function` parked when it ran out of handlers, if
+    /// `err` is that unhandled throw and not a genuine interpreter failure.
+    ///
+    /// Falls back to `None` when the slot is empty, so an `UnhandledException`
+    /// with no payload still surfaces as an error rather than being swallowed.
+    fn take_propagating_exception(&mut self, err: &RuntimeError) -> Option<Value> {
+        if err.kind == ErrorKind::UnhandledException {
+            self.current_exception.take()
+        } else {
+            None
         }
     }
 
@@ -418,16 +482,13 @@ impl Interpreter {
                     .map(|v| self.get_local(*v))
                     .collect::<RuntimeResult<Vec<_>>>()?;
 
-                let result = if self.is_builtin(&func.0) {
-                    self.call_builtin(&func.0, arg_values)?
+                let outcome = if self.is_builtin(&func.0) {
+                    self.call_builtin(&func.0, arg_values)
                 } else {
-                    self.call_function(func, arg_values)?
+                    self.call_function(func, arg_values)
                 };
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::CallIndirect {
@@ -447,12 +508,9 @@ impl Interpreter {
                     .map(|v| self.get_local(*v))
                     .collect::<RuntimeResult<Vec<_>>>()?;
 
-                let result = self.call_function(&FuncId(func_name), arg_values)?;
+                let outcome = self.call_function(&FuncId(func_name), arg_values);
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::NewObject { dest, class } => {
@@ -528,12 +586,9 @@ impl Interpreter {
                     FuncId(format!("{}::{}", method.class.0, method.name))
                 };
 
-                let result = self.call_function(&method_func_id, arg_values)?;
+                let outcome = self.call_function(&method_func_id, arg_values);
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::CallVirtual {
@@ -574,12 +629,9 @@ impl Interpreter {
                 }
 
                 let method_func_id = FuncId(format!("{}::{}", method_id.class.0, method_id.name));
-                let result = self.call_function(&method_func_id, arg_values)?;
+                let outcome = self.call_function(&method_func_id, arg_values);
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::NewArray { dest, elements, .. } => {

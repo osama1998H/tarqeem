@@ -21,7 +21,7 @@ use crate::parser::{
 
 use super::{
     BasicBlock, BlockId, Class, ClassId, Constant, FuncId, Function, Instruction, IrType, Module,
-    Parameter, VarId,
+    NativeBlock, Parameter, VarId,
 };
 
 use std::collections::{HashMap, HashSet};
@@ -747,12 +747,12 @@ impl IrBuilder {
     }
 
     /// Records why the function currently being built cannot be lowered to
-    /// native code (see `Function::native_block_reason`). First reason wins,
-    /// so the earliest/most specific diagnosis is the one reported.
-    pub(crate) fn block_native_lowering(&mut self, reason: String) {
+    /// native code (see `Function::native_block`). First reason wins, so the
+    /// earliest/most specific diagnosis is the one reported.
+    pub(crate) fn block_native_lowering(&mut self, block: NativeBlock) {
         if let Some(func) = self.current_function.as_mut() {
-            if func.native_block_reason.is_none() {
-                func.native_block_reason = Some(reason);
+            if func.native_block.is_none() {
+                func.native_block = Some(block);
             }
         }
     }
@@ -852,6 +852,19 @@ impl IrBuilder {
     /// Switch the current block for instruction emission.
     pub(crate) fn switch_to_block(&mut self, block_id: BlockId) {
         self.current_block = block_id;
+    }
+
+    /// Whether the current block still needs a terminator — false once it ends
+    /// in `Return`, `Jump`, `Branch` or `Throw`.
+    ///
+    /// Emitting past a terminator produces IR that LLVM rejects outright, so
+    /// every branch-joining `Jump` has to be guarded by this.
+    pub(crate) fn current_block_needs_terminator(&self) -> bool {
+        self.current_function
+            .as_ref()
+            .and_then(|func| func.get_block(self.current_block))
+            .map(|block| !block.has_terminator())
+            .unwrap_or(false)
     }
 
     /// Generate a new unique variable ID.

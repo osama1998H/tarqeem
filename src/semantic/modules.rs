@@ -201,6 +201,31 @@ impl ModuleLoader {
         }
     }
 
+    /// Seed the cache with an already-parsed module that has no file behind it.
+    ///
+    /// Used for the implicit prelude (`super::prelude`). Insert order matters:
+    /// `modules_in_load_order` is what `register_module_types` and
+    /// `link_program` walk, and the prelude must come first so a user class can
+    /// inherit from `استثناء`. It carries no exports — nothing imports it, and
+    /// leaving it unexported keeps it out of import resolution entirely.
+    pub(crate) fn insert_synthetic_module(&mut self, path: PathBuf, source: String, ast: Ast) {
+        let id = ModuleId(path.clone());
+        if self.modules.contains_key(&id) {
+            return;
+        }
+
+        self.modules.insert(
+            id.clone(),
+            LoadedModule {
+                id,
+                path,
+                source,
+                ast,
+                exports: HashMap::new(),
+            },
+        );
+    }
+
     fn load_module_internal(&mut self, path: &Path, span: Span) -> Result<LoadedModule, ()> {
         let source = match std::fs::read_to_string(path) {
             Ok(s) => s,

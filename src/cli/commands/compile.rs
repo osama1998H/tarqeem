@@ -200,9 +200,13 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     // Code generation timing
     let codegen_start = Instant::now();
     let mut codegen = LlvmCodegen::new(target_config.clone());
-    let llvm_ir = codegen
-        .generate(&ir_module)
-        .map_err(|e| format!("خطأ في توليد الكود: {}", e.message))?;
+    // `CodegenError` has carried a code since ت٠٣٠١ but the CLI dropped it, so
+    // no codegen code was ever printed — and one the user cannot see is one they
+    // cannot pass to `tarqeem اشرح`.
+    let llvm_ir = codegen.generate(&ir_module).map_err(|e| match &e.code {
+        Some(code) => format!("خطأ في توليد الكود [{}]: {}", code, e.message),
+        None => format!("خطأ في توليد الكود: {}", e.message),
+    })?;
     timing.codegen = codegen_start.elapsed();
 
     let output_path = args.output.unwrap_or_else(|| {

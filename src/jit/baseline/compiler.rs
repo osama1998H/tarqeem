@@ -470,6 +470,17 @@ fn compile_instruction(
             // Function call with no destination - nothing to do
         }
 
+        // Exceptions have no Cranelift lowering. Falling into the skip arm below
+        // would compile the function with the throw silently *deleted* — a
+        // miscompile waiting for the day `JitExecutor` dispatches compiled code
+        // instead of always delegating to the interpreter (issue #181).
+        Instruction::TryBegin { .. }
+        | Instruction::TryEnd
+        | Instruction::Throw { .. }
+        | Instruction::GetException { .. } => {
+            return Err(JitError::unsupported_instruction(format!("{}", inst)));
+        }
+
         _ => {
             // For other unsupported instructions, we skip them
             // A complete implementation would handle all instruction types

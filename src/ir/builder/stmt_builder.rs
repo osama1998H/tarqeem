@@ -2,14 +2,16 @@
 //!
 //! This module handles conversion of AST statements to IR instructions.
 
+use crate::error::codes::ERR_NATIVE_EXCEPTIONS;
 use crate::parser::{
     Block, CatchClause, ClassMember, Expr, ExprKind, MatchArm, Param, Pattern, PatternKind, Stmt,
     StmtKind, TypeAnnotation,
 };
+use crate::semantic::EXCEPTION_CLASS;
 
 use super::super::{
-    BinaryOp, BlockId, ClassId, Constant, EnumId, FieldId, Instruction, IrType, Parameter, VarId,
-    VariantId,
+    BinaryOp, BlockId, ClassId, Constant, EnumId, FieldId, Instruction, IrType, NativeBlock,
+    Parameter, VarId, VariantId,
 };
 use super::{IrBuilder, IrError, Result};
 
@@ -290,7 +292,7 @@ impl IrBuilder {
         // record it here too rather than keying the codegen guard on the
         // `__lambda_` name prefix.
         if let Some(p) = unlowerable.first() {
-            self.block_native_lowering(Self::untyped_param_reason(p));
+            self.block_native_lowering(NativeBlock::untyped(Self::untyped_param_reason(p)));
         }
 
         if let Some(ref mut func) = self.current_function {
@@ -1247,11 +1249,21 @@ impl IrBuilder {
         catch: Option<&CatchClause>,
         finally: Option<&Block>,
     ) -> Result<()> {
-        let catch_block = self.new_block(Some("catch".to_string()));
-        let finally_block = self.new_block(Some("finally".to_string()));
+        // Blocks exist only for the clauses that were written. A `حاول` with no
+        // `التقط` used to get a catch block anyway, whose whole body was a jump
+        // past the exception — so `TryBegin` registered a handler that silently
+        // discarded whatever was thrown. With no handler pushed, the throw
+        // propagates instead (issue #181). The unconditional `finally` block was
+        // likewise emitted empty and terminator-less, which LLVM rejects.
+        let catch_block = catch.map(|_| self.new_block(Some("catch".to_string())));
+        let finally_block = finally.map(|_| self.new_block(Some("finally".to_string())));
         let exit_block = self.new_block(Some("try.exit".to_string()));
 
-        self.emit(Instruction::TryBegin { catch_block });
+        let after_clause = finally_block.unwrap_or(exit_block);
+
+        if let Some(catch_block) = catch_block {
+            self.emit(Instruction::TryBegin { catch_block });
+        }
 
         self.push_scope();
         for stmt in &body.statements {
@@ -1259,18 +1271,22 @@ impl IrBuilder {
         }
         self.pop_scope();
 
-        self.emit(Instruction::TryEnd);
-
-        if finally.is_some() {
+        // `ارمِ` is a terminator (`Instruction::has_terminator`), so a body
+        // ending in one must not be followed by `TryEnd` and a jump: the
+        // interpreter never reaches them and native codegen emits instructions
+        // after a terminator. The handler also has to stay pushed for the throw
+        // that just happened to find it.
+        if self.current_block_needs_terminator() {
+            if catch_block.is_some() {
+                self.emit(Instruction::TryEnd);
+            }
             self.emit(Instruction::Jump {
-                target: finally_block,
+                target: after_clause,
             });
-        } else {
-            self.emit(Instruction::Jump { target: exit_block });
         }
 
-        self.switch_to_block(catch_block);
-        if let Some(catch_clause) = catch {
+        if let (Some(catch_block), Some(catch_clause)) = (catch_block, catch) {
+            self.switch_to_block(catch_block);
             self.push_scope();
 
             let exception_var = self.new_var();
@@ -1279,29 +1295,44 @@ impl IrBuilder {
             });
             self.variables
                 .insert(catch_clause.param.clone(), exception_var);
+            // `GetException` writes the exception itself, not a slot holding it.
+            // Without this the name resolves as an alloca and every use of the
+            // catch parameter lowers to a `Load` of a non-pointer, failing with
+            // `متوقع ptr، وُجد object` (issue #181). Same reason
+            // `add_pattern_bindings` marks its `تطابق` bindings.
+            self.parameters.insert(exception_var.0);
+            // The analyzer types the catch parameter as `استثناء`; the IR needs
+            // the same, or member access falls into the unknown-class branch of
+            // `build_member` and `خ.رسالة` comes back as `Ptr(Void)` — enough to
+            // make `"…" + خ.رسالة` lower to integer addition.
+            self.var_types.insert(
+                exception_var.0,
+                IrType::Struct(ClassId(EXCEPTION_CLASS.to_string())),
+            );
 
             for stmt in &catch_clause.body.statements {
                 self.build_stmt(stmt)?;
             }
             self.pop_scope();
+
+            if self.current_block_needs_terminator() {
+                self.emit(Instruction::Jump {
+                    target: after_clause,
+                });
+            }
         }
 
-        if finally.is_some() {
-            self.emit(Instruction::Jump {
-                target: finally_block,
-            });
-        } else {
-            self.emit(Instruction::Jump { target: exit_block });
-        }
-
-        if let Some(finally_body) = finally {
+        if let (Some(finally_block), Some(finally_body)) = (finally_block, finally) {
             self.switch_to_block(finally_block);
             self.push_scope();
             for stmt in &finally_body.statements {
                 self.build_stmt(stmt)?;
             }
             self.pop_scope();
-            self.emit(Instruction::Jump { target: exit_block });
+
+            if self.current_block_needs_terminator() {
+                self.emit(Instruction::Jump { target: exit_block });
+            }
         }
 
         self.switch_to_block(exit_block);
@@ -1312,6 +1343,18 @@ impl IrBuilder {
     pub(crate) fn build_throw(&mut self, expr: &Expr) -> Result<()> {
         let exception = self.build_expr(expr)?;
         self.emit(Instruction::Throw { exception });
+
+        // Native codegen has no unwinding strategy: it lowers `TryBegin` to a
+        // comment, leaves the catch block without a predecessor, and calls a
+        // `@trq_throw` the runtime never defines — so this used to surface as an
+        // undefined-symbol link error naming an internal symbol. Refuse here
+        // instead, and only for `ارمِ`: a `حاول`/`التقط` that never throws
+        // lowers correctly today and must keep compiling (issue #181).
+        self.block_native_lowering(NativeBlock::unsupported(
+            "رمي الاستثناءات بـ «ارمِ»",
+            &ERR_NATIVE_EXCEPTIONS,
+        ));
+
         Ok(())
     }
 

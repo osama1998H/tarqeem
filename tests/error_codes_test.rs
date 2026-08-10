@@ -76,6 +76,16 @@ const ALL_ERROR_CODES: &[(ErrorCode, &str, &str)] = &[
         "ص٠٥٠٢",
         "Static member accessed via instance",
     ),
+    (
+        ERR_THROW_NON_EXCEPTION,
+        "ص٠٦٠١",
+        "Thrown value is not an exception",
+    ),
+    (
+        ERR_REDEFINE_PRELUDE_CLASS,
+        "ص٠٦٠٢",
+        "Redefinition of the base exception class",
+    ),
     // Module errors (و)
     (ERR_MODULE_NOT_FOUND, "و٠٠٠١", "Module not found"),
     (ERR_NOT_EXPORTED, "و٠٠٠٢", "Not exported"),
@@ -95,6 +105,11 @@ const ALL_ERROR_CODES: &[(ErrorCode, &str, &str)] = &[
         "ت٠٣٠٢",
         "Indirect call without a known signature in native codegen",
     ),
+    (
+        ERR_NATIVE_EXCEPTIONS,
+        "ت٠٣٠٣",
+        "Throwing exceptions is unsupported in native codegen",
+    ),
     // Warnings (ح)
     (WARN_UNUSED_VARIABLE, "ح٠٠٠١", "Unused variable"),
     (WARN_UNUSED_FUNCTION, "ح٠٠٠٢", "Unused function"),
@@ -108,10 +123,12 @@ fn test_error_code_count() {
     // Phase 10 verification: 43 + ص٠٥٠١/ص٠٥٠٢ (issue #184, static-member access)
     // + د٠٣٠٦/ت٠٣٠١/ت٠٣٠٢ (issue #180: lambda capture, untyped native lambda
     // param, untyped native indirect call)
+    // + ص٠٦٠١/ص٠٦٠٢/ت٠٣٠٣ (issue #181: non-exception throw, redefinition of the
+    // base exception class, `ارمِ` under native codegen)
     assert_eq!(
         ALL_ERROR_CODES.len(),
-        48,
-        "Expected 48 error codes, found {}",
+        51,
+        "Expected 51 error codes, found {}",
         ALL_ERROR_CODES.len()
     );
 }
