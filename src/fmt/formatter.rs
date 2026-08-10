@@ -827,8 +827,12 @@ impl Formatter {
                         self.format_type(param, p);
                     }
                 });
-                p.write_arrow();
-                self.format_type(return_type, p);
+                // Bare `()` has no return type and must print as `()` —
+                // there is no surface spelling for "returns nothing".
+                if let Some(rt) = return_type {
+                    p.write_arrow();
+                    self.format_type(rt, p);
+                }
             }
             TypeKind::Generic { base, args } => {
                 p.write(base);
@@ -1560,5 +1564,45 @@ mod tests {
             banner_pos < method_pos,
             "banner comment must stay above 'دالة ادفع', not be relocated into its body"
         );
+    }
+
+    // Function-type annotation formatting (issue #180): the formatter's
+    // `TypeKind::Function` arm must produce output that re-parses —
+    // including the bare-`()` sugar, which has no return type to print.
+
+    #[test]
+    fn test_format_function_type_annotation() {
+        let result = format("ثابت جمع: (عدد, عدد) -> عدد = (أ, ب) => أ + ب;");
+        // ASCII comma: FormatConfig::default() has arabic_comma = false.
+        assert!(
+            result.contains("(عدد, عدد) -> عدد"),
+            "expected function-type annotation in output:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_format_function_type_annotation_is_idempotent() {
+        let once = format("ثابت جمع: (عدد, عدد) -> عدد = (أ, ب) => أ + ب;");
+        let twice = format_raw(&once);
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn test_format_bare_unit_function_type_round_trips() {
+        // A `return_type: None` prints as bare `()` — there is no surface
+        // spelling for "returns nothing", so emitting any `-> X` here would
+        // produce output that fails to re-parse (an issue-#201-class
+        // regression).
+        let once = format("متغير ف: ();");
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("formatted output must re-parse");
+    }
+
+    #[test]
+    fn test_format_curried_function_type_is_idempotent() {
+        let once = format("متغير ف: (عدد) -> (عدد) -> عدد;");
+        let twice = format_raw(&once);
+        assert_eq!(once, twice);
     }
 }

@@ -190,9 +190,7 @@ impl Analyzer {
         };
 
         if let (Some(init_expr), Some(ref expected)) = (init, &declared_type) {
-            self.expected_type = Some(expected.clone());
-            let init_type = self.infer_type(init_expr);
-            self.expected_type = None;
+            let init_type = self.with_expected(Some(expected.clone()), |a| a.infer_type(init_expr));
 
             if !self.is_assignable(&init_type, expected) {
                 self.type_mismatch_error(
@@ -909,9 +907,14 @@ impl Analyzer {
             return;
         }
 
-        if let Some(expr) = value {
-            self.analyze_expr(expr);
-        }
+        let return_type = if let Some(expr) = value {
+            self.analyze_expr(expr)
+        } else {
+            Type::Void
+        };
+        // Feeds block-bodied lambda return-type inference (issue #180); a
+        // no-op for declared functions, which never read this back.
+        self.scope.record_return(return_type);
     }
 
     /// Analyze a try-catch-finally statement.

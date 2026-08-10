@@ -139,6 +139,11 @@ pub enum Constant {
     Int(i64),
     Float(f64),
     String(u32), // index into string table
+    /// A reference to a function by name — a bare function *value*, mirroring
+    /// the interpreter's `Value::Function(String)` exactly. This is what a
+    /// lambda expression (or a named function used as a value) evaluates to,
+    /// consumed by `Instruction::CallIndirect` (see issue #180).
+    Function(String),
 }
 
 impl fmt::Display for Constant {
@@ -149,6 +154,7 @@ impl fmt::Display for Constant {
             Constant::Int(i) => write!(f, "{}", i),
             Constant::Float(fl) => write!(f, "{:.6}", fl),
             Constant::String(idx) => write!(f, "str#{}", idx),
+            Constant::Function(name) => write!(f, "@{}", name),
         }
     }
 }
@@ -815,6 +821,14 @@ pub struct Function {
     pub var_counter: u32,
     pub block_counter: u32,
     pub is_async: bool,
+    /// Why this function cannot be lowered to native code, if it can't —
+    /// an unannotated (or `أي`) parameter, or returns whose types don't
+    /// unify. A parameter's `IrType` alone cannot carry the first case: an
+    /// unannotated parameter and an explicitly-annotated `قاموس<…>` both
+    /// lower to `Ptr(Void)`, so the distinction has to be recorded when it
+    /// is still known. `None` for every natively-lowerable function; the
+    /// interpreter ignores this entirely (see ت٠٣٠١).
+    pub native_block_reason: Option<String>,
 }
 
 impl Function {
@@ -828,6 +842,7 @@ impl Function {
             var_counter: 0,
             block_counter: 0,
             is_async: false,
+            native_block_reason: None,
         }
     }
 

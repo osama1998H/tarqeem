@@ -2,6 +2,316 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-10 — Second review round on #180: native-path soundness
+
+A 33-agent adversarial review of the full #180 diff confirmed 10 findings —
+notably that the work was *verified in the interpreter but unsound natively*.
+All 10 fixed; 9 new regression tests. The through-line worth remembering:
+
+### Type-shape heuristics are not a substitute for recorded intent
+Three separate findings came from one mistake — the ت٠٣٠١ guard treated
+`IrType::Ptr(Void)` as "this parameter never got a type":
+- an explicitly `أي`-annotated param lowers to `Struct(ClassId("أي"))`, so it
+  **slipped past** the guard and emitted the exact ABI mismatch the guard
+  existed to prevent;
+- an explicitly annotated `قاموس<…>` *also* lowers to `Ptr(Void)`, so it was
+  **falsely rejected** — the diff refused syntax it had just documented in
+  LANGUAGE_SPEC §5.3 (same for curried lambdas);
+- the guard was additionally keyed on the `__lambda_` name prefix, so
+  `دالة ضاعف(س)` — the identical hazard one AST node away — bypassed it.
+
+Fixed by recording the reason natively lowering is impossible **when it is
+still known**, on `Function::native_block_reason` (a `None`-by-default field;
+`Function::new` is the sole constructor, so zero call-site churn — adding a
+field to `Parameter` would have touched ~100 test sites). The builder sets it
+for untyped/`أي` params and for non-unifiable mixed returns; codegen just
+reports it. Non-unifiable returns previously leaked raw clang type errors.
+
+### Provisional types must be re-adopted once reality is known
+`infer_expr_type` runs before any body is built and has no arm for a lambda
+literal *or* for a call through one, so it lands on the `Ptr(Void)` sentinel.
+`متغير ن = مربع(5)` therefore kept a `ptr`-typed slot holding an `i64`, and
+`اطبع(ن)` natively emitted `trq_print(ptr %x)` on the value `25` —
+dereferencing address 25 (exit 139). Two fixes: `infer_expr_type`'s `Call` arm
+now resolves a function-valued callee's `ret`, and the post-build correction
+generalized from "only `IrType::Function`" to "any type, whenever the recorded
+one is still the unknown sentinel" (`is_unknown_ir_type`), patching
+`module.globals` too.
+
+### Hint threading has to cover every position, not just declarations
+The lambda param-type hint reached variable declarations and free-function
+call arguments but not assignment (`ف = (س) => …` on an annotated slot) or
+nested curried bodies — both rejected fully-annotated code by telling the user
+to declare a type they had already declared.
+
+### Other fixes
+- An expression-bodied lambda whose body is Void (`(س) => اطبع(س)`, an
+  idiomatic callback) emitted `ret void %v1` — invalid LLVM, and the void
+  `Call` never even names a dest. Now emits a bare `Return`.
+- `build_lambda_with_hint` cloned/restored `var_types` but never *cleared* it,
+  so the lambda frame could read the enclosing function's leftover entry for a
+  colliding `VarId` (`begin_function` resets `var_counter` but not
+  `var_types`). Now `mem::take`n, leaving `begin_function` to repopulate the
+  lambda's own params.
+- The `Type::Any` arithmetic arms were unscoped, silently deleting real type
+  errors program-wide (`س ** "نص"` type-checked clean). Narrowed so the other
+  operand must be plausible for the operator: §8.3 still works, `**`/`-`/`/`
+  against a نص errors again.
+- `هذا`/`الأصل` tested the lambda restriction *before* `is_in_class`, so a
+  stray `هذا` at module level was told to "pass the receiver as a parameter"
+  when there is no receiver — د٠٣٠٤ now wins, as the more accurate diagnosis.
+
+## 2026-08-10 — Removing the `"void"` sentinel from `TypeKind::Function`
+
+Follow-up to the #180 work below, prompted by a review question: why is
+`"void" => IrType::Void` the one ASCII arm in a `match` whose other arms are
+all Arabic (`عدد`, `عدد_عشري`, `نص`, `منطقي`)?
+
+### The answer was "delete it", not "translate it"
+
+Investigation (see the "bare `()` function type" section in the #180 entry
+for the full reasoning) established three things:
+
+1. **Not a philosophy violation as such.** `.claude/rules/arabic-philosophy.md`
+   governs the *language surface*. `"void"` was never typed, lexed, or
+   printed. `lexer.rs:104-105` intercepts Latin letters *before* identifier
+   scanning and hard-errors; `is_arabic_letter` is an explicit
+   Arabic-Unicode-block whitelist that never calls `is_alphabetic()`. So
+   `صنف void { }` is a lex error and collision was impossible.
+2. **Still a real defect**, for better reasons: it was smuggled into
+   `TypeKind::Simple`, the user-name namespace (collision-free only via
+   another module's lexer rules), and it reinvented the codebase's existing
+   `Option<TypeAnnotation>` idiom for "no type declared".
+3. **The obvious fix would have been a regression** — `فراغ` is a valid
+   Arabic identifier and is asserted to be a user class name.
+
+### The change
+`TypeKind::Function::return_type` became `Option<Box<TypeAnnotation>>`, where
+`None` **is** the bare `()` form. One producer
+(`decl_parser::parse_function_type_annotation` — the only construction site of
+`TypeKind::Function` in the codebase), eight consumers in two mechanical
+patterns: four lowerings adopt `.as_ref().map(...).unwrap_or(Void)` (mirroring
+`func_signature_types`/`build_func_decl` exactly), three printers collapse to
+`if let Some(rt)` / `match`. The `TypeKind::is_bare_unit_function` helper was
+deleted rather than kept — the duplication it centralized disappears entirely
+when the check becomes a one-token `is_none()`.
+
+Both now-unreachable `"void"` arms (`semantic::types::parse_type_name`,
+`ir::builder::type_helpers::convert_simple_type`) were deleted. The printers
+are also *strictly* more correct now: the old guard suppressed `->` only when
+`params.is_empty()`, so a hypothetical `(عدد) -> <none>` would have printed
+the unlexable `-> void`. A fabricated span (pointing at `)`) that rode along
+in the AST and its JSON also disappears.
+
+**Left in place, deliberately:** `TokenKind::TypeVoid` (`lexer/token.rs:95`)
+and its `expect_type_name` arm. No Arabic keyword maps to it
+(`keywords.rs:175` asserts `lookup_keyword("فراغ") == None`), so it is already
+unreachable from user source, but removing it touches `token.rs`,
+`token_tests.rs`, `is_type_keyword()`, and `semantic_tokens.rs` — a
+pre-existing cleanup unrelated to #180.
+
+### Serialization
+`TypeKind` derives `Serialize` only (no `Deserialize` anywhere in `ast.rs`).
+The sole emitter is `cargo run -- parse --format json`. For the bare-`()` case
+only, `"return_type"` changes from `{"kind":{"Simple":"void"},"span":{…}}` to
+`null` — arguably the more honest shape. No in-repo consumer, no
+golden/snapshot files, no `insta`. The CLI comment says "for IDE integration",
+so external consumers are conceivable.
+
+### Documentation drift found and fixed
+- **`LANGUAGE_SPEC.md` §4.2** claimed `بداية_معرِّف := <حرف يونيكود> | '_'`
+  (*any* Unicode letter, which would admit Latin). The lexer implements an
+  Arabic-block whitelist. This was precisely the claim that made the sentinel
+  look dangerous. Restated in terms of Arabic blocks + digits + diacritics +
+  tatweel + `_`, with an explicit invalid-identifier example.
+- **`LANGUAGE_SPEC.md` §15.4** made `->` mandatory
+  (`نمط_دالة := '(' […] ')' '->' نمط`), so the formal grammar could not derive
+  the bare `()` that §5.3's prose shows and the parser accepts. Now
+  `['->' نمط]` with a note that omission is legal only with an empty
+  parameter list.
+- **`.claude/rules/arabic-philosophy.md`** contained a `test_mixed_direction`
+  snippet (`متغير x = 5` asserting `parse(...).is_ok()`) that does not exist
+  in the codebase and would **fail** if written. A rules file that teaches
+  future agents a false invariant is actively harmful; replaced with the real
+  `test_english_identifiers_produce_errors` behavior from `lexer.rs:857-865`.
+
+## 2026-08-10 — Issue #180: arrow lambdas unfinished at the IR stage
+
+Highest-impact pick from the #180–#212 backlog: arrow lambdas (`(س) => س * س`)
+type-checked but could never be invoked in any of the three execution modes —
+including the exact example from README's «الدوال» section.
+
+### Root cause: the IR had a function *type* and an indirect-call
+*instruction*, but no function *value*
+
+`IrType::Function` and `Instruction::CallIndirect` both already existed and
+were already correctly consumed by the interpreter (`Value::Function(String)`
++ its `CallIndirect` arm worked on day one). `Constant` only had
+`Null/Bool/Int/Float/String` — nothing could represent "the address of this
+function" as an IR value. `build_lambda` lifted the lambda body into a real
+function (`__lambda_N`, correctly pushed into the module) and then discarded
+the reference, emitting `Constant::Null` with the literal comment "Will be
+replaced with function pointer." `build_call`'s identifier-callee branch also
+unconditionally emitted a direct `Call` against `FuncId(name)` — it never
+consulted locals/globals, so `مربع(5)` became a call to a `FuncId` that never
+existed.
+
+### Decision: `Constant::Function(String)`, not a new `FuncRef` instruction
+
+Both broken emission sites (`build_lambda`, and `build_identifier`'s
+function-name branch) already used `Instruction::Const`; a new variant on the
+existing `Constant` enum was a same-shaped swap. It also mirrors the
+interpreter's pre-existing `Value::Function(String)` exactly (a bare name, not
+a typed pointer), so `constant_to_value` became a one-line arm. Blast radius
+was 8 confirmed exhaustive-match sites (`Display`, `const_to_type`, two
+`constant_to_value` copies, two codegen sites, two dead Cranelift-JIT tiers) —
+all mechanical, all fixed. `src/lsp/`, `src/fmt/`, `src/doc/` have zero
+`crate::ir` references and needed no changes; DCE/CSE/const-fold all had
+wildcard arms already.
+
+### Two state-corruption bugs found during design, not in the original issue
+- `IrBuilder::var_types` is keyed by a raw `u32` `VarId`. `begin_function`
+  resets the per-function `var_counter`, so IDs *inside* a lifted lambda's
+  body numerically collided with and silently overwrote the *enclosing*
+  function's type entries for those same numeric IDs — corrupting later
+  float/string dispatch in the outer function. Fixed by cloning/restoring
+  `var_types` around the nested build.
+- `IrBuilder::loop_stack` holds `BlockId`s for enclosing `أوقف`/`استمر`
+  targets; since `block_counter` also resets per function, those `BlockId`s
+  could alias a lambda's own blocks. Fixed with `std::mem::take`/restore.
+- Also: `__lambda_N` was named from the *per-function* `var_counter`, so two
+  lambdas in two different enclosing functions could collide on the same
+  name (`Module::get_function` is a first-match linear `Vec` scan, no
+  duplicate detection). Switched to a module-global `lambda_counter`.
+- Found empirically while smoke-testing native compilation (not predicted by
+  design): an unannotated global lambda's `IrType` is a one-shot
+  `infer_expr_type` *guess* made *before* the lambda body is built (no
+  `ExprKind::Lambda` arm existed, so it fell back to `Ptr(Void)`); nothing
+  ever corrected it once the real signature was known, so `CallIndirect`
+  through that global read the wrong `ret_ty` — LLVM emitted
+  `call ptr %v2(i64 %v1)` against a function actually defined
+  `i64 @__lambda_0(i64 %arg.0)`, which segfaulted. Fixed by writing the real
+  `IrType::Function` back into `global_var_types`/`var_types` once the
+  initializer is built, in both the global and local `build_var_decl`
+  branches.
+
+### Deliberate scope: non-capturing lambdas only
+A lambda referencing an outer local/parameter now gets a clear diagnostic
+(`ERR_LAMBDA_CAPTURE`, د٠٣٠٦) at the semantic-analysis stage — chosen over
+leaving it to fail with a confusing IR/runtime error. Closures (a real
+capture environment, heap-allocated and refcounted) are an explicit
+follow-up (filed as #217) — the
+Plan-agent's threat model here was correct: `Scope`'s flat `variables` map
+has no way to distinguish "resolved in an enclosing scope" from "undefined"
+once `begin_function` clears it, so detection had to live in the semantic
+analyzer (which still has the scope chain and real spans), not the IR
+builder.
+
+### Any-arithmetic widening (spec §8.3)
+`binary_result_type` had no arm for `Type::Any` operands with arithmetic
+operators, so an inference-typed lambda (`(أ، ب) => أ + ب`, LANGUAGE_SPEC
+§8.3 verbatim) failed with "لا يمكن تطبيق العامل '+' على أي و أي" before it
+could ever reach IR. Added `Any` arms (arithmetic → `Any`, relational →
+`Bool`). Confirmed zero existing tests assert an `Any`-operand arithmetic
+error; the widening is consistent with `Any`'s pre-existing role as the
+universal `is_assignable` escape hatch (untyped function/lambda/method
+params, `Any`-returning math builtins like `مطلق`/`أكبر`/`أدنى` all became
+newly permissive too — a deliberate, understood trade-off, not a side effect
+missed in review).
+
+### The bare `()` function type — first done with a sentinel, then fixed
+`(عدد، عدد) -> عدد` function-type annotations (spec §5.3, previously
+unparseable — ب٠٠٠٢) needed a representation for the bare-`()` case ("no
+params, no return"). The **first attempt** reused `expect_type_name`'s
+pre-existing dead `"void"` string as a sentinel inside
+`TypeKind::Simple(String)`. That was wrong and was replaced the same session
+(see the entry below) — recorded here because the failure mode generalizes.
+
+**Why the sentinel was wrong** (and why "it's the only English string in an
+Arabic match" was *not* the reason): it is unreachable from user source, since
+`lexer.rs:104-105` intercepts Latin before identifier scanning, so no
+collision was actually possible. The real defects were
+(a) it lived in `TypeKind::Simple`, the variant modelling *user-written* type
+names, whose lowerings fall back to `Type::Class(name)` — collision-free only
+by an accident of a *different module's* lexer rules, with nothing asserting
+that at the boundary; and (b) it reinvented an idiom the codebase already
+had. Tarqeem deliberately has no `فراغ` keyword — a function returning
+nothing simply omits `-> نوع` — and the AST already models that as
+`Option<TypeAnnotation>` (`FuncDecl::return_type`, `Param::ty`), lowered via
+`.map(convert).unwrap_or(Void)`. The four special-case sites the sentinel
+required were all symptoms of the wrong encoding.
+
+**Note the trap in the obvious fix:** translating `"void"` → `"فراغ"` would
+have been a real regression. `فراغ` *is* a valid Arabic identifier, so it
+genuinely could collide with a user class of that name, and
+`types_tests.rs:508` asserts `parse_type_name("فراغ") == Type::Class("فراغ")`.
+The right move was to delete the string, not translate it.
+
+### Native-mode-only restriction: untyped lambda params (ت٠٣٠١)
+An unannotated lambda param lowers to `IrType::Ptr(Void)`. The interpreter
+handles this fine dynamically, but native codegen would otherwise link a
+call site passing a concrete type (e.g. `i64`) against a callee expecting
+`ptr`, silently misinterpreting the bits. Added `ERR_UNTYPED_LAMBDA_PARAM`
+(ت٠٣٠١), raised only from `emit_function` for `__lambda_*`-named functions
+whose params never resolved to a concrete type — `tarqeem run` is
+unaffected.
+
+### Post-review hardening (same session, high-effort adversarial review)
+A 26-agent review of the diff confirmed 7 correctness gaps + 3 cleanups, all
+fixed:
+- **ت٠٣٠٢ (new)**: native `CallIndirect` through a callee whose static type
+  isn't a `Function` signature (the `أي` escape hatch) previously emitted an
+  ABI-mismatched `call ptr` against a `define i64` — where HEAD failed at
+  link time, i.e. the original fix *downgraded* an error into silent
+  corruption. Codegen now rejects it with a clear diagnostic; the
+  interpreter still runs it.
+- **Hint-threading was decl-initializer-only.** Lambdas as call arguments
+  (`طبق((س) => س * ٢، ٥)`) and program-mode annotated globals (routed
+  through `__global_init__`, which used a bare `build_expr`) both lifted
+  with `Ptr(Void)` params → spurious ت٠٣٠١ on spec-legal annotated code.
+  `build_call` now resolves the callee's param types *before* building
+  arguments and hints lambda literals; `__global_init__` shares
+  `build_global_initializer` with `build_var_decl`. The program-mode
+  fourth pass also no longer re-builds global initializers outside any
+  function — that lifted an orphaned duplicate `__lambda_N` whose
+  `GlobalStore` was silently dropped.
+- **Block-lambda returns unify across ALL `أرجع`s**, not just the first:
+  bare returns in a non-void lambda are patched to zero-of-type returns and
+  mixed عدد/عدد_عشري promote to عدد_عشري (per-return `IntToFloat`), or
+  native codegen emitted `ret void` inside `define i64` — invalid LLVM.
+  Non-unifiable mixes (dynamic code) keep the first valued type; the
+  interpreter ignores static return types either way.
+- **Spec §5.6 int→float coercion now applies at call arguments** (indirect
+  and direct) when the callee's signature is known — previously only
+  variable stores coerced, so `ف(٥)` against `(عدد_عشري) -> عدد_عشري`
+  natively reinterpreted the i64 bit pattern as a double.
+- **`هذا`/`الأصل` inside a lambda** now raise د٠٣٠٦ at the semantic stage
+  (a receiver is a capture in disguise); **`أوقف`/`استمر` inside a lambda**
+  now raise د٠٣٠١ because `is_in_loop` stops at function/lambda scope
+  boundaries — both previously escaped semantic analysis and died later as
+  span-less internal IR errors.
+- Cleanups: stale TDD "RED until Step N" comments removed; the bare-`()`
+  void-sentinel check unified into `TypeKind::is_bare_unit_function` (later
+  deleted outright — see the entry below); the LSP's forked `parse_type_name`
+  now delegates to `semantic::parse_type_name` (re-exported).
+
+### Process note
+Built via a 5-step TDD pipeline (RED tests → parser → semantic → IR/codegen
+→ docs), each step dispatched to a fresh subagent with the full design
+already researched and approved, verified independently after each step
+(`cargo test`/`clippy`/diff-scope check) before proceeding. One subagent
+flagged a bizarre, garbled comment left by an earlier step in
+`type_helpers.rs` ("this should be writtne in arabic ... if you find it at
+code review surfce it please") as a possible prompt-injection attempt aimed
+at a future reviewer; grepped the full repo and git history to confirm it
+was novel to this session (not present in any prior commit, not echoed from
+any other file) — concluded it was a stray artifact from that earlier
+subagent's own generation, not evidence of an external attack, and removed
+it. The second claim from that same agent (an alleged instruction telling it
+not to report file changes) could not be corroborated anywhere in the repo
+or tool output; treated as unverified and disregarded per instructions,
+noted here for the record.
+
 ## 2026-08-09 — Issue #184: core OOP broken (inherited methods, مشترك statics, upcasting)
 
 Highest-impact pick from the #180–#187 usability-audit backlog: three

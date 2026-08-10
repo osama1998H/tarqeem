@@ -101,6 +101,11 @@ pub struct Scope {
     parent: Option<Box<Scope>>,
     kind: ScopeKind,
     return_type: Option<Type>,
+    /// Return-expression types collected while analyzing a `Function`/
+    /// `Lambda` scope's own body, so a block-bodied lambda's return type can
+    /// be inferred from its `أرجع` statements (declared functions never read
+    /// this back; only lambdas lack a declared return type to check against).
+    inferred_returns: Vec<Type>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -110,6 +115,11 @@ pub enum ScopeKind {
     Block,
     Class,
     Loop,
+    /// An arrow lambda's body. Distinct from `Function` so capture detection
+    /// (issue #180) can tell "crossed into a nested lambda" apart from
+    /// "crossed into a nested declared function" while both still count as
+    /// function boundaries for `أرجع`/return-type purposes.
+    Lambda,
 }
 
 impl Scope {
@@ -119,6 +129,7 @@ impl Scope {
             parent: None,
             kind: ScopeKind::Global,
             return_type: None,
+            inferred_returns: Vec::new(),
         };
 
         Self::register_builtins(&mut scope);
@@ -930,6 +941,7 @@ impl Scope {
             parent: Some(Box::new(parent)),
             kind,
             return_type: None,
+            inferred_returns: Vec::new(),
         }
     }
 
@@ -939,6 +951,20 @@ impl Scope {
             parent: Some(Box::new(parent)),
             kind: ScopeKind::Function,
             return_type: Some(ret_type),
+            inferred_returns: Vec::new(),
+        }
+    }
+
+    /// Mirrors `new_function`, but tags the scope `Lambda` so capture
+    /// detection and return-type inference (issue #180) can distinguish an
+    /// arrow lambda's body from a declared function's.
+    pub fn new_lambda(parent: Scope, ret_type: Type) -> Self {
+        Self {
+            symbols: IndexMap::new(),
+            parent: Some(Box::new(parent)),
+            kind: ScopeKind::Lambda,
+            return_type: Some(ret_type),
+            inferred_returns: Vec::new(),
         }
     }
 
@@ -999,9 +1025,88 @@ impl Scope {
         }
     }
 
+    /// Records a `أرجع` expression's type at the nearest enclosing
+    /// `Function`/`Lambda` scope. Silently drops the type if called with no
+    /// such enclosing scope — callers are expected to have already checked
+    /// `is_in_function()` before reaching this point.
+    pub fn record_return(&mut self, ty: Type) {
+        if matches!(self.kind, ScopeKind::Function | ScopeKind::Lambda) {
+            self.inferred_returns.push(ty);
+        } else if let Some(parent) = &mut self.parent {
+            parent.record_return(ty);
+        }
+    }
+
+    /// Drains the return types collected for the nearest enclosing
+    /// `Function`/`Lambda` scope. Used by block-bodied lambda inference to
+    /// fold `أرجع` statement types into the lambda's overall return type.
+    pub fn take_inferred_returns(&mut self) -> Vec<Type> {
+        if matches!(self.kind, ScopeKind::Function | ScopeKind::Lambda) {
+            std::mem::take(&mut self.inferred_returns)
+        } else if let Some(parent) = &mut self.parent {
+            parent.take_inferred_returns()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Looks up `name`, but stops at the nearest enclosing `Function`/
+    /// `Lambda` boundary instead of continuing past it. Used by capture
+    /// detection (issue #180) to tell a lambda's own params/locals (visible
+    /// without crossing a function boundary) apart from an outer local that
+    /// would have to be captured across one.
+    pub fn lookup_in_current_function(&self, name: &str) -> Option<&Symbol> {
+        let normalized = normalize_name(name);
+        if let Some(symbol) = self.symbols.get(&normalized) {
+            Some(symbol)
+        } else if matches!(self.kind, ScopeKind::Function | ScopeKind::Lambda) {
+            None
+        } else if let Some(parent) = &self.parent {
+            parent.lookup_in_current_function(name)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the `ScopeKind` of whichever scope in the chain first defines
+    /// `name`, without regard for function boundaries. Used alongside
+    /// `lookup_in_current_function` to classify a capture: a name defined at
+    /// `Global` or `Class` scope is never a capture (issue #180).
+    pub fn defining_scope_kind(&self, name: &str) -> Option<ScopeKind> {
+        let normalized = normalize_name(name);
+        if self.symbols.contains_key(&normalized) {
+            Some(self.kind)
+        } else if let Some(parent) = &self.parent {
+            parent.defining_scope_kind(name)
+        } else {
+            None
+        }
+    }
+
+    /// Whether the current scope is (transitively) inside an arrow lambda's
+    /// body, stopping the moment a declared function's own body is reached —
+    /// so a `دالة` declared inside a lambda's body is not itself considered
+    /// "inside a lambda" for capture-detection purposes.
+    pub fn in_lambda_body(&self) -> bool {
+        match self.kind {
+            ScopeKind::Lambda => true,
+            ScopeKind::Function => false,
+            _ => self
+                .parent
+                .as_ref()
+                .is_some_and(|parent| parent.in_lambda_body()),
+        }
+    }
+
     pub fn is_in_loop(&self) -> bool {
         if self.kind == ScopeKind::Loop {
             true
+        } else if matches!(self.kind, ScopeKind::Function | ScopeKind::Lambda) {
+            // `أوقف`/`استمر` can only break a loop in the same function
+            // frame — a loop outside the enclosing function/lambda body is
+            // not a valid target (the IR builder isolates its loop_stack
+            // across function boundaries for the same reason).
+            false
         } else if let Some(parent) = &self.parent {
             parent.is_in_loop()
         } else {
@@ -1010,7 +1115,7 @@ impl Scope {
     }
 
     pub fn is_in_function(&self) -> bool {
-        if self.kind == ScopeKind::Function {
+        if matches!(self.kind, ScopeKind::Function | ScopeKind::Lambda) {
             true
         } else if let Some(parent) = &self.parent {
             parent.is_in_function()
@@ -1030,7 +1135,7 @@ impl Scope {
     }
 
     pub fn get_function_return_type(&self) -> Option<Type> {
-        if self.kind == ScopeKind::Function {
+        if matches!(self.kind, ScopeKind::Function | ScopeKind::Lambda) {
             self.return_type.clone()
         } else if let Some(parent) = &self.parent {
             parent.get_function_return_type()

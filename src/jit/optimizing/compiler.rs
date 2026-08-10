@@ -359,6 +359,8 @@ fn compile_optimized_instruction(
                     // String constants are handled as pointers
                     builder.ins().iconst(types::I64, 0)
                 }
+                // TODO(#180): JIT does not yet support function values; delegated to the interpreter.
+                Constant::Function(_) => builder.ins().iconst(types::I64, 0),
             };
 
             builder.def_var(var, val);

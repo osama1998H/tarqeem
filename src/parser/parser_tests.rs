@@ -1745,6 +1745,292 @@ fn test_parse_grouping_not_arrow_function() {
     }
 }
 
+// ─── Function-type annotations `(T, U) -> R` (issue #180) ───
+//
+// `parse_type_annotation` branches on a leading `(` into
+// `parse_function_type_annotation` (src/parser/parser/decl_parser.rs);
+// these tests pin the accepted grammar — comma variants, bare `()`,
+// right-associative `->`, nesting — and the ب٠٠٠٢ rejection of a
+// non-empty param list with no `->`.
+
+#[test]
+fn test_parse_function_type_annotation_arabic_comma() {
+    let source = r#"
+        ثابت جمع: (عدد، عدد) -> عدد = (أ، ب) => أ + ب؛
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { ty, .. } => {
+            let type_ann = ty.as_ref().expect("Expected type annotation");
+            match &type_ann.kind {
+                TypeKind::Function {
+                    params,
+                    return_type,
+                } => {
+                    assert_eq!(params.len(), 2);
+                    assert!(matches!(&params[0].kind, TypeKind::Simple(n) if n == "عدد"));
+                    assert!(matches!(&params[1].kind, TypeKind::Simple(n) if n == "عدد"));
+                    let ret = return_type.as_ref().expect("Expected a return type");
+                    assert!(matches!(&ret.kind, TypeKind::Simple(n) if n == "عدد"));
+                }
+                _ => panic!("Expected function type annotation"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_function_type_annotation_ascii_comma() {
+    let source = r#"
+        ثابت جمع: (عدد, عدد) -> عدد = (أ, ب) => أ + ب;
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { ty, .. } => {
+            let type_ann = ty.as_ref().expect("Expected type annotation");
+            match &type_ann.kind {
+                TypeKind::Function { params, .. } => {
+                    assert_eq!(params.len(), 2);
+                }
+                _ => panic!("Expected function type annotation"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_bare_unit_function_type() {
+    let source = r#"
+        متغير ف: ()؛
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { ty, .. } => {
+            let type_ann = ty.as_ref().expect("Expected type annotation");
+            match &type_ann.kind {
+                TypeKind::Function {
+                    params,
+                    return_type,
+                } => {
+                    // Bare `()` = a function returning nothing. Absence is
+                    // modelled structurally (`None`), not with a sentinel
+                    // type name — Tarqeem has no `فراغ` keyword.
+                    assert!(params.is_empty());
+                    assert!(return_type.is_none());
+                }
+                _ => panic!("Expected function type annotation"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_zero_param_function_type_with_return() {
+    let source = r#"
+        متغير ف: () -> عدد؛
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { ty, .. } => {
+            let type_ann = ty.as_ref().expect("Expected type annotation");
+            match &type_ann.kind {
+                TypeKind::Function {
+                    params,
+                    return_type,
+                } => {
+                    assert!(params.is_empty());
+                    let ret = return_type.as_ref().expect("Expected a return type");
+                    assert!(matches!(&ret.kind, TypeKind::Simple(n) if n == "عدد"));
+                }
+                _ => panic!("Expected function type annotation"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_curried_function_type_is_right_associative() {
+    let source = r#"
+        متغير ف: (عدد) -> (عدد) -> عدد؛
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { ty, .. } => {
+            let type_ann = ty.as_ref().expect("Expected type annotation");
+            match &type_ann.kind {
+                TypeKind::Function {
+                    params,
+                    return_type,
+                } => {
+                    assert_eq!(params.len(), 1);
+                    let ret = return_type.as_ref().expect("Expected a return type");
+                    match &ret.kind {
+                        TypeKind::Function {
+                            params: inner_params,
+                            return_type: inner_return,
+                        } => {
+                            assert_eq!(inner_params.len(), 1);
+                            let inner = inner_return.as_ref().expect("Expected a return type");
+                            assert!(matches!(&inner.kind, TypeKind::Simple(n) if n == "عدد"));
+                        }
+                        _ => panic!("Expected curried (right-associative) function type"),
+                    }
+                }
+                _ => panic!("Expected function type annotation"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_function_type_parameter_does_not_steal_declaration_arrow() {
+    let source = r#"
+        دالة طبق(ج: (عدد) -> عدد، ق: عدد) -> عدد {
+            أرجع ج(ق)؛
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl {
+            params,
+            return_type,
+            ..
+        } => {
+            assert_eq!(params.len(), 2);
+            let param_ty = params[0].ty.as_ref().expect("Expected param type");
+            assert!(matches!(&param_ty.kind, TypeKind::Function { .. }));
+
+            let return_type = return_type.as_ref().expect("Expected return type");
+            assert!(matches!(&return_type.kind, TypeKind::Simple(n) if n == "عدد"));
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_function_type_as_return_type() {
+    let source = r#"
+        دالة اصنع() -> (عدد) -> عدد { }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { return_type, .. } => {
+            let return_type = return_type.as_ref().expect("Expected return type");
+            assert!(matches!(&return_type.kind, TypeKind::Function { .. }));
+        }
+        _ => panic!("Expected FuncDecl"),
+    }
+}
+
+#[test]
+fn test_parse_function_type_nested_in_generic_argument() {
+    let source = r#"
+        متغير ق: مصفوفة<(عدد) -> عدد>؛
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { ty, .. } => {
+            let type_ann = ty.as_ref().expect("Expected type annotation");
+            match &type_ann.kind {
+                TypeKind::Generic { base, args } => {
+                    assert_eq!(base, "مصفوفة");
+                    assert_eq!(args.len(), 1);
+                    assert!(matches!(&args[0].kind, TypeKind::Function { .. }));
+                }
+                _ => panic!("Expected generic type"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_function_type_inside_arrow_lambda_param_annotation() {
+    let source = r#"
+        ثابت ط = (ج: (عدد) -> عدد) => ج(٢)؛
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init = init.as_ref().expect("Expected initializer");
+            match &init.kind {
+                ExprKind::Lambda { params, .. } => {
+                    assert_eq!(params.len(), 1);
+                    let param_ty = params[0].ty.as_ref().expect("Expected param type");
+                    assert!(matches!(&param_ty.kind, TypeKind::Function { .. }));
+                }
+                _ => panic!("Expected Lambda expression"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
+#[test]
+fn test_parse_function_type_missing_arrow_is_error() {
+    use crate::error::codes::ERR_UNEXPECTED_TOKEN;
+
+    let source = r#"
+        متغير ف: (عدد)؛
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    let err = result.expect_err("Expected a parse error for missing '->'");
+    assert_eq!(
+        err.code.as_deref(),
+        Some(ERR_UNEXPECTED_TOKEN.to_string().as_str())
+    );
+}
+
+#[test]
+fn test_parse_grouping_with_arabic_digits_still_works() {
+    // Control test: proves plain parenthesized-expression grouping is
+    // unaffected by the new leading-'(' branch in parse_type_annotation.
+    let source = r#"
+        متغير س = (١ + ٢) * ٣؛
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init, .. } => {
+            let init = init.as_ref().expect("Expected initializer");
+            match &init.kind {
+                ExprKind::Binary { op, left, .. } => {
+                    assert_eq!(*op, BinaryOp::Mul);
+                    assert!(matches!(&left.kind, ExprKind::Grouping(_)));
+                }
+                _ => panic!("Expected binary expression"),
+            }
+        }
+        _ => panic!("Expected VarDecl"),
+    }
+}
+
 #[test]
 fn test_error_recovery_multiple_errors_in_block() {
     let source = r#"

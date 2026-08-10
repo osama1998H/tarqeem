@@ -486,7 +486,13 @@ impl DocumentState {
                     .iter()
                     .map(|p| self.resolve_type_annotation(p))
                     .collect(),
-                return_type: Box::new(self.resolve_type_annotation(return_type)),
+                // Bare `()` carries no return type at all.
+                return_type: Box::new(
+                    return_type
+                        .as_ref()
+                        .map(|t| self.resolve_type_annotation(t))
+                        .unwrap_or(Type::Void),
+                ),
             },
             TypeKind::Generic { base, args: _ } => self.parse_type_name(base),
             TypeKind::Optional(inner) => {
@@ -496,16 +502,10 @@ impl DocumentState {
     }
 
     fn parse_type_name(&self, name: &str) -> Type {
-        // Arabic-only: ترقيم لغة برمجة عربية
-        match name {
-            "عدد" => Type::Int,
-            "عدد_عشري" => Type::Float,
-            "نص" => Type::String,
-            "منطقي" => Type::Bool,
-            "لا_شيء" => Type::Null,
-            "أي" | "اي" => Type::Any,
-            _ => Type::Class(name.to_string()),
-        }
+        // Single source of truth for the name→type mapping — a private
+        // copy here would silently drift the next time a builtin type is
+        // added (LSP may import semantic per the layering table).
+        crate::semantic::parse_type_name(name)
     }
 
     pub fn find_symbol_at(

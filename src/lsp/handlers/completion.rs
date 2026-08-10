@@ -370,11 +370,10 @@ fn format_type(ty: &TypeAnnotation) -> String {
             return_type,
         } => {
             let params_str: Vec<String> = params.iter().map(format_type).collect();
-            format!(
-                "({}) -> {}",
-                params_str.join("، "),
-                format_type(return_type)
-            )
+            match return_type {
+                None => format!("({})", params_str.join("، ")),
+                Some(rt) => format!("({}) -> {}", params_str.join("، "), format_type(rt)),
+            }
         }
         TypeKind::Generic { base, args } => {
             let args_str: Vec<String> = args.iter().map(format_type).collect();

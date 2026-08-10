@@ -1498,6 +1498,7 @@ impl DebugInterpreter {
                 let s = self.module.strings.get(*idx).unwrap_or("").to_string();
                 Value::string(s)
             }
+            Constant::Function(name) => Value::Function(name.clone()),
         }
     }
 

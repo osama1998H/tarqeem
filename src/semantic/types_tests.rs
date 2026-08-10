@@ -472,6 +472,36 @@ fn test_binary_invalid_operations() {
 }
 
 #[test]
+fn test_binary_any_operand_is_permitted_but_not_unconditional() {
+    // Untyped lambda params resolve to `أي` (LANGUAGE_SPEC §8.3), so
+    // `(أ، ب) => أ + ب` must type-check its own body...
+    assert_eq!(
+        Type::Any.binary_result_type("+", &Type::Any),
+        Some(Type::Any)
+    );
+    assert_eq!(
+        Type::Any.binary_result_type("*", &Type::Int),
+        Some(Type::Any)
+    );
+    assert_eq!(
+        Type::Any.binary_result_type("<", &Type::Float),
+        Some(Type::Bool)
+    );
+    // `أي` concatenates with a نص, since `+` is also string concatenation...
+    assert_eq!(
+        Type::Any.binary_result_type("+", &Type::String),
+        Some(Type::Any)
+    );
+
+    // ...but `أي` must NOT switch off arithmetic checking wholesale: a
+    // نص operand is still nonsense for every other arithmetic operator.
+    assert_eq!(Type::Any.binary_result_type("**", &Type::String), None);
+    assert_eq!(Type::Any.binary_result_type("-", &Type::String), None);
+    assert_eq!(Type::String.binary_result_type("/", &Type::Any), None);
+    assert_eq!(Type::Any.binary_result_type("*", &Type::Bool), None);
+}
+
+#[test]
 fn test_unary_neg_int() {
     assert_eq!(Type::Int.unary_result_type("-"), Some(Type::Int));
 }

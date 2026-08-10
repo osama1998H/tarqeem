@@ -4,13 +4,13 @@
 
 use super::super::generics::GenericParam;
 use super::super::method_resolver::{MemberResolution, MethodResolver};
-use super::super::scope::{Symbol, SymbolKind};
+use super::super::scope::{ScopeKind, Symbol, SymbolKind};
 use super::super::types::Type;
 use super::Analyzer;
 use crate::error::codes::{
-    ERR_CONST_ASSIGNMENT, ERR_NONSTATIC_VIA_CLASS, ERR_PRIVATE_ACCESS, ERR_PROPERTY_NOT_FOUND,
-    ERR_PROTECTED_ACCESS, ERR_STATIC_VIA_INSTANCE, ERR_SUPER_OUTSIDE_CLASS, ERR_THIS_OUTSIDE_CLASS,
-    ERR_TYPE_MISMATCH, ERR_UNDEFINED_CLASS, ERR_UNDEFINED_VARIABLE,
+    ERR_CONST_ASSIGNMENT, ERR_LAMBDA_CAPTURE, ERR_NONSTATIC_VIA_CLASS, ERR_PRIVATE_ACCESS,
+    ERR_PROPERTY_NOT_FOUND, ERR_PROTECTED_ACCESS, ERR_STATIC_VIA_INSTANCE, ERR_SUPER_OUTSIDE_CLASS,
+    ERR_THIS_OUTSIDE_CLASS, ERR_TYPE_MISMATCH, ERR_UNDEFINED_CLASS, ERR_UNDEFINED_VARIABLE,
 };
 use crate::error::Span;
 use crate::parser::*;
@@ -35,6 +35,7 @@ impl Analyzer {
             ExprKind::Identifier(name) => {
                 // Mark the symbol as used for unused variable warnings
                 self.scope.mark_used(name);
+                self.check_no_capture(name, expr.span);
                 if let Some(symbol) = self.scope.lookup(name) {
                     symbol.ty.clone()
                 } else {
@@ -103,11 +104,26 @@ impl Analyzer {
             ExprKind::Grouping(inner) => self.infer_type(inner),
 
             ExprKind::This => {
+                // Order matters: "no enclosing class at all" (د٠٣٠٤) is the
+                // more accurate diagnosis and must win, or a stray `هذا` at
+                // module level would be told to "pass the receiver as a
+                // parameter" when there is no receiver to pass.
                 if !self.scope.is_in_class() {
                     self.error_with_code(
                         "'هذا' يمكن استخدامها فقط داخل صنف",
                         expr.span,
                         &ERR_THIS_OUTSIDE_CLASS.to_string(),
+                    );
+                    Type::Error
+                } else if self.scope.in_lambda_body() {
+                    // A lambda is lifted into a standalone function with no
+                    // receiver, so `هذا` inside one is a capture in disguise —
+                    // reject it here (د٠٣٠٦) or the IR builder dies later with
+                    // a span-less internal error.
+                    self.error_with_code(
+                        "لا يمكن استخدام 'هذا' داخل دالة سهمية (الالتقاط غير مدعوم بعد): مرّر القيمة المطلوبة كمعامل بدلاً من ذلك",
+                        expr.span,
+                        &ERR_LAMBDA_CAPTURE.to_string(),
                     );
                     Type::Error
                 } else if let Some(ref class_name) = self.current_class {
@@ -117,7 +133,23 @@ impl Analyzer {
                 }
             }
 
-            ExprKind::Super => self.infer_super_expr(expr.span),
+            ExprKind::Super => {
+                // `infer_super_expr` owns the د٠٣٠٥ / "class has no parent"
+                // diagnoses; run it first so the lambda restriction only
+                // fires for an otherwise-valid `الأصل`.
+                let ty = self.infer_super_expr(expr.span);
+                if matches!(ty, Type::Error) || !self.scope.in_lambda_body() {
+                    ty
+                } else {
+                    // Same receiver-capture restriction as `هذا` above.
+                    self.error_with_code(
+                        "لا يمكن استخدام 'الأصل' داخل دالة سهمية (الالتقاط غير مدعوم بعد)",
+                        expr.span,
+                        &ERR_LAMBDA_CAPTURE.to_string(),
+                    );
+                    Type::Error
+                }
+            }
 
             ExprKind::EnumVariant {
                 enum_name,
@@ -213,7 +245,8 @@ impl Analyzer {
                 }
 
                 for (i, (arg, param_type)) in args.iter().zip(params.iter()).enumerate() {
-                    let arg_type = self.infer_type(arg);
+                    let arg_type =
+                        self.with_expected(Some(param_type.clone()), |a| a.infer_type(arg));
                     if !self.is_assignable(&arg_type, param_type) {
                         self.type_mismatch_error(
                             param_type,
@@ -289,6 +322,7 @@ impl Analyzer {
 
         match &target.kind {
             ExprKind::Identifier(name) => {
+                self.check_no_capture(name, target.span);
                 let symbol_info = self.scope.lookup(name).map(|s| (s.mutable, s.ty.clone()));
 
                 if let Some((mutable, ty)) = symbol_info {
@@ -400,8 +434,9 @@ impl Analyzer {
 
     /// Infer lambda expression type.
     fn infer_lambda_expr(&mut self, params: &[Param], body: &LambdaBody) -> Type {
-        self.push_function_scope(Type::Any);
-
+        // Read the contextual expectation (from a call argument or a typed
+        // var-decl initializer, via `with_expected`) before pushing the
+        // lambda's own scope replaces it.
         let expected_param_types: Option<Vec<Type>> = match &self.expected_type {
             Some(Type::Function {
                 params: expected_params,
@@ -409,6 +444,12 @@ impl Analyzer {
             }) => Some(expected_params.clone()),
             _ => None,
         };
+        let expected_return_type: Option<Type> = match &self.expected_type {
+            Some(Type::Function { return_type, .. }) => Some((**return_type).clone()),
+            _ => None,
+        };
+
+        self.push_lambda_scope(expected_return_type.unwrap_or(Type::Any));
 
         let param_types: Vec<Type> = params
             .iter()
@@ -428,15 +469,18 @@ impl Analyzer {
             })
             .collect();
 
-        let return_type = match body {
-            LambdaBody::Expr(expr) => self.infer_type(expr),
+        // A nested lambda/array/map literal inside this body must not
+        // inherit the outer function-type expectation used above.
+        let return_type = self.with_expected(None, |a| match body {
+            LambdaBody::Expr(expr) => a.infer_type(expr),
             LambdaBody::Block(block) => {
                 for stmt in &block.statements {
-                    self.analyze_stmt(stmt);
+                    a.analyze_stmt(stmt);
                 }
-                Type::Void
+                let inferred_returns = a.scope.take_inferred_returns();
+                a.fold_inferred_return_types(inferred_returns)
             }
-        };
+        });
 
         self.pop_scope();
 
@@ -444,6 +488,62 @@ impl Analyzer {
             params: param_types,
             return_type: Box::new(return_type),
         }
+    }
+
+    /// Folds a block-bodied lambda's collected `أرجع` types into a single
+    /// return type: `Void` for no returns, the widened common type when they
+    /// agree, or `Any` on incompatibility. `Any` is deliberate, not an
+    /// error — mixing `أرجع؛` (early exit) and `أرجع ٥؛` in the same lambda is
+    /// legal early-return code, not a type error to surface here.
+    fn fold_inferred_return_types(&self, types: Vec<Type>) -> Type {
+        let mut iter = types.into_iter();
+        let Some(mut widest) = iter.next() else {
+            return Type::Void;
+        };
+        for ty in iter {
+            if self.is_assignable(&ty, &widest) {
+                // Already fits — keep the current widest type.
+            } else if self.is_assignable(&widest, &ty) {
+                widest = ty;
+            } else {
+                return Type::Any;
+            }
+        }
+        widest
+    }
+
+    /// Reports د٠٣٠٦ if `name` resolves to an outer local variable or
+    /// parameter reached across a lambda boundary — non-capturing lambdas
+    /// only (issue #180); closures are a follow-up. Globals, class members,
+    /// declared functions, and a lambda's own params/locals are never
+    /// flagged.
+    fn check_no_capture(&mut self, name: &str, span: Span) {
+        if !self.scope.in_lambda_body() {
+            return;
+        }
+        if self.scope.lookup_in_current_function(name).is_some() {
+            return;
+        }
+        let Some(scope_kind) = self.scope.defining_scope_kind(name) else {
+            return;
+        };
+        if matches!(scope_kind, ScopeKind::Global | ScopeKind::Class) {
+            return;
+        }
+        let Some(sym_kind) = self.scope.lookup(name).map(|s| s.kind.clone()) else {
+            return;
+        };
+        if !matches!(sym_kind, SymbolKind::Variable | SymbolKind::Parameter) {
+            return;
+        }
+        self.error_with_code(
+            &format!(
+                "لا يمكن التقاط المتغير الخارجي '{}' داخل دالة سهمية (غير مدعوم بعد)",
+                name
+            ),
+            span,
+            &ERR_LAMBDA_CAPTURE.to_string(),
+        );
     }
 
     /// Infer new expression type.

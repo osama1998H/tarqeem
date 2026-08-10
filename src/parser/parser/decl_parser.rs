@@ -5,6 +5,7 @@
 
 use crate::error::codes::{
     ERR_EXPECTED_CLASS_NAME, ERR_EXPECTED_FUNCTION_NAME, ERR_EXPECTED_VARIABLE_NAME,
+    ERR_UNEXPECTED_TOKEN,
 };
 use crate::error::Diagnostic;
 use crate::lexer::TokenKind;
@@ -738,6 +739,10 @@ impl Parser {
 
     /// Parse a type annotation.
     pub(crate) fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, Diagnostic> {
+        if self.check(&TokenKind::LeftParen) {
+            return self.parse_function_type_annotation();
+        }
+
         let start = self.current_span();
 
         let name = self.expect_type_name()?;
@@ -768,6 +773,55 @@ impl Parser {
 
         let span = start.merge(&self.previous_span());
         Ok(TypeAnnotation::new(kind, span))
+    }
+
+    /// Parse a function-type annotation: `(T، U) -> R`.
+    ///
+    /// Grammar (LANGUAGE_SPEC.md §5.3):
+    /// نمط_دالة := '(' [نمط {'،' نمط}] ')' ['->' نمط]
+    ///
+    /// The return type is parsed via a recursive `parse_type_annotation`
+    /// call, which makes currying (`(عدد) -> (عدد) -> عدد`) right-associative
+    /// for free. Omitting `->` is legal only with an empty parameter list,
+    /// giving the spec's bare `()` sugar — a function returning nothing,
+    /// represented as `return_type: None` (Tarqeem has no `فراغ` keyword).
+    fn parse_function_type_annotation(&mut self) -> Result<TypeAnnotation, Diagnostic> {
+        let start = self.current_span();
+        self.expect(&TokenKind::LeftParen, "متوقع '('")?;
+
+        let mut params = Vec::new();
+        if !self.check(&TokenKind::RightParen) {
+            loop {
+                params.push(self.parse_type_annotation()?);
+                if !self.match_token(&TokenKind::Comma)
+                    && !self.match_token(&TokenKind::ArabicComma)
+                {
+                    break;
+                }
+            }
+        }
+        self.expect(&TokenKind::RightParen, "متوقع ')'")?;
+
+        let return_type = if self.match_token(&TokenKind::Arrow) {
+            Some(Box::new(self.parse_type_annotation()?))
+        } else if params.is_empty() {
+            None
+        } else {
+            return Err(Diagnostic::error(
+                "متوقع '->' بعد قائمة أنماط المعاملات",
+                self.current_span(),
+            )
+            .with_code(ERR_UNEXPECTED_TOKEN.to_string()));
+        };
+
+        let span = start.merge(&self.previous_span());
+        Ok(TypeAnnotation::new(
+            TypeKind::Function {
+                params,
+                return_type,
+            },
+            span,
+        ))
     }
 
     /// Parse function parameters.

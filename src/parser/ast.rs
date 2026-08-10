@@ -381,7 +381,11 @@ pub enum TypeKind {
 
     Function {
         params: Vec<TypeAnnotation>,
-        return_type: Box<TypeAnnotation>,
+        /// `None` is the bare `()` form (LANGUAGE_SPEC §5.3) — a function
+        /// type that returns nothing. Tarqeem has no `فراغ` keyword by
+        /// design, so absence is modelled structurally, exactly as
+        /// `StmtKind::FuncDecl::return_type` and `Param::ty` already do.
+        return_type: Option<Box<TypeAnnotation>>,
     },
 
     Generic {
