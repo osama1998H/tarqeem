@@ -3162,3 +3162,286 @@ fn test_parse_block_dangling_after_statement() {
         _ => panic!("Expected FuncDecl"),
     }
 }
+
+// ─── Group 8: leading /** */ attaches as a doc comment; صدّر keeps its doc (#201, #204) ───
+
+/// `/** */` before a declaration used to fall through to the expression parser
+/// as `رمز غير متوقع: BlockDocComment(..)`. It is only safe to attach now that
+/// the formatter re-prefixes `///` on every doc line — attaching it while the
+/// formatter still stripped markers would have converted a loud parse error into
+/// silent corruption (#201).
+#[test]
+fn test_parse_leading_block_doc_comment_attaches_to_declaration() {
+    let source = r#"
+        /** وثيقة الدالة */
+        دالة س() {}
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser
+        .parse()
+        .expect("/** */ before a declaration must parse");
+
+    let doc = ast
+        .statements
+        .iter()
+        .find_map(|s| match &s.kind {
+            StmtKind::FuncDecl {
+                name, doc_comment, ..
+            } if name == "س" => Some(doc_comment.clone()),
+            _ => None,
+        })
+        .expect("Expected a FuncDecl named س");
+    assert_eq!(doc, Some("وثيقة الدالة".to_string()));
+}
+
+#[test]
+fn test_parse_leading_block_doc_comment_on_class_and_enum() {
+    let source = r#"
+        /** وثيقة الصنف */
+        صنف ش {
+            /** وثيقة الحقل */
+            خاص اسم: نص
+        }
+        /** وثيقة التعداد */
+        تعداد ل {
+            /** وثيقة الحالة */
+            أحمر
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    let class_doc = ast
+        .statements
+        .iter()
+        .find_map(|s| match &s.kind {
+            StmtKind::ClassDecl { doc_comment, .. } => Some(doc_comment.clone()),
+            _ => None,
+        })
+        .expect("Expected a ClassDecl");
+    assert_eq!(class_doc, Some("وثيقة الصنف".to_string()));
+
+    let enum_doc = ast
+        .statements
+        .iter()
+        .find_map(|s| match &s.kind {
+            StmtKind::EnumDecl { doc_comment, .. } => Some(doc_comment.clone()),
+            _ => None,
+        })
+        .expect("Expected an EnumDecl");
+    assert_eq!(enum_doc, Some("وثيقة التعداد".to_string()));
+}
+
+/// Mirror of `test_trailing_doc_comment_does_not_attach_to_next_declaration`
+/// for the block form: accepting `/** */` as a leading doc comment must not let
+/// a *trailing* one bleed forward onto the next declaration.
+#[test]
+fn test_trailing_block_doc_comment_does_not_attach_to_next_declaration() {
+    let source = r#"
+        متغير س = 5 /** ملاحظة عابرة */
+        /** وثيقة الدالة ب */
+        دالة ب() {}
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().unwrap();
+
+    let var_trailing = ast
+        .statements
+        .iter()
+        .find(|s| matches!(s.kind, StmtKind::VarDecl { .. }))
+        .expect("Expected a VarDecl statement")
+        .trailing_comment
+        .as_deref()
+        .expect("Expected trailing comment on VarDecl");
+    assert!(var_trailing.contains("ملاحظة عابرة"));
+
+    let func_doc = ast
+        .statements
+        .iter()
+        .find_map(|s| match &s.kind {
+            StmtKind::FuncDecl {
+                name, doc_comment, ..
+            } if name == "ب" => Some(doc_comment.clone()),
+            _ => None,
+        })
+        .expect("Expected a FuncDecl named ب");
+    assert_eq!(func_doc, Some("وثيقة الدالة ب".to_string()));
+}
+
+/// #204: `parse_declaration` consumes the doc comment before it can tell that a
+/// `صدّر` follows, then recurses — so the inner declaration used to receive
+/// `doc_comment: None` and the doc was silently dropped for every exported
+/// declaration.
+#[test]
+fn test_parse_exported_declaration_keeps_doc_comment() {
+    let source = r#"
+        /// وثيقة الدالة المصدرة
+        صدّر دالة جمع(أ: عدد، ب: عدد) -> عدد {
+            أرجع أ + ب
+        }
+        /// وثيقة الصنف المصدر
+        صدّر صنف نقطة {
+            عام س: عدد
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    let mut func_doc = None;
+    let mut class_doc = None;
+    for stmt in &ast.statements {
+        if let StmtKind::Export(ExportItems::Declaration(inner)) = &stmt.kind {
+            match &inner.kind {
+                StmtKind::FuncDecl { doc_comment, .. } => func_doc = doc_comment.clone(),
+                StmtKind::ClassDecl { doc_comment, .. } => class_doc = doc_comment.clone(),
+                other => panic!("Unexpected exported declaration: {:?}", other),
+            }
+        }
+    }
+
+    assert_eq!(func_doc, Some("وثيقة الدالة المصدرة".to_string()));
+    assert_eq!(class_doc, Some("وثيقة الصنف المصدر".to_string()));
+}
+
+/// Threading the outer doc comment down must not change what happens when a
+/// `صدّر` and its declaration are separated by a doc comment on its own line
+/// (`صدّر\n/// وثيقة\nدالة س() {}`). That is a pre-existing hard parse error of
+/// the #203 class — the token sits where a declaration keyword is expected — and
+/// `parse_declaration_with_doc` cannot affect it, because `inherited_doc` is
+/// `None` on that path and `or_else` therefore reduces to the original
+/// unconditional `consume_doc_comment()` call. Pinned here so a future change
+/// cannot quietly turn the loud error into a silently dropped doc comment.
+#[test]
+fn test_parse_doc_comment_between_export_and_declaration_is_not_silently_dropped() {
+    let source = r#"
+        صدّر
+        /// وثيقة الدالة
+        دالة س() {}
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    let attached_doc = result.as_ref().ok().and_then(|ast| {
+        ast.statements.iter().find_map(|s| match &s.kind {
+            StmtKind::Export(ExportItems::Declaration(inner)) => match &inner.kind {
+                StmtKind::FuncDecl { doc_comment, .. } => doc_comment.clone(),
+                _ => None,
+            },
+            _ => None,
+        })
+    });
+
+    assert!(
+        attached_doc.is_none(),
+        "this form is not supported; if it ever attaches, update this test"
+    );
+    assert!(
+        result.is_err() || !parser.get_errors().is_empty(),
+        "an unsupported doc-comment position must be reported, not swallowed"
+    );
+}
+
+// ─── Group 9: a trailing /** */ must not be stolen as the next member's doc ───
+
+/// Documentation describes what follows it, so a `/** */` trailing code on the
+/// same line annotates that line. Accepting `BlockDocComment` unconditionally
+/// let `consume_doc_comment` re-attach it to the *next* class member, so
+/// `tarqeem doc` published the note under the wrong name and `fmt -w` rewrote
+/// the file that way. Verified against a merge-base build before fixing.
+#[test]
+fn test_trailing_block_doc_comment_is_not_stolen_by_next_class_member() {
+    let source = r#"
+        صنف ش {
+            خاص اسم: نص /** ملاحظة على الاسم */
+            خاص عمر: عدد
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    // Whatever the parser does with this form, the note must never end up as
+    // the documentation of `عمر`.
+    if let Ok(ast) = result.as_ref() {
+        for stmt in &ast.statements {
+            if let StmtKind::ClassDecl { members, .. } = &stmt.kind {
+                for member in members {
+                    if let ClassMember::Field {
+                        name, doc_comment, ..
+                    } = member
+                    {
+                        if name == "عمر" {
+                            assert!(
+                                doc_comment.is_none(),
+                                "note about 'اسم' must not become the doc of 'عمر': {:?}",
+                                doc_comment
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A doc comment sitting on the same line as `صدّر` must still be consumed —
+/// leaving it in the stream made it fall through to the expression parser, a new
+/// hard error for source that compiled before.
+#[test]
+fn test_doc_comment_trailing_export_keyword_does_not_error() {
+    let source = r#"
+        /// خارجي
+        صدّر /// داخلي
+        دالة س() {}
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser
+        .parse()
+        .expect("a doc comment after صدّر must not be a parse error");
+
+    // The doc written above `صدّر` documents the declaration; the one trailing
+    // the keyword is kept as an ordinary comment rather than discarded.
+    let doc = ast
+        .statements
+        .iter()
+        .find_map(|s| match &s.kind {
+            StmtKind::Export(ExportItems::Declaration(inner)) => match &inner.kind {
+                StmtKind::FuncDecl { doc_comment, .. } => {
+                    Some(inner.leading_comments.clone()).map(|lc| (doc_comment.clone(), lc))
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("Expected an exported FuncDecl");
+    assert_eq!(doc.0, Some("خارجي".to_string()));
+    assert!(
+        doc.1.iter().any(|c| c.contains("داخلي")),
+        "the note trailing صدّر must be preserved, got {:?}",
+        doc.1
+    );
+}
+
+/// A doc comment before a statement with no `doc_comment` field must be kept as
+/// a leading comment. Consuming it and dropping it made `fmt -w` erase the text.
+#[test]
+fn test_orphaned_doc_comment_is_demoted_to_leading_comment() {
+    let source = r#"
+        /** ملاحظة مهمة */
+        اطبع("س")
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    let stmt = ast
+        .statements
+        .iter()
+        .find(|s| matches!(s.kind, StmtKind::Expr(_)))
+        .expect("Expected an expression statement");
+    assert!(
+        stmt.leading_comments
+            .iter()
+            .any(|c| c.contains("ملاحظة مهمة")),
+        "orphaned doc comment must be preserved, got {:?}",
+        stmt.leading_comments
+    );
+}

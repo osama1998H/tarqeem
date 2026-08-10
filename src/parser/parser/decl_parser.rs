@@ -16,11 +16,37 @@ use super::Parser;
 impl Parser {
     /// Parse a declaration (variable, function, class, etc.).
     pub(crate) fn parse_declaration(&mut self) -> Result<Stmt, Diagnostic> {
+        self.parse_declaration_with_doc(None)
+    }
+
+    /// Parse a declaration, optionally carrying a doc comment consumed by a
+    /// caller that has already passed the point where it appeared.
+    ///
+    /// `صدّر` needs this: `parse_declaration` consumes the doc comment before it
+    /// can tell which declaration follows, then recurses through
+    /// `parse_export_statement` — by which point the token is gone and the inner
+    /// declaration used to end up with `doc_comment: None`, silently dropping
+    /// docs on every `صدّر دالة`/`صدّر صنف` (issue #204). Threading the value
+    /// down keeps the AST built once, rather than patching it afterwards.
+    pub(crate) fn parse_declaration_with_doc(
+        &mut self,
+        inherited_doc: Option<String>,
+    ) -> Result<Stmt, Diagnostic> {
         // Collect any line comments before the declaration
         self.collect_line_comments();
-        let leading_comments = self.take_pending_comments();
+        let mut leading_comments = self.take_pending_comments();
 
-        let doc_comment = self.consume_doc_comment();
+        // Always consume a doc comment sitting here, even when the caller already
+        // supplied one: short-circuiting left the token in the stream, where it
+        // fell through to the expression parser and turned `صدّر /// ملاحظة` into
+        // a hard parse error on source that used to compile.
+        let own_doc = self.consume_doc_comment();
+        // A doc comment written before the outer keyword documents the
+        // declaration, so it wins over one found after it.
+        let (doc_comment, mut orphaned_doc) = match inherited_doc {
+            Some(outer) => (Some(outer), own_doc),
+            None => (own_doc, None),
+        };
 
         // Skip newlines after doc comment before the actual declaration
         self.skip_newlines();
@@ -39,17 +65,25 @@ impl Parser {
         } else if self.check(&TokenKind::Enum) {
             self.parse_enum_declaration(doc_comment)?
         } else if self.check(&TokenKind::Import) {
+            // Neither of these owns a `doc_comment` field, so the text would be
+            // dropped — and since the doc token is consumed now, `fmt -w` would
+            // erase it from the user's file rather than failing loudly. Demote it
+            // to a leading comment so the formatter still writes it out.
+            orphaned_doc = orphaned_doc.or(doc_comment);
             self.parse_import_statement()?
         } else if self.check(&TokenKind::Export) {
-            self.parse_export_statement()?
+            self.parse_export_statement(doc_comment)?
         } else {
+            orphaned_doc = orphaned_doc.or(doc_comment);
             self.parse_statement()?
         };
 
         // Capture trailing comment (on same line after statement)
         stmt.trailing_comment = self.capture_trailing_comment();
 
-        // Attach leading comments to the statement
+        // Attach leading comments to the statement. An orphaned doc comment goes
+        // last because it was written after any line comments above it.
+        leading_comments.extend(orphaned_doc);
         stmt.leading_comments = leading_comments;
         Ok(stmt)
     }
@@ -688,7 +722,15 @@ impl Parser {
     /// - `صدّر { name1، name2 }` - Named exports
     /// - `صدّر { name1، name2 } من "module"` - Named re-exports
     /// - `صدّر * من "module"` - Wildcard re-export
-    pub(crate) fn parse_export_statement(&mut self) -> Result<Stmt, Diagnostic> {
+    ///
+    /// `doc_comment` is the doc comment `parse_declaration` already consumed
+    /// before it knew a `صدّر` followed; it belongs to the exported declaration
+    /// (issue #204). `ExportItems::Named`/`Wildcard`/`NamedReexport` have no
+    /// field to hold it, so a doc comment on those forms is still dropped.
+    pub(crate) fn parse_export_statement(
+        &mut self,
+        doc_comment: Option<String>,
+    ) -> Result<Stmt, Diagnostic> {
         let start = self.current_span();
         self.advance(); // consume 'export' (صدّر)
 
@@ -727,7 +769,7 @@ impl Parser {
             }
         } else {
             // صدّر دالة/صنف/ثابت... - Declaration export
-            let stmt = self.parse_declaration()?;
+            let stmt = self.parse_declaration_with_doc(doc_comment)?;
             ExportItems::Declaration(Box::new(stmt))
         };
 
