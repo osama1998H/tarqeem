@@ -27,14 +27,133 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 use std::{fs, str};
 
 use tempfile::TempDir;
 
 const TARQEEM: &str = env!("CARGO_BIN_EXE_tarqeem");
 
+/// The static runtime library every native binary links against, named as
+/// `codegen::linker::find_runtime` names it.
+const RUNTIME_LIB: &str = if cfg!(windows) { "trq.lib" } else { "libtrq.a" };
+
 fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+/// Guarantees `libtrq.a` exists before the first native case links against it.
+///
+/// `libtrq.a` is produced by the *separate* `tarqeem-runtime` crate under
+/// `runtime-rs/`, which a plain `cargo test` of this package never builds: the
+/// workspace root is itself a package, so the default member set is just
+/// `tarqeem`. The native leg therefore only ever passed on machines where some
+/// earlier `cargo build --workspace` had left the library behind — a fresh
+/// clone, and every CI job, got `undefined reference to 'trq_print_int'`
+/// instead.
+///
+/// So build it on demand, at most once, however many test threads arrive here.
+/// CI builds it explicitly (see `.github/workflows/ci.yml`), which makes this a
+/// no-op there; the fallback is what keeps `git clone && cargo test` honest.
+///
+/// This never degrades to skipping the native backend. The premise of this file
+/// is that all three backends run for every fixture, so a runtime that cannot be
+/// prepared has to be a loud failure rather than a silent hole in the matrix.
+fn ensure_runtime_library() {
+    static RUNTIME: OnceLock<Result<(), String>> = OnceLock::new();
+
+    // The Result is stored rather than unwrapped inside the closure: `OnceLock`
+    // does not poison, so a panicking initialiser would let every other test
+    // thread retry the same doomed build.
+    if let Err(message) = RUNTIME.get_or_init(build_runtime_library) {
+        panic!("{message}");
+    }
+}
+
+/// The two `find_runtime` priorities a `cargo test` run can count on:
+/// `TARQEEM_RUNTIME_PATH` (exported by `build.rs`, and stale often enough to
+/// need the existence check) and the workspace target directory, release first.
+///
+/// `TARQEEM_HOME` and `~/.tarqeem/lib` are deliberately *not* consulted. They
+/// hold whatever runtime was installed last, which need not match this
+/// checkout, and the fixtures scrub or repoint `TARQEEM_HOME` anyway.
+fn runtime_library_present() -> bool {
+    if std::env::var("TARQEEM_RUNTIME_PATH").is_ok_and(|path| Path::new(&path).exists()) {
+        return true;
+    }
+
+    ["release", "debug"].iter().any(|profile| {
+        project_root()
+            .join("target")
+            .join(profile)
+            .join(RUNTIME_LIB)
+            .exists()
+    })
+}
+
+/// Builds `tarqeem-runtime` into the profile this test binary was built with,
+/// so the artifact lands where `find_runtime` looks for it.
+fn build_runtime_library() -> Result<(), String> {
+    if runtime_library_present() {
+        return Ok(());
+    }
+
+    let profile = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
+    let expected = project_root()
+        .join("target")
+        .join(profile)
+        .join(RUNTIME_LIB);
+
+    eprintln!(
+        "مكتبة وقت التشغيل مفقودة، جارٍ بناؤها / runtime library missing, building it: {}",
+        expected.display()
+    );
+
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let mut command = Command::new(&cargo);
+    command
+        .args(["build", "-p", "tarqeem-runtime"])
+        .current_dir(project_root());
+    if !cfg!(debug_assertions) {
+        command.arg("--release");
+    }
+
+    match command.output() {
+        Err(error) => Err(runtime_failure(&format!("تعذّر تشغيل «{cargo}»: {error}"))),
+        Ok(output) if !output.status.success() => Err(runtime_failure(&format!(
+            "فشل بناء tarqeem-runtime (الحالة/status {:?})\n--- stdout ---\n{}\n--- stderr ---\n{}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        ))),
+        // A build that succeeds without producing the artifact means it went
+        // somewhere `find_runtime` will not look — `CARGO_TARGET_DIR` being the
+        // usual cause. Linking would fail next, with a far less obvious message.
+        Ok(_) if !expected.exists() => Err(runtime_failure(&format!(
+            "نجح البناء لكن {} غير موجودة / build succeeded but the artifact is missing (CARGO_TARGET_DIR؟)",
+            expected.display()
+        ))),
+        Ok(_) => Ok(()),
+    }
+}
+
+/// Wraps a runtime-preparation failure with the command to run by hand.
+fn runtime_failure(detail: &str) -> String {
+    format!(
+        "تعذّر تجهيز مكتبة وقت التشغيل {RUNTIME_LIB} اللازمة للربط الأصلي.\n\
+         Could not prepare the runtime library required to link native binaries.\n\
+         {detail}\n\
+         نفّذها يدوياً / run it by hand: cargo build -p tarqeem-runtime{}",
+        if cfg!(debug_assertions) {
+            ""
+        } else {
+            " --release"
+        }
+    )
 }
 
 /// Whether a fixture needs the standard library on the module search path.
@@ -157,6 +276,8 @@ fn execute(
         Backend::Interpreter => tarqeem(&["run", main_arg], cwd, stdlib),
         Backend::Jit => tarqeem(&["run", "--jit", main_arg], cwd, stdlib),
         Backend::Native => {
+            // The only backend that links, so the only one needing `libtrq.a`.
+            ensure_runtime_library();
             let exe = out_dir.join(format!("مخرج_{tag}"));
             let exe_arg = exe.to_str().expect("مسار غير صالح").to_string();
             let compiled = tarqeem(&["compile", main_arg, "-o", &exe_arg], cwd, stdlib);
