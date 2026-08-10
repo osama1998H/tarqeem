@@ -15,7 +15,9 @@ mod stmt_builder;
 mod type_helpers;
 
 use crate::error::codes::ERR_ENTRY_POINT_CONFLICT;
-use crate::parser::{Ast, ClassMember, ExportItems, Expr, Param, Stmt, StmtKind, TypeAnnotation};
+use crate::parser::{
+    Ast, ClassMember, ExportItems, Expr, ImportItems, Param, Stmt, StmtKind, TypeAnnotation,
+};
 
 use super::{
     BasicBlock, BlockId, Class, ClassId, Constant, FuncId, Function, Instruction, IrType, Module,
@@ -121,6 +123,12 @@ pub struct IrBuilder {
     /// Static field/property initializers that are not compile-time
     /// constants, keyed by their "Class::member" global name.
     pub(crate) pending_static_inits: Vec<(String, Expr)>,
+    /// Wildcard-import namespaces (`استورد * كـ رياض`). These name no value:
+    /// they only qualify the bare names the linker merged.
+    pub(crate) namespace_aliases: HashSet<String>,
+    /// Named-import aliases: alias -> the original name the declaration was
+    /// merged under (`استورد { ضاعف كـ اضعف }` records `اضعف` -> `ضاعف`).
+    pub(crate) import_aliases: HashMap<String, String>,
 }
 
 /// Unwraps `صدّر <declaration>` to the declaration it exports.
@@ -168,6 +176,8 @@ impl IrBuilder {
             static_methods: HashSet::new(),
             static_properties: HashSet::new(),
             pending_static_inits: Vec::new(),
+            namespace_aliases: HashSet::new(),
+            import_aliases: HashMap::new(),
         };
         builder.register_builtin_return_types();
         builder
@@ -247,6 +257,16 @@ impl IrBuilder {
         self.function_return_types
             .insert("اكتب_ملف".to_string(), IrType::Bool);
 
+        // جذر (sqrt) returns float. Unregistered, its call result carried the
+        // `Ptr(Void)` unknown sentinel, so `اطبع(جذر(١٦.٠))` natively emitted
+        // `trq_print(ptr %x)` on a double and dereferenced it — a segfault in
+        // every native binary using it, whether reached bare or through a
+        // wildcard namespace. The sibling math builtins listed beside `جذر` in
+        // codegen's `get_runtime_function_name` still lack return types and
+        // remain affected.
+        self.function_return_types
+            .insert("جذر".to_string(), IrType::Float);
+
         // اقرأ_سطر (read_line) returns string
         self.function_return_types
             .insert("اقرأ_سطر".to_string(), IrType::String);
@@ -258,6 +278,18 @@ impl IrBuilder {
     ///
     /// This is the main entry point for converting a parsed AST to IR.
     pub fn build(mut self, ast: &Ast) -> Result<Module> {
+        // Import-naming pre-pass, ahead of every name-collecting pass:
+        // `src/semantic/linker.rs` merges each imported declaration into this
+        // AST under its ORIGINAL bare name, and IR names are flat and
+        // unmangled. A wildcard namespace (`* كـ رياض`) and a named-import
+        // alias (`{ ضاعف كـ اضعف }`) are therefore compile-time naming only,
+        // and must resolve back to that bare name at every lookup.
+        for stmt in &ast.statements {
+            if let StmtKind::Import { items, .. } = &stmt.kind {
+                self.collect_import_names(items);
+            }
+        }
+
         // First pass: collect function signatures (needed for global variable type inference)
         for stmt in &ast.statements {
             if let StmtKind::FuncDecl {
@@ -459,6 +491,30 @@ impl IrBuilder {
         }
 
         Ok(self.module)
+    }
+
+    /// Record the compile-time-only names one `استورد` introduces.
+    fn collect_import_names(&mut self, items: &ImportItems) {
+        match items {
+            ImportItems::Wildcard(namespace) => {
+                self.namespace_aliases.insert(namespace.clone());
+            }
+            ImportItems::Named(names) => {
+                for item in names {
+                    match &item.alias {
+                        // A self-alias (`{ ضاعف كـ ضاعف }`) would map a name
+                        // onto itself; there is nothing to redirect.
+                        Some(alias) if *alias != item.name => {
+                            self.import_aliases.insert(alias.clone(), item.name.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            // A default import names the module's single default export
+            // directly — there is no second name to redirect it to.
+            ImportItems::Default(_) => {}
+        }
     }
 
     /// Collect class information for later use.
@@ -1201,6 +1257,89 @@ mod tests {
         assert!(
             build_ir(source).is_ok(),
             "a named export must not count as top-level executable code"
+        );
+    }
+
+    /// Does `func` call `name` directly (the shape the linker's flat, unmangled
+    /// names require of every resolved import reference)?
+    fn calls_function(module: &Module, func: &str, name: &str) -> bool {
+        module
+            .functions
+            .iter()
+            .filter(|f| f.name == func)
+            .flat_map(|f| &f.blocks)
+            .flat_map(|b| &b.instructions)
+            .any(|inst| matches!(inst, Instruction::Call { func, .. } if func.0 == name))
+    }
+
+    #[test]
+    fn test_wildcard_namespace_call_lowers_to_bare_function() {
+        // Models the post-link AST: the module's declaration is merged in
+        // under its bare name while main's `استورد` survives.
+        let source = r#"
+            استورد * كـ أدوات من "./مكتبة"
+            دالة جمع(أ: عدد، ب: عدد) -> عدد {
+                أرجع أ + ب
+            }
+            دالة رئيسية() {
+                اطبع(أدوات.جمع(2، 3))
+            }
+        "#;
+        let module = build_ir(source).expect("namespaced call must build");
+        assert!(
+            calls_function(&module, "__main__", "جمع"),
+            "أدوات.جمع must lower to a direct call to جمع"
+        );
+    }
+
+    #[test]
+    fn test_named_import_alias_resolves_to_original_name() {
+        let source = r#"
+            استورد { ضاعف كـ اضعف } من "./مكتبة"
+            دالة ضاعف(س: عدد) -> عدد {
+                أرجع س * 2
+            }
+            دالة رئيسية() {
+                اطبع(اضعف(5))
+            }
+        "#;
+        let module = build_ir(source).expect("aliased import must build");
+        assert!(
+            calls_function(&module, "__main__", "ضاعف"),
+            "the alias اضعف must call the merged declaration ضاعف"
+        );
+    }
+
+    #[test]
+    fn test_local_binding_shadows_import_alias() {
+        // An alias is module-scope naming; a local of the same name wins, as
+        // it does over any other module-level binding.
+        let source = r#"
+            استورد { ضاعف كـ اضعف } من "./مكتبة"
+            دالة ضاعف(س: عدد) -> عدد {
+                أرجع س * 2
+            }
+            دالة رئيسية() {
+                متغير اضعف = 7
+                اطبع(اضعف)
+            }
+        "#;
+        let module = build_ir(source).expect("shadowed alias must build");
+        let main = module
+            .functions
+            .iter()
+            .find(|f| f.name == "__main__")
+            .expect("__main__ must exist");
+        assert!(
+            main.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .any(|inst| matches!(inst, Instruction::Alloca { .. })),
+            "the local اضعف must still be allocated"
+        );
+        assert!(
+            !calls_function(&module, "__main__", "ضاعف"),
+            "a local must shadow the import alias, not resolve through it"
         );
     }
 

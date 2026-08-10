@@ -189,7 +189,12 @@ fn disposition(stmt: &Stmt) -> Disposition<'_> {
     }
 }
 
-fn unwrap_exported_decl(stmt: &Stmt) -> &Stmt {
+/// See through a `صدّر` to the declaration it wraps.
+///
+/// Shared with the analyzer's module passes so that "what counts as a
+/// declaration" cannot drift between the types registered for checking and the
+/// statements merged for IR.
+pub(super) fn unwrap_exported_decl(stmt: &Stmt) -> &Stmt {
     match &stmt.kind {
         StmtKind::Export(ExportItems::Declaration(inner)) => inner,
         _ => stmt,

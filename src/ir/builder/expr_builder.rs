@@ -114,8 +114,55 @@ impl IrBuilder {
         Ok(dest)
     }
 
+    /// Is `expr` a bare identifier naming a wildcard-import namespace
+    /// (`استورد * كـ رياض`)? A local, global or function of the same name
+    /// shadows it, mirroring the precedence `class_name_receiver` already
+    /// applies to `ClassName.member`.
+    fn is_namespace_receiver(&self, expr: &Expr) -> bool {
+        let ExprKind::Identifier(name) = &expr.kind else {
+            return false;
+        };
+        self.lookup_var(name).is_none()
+            && !self.global_variables.contains(name)
+            && !self.function_names.contains(name)
+            && self.namespace_aliases.contains(name)
+    }
+
+    /// Rewrites a reference that names an import binding to the bare name the
+    /// linker merged the declaration under: a wildcard-namespace member
+    /// (`رياض.جذر` → `جذر`) or a named-import alias (`اضعف` → `ضاعف`).
+    /// `None` means `expr` is not such a reference and must be built as
+    /// written.
+    ///
+    /// Resolution is a single hop, deliberately never chased transitively:
+    /// two files that alias each other's names (`{ أ كـ ب }` in one and
+    /// `{ ب كـ أ }` in the other) would otherwise loop the builder forever.
+    fn resolve_import_ref(&self, expr: &Expr) -> Option<Expr> {
+        let resolved = match &expr.kind {
+            ExprKind::Member { object, property } if self.is_namespace_receiver(object) => {
+                property.clone()
+            }
+            ExprKind::Identifier(name) if self.lookup_var(name).is_none() => {
+                self.import_aliases.get(name).cloned()?
+            }
+            _ => return None,
+        };
+        Some(Expr::new(ExprKind::Identifier(resolved), expr.span))
+    }
+
     /// Build IR for an identifier reference.
     pub(crate) fn build_identifier(&mut self, name: &str) -> Result<VarId> {
+        // An aliased named import declares nothing of its own: `استورد
+        // { ضاعف كـ اضعف }` leaves the body merged under `ضاعف`, so the alias
+        // has to reach it. A local binding of the same name still shadows the
+        // import, matching the semantic analyzer's scoping.
+        let alias_target = if self.lookup_var(name).is_none() {
+            self.import_aliases.get(name).cloned()
+        } else {
+            None
+        };
+        let name = alias_target.as_deref().unwrap_or(name);
+
         if let Some(var_id) = self.lookup_var(name) {
             if self.parameters.contains(&var_id.0) {
                 return Ok(var_id);
@@ -457,6 +504,15 @@ impl IrBuilder {
             return self.build_super_constructor_call(args);
         }
 
+        // Import naming is resolved before any dispatch decision, so
+        // `رياض.جذر(...)` becomes a plain call to `جذر` rather than a method
+        // dispatch, and an alias calls the original name — the linker merged
+        // every imported declaration under its bare, unmangled name. This
+        // deliberately runs before the `ClassName.member` static-call case,
+        // so a namespace wins over a class of the same name.
+        let resolved_callee = self.resolve_import_ref(callee);
+        let callee = resolved_callee.as_ref().unwrap_or(callee);
+
         // Callee parameter types, resolved *before* the arguments are
         // built, so a lambda literal passed as an argument picks up its
         // param types from the callee's signature — the same contextual
@@ -768,6 +824,13 @@ impl IrBuilder {
 
     /// Build IR for a member access.
     pub(crate) fn build_member(&mut self, object: &Expr, property: &str) -> Result<VarId> {
+        // A wildcard namespace holds no value to read a field out of:
+        // `رياض.ط` is the bare `ط` the linker merged (or, for stdlib, the
+        // builtin already registered under that bare name).
+        if self.is_namespace_receiver(object) {
+            return self.build_identifier(property);
+        }
+
         if let Some(class) = self.class_name_receiver(object) {
             if let Some((key, ty)) = self.resolve_static_field(&class, property) {
                 let dest = self.new_var();
@@ -894,6 +957,12 @@ impl IrBuilder {
 
     /// Build IR for an assignment expression.
     pub(crate) fn build_assignment(&mut self, target: &Expr, value: &Expr) -> Result<VarId> {
+        // Writing through an import binding (`أدوات.عداد = ٥`, or an aliased
+        // `اضعف = ...`) targets the merged declaration's bare name, exactly
+        // as reading through one does.
+        let resolved_target = self.resolve_import_ref(target);
+        let target = resolved_target.as_ref().unwrap_or(target);
+
         // Assigning a bare lambda to an already-annotated function-typed
         // slot must thread that slot's signature in as a hint, exactly as a
         // declaration does — otherwise the lambda lifts with untyped params
@@ -1038,6 +1107,11 @@ impl IrBuilder {
         op: AstBinaryOp,
         value: &Expr,
     ) -> Result<VarId> {
+        // See `build_assignment`: an import binding on the left of `+=` names
+        // the merged declaration, not a member of a namespace object.
+        let resolved_target = self.resolve_import_ref(target);
+        let target = resolved_target.as_ref().unwrap_or(target);
+
         let current = self.build_expr(target)?;
         let increment = self.build_expr(value)?;
 

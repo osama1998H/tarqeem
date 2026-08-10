@@ -31,6 +31,11 @@ pub enum Type {
 
     Optional(Box<Type>),
 
+    /// A namespace bound by `استورد * كـ اسم`, carrying the specifier written
+    /// in the `من` clause. The specifier — not the alias — is the key, because
+    /// that is what identifies the module whose exports the alias stands for.
+    Module(String),
+
     Any,
 
     Never,
@@ -254,6 +259,7 @@ impl Type {
             Type::Enum(name) => name.clone(),
             Type::Generic(name) => name.clone(),
             Type::Optional(inner) => format!("{}?", inner.arabic_name()),
+            Type::Module(specifier) => format!("وحدة '{}'", specifier),
             Type::Any => "أي".to_string(),
             Type::Never => "أبداً".to_string(),
             Type::Unknown => "مجهول".to_string(),
@@ -285,6 +291,7 @@ impl fmt::Display for Type {
             Type::Enum(name) => write!(f, "{}", name),
             Type::Generic(name) => write!(f, "{}", name),
             Type::Optional(inner) => write!(f, "{}?", inner),
+            Type::Module(specifier) => write!(f, "module {}", specifier),
             Type::Any => write!(f, "any"),
             Type::Never => write!(f, "never"),
             Type::Unknown => write!(f, "unknown"),

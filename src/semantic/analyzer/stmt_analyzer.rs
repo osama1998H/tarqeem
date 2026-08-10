@@ -13,6 +13,7 @@ use crate::error::codes::{
 };
 use crate::error::Span;
 use crate::parser::*;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 impl Analyzer {
@@ -1040,10 +1041,21 @@ impl Analyzer {
                 }
             }
             ImportItems::Wildcard(alias) => {
+                let members: HashMap<String, Type> = module_exports
+                    .iter()
+                    .map(|(name, exported)| {
+                        (name.clone(), self.export_kind_to_type(&exported.kind, name))
+                    })
+                    .collect();
+                self.module_namespaces.insert(from.to_string(), members);
+
                 self.scope.define(Symbol {
                     name: alias.clone(),
                     kind: SymbolKind::Import,
-                    ty: Type::Any,
+                    // Typing the alias `أي` made `أدوات.غير_موجود` type-check
+                    // silently; `Type::Module` routes member access through the
+                    // exports recorded above instead.
+                    ty: Type::Module(from.to_string()),
                     mutable: false,
                     defined: true,
                     used: false,
@@ -1082,6 +1094,11 @@ impl Analyzer {
     }
 
     /// Register imports as Any type when module is not found.
+    ///
+    /// The wildcard arm deliberately stays `أي` instead of `Type::Module`: with
+    /// no exports to check against, every member access through the alias would
+    /// become an error. Most of `stdlib_trq/` does not parse yet, so tightening
+    /// this would turn silent degradation into a wall of diagnostics.
     fn register_imports_as_any(&mut self, items: &ImportItems, span: Span) {
         match items {
             ImportItems::Named(imports) => {
@@ -1191,12 +1208,13 @@ impl Analyzer {
                 }
             }
             ImportItems::Wildcard(alias) => {
-                // For wildcard imports, register all exports from the stdlib module
-                // We define the alias as a namespace-like symbol
                 self.scope.define(Symbol {
                     name: alias.clone(),
                     kind: SymbolKind::Import,
-                    ty: Type::Any, // Namespace type would be better, but Any works for now
+                    // No `module_namespaces` entry: a stdlib module has no AST
+                    // to enumerate, so `resolve_member_type` asks
+                    // `Scope::get_stdlib_builtin` for each member by name.
+                    ty: Type::Module(module.to_string()),
                     mutable: false,
                     defined: true,
                     used: false,

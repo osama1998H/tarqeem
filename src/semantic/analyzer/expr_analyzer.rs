@@ -4,13 +4,14 @@
 
 use super::super::generics::GenericParam;
 use super::super::method_resolver::{MemberResolution, MethodResolver};
-use super::super::scope::{ScopeKind, Symbol, SymbolKind};
+use super::super::scope::{Scope, ScopeKind, Symbol, SymbolKind};
 use super::super::types::Type;
 use super::Analyzer;
 use crate::error::codes::{
-    ERR_CONST_ASSIGNMENT, ERR_LAMBDA_CAPTURE, ERR_NONSTATIC_VIA_CLASS, ERR_PRIVATE_ACCESS,
-    ERR_PROPERTY_NOT_FOUND, ERR_PROTECTED_ACCESS, ERR_STATIC_VIA_INSTANCE, ERR_SUPER_OUTSIDE_CLASS,
-    ERR_THIS_OUTSIDE_CLASS, ERR_TYPE_MISMATCH, ERR_UNDEFINED_CLASS, ERR_UNDEFINED_VARIABLE,
+    ERR_CONST_ASSIGNMENT, ERR_LAMBDA_CAPTURE, ERR_NONSTATIC_VIA_CLASS, ERR_NOT_EXPORTED,
+    ERR_PRIVATE_ACCESS, ERR_PROPERTY_NOT_FOUND, ERR_PROTECTED_ACCESS, ERR_STATIC_VIA_INSTANCE,
+    ERR_SUPER_OUTSIDE_CLASS, ERR_THIS_OUTSIDE_CLASS, ERR_TYPE_MISMATCH, ERR_UNDEFINED_CLASS,
+    ERR_UNDEFINED_VARIABLE,
 };
 use crate::error::Span;
 use crate::parser::*;
@@ -826,6 +827,10 @@ impl Analyzer {
         span: Span,
         receiver_is_class: bool,
     ) -> Type {
+        if let Type::Module(specifier) = object_type {
+            return self.resolve_module_member(specifier, property, span);
+        }
+
         let mut method_resolver = MethodResolver::new(&self.class_resolver);
 
         match method_resolver.resolve_member(object_type, property) {
@@ -875,6 +880,37 @@ impl Analyzer {
                     }
                 }
                 Type::Any
+            }
+        }
+    }
+
+    /// Resolve `اسم.عضو` where `اسم` is an alias bound by `استورد * كـ`.
+    ///
+    /// A miss is an error rather than `أي`: the alias stands for a fixed set of
+    /// exports, so a name outside them can never resolve at run time — catching
+    /// that is the whole point of typing the alias as a module.
+    fn resolve_module_member(&mut self, specifier: &str, property: &str, span: Span) -> Type {
+        let member = self
+            .module_namespaces
+            .get(specifier)
+            .and_then(|members| members.get(property).cloned())
+            // A stdlib specifier never reaches `module_namespaces`; its members
+            // live in the builtin table and are looked up one at a time.
+            .or_else(|| Scope::get_stdlib_builtin(specifier, property).map(|symbol| symbol.ty));
+
+        match member {
+            Some(ty) => ty,
+            None => {
+                self.error_with_code(
+                    &format!(
+                        "الوحدة '{}' لا تحتوي على تصدير باسم '{}' / \
+                         Module '{}' has no export named '{}'",
+                        specifier, property, specifier, property
+                    ),
+                    span,
+                    &ERR_NOT_EXPORTED.to_string(),
+                );
+                Type::Error
             }
         }
     }

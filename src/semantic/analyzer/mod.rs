@@ -14,7 +14,7 @@ mod stmt_analyzer;
 
 use super::class_resolver::ClassResolver;
 use super::generics::{GenericContext, GenericParam, GenericResolver};
-use super::linker::link_program;
+use super::linker::{link_program, unwrap_exported_decl};
 use super::modules::ModuleLoader;
 use super::scope::{Scope, ScopeKind, SymbolKind};
 use super::types::{parse_type_name, Type};
@@ -56,6 +56,11 @@ pub struct Analyzer {
     pub(crate) expected_type: Option<Type>,
     /// Registry of enum types with their variants.
     pub(crate) enums: HashMap<String, EnumInfo>,
+    /// Exports of each module bound by a wildcard import (`استورد * كـ`),
+    /// keyed by the specifier `Type::Module` carries. Stdlib modules are
+    /// absent: their members have no AST to enumerate and are looked up on
+    /// demand through `Scope::get_stdlib_builtin`.
+    pub(crate) module_namespaces: HashMap<String, HashMap<String, Type>>,
 }
 
 impl Analyzer {
@@ -73,6 +78,7 @@ impl Analyzer {
             current_class: None,
             expected_type: None,
             enums: HashMap::new(),
+            module_namespaces: HashMap::new(),
         }
     }
 
@@ -136,7 +142,16 @@ impl Analyzer {
 
     /// Analyze an AST and return any errors.
     pub fn analyze(&mut self, ast: &Ast) -> Result<(), Vec<Diagnostic>> {
+        // Modules are loaded here rather than where `analyze_import` first
+        // needs them, because that runs in the third pass — after
+        // `build_vtables` below — so an imported class could never join the
+        // hierarchy in time (issue #182). Rebuilding vtables afterwards is not
+        // an option: `validate` drains its own diagnostics, so a second run
+        // would report every main-file class error twice.
+        let module_spans = self.preload_imported_modules(ast);
+
         // First pass: register all types (classes and interfaces)
+        self.register_module_types(&module_spans);
         for stmt in &ast.statements {
             self.register_types(stmt);
         }
@@ -154,6 +169,7 @@ impl Analyzer {
         }
 
         // Second pass: add members to types
+        self.add_module_type_members();
         for stmt in &ast.statements {
             self.add_type_members(stmt);
         }
@@ -207,6 +223,152 @@ impl Analyzer {
             }
             _ => {}
         }
+    }
+
+    /// Load every module `ast` imports, and map each one to the `استورد` span
+    /// that pulled it in.
+    ///
+    /// Only top-level imports are walked, matching `link_program`: an import
+    /// nested inside a block still resolves its own symbols in the third pass,
+    /// but contributes no types to the hierarchy.
+    fn preload_imported_modules(&mut self, ast: &Ast) -> HashMap<PathBuf, Span> {
+        // The same fallback `analyze_import` uses. The two must resolve a
+        // specifier to the same file, or the third pass would load and cache a
+        // second copy of the module under a different path.
+        let current_file = self
+            .current_file
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let imports: Vec<(String, Span)> = ast
+            .statements
+            .iter()
+            .filter_map(|stmt| match &stmt.kind {
+                StmtKind::Import { from, .. } => Some((from.clone(), stmt.span)),
+                _ => None,
+            })
+            .collect();
+
+        let mut spans = HashMap::new();
+
+        for (from, span) in imports {
+            // Stdlib names resolve against a builtin table and are never read
+            // from disk; see `ModuleLoader::load_imported_modules`.
+            if Scope::get_stdlib_modules().contains(&from.as_str()) {
+                continue;
+            }
+
+            let Some(path) = self.module_loader.resolve_path(&current_file, &from) else {
+                continue;
+            };
+
+            if self.module_loader.load_module(&path, span).is_ok() {
+                spans.entry(path).or_insert(span);
+            }
+        }
+
+        // `analyze_import` resolves and loads every specifier again in the
+        // third pass, and is the one place that reports a load failure to the
+        // user. A module that failed here is absent from the cache, so that
+        // retry reproduces the diagnostic — keeping this copy as well would
+        // report each broken module twice.
+        let _ = self.module_loader.take_diagnostics();
+
+        spans
+    }
+
+    /// Register the classes and interfaces declared by every loaded module, so
+    /// that the first pass covers the whole program's hierarchy and not just
+    /// main's.
+    ///
+    /// Diagnostics about these types are anchored to main's `استورد`, never to
+    /// a span inside the module: `Span` carries no file identity and
+    /// `Diagnostic::emit` renders every span against the main file's source
+    /// (the rule `link_program` documents).
+    fn register_module_types(&mut self, module_spans: &HashMap<PathBuf, Span>) {
+        let main_path = self.main_module_path();
+
+        for module in self.module_loader.modules_in_load_order() {
+            if main_path.as_deref() == Some(module.path.as_path()) {
+                continue;
+            }
+
+            // A transitively loaded module has no `استورد` of its own in main.
+            let span = module_spans
+                .get(&module.path)
+                .copied()
+                .unwrap_or_else(Span::default);
+
+            for stmt in &module.ast.statements {
+                match &unwrap_exported_decl(stmt).kind {
+                    StmtKind::ClassDecl {
+                        name,
+                        type_params,
+                        extends,
+                        implements,
+                        ..
+                    } => {
+                        self.class_resolver.register_class(
+                            name,
+                            type_params,
+                            extends.as_deref(),
+                            implements,
+                            span,
+                        );
+                    }
+                    StmtKind::InterfaceDecl { name, .. } => {
+                        self.class_resolver.register_interface(name, &[], span);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Second-pass counterpart of `register_module_types`. Split for the same
+    /// reason main's two passes are: a module class may inherit from one
+    /// declared in main, so every name must be registered before any member is
+    /// resolved.
+    fn add_module_type_members(&mut self) {
+        let main_path = self.main_module_path();
+
+        for module in self.module_loader.modules_in_load_order() {
+            if main_path.as_deref() == Some(module.path.as_path()) {
+                continue;
+            }
+
+            for stmt in &module.ast.statements {
+                match &unwrap_exported_decl(stmt).kind {
+                    StmtKind::ClassDecl { name, members, .. } => {
+                        self.class_resolver.add_class_members(
+                            name,
+                            members,
+                            resolve_type_annotation,
+                        );
+                    }
+                    StmtKind::InterfaceDecl { name, methods, .. } => {
+                        self.class_resolver.add_interface_methods(
+                            name,
+                            methods,
+                            resolve_type_annotation,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Main's own canonical path, when it has one.
+    ///
+    /// A module that imports the main file back puts main into the module
+    /// cache. Its declarations must not be registered from there as well, or
+    /// every main class would be built twice — `link_program` skips the same
+    /// entry for the same reason.
+    fn main_module_path(&self) -> Option<PathBuf> {
+        self.current_file
+            .as_ref()
+            .and_then(|path| path.canonicalize().ok())
     }
 
     /// Add members to registered types in the second pass.
@@ -734,7 +896,9 @@ pub fn resolve_type_annotation(type_ann: &TypeAnnotation) -> Type {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::codes::ERR_NOT_EXPORTED;
     use crate::parser::Parser;
+    use tempfile::TempDir;
 
     fn wrap_with_markers(source: &str) -> String {
         format!("بسم_الله\n{}\nالحمد_لله", source.trim())
@@ -1450,5 +1614,187 @@ mod tests {
         "#,
         );
         assert!(result.is_ok());
+    }
+
+    /// Analyze `main` as a file on disk alongside `modules`, so that a relative
+    /// `استورد` resolves the way it does for a real program.
+    ///
+    /// The `TempDir` travels back in the tuple because dropping it deletes the
+    /// fixtures; a caller that discards it would race its own analysis.
+    fn analyze_project(
+        modules: &[(&str, &str)],
+        main: &str,
+    ) -> (Analyzer, Result<(), Vec<Diagnostic>>, TempDir) {
+        let dir = TempDir::new().unwrap();
+
+        for (name, body) in modules {
+            std::fs::write(dir.path().join(name), wrap_with_markers(body)).unwrap();
+        }
+
+        let source = wrap_with_markers(main);
+        let main_path = dir.path().join("رئيسي.ترقيم");
+        std::fs::write(&main_path, &source).unwrap();
+
+        let ast = Parser::new(&source).parse().expect("main must parse");
+        let mut analyzer = Analyzer::for_file(main_path);
+        let result = analyzer.analyze(&ast);
+
+        (analyzer, result, dir)
+    }
+
+    // Issue #182: an imported class used to be missing from the hierarchy
+    // entirely, because modules were loaded in the third pass — long after
+    // `register_types`.
+    #[test]
+    fn test_imported_class_is_registered() {
+        let (analyzer, result, _dir) = analyze_project(
+            &[(
+                "نقاط.ترقيم",
+                "صدّر صنف نقطة {\n عام س: عدد\n منشئ(س: عدد) { هذا.س = س }\n}",
+            )],
+            "استورد { نقطة } من \"./نقاط\"\nمتغير ن = جديد نقطة(7)\nاطبع(ن.س)",
+        );
+
+        assert!(result.is_ok(), "expected no errors, got {:?}", result);
+        assert!(analyzer.class_resolver().get_class("نقطة").is_some());
+    }
+
+    // The registration must land before `build_vtables`, not merely before the
+    // statement that uses the class: an override only shares its parent's slot
+    // if both classes were present when the vtables were built.
+    #[test]
+    fn test_imported_class_hierarchy_reaches_the_vtable() {
+        let (analyzer, result, _dir) = analyze_project(
+            &[(
+                "أشكال.ترقيم",
+                "صدّر صنف شكل {\n عام دالة اسم() -> نص { أرجع \"شكل\" }\n}\n\
+                 صدّر صنف دائرة يرث شكل {\n عام دالة اسم() -> نص { أرجع \"دائرة\" }\n}",
+            )],
+            "استورد { دائرة } من \"./أشكال\"\nمتغير د = جديد دائرة()\nاطبع(د.اسم())",
+        );
+
+        assert!(result.is_ok(), "expected no errors, got {:?}", result);
+
+        let resolver = analyzer.class_resolver();
+        let parent = resolver.get_class("شكل").expect("شكل must be registered");
+        let child = resolver
+            .get_class("دائرة")
+            .expect("دائرة must be registered");
+
+        assert_eq!(child.vtable, vec!["اسم".to_string()]);
+        assert_eq!(
+            child.methods["اسم"].vtable_index, parent.methods["اسم"].vtable_index,
+            "the override must occupy the inherited slot"
+        );
+    }
+
+    // Preloading loads each module once, then `analyze_import` loads it again
+    // in the third pass. A module that fails is absent from the cache, so the
+    // second attempt repeats the failure — only one copy may reach the user.
+    #[test]
+    fn test_failing_module_is_reported_once() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[("معطوب.ترقيم", "صدّر دالة ناقصة( {")],
+            "استورد { ناقصة } من \"./معطوب\"\nاطبع(1)",
+        );
+
+        let diagnostics = result.expect_err("a module that does not parse must fail analysis");
+        let about_module = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("معطوب"))
+            .count();
+
+        assert_eq!(
+            about_module, 1,
+            "one diagnostic per broken module, got {:?}",
+            diagnostics
+        );
+    }
+
+    // Deliberate degradation, not an oversight: an unresolved module exposes no
+    // exports, so typing the alias as a module would turn every access through
+    // it into an error.
+    #[test]
+    fn test_wildcard_of_missing_module_stays_any() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[],
+            "استورد * كـ أدوات من \"./لا_يوجد\"\nاطبع(أدوات.أي_شيء())",
+        );
+
+        assert!(
+            result.is_ok(),
+            "access through an unresolved module must not error: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_wildcard_alias_uses_the_real_export_signature() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[(
+                "أدوات.ترقيم",
+                "صدّر دالة جمع(أ: عدد، ب: عدد) -> عدد { أرجع أ + ب }",
+            )],
+            "استورد * كـ أدوات من \"./أدوات\"\nمتغير س: عدد = أدوات.جمع(2، 3)",
+        );
+
+        assert!(result.is_ok(), "expected no errors, got {:?}", result);
+    }
+
+    // The point of `Type::Module` over `أي`: the signature is enforced, not
+    // waved through.
+    #[test]
+    fn test_wildcard_alias_checks_export_arity() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[(
+                "أدوات.ترقيم",
+                "صدّر دالة جمع(أ: عدد، ب: عدد) -> عدد { أرجع أ + ب }",
+            )],
+            "استورد * كـ أدوات من \"./أدوات\"\nمتغير س: عدد = أدوات.جمع(2)",
+        );
+
+        assert!(result.is_err(), "a wrong argument count must be rejected");
+    }
+
+    #[test]
+    fn test_wildcard_alias_rejects_unknown_export() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[("أدوات.ترقيم", "صدّر دالة جمع(أ: عدد) -> عدد { أرجع أ }")],
+            "استورد * كـ أدوات من \"./أدوات\"\nمتغير س = أدوات.غير_موجود",
+        );
+
+        let diagnostics = result.expect_err("an export that does not exist must be reported");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.code.as_deref() == Some(ERR_NOT_EXPORTED.to_string().as_str())),
+            "expected و٠٠٠٢, got {:?}",
+            diagnostics
+        );
+    }
+
+    // Stdlib modules keep no AST, so their members resolve one at a time
+    // through the builtin table instead of a recorded export map.
+    #[test]
+    fn test_stdlib_wildcard_alias_resolves_builtin() {
+        let result =
+            analyze("استورد * كـ رياضيات من \"رياضيات\"\nمتغير ج: عدد_عشري = رياضيات.جذر(16.0)");
+
+        assert!(result.is_ok(), "expected no errors, got {:?}", result);
+    }
+
+    #[test]
+    fn test_stdlib_wildcard_alias_rejects_unknown_builtin() {
+        let result =
+            analyze("استورد * كـ رياضيات من \"رياضيات\"\nمتغير ج = رياضيات.لا_وجود_لها(1.0)");
+
+        let diagnostics = result.expect_err("an unknown stdlib member must be reported");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.code.as_deref() == Some(ERR_NOT_EXPORTED.to_string().as_str())),
+            "expected و٠٠٠٢, got {:?}",
+            diagnostics
+        );
     }
 }

@@ -654,6 +654,27 @@ fn check_command(file: PathBuf, verbose: bool, lang: Language) -> Result<(), Str
         diag.emit(&source, &filename, lang);
     }
 
+    // A top-level name collision between two merged modules is only detected
+    // by the link step, so without running it `check` reported success on a
+    // program that both `run` and `compile` reject (issue #182). The merged
+    // AST itself is not needed here — `check` builds no IR.
+    let mut link_warnings = Vec::new();
+    analyzer
+        .linked_ast(&ast, &mut link_warnings)
+        .map_err(|diagnostics| {
+            for diag in &diagnostics {
+                diag.emit(&source, &filename, lang);
+            }
+            format!(
+                "{} error(s) found / وُجد {} خطأ/أخطاء",
+                diagnostics.len(),
+                diagnostics.len()
+            )
+        })?;
+    for diag in &link_warnings {
+        diag.emit(&source, &filename, lang);
+    }
+
     println!(
         "{}",
         "No errors found! / لم يتم العثور على أخطاء!".green().bold()
