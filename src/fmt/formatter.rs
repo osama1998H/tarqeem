@@ -77,8 +77,11 @@ impl Formatter {
     /// the formatter's output would no longer parse.
     fn format_leading_trivia(&self, stmt: &Stmt, p: &mut Printer) {
         for comment in &stmt.leading_comments {
-            p.write("//");
-            p.write(comment);
+            // Routed through write_comment_lines rather than a bare `//` +
+            // text: a doc comment the parser could not attach is demoted to a
+            // leading comment (decl_parser.rs), and a multi-line `/** */` would
+            // otherwise leave its continuation lines as bare code.
+            self.write_comment_lines(comment, p);
             p.newline();
         }
 
@@ -429,15 +432,16 @@ impl Formatter {
             StmtKind::Export(export_items) => {
                 use crate::parser::ExportItems;
 
-                // The doc comment belongs to the exported declaration but was
-                // written above `صدّر`, and must be emitted there: letting the
-                // inner declaration print it would place `/// ...` after `صدّر`
-                // on the same line, commenting out the declaration itself. The
-                // inner statement's `leading_comments` are always empty here —
-                // `parse_declaration` attaches those to the outer `صدّر`
-                // statement (decl_parser.rs) — so only the doc needs hoisting.
+                // The exported declaration's comments belong above `صدّر`, and
+                // must be emitted here: the inner declaration is rendered
+                // mid-line, where a `//` or `///` would comment out the
+                // declaration itself. `leading_comments` are hoisted too, not
+                // just the doc — the recursive `parse_declaration_with_doc`
+                // runs its own `collect_line_comments()` after `صدّر` is
+                // consumed, so `صدّر // تعليق` ⏎ `دالة س()` does put a comment
+                // on the inner statement, and skipping it deleted the text.
                 if let ExportItems::Declaration(inner) = export_items {
-                    self.format_doc_comment_for_stmt(&inner.kind, p);
+                    self.format_leading_trivia(inner, p);
                 }
 
                 p.write("صدّر");
@@ -1273,50 +1277,38 @@ impl Formatter {
         }
     }
 
-    /// Writes `text` as `//` comment lines, re-prefixing every continuation line.
-    /// A multi-line `/** */` (scan_block_doc_comment, lexer.rs:458-471) joins its
-    /// lines with embedded `\n`; a single `// ` prefix would leave continuation
-    /// lines as bare code that fails to re-parse. Emits no leading/trailing
-    /// newline — the caller owns those.
-    fn write_comment_lines(&self, text: &str, p: &mut Printer) {
-        let mut wrote_any = false;
-        for line in text.lines() {
-            if wrote_any {
-                p.newline();
-            }
-            let line = line.trim();
-            if line.is_empty() {
-                p.write("//");
-            } else {
-                p.write("// ");
-                p.write(line);
-            }
-            wrote_any = true;
-        }
-        if !wrote_any {
-            p.write("//"); // /** */ lexes to BlockDocComment("")
-        }
-    }
-
-    /// Writes `text` as `///` doc-comment lines, re-prefixing every line.
+    /// Writes `text` as comment lines prefixed with `marker`, re-prefixing every
+    /// line. A multi-line `/** */` (scan_block_doc_comment, lexer.rs) joins its
+    /// lines with embedded `\n`; prefixing only the first would leave the rest as
+    /// bare code that fails to re-parse. Emits no leading/trailing newline — the
+    /// caller owns those.
     ///
-    /// Deliberately a sibling of `write_comment_lines` rather than a shared
-    /// helper with a swappable marker, because the two differ in how much of
-    /// each line they may touch. Doc *content* must survive verbatim: the lexer
-    /// strips exactly one leading space per `///` line (lexer.rs:385-387), so
-    /// indentation inside a doc block is content, not layout. Trimming line
-    /// starts here — as the trailing-comment path does — would silently flatten
-    /// it, which is the same data loss this function exists to prevent.
-    /// `trim_end` alone round-trips exactly: the emitted `/// ` + line re-lexes
-    /// back to `line`. Emits no leading/trailing newline — the caller owns those.
-    fn write_doc_comment_lines(&self, text: &str, p: &mut Printer) {
+    /// `keep_line_indent` distinguishes the two comment kinds. Doc comments must
+    /// survive verbatim: the lexer strips exactly one leading space per `///`
+    /// line, so indentation *inside* a doc block is content, not layout, and
+    /// trimming line starts would silently flatten an indented example — the same
+    /// data loss this re-prefixing exists to prevent. Emitting `marker` + one
+    /// space + the line then round-trips exactly, since the re-lex strips that
+    /// one space back off. Trailing `//` comments have no such content to protect
+    /// and are fully trimmed so both comment kinds normalize to a single space.
+    fn write_comment_lines_with(
+        &self,
+        text: &str,
+        marker: &str,
+        keep_line_indent: bool,
+        p: &mut Printer,
+    ) {
         let mut wrote_any = false;
         for line in text.lines() {
             if wrote_any {
                 p.newline();
             }
-            let line = line.trim_end();
-            p.write("///");
+            let line = if keep_line_indent {
+                line.trim_end()
+            } else {
+                line.trim()
+            };
+            p.write(marker);
             if !line.is_empty() {
                 p.write_char(' ');
                 p.write(line);
@@ -1324,8 +1316,12 @@ impl Formatter {
             wrote_any = true;
         }
         if !wrote_any {
-            p.write("///"); // /** */ lexes to BlockDocComment("")
+            p.write(marker); // /** */ lexes to BlockDocComment("")
         }
+    }
+
+    fn write_comment_lines(&self, text: &str, p: &mut Printer) {
+        self.write_comment_lines_with(text, "//", false, p);
     }
 
     /// Emits a declaration's doc comment as `///` lines, one per line of `doc`,
@@ -1334,7 +1330,7 @@ impl Formatter {
     /// The `///` marker is not decoration: without it the doc text is emitted as
     /// bare words and the formatter's own output no longer parses (issue #201).
     fn format_doc_comment(&self, doc: &str, p: &mut Printer) {
-        self.write_doc_comment_lines(doc, p);
+        self.write_comment_lines_with(doc, "///", true, p);
         p.newline();
     }
 
@@ -1849,6 +1845,96 @@ mod tests {
             .parse()
             .expect("re-parse must succeed");
         assert_eq!(once, format_raw(&once));
+    }
+
+    // Regression tests for the code-review findings on the #201 fix. Each was
+    // verified against a merge-base build of 832cb64 before being fixed, so each
+    // pins a behaviour that regressed rather than a hypothetical.
+
+    /// A `/** */` the parser cannot attach (no `doc_comment` field on the
+    /// statement) must survive as a comment. Accepting `BlockDocComment` without
+    /// this made `fmt -w` erase the text: it parsed, so the re-parse guard could
+    /// not catch it.
+    #[test]
+    fn test_format_block_doc_comment_before_expression_statement_is_preserved() {
+        let once = format("/** ملاحظة مهمة */\nاطبع(\"س\")");
+        assert!(
+            once.contains("ملاحظة مهمة"),
+            "an unattachable doc comment must not be deleted: {once}"
+        );
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+        assert_eq!(once, format_raw(&once));
+    }
+
+    /// Demoting a multi-line `/** */` to a leading comment must re-prefix every
+    /// line, or the continuation lines land as bare code.
+    #[test]
+    fn test_format_demoted_multiline_block_doc_comment_prefixes_every_line() {
+        let once = format("/** سطر أول\nسطر ثان */\nاطبع(\"س\")");
+        assert!(once.contains("// سطر أول"), "got: {once}");
+        assert!(once.contains("// سطر ثان"), "got: {once}");
+        assert!(
+            !once.contains("\nسطر ثان"),
+            "continuation line must be prefixed: {once}"
+        );
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+        assert_eq!(once, format_raw(&once));
+    }
+
+    /// A `//` comment between `صدّر` and its declaration lands on the *inner*
+    /// statement, because the recursive `parse_declaration_with_doc` collects it
+    /// after `صدّر` is consumed. Routing the inline path past leading trivia
+    /// without hoisting it here deleted the text.
+    #[test]
+    fn test_format_comment_between_export_and_declaration_is_preserved() {
+        let once = format("صدّر // تعليق داخلي\nدالة س() {}");
+        assert!(
+            once.contains("تعليق داخلي"),
+            "comment between صدّر and its declaration must survive: {once}"
+        );
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+        assert_eq!(once, format_raw(&once));
+    }
+
+    /// A doc comment trailing `صدّر` on the same line must not be left
+    /// unconsumed — that turned previously-compiling source into a parse error.
+    #[test]
+    fn test_format_doc_comment_trailing_export_keyword_still_parses() {
+        let once = format("/// خارجي\nصدّر /// داخلي\nدالة س() {}");
+        assert!(once.contains("خارجي"), "outer doc must survive: {once}");
+        assert!(once.contains("داخلي"), "inner note must survive: {once}");
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+        assert_eq!(once, format_raw(&once));
+    }
+
+    /// The guard must name `brace_style` rather than reporting a bare internal
+    /// bug, and must not leak a `{:?}` Debug dump of the diagnostic.
+    #[test]
+    fn test_next_line_brace_style_error_names_the_option() {
+        let config = FormatConfig {
+            brace_style: crate::fmt::BraceStyle::NextLine,
+            ..FormatConfig::default()
+        };
+        let source = wrap_with_markers("دالة س() { أرجع 1 }");
+        let err = crate::fmt::format_source(&source, &config)
+            .expect_err("next_line braces produce unparseable output (issue #226)");
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("brace_style"),
+            "error must name the offending option: {rendered}"
+        );
+        assert!(
+            !rendered.contains("Diagnostic {"),
+            "error must not leak a Debug dump: {rendered}"
+        );
     }
 
     /// Corpus guard: `fmt` must never produce output it cannot read back, and

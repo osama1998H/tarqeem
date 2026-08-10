@@ -263,21 +263,36 @@ impl Parser {
     /// while the formatter still stripped markers would have turned that loud
     /// error into silent corruption.
     ///
-    /// Only the declaration branches that own a `doc_comment` field consume the
-    /// result, so a doc comment written before a non-declaration statement
-    /// (`إذا`, `طالما`, an expression) is still dropped — pre-existing behaviour
-    /// for `///`, now shared by `/** */`.
+    /// A `/** */` is only taken when it *starts its own line*. Documentation
+    /// describes what follows it, so a block comment trailing code on the same
+    /// line (`خاص اسم: نص /** ملاحظة */`) annotates that line, and taking it
+    /// here would silently re-attach it to the *next* member — `tarqeem doc`
+    /// would then publish the note under the wrong name, and `fmt -w` would
+    /// rewrite the file that way. Leaving it unconsumed preserves the loud
+    /// error it produced before #201. `///` deliberately keeps its old
+    /// behaviour: the lexer already refuses to merge a trailing `///` forward
+    /// (`is_line_start`, lexer.rs), and the parser's acceptance of it here
+    /// predates this change.
     pub(crate) fn consume_doc_comment(&mut self) -> Option<String> {
-        match &self.peek().kind {
-            TokenKind::DocComment(comment) | TokenKind::BlockDocComment(comment) => {
-                let comment = comment.clone();
-                self.advance();
-                // Skip any newlines after doc comment
-                self.skip_newlines();
-                Some(comment)
-            }
-            _ => None,
-        }
+        let comment = match &self.peek().kind {
+            TokenKind::DocComment(comment) => comment.clone(),
+            TokenKind::BlockDocComment(comment) if self.at_line_start() => comment.clone(),
+            _ => return None,
+        };
+        self.advance();
+        // Skip any newlines after doc comment
+        self.skip_newlines();
+        Some(comment)
+    }
+
+    /// True when nothing but a line break or an opening brace precedes the
+    /// current token, i.e. it is the first thing on its line.
+    fn at_line_start(&self) -> bool {
+        self.current == 0
+            || matches!(
+                self.previous().kind,
+                TokenKind::Newline | TokenKind::LeftBrace
+            )
     }
 
     /// Collect any line comments before a statement.

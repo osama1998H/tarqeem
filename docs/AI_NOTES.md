@@ -68,6 +68,46 @@ CI YAML edits (`cargo test fmt` matches `fmt::formatter::tests::*`), and asserts
 a floor of 33 parseable files so a parser regression cannot hide behind its skip
 branch.
 
+### Review round: accepting `/** */` traded a loud error for three silent ones
+A 24-agent review of the first cut found five regressions, all reproduced against
+a purpose-built merge-base binary rather than argued from the diff. The pattern
+worth remembering: **making the parser accept a token it used to reject moves the
+failure from "errors loudly" to "deletes or misplaces text", and the new
+re-parse guard cannot see any of it, because the corrupted output still parses.**
+
+- A `/** */` before a statement with no `doc_comment` field (an expression,
+  `استورد`) was consumed and dropped, so `fmt -w` erased it where the base
+  refused to format at all. Fixed by demoting an unattachable doc comment to
+  `leading_comments`; `format_leading_trivia` now routes those through
+  `write_comment_lines`, since a demoted multi-line `/** */` would otherwise
+  leave its continuation lines as bare code.
+- A `/** */` *trailing* code on the same line was re-attached to the **next**
+  class member / interface method / enum variant, so `tarqeem doc` published the
+  note under the wrong name. Fixed by only accepting a block doc comment that
+  starts its own line. `///` deliberately keeps its old behaviour: the same
+  misattribution pre-exists for it (verified on base), so changing it is a
+  separate concern, not this fix's business.
+- `inherited_doc.or_else(...)` short-circuited, leaving a doc comment after
+  `صدّر` unconsumed and turning `صدّر /// ملاحظة` into a hard parse error on
+  source that compiled before. Now the pending doc is always consumed and the
+  outer one wins, with the stray kept as a comment.
+- The `format_stmt` split deleted an exported declaration's `leading_comments` —
+  and disproved this change's own comment claiming they are "always empty here".
+  They are not: the recursive `parse_declaration_with_doc` runs its own
+  `collect_line_comments()` after `صدّر` is consumed. The Export arm now hoists
+  all leading trivia, not just the doc.
+- The guard made `brace_style = next_line` fail on every file while blaming a
+  generic "internal formatter bug". That output was always unparseable (the
+  parser rejects a newline before `{`), so the refusal is correct — filed as
+  #226 — but the message now names the option and renders the diagnostic through
+  `Display` with its error code instead of dumping `{:?}`.
+
+Same verification discipline as the first cut: reverting all five fixes fails
+exactly the eight new behavioural tests. Also folded in three cleanups — the two
+comment-line writers became one helper parameterized on marker and trim strength
+(the duplication was the same shape that produced #201), and `fmt --diff` no
+longer formats twice via a new `diff_of`, whose output is byte-identical to base.
+
 ### Known limitations, deliberately not fixed
 - Only the five doc-bearing declaration branches consume the doc comment, so a
   doc before `إذا`/`طالما`/an expression is consumed and dropped. Pre-existing

@@ -786,9 +786,7 @@ fn fmt_command(
                 println!("{}", format!("--- {} (original)", file.display()).red());
                 println!("{}", format!("+++ {} (formatted)", file.display()).green());
 
-                let diff_output =
-                    fmt::show_diff(&source, &format_config).map_err(|e| format!("{}", e))?;
-                println!("{}", diff_output);
+                println!("{}", fmt::diff_of(&source, &formatted));
             }
         } else if write {
             if is_changed {

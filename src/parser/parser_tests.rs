@@ -3340,3 +3340,108 @@ fn test_parse_doc_comment_between_export_and_declaration_is_not_silently_dropped
         "an unsupported doc-comment position must be reported, not swallowed"
     );
 }
+
+// ─── Group 9: a trailing /** */ must not be stolen as the next member's doc ───
+
+/// Documentation describes what follows it, so a `/** */` trailing code on the
+/// same line annotates that line. Accepting `BlockDocComment` unconditionally
+/// let `consume_doc_comment` re-attach it to the *next* class member, so
+/// `tarqeem doc` published the note under the wrong name and `fmt -w` rewrote
+/// the file that way. Verified against a merge-base build before fixing.
+#[test]
+fn test_trailing_block_doc_comment_is_not_stolen_by_next_class_member() {
+    let source = r#"
+        صنف ش {
+            خاص اسم: نص /** ملاحظة على الاسم */
+            خاص عمر: عدد
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    // Whatever the parser does with this form, the note must never end up as
+    // the documentation of `عمر`.
+    if let Ok(ast) = result.as_ref() {
+        for stmt in &ast.statements {
+            if let StmtKind::ClassDecl { members, .. } = &stmt.kind {
+                for member in members {
+                    if let ClassMember::Field {
+                        name, doc_comment, ..
+                    } = member
+                    {
+                        if name == "عمر" {
+                            assert!(
+                                doc_comment.is_none(),
+                                "note about 'اسم' must not become the doc of 'عمر': {:?}",
+                                doc_comment
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A doc comment sitting on the same line as `صدّر` must still be consumed —
+/// leaving it in the stream made it fall through to the expression parser, a new
+/// hard error for source that compiled before.
+#[test]
+fn test_doc_comment_trailing_export_keyword_does_not_error() {
+    let source = r#"
+        /// خارجي
+        صدّر /// داخلي
+        دالة س() {}
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser
+        .parse()
+        .expect("a doc comment after صدّر must not be a parse error");
+
+    // The doc written above `صدّر` documents the declaration; the one trailing
+    // the keyword is kept as an ordinary comment rather than discarded.
+    let doc = ast
+        .statements
+        .iter()
+        .find_map(|s| match &s.kind {
+            StmtKind::Export(ExportItems::Declaration(inner)) => match &inner.kind {
+                StmtKind::FuncDecl { doc_comment, .. } => {
+                    Some(inner.leading_comments.clone()).map(|lc| (doc_comment.clone(), lc))
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("Expected an exported FuncDecl");
+    assert_eq!(doc.0, Some("خارجي".to_string()));
+    assert!(
+        doc.1.iter().any(|c| c.contains("داخلي")),
+        "the note trailing صدّر must be preserved, got {:?}",
+        doc.1
+    );
+}
+
+/// A doc comment before a statement with no `doc_comment` field must be kept as
+/// a leading comment. Consuming it and dropping it made `fmt -w` erase the text.
+#[test]
+fn test_orphaned_doc_comment_is_demoted_to_leading_comment() {
+    let source = r#"
+        /** ملاحظة مهمة */
+        اطبع("س")
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    let stmt = ast
+        .statements
+        .iter()
+        .find(|s| matches!(s.kind, StmtKind::Expr(_)))
+        .expect("Expected an expression statement");
+    assert!(
+        stmt.leading_comments
+            .iter()
+            .any(|c| c.contains("ملاحظة مهمة")),
+        "orphaned doc comment must be preserved, got {:?}",
+        stmt.leading_comments
+    );
+}

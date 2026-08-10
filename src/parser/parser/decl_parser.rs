@@ -34,11 +34,19 @@ impl Parser {
     ) -> Result<Stmt, Diagnostic> {
         // Collect any line comments before the declaration
         self.collect_line_comments();
-        let leading_comments = self.take_pending_comments();
+        let mut leading_comments = self.take_pending_comments();
 
-        // An inherited doc comment was written before the outer keyword, so it
-        // wins; only look for one here when the caller had none.
-        let doc_comment = inherited_doc.or_else(|| self.consume_doc_comment());
+        // Always consume a doc comment sitting here, even when the caller already
+        // supplied one: short-circuiting left the token in the stream, where it
+        // fell through to the expression parser and turned `صدّر /// ملاحظة` into
+        // a hard parse error on source that used to compile.
+        let own_doc = self.consume_doc_comment();
+        // A doc comment written before the outer keyword documents the
+        // declaration, so it wins over one found after it.
+        let (doc_comment, mut orphaned_doc) = match inherited_doc {
+            Some(outer) => (Some(outer), own_doc),
+            None => (own_doc, None),
+        };
 
         // Skip newlines after doc comment before the actual declaration
         self.skip_newlines();
@@ -57,17 +65,25 @@ impl Parser {
         } else if self.check(&TokenKind::Enum) {
             self.parse_enum_declaration(doc_comment)?
         } else if self.check(&TokenKind::Import) {
+            // Neither of these owns a `doc_comment` field, so the text would be
+            // dropped — and since the doc token is consumed now, `fmt -w` would
+            // erase it from the user's file rather than failing loudly. Demote it
+            // to a leading comment so the formatter still writes it out.
+            orphaned_doc = orphaned_doc.or(doc_comment);
             self.parse_import_statement()?
         } else if self.check(&TokenKind::Export) {
             self.parse_export_statement(doc_comment)?
         } else {
+            orphaned_doc = orphaned_doc.or(doc_comment);
             self.parse_statement()?
         };
 
         // Capture trailing comment (on same line after statement)
         stmt.trailing_comment = self.capture_trailing_comment();
 
-        // Attach leading comments to the statement
+        // Attach leading comments to the statement. An orphaned doc comment goes
+        // last because it was written after any line comments above it.
+        leading_comments.extend(orphaned_doc);
         stmt.leading_comments = leading_comments;
         Ok(stmt)
     }
