@@ -823,6 +823,11 @@ pub struct Parameter {
 pub struct NativeBlock {
     pub message: String,
     pub code: String,
+    /// An unsupported *construct* outranks an untyped *type*: no annotation
+    /// fixes `ارمِ`, so reporting ت٠٣٠١'s "declare concrete types" for a
+    /// function that has both sends the user to annotate parameters, recompile,
+    /// and hit the same wall (issue #181).
+    pub overrides_types: bool,
 }
 
 impl NativeBlock {
@@ -830,10 +835,14 @@ impl NativeBlock {
     pub fn untyped(detail: impl fmt::Display) -> Self {
         Self {
             message: format!(
-                "الترجمة الأصلية غير مدعومة هنا بعد: {} — صرّح بالأنواع المحددة أو شغّل البرنامج بالمفسّر (tarqeem run)",
-                detail
+                "الترجمة الأصلية غير مدعومة هنا بعد: {} — صرّح بالأنواع المحددة أو شغّل البرنامج بالمفسّر (tarqeem run). / \
+                 Native compilation is not supported here yet: {} — declare \
+                 concrete types, or run the program with the interpreter \
+                 (tarqeem run).",
+                detail, detail
             ),
             code: ERR_UNTYPED_LAMBDA_PARAM.to_string(),
+            overrides_types: false,
         }
     }
 
@@ -842,10 +851,13 @@ impl NativeBlock {
     pub fn unsupported(detail: impl fmt::Display, code: &ErrorCode) -> Self {
         Self {
             message: format!(
-                "{} غير مدعوم في الترجمة الأصلية بعد — شغّل البرنامج بالمفسّر (tarqeem run) أو بالترجمة الفورية (tarqeem run --jit)",
-                detail
+                "{} غير مدعوم في الترجمة الأصلية بعد — شغّل البرنامج بالمفسّر (tarqeem run) أو بالترجمة الفورية (tarqeem run --jit). / \
+                 {} is not supported in native compilation yet — run the program \
+                 with the interpreter (tarqeem run) or the JIT (tarqeem run --jit).",
+                detail, detail
             ),
             code: code.to_string(),
+            overrides_types: true,
         }
     }
 }

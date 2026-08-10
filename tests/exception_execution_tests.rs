@@ -700,3 +700,151 @@ fn test_debug_interpreter_catches_exception_from_callee() {
         "خرج المنقح غير متطابق"
     );
 }
+
+// ==========================================================================
+// Regressions found by review of this change
+// ==========================================================================
+
+/// The prelude puts a class declaration in front of every program, which turned
+/// a narrow pre-existing bug into a universal one: in Script mode a class built
+/// while the synthesized `__main__` is open left the *method's* parameter ids in
+/// `IrBuilder::parameters`, so a later variable reusing id 0 — the loop variable
+/// of a C-style `لكل` — stopped emitting its `Load` and the condition compared
+/// the raw alloca pointer (`متوقع comparable، وُجد ptr`).
+///
+/// This reproduces on `develop` with a hand-written class, and on this branch
+/// with no class at all, since the prelude supplies one.
+#[test]
+fn test_c_style_loop_at_top_level_still_loads_its_variable() {
+    assert_prints(
+        r#"
+لكل (متغير ع = 0؛ ع < 3؛ ع++) {
+    اطبع("دورة")
+}
+اطبع("انتهى")
+"#,
+        &["دورة", "دورة", "دورة", "انتهى"],
+        &Backend::ALL,
+    );
+}
+
+#[test]
+fn test_break_inside_try_inside_c_style_loop() {
+    assert_prints(
+        r#"
+لكل (متغير ع = 0؛ ع < 3؛ ع++) {
+    حاول {
+        اطبع("دورة")
+        أوقف
+    } التقط (خ) {
+        اطبع("معالج")
+    }
+}
+اطبع("انتهى")
+"#,
+        &["دورة", "انتهى"],
+        &Backend::ALL,
+    );
+}
+
+#[test]
+fn test_continue_inside_try_inside_c_style_loop() {
+    assert_prints(
+        r#"
+لكل (متغير ع = 0؛ ع < 3؛ ع++) {
+    حاول {
+        إذا (ع == 1) {
+            استمر
+        }
+        اطبع("دورة")
+    } التقط (خ) {
+        اطبع("معالج")
+    }
+}
+اطبع("انتهى")
+"#,
+        &["دورة", "دورة", "انتهى"],
+        &Backend::ALL,
+    );
+}
+
+/// A class declared at top level in Script mode, followed by a C-style loop —
+/// the shape that fails on `develop`. Kept separate from the prelude-only case
+/// so a future change that makes the prelude lazy cannot silently drop coverage.
+#[test]
+fn test_user_class_before_c_style_loop_at_top_level() {
+    assert_prints(
+        r#"
+صنف نقطة {
+    عام س: عدد
+    منشئ(س: عدد) {
+        هذا.س = س
+    }
+}
+لكل (متغير ع = 0؛ ع < 2؛ ع++) {
+    اطبع("دورة")
+}
+متغير ن = جديد نقطة(7)
+اطبع(ن.س)
+"#,
+        &["دورة", "دورة", "7"],
+        &Backend::ALL,
+    );
+}
+
+/// Every shape that collides with the prelude must name the real cause. Before
+/// the fix only a bare `صنف استثناء` did; `صدّر صنف`, a function, and a module's
+/// declaration all fell through to و٠١٠١ naming the pseudo-path `<تمهيد ترقيم>`,
+/// which appears nowhere in the user's source.
+#[test]
+fn test_function_named_after_the_base_exception_class_is_rejected_actionably() {
+    assert_rejected_with(
+        r#"
+دالة استثناء(س: عدد) -> عدد {
+    أرجع س
+}
+اطبع(استثناء(5))
+"#,
+        "ص٠٦٠٢",
+        &Backend::ALL,
+    );
+}
+
+#[test]
+fn test_exported_redeclaration_of_the_base_exception_class_is_rejected() {
+    assert_rejected_with(
+        r#"
+صدّر صنف استثناء {
+    عام رسالة: نص
+    منشئ(رسالة: نص) {
+        هذا.رسالة = رسالة
+    }
+}
+"#,
+        "ص٠٦٠٢",
+        &Backend::ALL,
+    );
+}
+
+/// `ارمِ` admits no annotation, so it must outrank an untyped-parameter reason
+/// recorded earlier in the *same* function — otherwise the user is told to
+/// declare types, does so, and hits the same wall.
+///
+/// The untyped parameter is on `ف` itself, not on a lambda: a lambda is lifted
+/// into its own function, so its ت٠٣٠١ would be reported against that function
+/// and never meet the throw's reason at all.
+#[test]
+fn test_throw_outranks_untyped_param_in_the_native_diagnostic() {
+    assert_rejected_with(
+        r#"
+دالة ف(س) {
+    ارمِ جديد استثناء("داخل ف")
+}
+دالة رئيسية() {
+    ف(1)
+}
+"#,
+        NATIVE_EXCEPTIONS_CODE,
+        &[Backend::Native],
+    );
+}

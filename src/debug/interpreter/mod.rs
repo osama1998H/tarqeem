@@ -1551,7 +1551,11 @@ impl DebugInterpreter {
 
     /// An uncaught exception's `رسالة`, rather than `<استثناء>`. Mirrors
     /// `interpreter::executor::Interpreter::exception_message`.
-    fn exception_message(exception: &Value) -> String {
+    ///
+    /// `pub(crate)` because the DAP adapter renders `StepResult::Exception`
+    /// itself on the step-driven path, which never passes through the recursive
+    /// `execute` loop below (issue #181).
+    pub(crate) fn exception_message(exception: &Value) -> String {
         if let Value::Object(obj) = exception {
             if let Some(message) = obj.borrow().fields.get(EXCEPTION_MESSAGE_FIELD) {
                 return message.to_display_string();

@@ -224,7 +224,10 @@ impl Analyzer {
 
     /// Register types in the first pass.
     fn register_types(&mut self, stmt: &Stmt) {
-        match &stmt.kind {
+        // `صدّر صنف س` declares `س` just as `صنف س` does; without unwrapping,
+        // the reserved-name check below missed the exported form and the clash
+        // surfaced from the linker instead (issue #181).
+        match &unwrap_exported_decl(stmt).kind {
             StmtKind::ClassDecl {
                 name,
                 type_params,
@@ -240,7 +243,10 @@ impl Analyzer {
                 if normalize_name(name) == normalize_name(prelude::EXCEPTION_CLASS) {
                     self.error_with_code(
                         &format!(
-                            "لا يمكن إعادة تعريف صنف الاستثناء الأساسي '{}'؛ ورّثه بدلاً من ذلك: صنف اسمك يرث {}",
+                            "لا يمكن إعادة تعريف صنف الاستثناء الأساسي '{}'؛ ورّثه بدلاً من ذلك: صنف اسمك يرث {}. / \
+                             Cannot redefine the built-in base exception class '{}'; \
+                             inherit from it instead: صنف اسمك يرث {}.",
+                            prelude::EXCEPTION_CLASS, prelude::EXCEPTION_CLASS,
                             prelude::EXCEPTION_CLASS, prelude::EXCEPTION_CLASS
                         ),
                         stmt.span,

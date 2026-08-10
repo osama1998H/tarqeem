@@ -969,7 +969,11 @@ impl Analyzer {
         if !self.is_error_type(&expr_type) {
             self.error_with_code(
                 &format!(
-                    "لا يمكن رمي '{}': «ارمِ» تقبل نسخة من «{}» أو أحد أصنافه الفرعية فقط",
+                    "لا يمكن رمي '{}': «ارمِ» تقبل نسخة من «{}» أو أحد أصنافه الفرعية فقط. / \
+                     Cannot throw '{}': «ارمِ» accepts only an instance of «{}» \
+                     or one of its subclasses.",
+                    expr_type.arabic_name(),
+                    prelude::EXCEPTION_CLASS,
                     expr_type.arabic_name(),
                     prelude::EXCEPTION_CLASS
                 ),

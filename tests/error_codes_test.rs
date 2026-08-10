@@ -95,6 +95,7 @@ const ALL_ERROR_CODES: &[(ErrorCode, &str, &str)] = &[
     (ERR_LLVM_INTERNAL, "ت٠٠٠١", "LLVM internal error"),
     (ERR_LINKING_FAILED, "ت٠١٠١", "Linking failed"),
     (ERR_ENTRY_POINT_CONFLICT, "ت٠٢٠١", "Entry point conflict"),
+    (ERR_NO_ENTRY_POINT, "ت٠٢٠٢", "No entry point"),
     (
         ERR_UNTYPED_LAMBDA_PARAM,
         "ت٠٣٠١",
@@ -125,10 +126,13 @@ fn test_error_code_count() {
     // param, untyped native indirect call)
     // + ص٠٦٠١/ص٠٦٠٢/ت٠٣٠٣ (issue #181: non-exception throw, redefinition of the
     // base exception class, `ارمِ` under native codegen)
+    // + ت٠٢٠٢, which was defined in codes.rs and listed in the index doc but
+    // never in this table — the count agreed with the doc only by coincidence,
+    // both being wrong by one in opposite directions.
     assert_eq!(
         ALL_ERROR_CODES.len(),
-        51,
-        "Expected 51 error codes, found {}",
+        52,
+        "Expected 52 error codes, found {}",
         ALL_ERROR_CODES.len()
     );
 }
