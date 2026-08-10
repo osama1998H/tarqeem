@@ -413,11 +413,12 @@ impl DocExtractor {
                 return_type,
             } => {
                 let params_str: Vec<_> = params.iter().map(|p| self.type_to_string(p)).collect();
-                format!(
-                    "({}) -> {}",
-                    params_str.join("، "),
-                    self.type_to_string(return_type)
-                )
+                match return_type {
+                    None => format!("({})", params_str.join("، ")),
+                    Some(rt) => {
+                        format!("({}) -> {}", params_str.join("، "), self.type_to_string(rt))
+                    }
+                }
             }
             TypeKind::Generic { base, args } => {
                 let args_str: Vec<_> = args.iter().map(|a| self.type_to_string(a)).collect();

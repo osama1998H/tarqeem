@@ -3,8 +3,8 @@
 //! This module handles conversion of AST statements to IR instructions.
 
 use crate::parser::{
-    Block, CatchClause, ClassMember, Expr, MatchArm, Param, Pattern, PatternKind, Stmt, StmtKind,
-    TypeAnnotation,
+    Block, CatchClause, ClassMember, Expr, ExprKind, MatchArm, Param, Pattern, PatternKind, Stmt,
+    StmtKind, TypeAnnotation,
 };
 
 use super::super::{
@@ -111,14 +111,13 @@ impl IrBuilder {
     ) -> Result<()> {
         if self.global_variables.contains(name) {
             if let Some(init_expr) = init {
-                if self.try_evaluate_const(init_expr).is_none() {
-                    let value = self.build_expr(init_expr)?;
-                    let global_ty = self.global_var_types.get(name).cloned();
-                    let value = self.coerce_int_to_float(value, global_ty.as_ref(), init_expr);
-                    self.emit(Instruction::GlobalStore {
-                        name: name.to_string(),
-                        value,
-                    });
+                // Program mode: top-level initializers were already emitted
+                // into __global_init__; the fourth pass revisits this decl
+                // *outside* any function, so re-building it here would only
+                // lift an orphaned duplicate lambda and drop the store on
+                // the floor (`emit` has no current function to write to).
+                if self.try_evaluate_const(init_expr).is_none() && self.current_function.is_some() {
+                    self.build_global_initializer(name, init_expr)?;
                 }
             }
             return Ok(());
@@ -141,7 +140,17 @@ impl IrBuilder {
         self.var_types.insert(ptr.0, ir_type.clone());
 
         if let Some(init_expr) = init {
-            let value = self.build_expr(init_expr)?;
+            let value = self.build_init_expr(init_expr, Some(&ir_type))?;
+            // See the identical correction in `build_global_initializer`.
+            // The already-emitted `Alloca` keeps the provisional type, which
+            // is harmless: every type this can re-tag is pointer-width, so
+            // the slot is correctly sized either way, and `Load`/`Store` read
+            // their type from `var_types` rather than from the `Alloca`.
+            if Self::is_unknown_ir_type(Some(&ir_type)) {
+                if let Some(real_ty) = self.var_types.get(&value.0).cloned() {
+                    self.var_types.insert(ptr.0, real_ty);
+                }
+            }
             let value = self.coerce_int_to_float(value, Some(&ir_type), init_expr);
             self.emit(Instruction::Store { ptr, value });
         }
@@ -149,6 +158,75 @@ impl IrBuilder {
         self.variables.insert(name.to_string(), ptr);
 
         Ok(())
+    }
+
+    /// Emits the `GlobalStore` for one non-const global initializer,
+    /// threading the registered global type as a lambda hint and correcting
+    /// a provisionally-typed lambda global afterward. Shared by
+    /// `build_var_decl` (script mode) and the program-mode
+    /// `__global_init__`/`__main__` static-initializer loops in
+    /// `IrBuilder::build` — the program-mode path previously used a bare
+    /// `build_expr`, so a fully annotated global lambda still lifted with
+    /// untyped params.
+    pub(crate) fn build_global_initializer(&mut self, name: &str, init_expr: &Expr) -> Result<()> {
+        let global_ty = self.global_var_types.get(name).cloned();
+        let value = self.build_init_expr(init_expr, global_ty.as_ref())?;
+        // An unannotated global's registered type is only a provisional
+        // `infer_expr_type` guess made before any body was built, and that
+        // pass has no arm for a lambda literal (nor for a call through one),
+        // so it lands on the `Ptr(Void)` unknown sentinel. Now that the
+        // initializer is actually built, its real type is known — adopt it,
+        // or every later `GlobalLoad` reads the slot at the wrong type
+        // (`load ptr` from an `i64` slot, which `اطبع` then dereferences and
+        // segfaults natively; the interpreter is dynamically typed and
+        // unaffected either way).
+        if Self::is_unknown_ir_type(global_ty.as_ref()) {
+            if let Some(real_ty) = self.var_types.get(&value.0).cloned() {
+                self.set_global_type(name, real_ty);
+            }
+        }
+        let value = self.coerce_int_to_float(value, global_ty.as_ref(), init_expr);
+        self.emit(Instruction::GlobalStore {
+            name: name.to_string(),
+            value,
+        });
+        Ok(())
+    }
+
+    /// `Ptr(Void)` is the builder's "type not known yet" sentinel (see
+    /// `infer_expr_type`'s fallthrough); a slot carrying it may be safely
+    /// re-typed once the real value has been built.
+    pub(crate) fn is_unknown_ir_type(ty: Option<&IrType>) -> bool {
+        match ty {
+            None => true,
+            Some(IrType::Ptr(inner)) => **inner == IrType::Void,
+            Some(_) => false,
+        }
+    }
+
+    /// Re-type a global in both places the type is recorded: the builder's
+    /// lookup table (read by `build_identifier` for `GlobalLoad`) and the
+    /// module's global list (which codegen emits `@g = global <ty>` from).
+    fn set_global_type(&mut self, name: &str, ty: IrType) {
+        self.global_var_types.insert(name.to_string(), ty.clone());
+        if let Some(entry) = self.module.globals.iter_mut().find(|(n, _, _)| n == name) {
+            entry.1 = ty;
+        }
+    }
+
+    /// Builds a variable's initializer expression, threading a declared
+    /// function-type annotation through to `build_lambda_with_hint` when the
+    /// initializer is a bare lambda literal (e.g.
+    /// `ثابت جمع: (عدد، عدد) -> عدد = (أ، ب) => أ + ب؛`) — this is what lets
+    /// an unannotated lambda param pick up a concrete type from the
+    /// surrounding declaration instead of defaulting to `Ptr(Void)`.
+    fn build_init_expr(&mut self, init_expr: &Expr, declared_ty: Option<&IrType>) -> Result<VarId> {
+        if let ExprKind::Lambda { params, body } = &init_expr.kind {
+            if matches!(declared_ty, Some(IrType::Function { .. })) {
+                return self.build_lambda_with_hint(params, body, declared_ty);
+            }
+        }
+        self.build_expr(init_expr)
     }
 
     /// Implicit عدد → عدد_عشري conversion (spec §5.6): storing an integer
@@ -209,7 +287,15 @@ impl IrBuilder {
         let saved_block_counter = self.block_counter;
         let saved_variables = self.variables.clone();
 
+        let unlowerable = self.unlowerable_param_names(params, &[]);
         self.begin_function(name.to_string(), ir_params, ret_type)?;
+        // A declared function's unannotated parameter lowers to `Ptr(Void)`
+        // exactly as a lambda's does, so it is the same native ABI hazard —
+        // record it here too rather than keying the codegen guard on the
+        // `__lambda_` name prefix.
+        if let Some(p) = unlowerable.first() {
+            self.block_native_lowering(Self::untyped_param_reason(p));
+        }
 
         if let Some(ref mut func) = self.current_function {
             func.is_async = is_async;

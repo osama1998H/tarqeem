@@ -84,6 +84,17 @@ pub struct IrBuilder {
     pub(crate) function_names: HashSet<String>,
     /// Return types for functions: function_name -> return_type.
     pub(crate) function_return_types: HashMap<String, IrType>,
+    /// Parameter types for functions (declared functions and lifted
+    /// lambdas): function_name -> [param_type]. Lets a call site recover a
+    /// callee's full `IrType::Function{params, ret}` when it's used as a
+    /// value (see issue #180).
+    pub(crate) function_param_types: HashMap<String, Vec<IrType>>,
+    /// Module-scoped counter for naming lifted lambda functions
+    /// (`__lambda_N`). Deliberately never saved/restored around a nested
+    /// `build_lambda` call (unlike `var_counter`, which is per-function) —
+    /// reusing a per-function counter let two lambdas in different
+    /// enclosing functions collide on the same lifted name.
+    pub(crate) lambda_counter: u32,
     /// Set of parameter variable IDs for the current function.
     pub(crate) parameters: HashSet<u32>,
     /// Global constants: name -> (constant_value, type).
@@ -131,6 +142,8 @@ impl IrBuilder {
             property_setters: HashMap::new(),
             function_names: HashSet::new(),
             function_return_types: HashMap::new(),
+            function_param_types: HashMap::new(),
+            lambda_counter: 0,
             parameters: HashSet::new(),
             global_constants: HashMap::new(),
             global_variables: HashSet::new(),
@@ -376,11 +389,11 @@ impl IrBuilder {
             self.begin_function("__global_init__".to_string(), vec![], IrType::Void)?;
 
             for (name, init_expr) in &globals_needing_init {
-                let value = self.build_expr(init_expr)?;
-                self.emit(Instruction::GlobalStore {
-                    name: name.clone(),
-                    value,
-                });
+                // Hint-aware shared path (not a bare build_expr): a global
+                // lambda must pick up its declared function-type annotation
+                // here, or it lifts with untyped params and native mode
+                // rejects fully-annotated code with ت٠٣٠١.
+                self.build_global_initializer(name, init_expr)?;
             }
 
             self.emit(Instruction::Return { value: None });
@@ -394,8 +407,7 @@ impl IrBuilder {
             // Script mode has no __global_init__; run static initializers as
             // the first statements of the synthesized __main__ instead.
             for (key, init_expr) in std::mem::take(&mut self.pending_static_inits) {
-                let value = self.build_expr(&init_expr)?;
-                self.emit(Instruction::GlobalStore { name: key, value });
+                self.build_global_initializer(&key, &init_expr)?;
             }
         }
 
@@ -580,10 +592,21 @@ impl IrBuilder {
     pub(crate) fn collect_function_signature(
         &mut self,
         name: &str,
-        _params: &[Param],
+        params: &[Param],
         return_type: &Option<TypeAnnotation>,
     ) -> Result<()> {
         self.function_names.insert(name.to_string());
+
+        let param_tys: Vec<IrType> = params
+            .iter()
+            .map(|p| {
+                p.ty.as_ref()
+                    .map(|t| self.convert_type(t))
+                    .unwrap_or(IrType::Ptr(Box::new(IrType::Void)))
+            })
+            .collect();
+        self.function_param_types
+            .insert(name.to_string(), param_tys);
 
         let ret_ty = return_type
             .as_ref()
@@ -592,6 +615,17 @@ impl IrBuilder {
         self.function_return_types.insert(name.to_string(), ret_ty);
 
         Ok(())
+    }
+
+    /// Records why the function currently being built cannot be lowered to
+    /// native code (see `Function::native_block_reason`). First reason wins,
+    /// so the earliest/most specific diagnosis is the one reported.
+    pub(crate) fn block_native_lowering(&mut self, reason: String) {
+        if let Some(func) = self.current_function.as_mut() {
+            if func.native_block_reason.is_none() {
+                func.native_block_reason = Some(reason);
+            }
+        }
     }
 
     /// Begin building a new function.

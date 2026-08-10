@@ -29,10 +29,12 @@ impl TypeMapper {
             IrType::String => "ptr".to_string(), // Opaque pointer to string struct
             IrType::Ptr(_) => "ptr".to_string(),
             IrType::Array(_, _) => "ptr".to_string(),
-            IrType::Function { params, ret } => {
-                let param_types: Vec<String> = params.iter().map(|p| self.map_type(p)).collect();
-                format!("{} ({})", self.map_type(ret), param_types.join(", "))
-            }
+            // A function value is a first-class opaque pointer (to the
+            // function's code), not a bare LLVM function *type* — the latter
+            // is invalid wherever a value is needed (`alloca`, `store`,
+            // `load`, a global declaration), which is exactly where this
+            // type shows up once lambdas are storable/passable (issue #180).
+            IrType::Function { .. } => "ptr".to_string(),
             IrType::Struct(_class_id) => {
                 // Structs are heap-allocated, so we use ptr (opaque pointer)
                 "ptr".to_string()

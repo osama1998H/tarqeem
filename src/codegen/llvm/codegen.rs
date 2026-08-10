@@ -4,7 +4,7 @@
 
 use super::{mangle_name, TypeMapper};
 use crate::codegen::Target;
-use crate::error::codes::ERR_LLVM_INTERNAL;
+use crate::error::codes::{ERR_LLVM_INTERNAL, ERR_UNTYPED_INDIRECT_CALL, ERR_UNTYPED_LAMBDA_PARAM};
 use crate::ir::{
     BasicBlock, BinaryOp, BlockId, Class, ClassId, Constant, Function, Instruction, IrType, Module,
     UnaryOp, VarId,
@@ -218,6 +218,7 @@ impl LlvmCodegen {
                     }
                 }
                 Some(Constant::Null) => "null".to_string(),
+                Some(Constant::Function(name)) => format!("@{}", mangle_function_name(name)),
                 Some(Constant::String(idx)) => {
                     // String globals store TrqString*, initialized at program start
                     // Store the init info for emit_global_string_init() to handle
@@ -782,6 +783,23 @@ impl LlvmCodegen {
     }
 
     fn emit_function(&mut self, func: &Function) -> Result<(), CodegenError> {
+        // A lambda param that never resolved to a concrete type (no
+        // annotation, no hint from context) lowers to `Ptr(Void)` ("ptr" in
+        // LLVM). Native `call`/`call_indirect` sites carry their own
+        // signature, so this alone wouldn't fail to link — but the callee
+        // would silently reinterpret whatever bit pattern the caller passed
+        // (issue #185's divergence class). The interpreter is dynamically
+        // typed and unaffected; only native codegen needs this guard.
+        if let Some(reason) = &func.native_block_reason {
+            return Err(CodegenError::with_code(
+                format!(
+                    "الترجمة الأصلية غير مدعومة هنا بعد: {} — صرّح بالأنواع المحددة أو شغّل البرنامج بالمفسّر (tarqeem run)",
+                    reason
+                ),
+                ERR_UNTYPED_LAMBDA_PARAM.to_string(),
+            ));
+        }
+
         self.var_map.clear();
         self.block_map.clear();
         self.name_counter = 0;
@@ -1132,6 +1150,25 @@ impl LlvmCodegen {
                 args,
                 ret_ty,
             } => {
+                // The call site's LLVM signature comes entirely from static
+                // types. If the callee value's recorded type isn't a
+                // function signature (e.g. a lambda reaching here through
+                // an `أي`-typed slot), the emitted `call` would carry a
+                // wrong return/argument signature and the callee would
+                // reinterpret raw bits — silent corruption (issue #185's
+                // divergence class). The interpreter dispatches on runtime
+                // values and handles this fine; only native codegen must
+                // reject it.
+                if !matches!(
+                    self.var_types.get(&func_ptr.0),
+                    Some(IrType::Function { .. })
+                ) {
+                    return Err(CodegenError::with_code(
+                        "الترجمة الأصلية لا تدعم استدعاء قيمة دالة بدون توقيع معروف (مثل قيمة من النوع 'أي'): صرّح بنوع الدالة، أو شغّل البرنامج بالمفسّر (tarqeem run)"
+                            .to_string(),
+                        ERR_UNTYPED_INDIRECT_CALL.to_string(),
+                    ));
+                }
                 let func_ptr_name = self.get_var(*func_ptr)?;
                 let args_str: Vec<String> = args
                     .iter()
@@ -1822,6 +1859,10 @@ impl LlvmCodegen {
         match value {
             Constant::Null => {
                 emit!(self, "  {} = bitcast ptr null to ptr", dest_name);
+            }
+            Constant::Function(name) => {
+                let mangled = mangle_function_name(name);
+                emit!(self, "  {} = bitcast ptr @{} to ptr", dest_name, mangled);
             }
             Constant::Bool(b) => {
                 let val = if *b { "true" } else { "false" };
@@ -2571,5 +2612,362 @@ mod tests {
                 line
             );
         }
+    }
+
+    #[test]
+    fn test_lambda_call_indirect_uses_real_return_type() {
+        // Regression test (issue #180): a call through a global holding a
+        // lambda used to emit `call ptr %fn(...)` regardless of the
+        // lambda's actual return type, because the global's recorded type
+        // was a provisional `Ptr(Void)` guess from before the lambda body
+        // was built. Against an i64-returning lambda this is an LLVM
+        // call-site/callee signature mismatch that segfaults at runtime.
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let source = "بسم_الله\nثابت مربع = (س: عدد) => س * س؛\nاطبع(مربع(5))؛\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let llvm_ir = codegen.generate(&ir_module).expect("codegen failed");
+
+        let call_line = llvm_ir
+            .lines()
+            .find(|l| l.contains("call") && l.contains('%') && !l.contains("call void @trq"))
+            .unwrap_or_else(|| panic!("expected an indirect call in:\n{}", llvm_ir));
+        assert!(
+            call_line.contains("call i64"),
+            "indirect call must use the lambda's real i64 return type, got: {}",
+            call_line
+        );
+    }
+
+    #[test]
+    fn test_lambda_untyped_param_rejected_in_native_codegen() {
+        // Native codegen cannot safely lower an arrow-function parameter
+        // that never resolved to a concrete type (issue #180); the
+        // interpreter handles this dynamically (see
+        // tests/lambda_execution_tests.rs::تنفيذ::test_spec_untyped_sum_lambda_executes),
+        // but native mode needs a real LLVM type at the parameter.
+        use crate::error::codes::ERR_UNTYPED_LAMBDA_PARAM;
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let source = "بسم_الله\nثابت جمع = (أ، ب) => أ + ب؛\nاطبع(جمع(3، 4))؛\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let err = codegen
+            .generate(&ir_module)
+            .expect_err("native codegen must reject an untyped lambda parameter");
+
+        assert_eq!(
+            err.code.as_deref(),
+            Some(ERR_UNTYPED_LAMBDA_PARAM.to_string().as_str())
+        );
+    }
+
+    #[test]
+    fn test_indirect_call_through_any_slot_rejected_in_native_codegen() {
+        // A lambda passed through an `أي`-typed parameter has no static
+        // signature at the call site; emitting the call anyway would
+        // produce an ABI-mismatched `call ptr` against a `define i64`
+        // callee — silent corruption instead of an error. Native codegen
+        // must reject it (ت٠٣٠٢); the interpreter runs it fine.
+        use crate::error::codes::ERR_UNTYPED_INDIRECT_CALL;
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        // The callee reaches the call site through an `أي`-typed *variable*,
+        // so no function has an unlowerable parameter (the lambda's own `س`
+        // is annotated) and the ت٠٣٠١ parameter guard does not fire first.
+        let source = "بسم_الله\nمتغير ف: أي = (س: عدد) => س * س؛\nاطبع(ف(5))؛\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let err = codegen
+            .generate(&ir_module)
+            .expect_err("native codegen must reject an indirect call with no known signature");
+
+        assert_eq!(
+            err.code.as_deref(),
+            Some(ERR_UNTYPED_INDIRECT_CALL.to_string().as_str())
+        );
+    }
+
+    #[test]
+    fn test_lambda_as_call_argument_compiles_natively() {
+        // A lambda literal passed as a call argument picks up its param
+        // types from the callee's declared function-type parameter — the
+        // same contextual inference the semantic layer performs. Without
+        // the hint it lifts with `Ptr(Void)` params and native compilation
+        // rejects spec-legal code with ت٠٣٠١.
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let source = "بسم_الله\nدالة طبق(ف: (عدد) -> عدد، ق: عدد) -> عدد {\nأرجع ف(ق)؛\n}\nاطبع(طبق((س) => س * 2، 5))؛\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let llvm_ir = codegen
+            .generate(&ir_module)
+            .expect("a lambda argument with an inferable signature must compile natively");
+
+        assert!(
+            llvm_ir.contains("define i64 @__lambda_0(i64"),
+            "the argument lambda must lift with a concrete i64 param, in:\n{}",
+            llvm_ir
+        );
+    }
+
+    #[test]
+    fn test_program_mode_annotated_global_lambda_compiles_natively() {
+        // Program mode routes global initializers through __global_init__;
+        // that path must thread the declared function-type annotation to
+        // the lambda (and must not lift a second orphaned duplicate from
+        // the statement pass, where the store would be silently dropped).
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let source = "بسم_الله\nثابت جمع: (عدد، عدد) -> عدد = (أ، ب) => أ + ب؛\nدالة رئيسية() {\nاطبع(جمع(3، 4))؛\n}\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let lambda_count = ir_module
+            .functions
+            .iter()
+            .filter(|f| f.name.starts_with("__lambda_"))
+            .count();
+        assert_eq!(
+            lambda_count, 1,
+            "the global initializer must lift exactly one lambda, not an orphaned duplicate"
+        );
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let llvm_ir = codegen
+            .generate(&ir_module)
+            .expect("an annotated program-mode global lambda must compile natively");
+        assert!(
+            llvm_ir.contains("define i64 @__lambda_0(i64"),
+            "the annotation must reach the lifted lambda's params, in:\n{}",
+            llvm_ir
+        );
+    }
+
+    #[test]
+    fn test_mixed_bare_and_valued_lambda_returns_unify() {
+        // Semantic analysis accepts mixed bare/valued returns in a block
+        // lambda (legal early-return code, folded to أي). The lifted
+        // function must patch bare returns to a zero-of-type return, or
+        // native codegen emits `ret void` inside a non-void define —
+        // invalid LLVM IR.
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let source = "بسم_الله\nثابت ف = (س: عدد) => {\nإذا (س > 0) {\nأرجع؛\n}\nأرجع 1؛\n}؛\nف(5)؛\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let llvm_ir = codegen.generate(&ir_module).expect("codegen failed");
+
+        let lambda_body: String = llvm_ir
+            .lines()
+            .skip_while(|l| !l.contains("@__lambda_0"))
+            .take_while(|l| !l.starts_with('}'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            lambda_body.contains("define i64"),
+            "mixed returns must unify to the valued type, in:\n{}",
+            llvm_ir
+        );
+        assert!(
+            !lambda_body.contains("ret void"),
+            "bare أرجع must be patched to a typed return inside a non-void lambda, in:\n{}",
+            lambda_body
+        );
+    }
+
+    #[test]
+    fn test_indirect_call_coerces_int_arg_to_float() {
+        // Spec §5.6's implicit عدد → عدد_عشري coercion must also apply at
+        // indirect-call arguments: passing a raw i64 where the callee's
+        // signature says double makes the callee reinterpret the bit
+        // pattern (garbage output natively).
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let source = "بسم_الله\nثابت ف: (عدد_عشري) -> عدد_عشري = (س) => س؛\nاطبع(ف(5))؛\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let llvm_ir = codegen.generate(&ir_module).expect("codegen failed");
+
+        let call_line = llvm_ir
+            .lines()
+            .find(|l| l.contains("call double"))
+            .unwrap_or_else(|| panic!("expected a double indirect call in:\n{}", llvm_ir));
+        assert!(
+            call_line.contains("double %") && !call_line.contains("i64 %"),
+            "the int argument must be coerced to double before the call, got: {}",
+            call_line
+        );
+    }
+
+    /// Builds a module and returns its LLVM IR, or the CodegenError code.
+    fn compile_or_code(source: &str) -> Result<String, Option<String>> {
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let ast = Parser::new(source).parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+        LlvmCodegen::new(crate::codegen::Target::native())
+            .generate(&ir_module)
+            .map_err(|e| e.code.clone())
+    }
+
+    #[test]
+    fn test_call_through_lambda_variable_types_the_result_slot() {
+        // The slot's type came from `infer_expr_type`, whose `Call` arm knew
+        // only the global function table — a call *through a function value*
+        // fell back to `Ptr(Void)`, so `اطبع` emitted `trq_print(ptr %x)` on
+        // an integer and dereferenced it (segfault, exit 139).
+        let ir = compile_or_code(
+            "بسم_الله\nثابت مربع = (س: عدد) => س * س؛\nمتغير ن = مربع(5)؛\nاطبع(ن)؛\nالحمد_لله",
+        )
+        .expect("must compile");
+        assert!(
+            ir.contains("call void @trq_print_int"),
+            "the call result must be typed i64, not printed as a pointer, in:\n{ir}"
+        );
+        assert!(
+            !ir.contains("call void @trq_print(ptr"),
+            "an integer must never reach the pointer-printing runtime call, in:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn test_void_bodied_lambda_emits_bare_return() {
+        // `(س) => اطبع(س)` is an idiomatic callback whose body is Void; the
+        // lifted function must `ret void`, not `ret void %v` (invalid LLVM,
+        // and the void Call never even names a dest).
+        let ir = compile_or_code(
+            "بسم_الله\nدالة رئيسية() {\nثابت اطبعه = (س: عدد) => اطبع(س)؛\nاطبعه(7)؛\n}\nالحمد_لله",
+        )
+        .expect("must compile");
+        assert!(
+            ir.contains("define void @__lambda_0"),
+            "expected a void-returning lifted lambda in:\n{ir}"
+        );
+        assert!(
+            !ir.contains("ret void %"),
+            "`ret void` must not carry an operand, in:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn test_any_annotated_param_is_rejected_natively() {
+        // `أي` lowers to `Struct(ClassId("أي"))`, not `Ptr(Void)`, so a guard
+        // keyed on the type shape missed it and emitted an ABI mismatch.
+        assert_eq!(
+            compile_or_code(
+                "بسم_الله\nدالة رئيسية() {\nثابت ف = (س: أي) => س؛\nاطبع(ف(5))؛\n}\nالحمد_لله"
+            )
+            .unwrap_err()
+            .as_deref(),
+            Some(ERR_UNTYPED_LAMBDA_PARAM.to_string().as_str())
+        );
+    }
+
+    #[test]
+    fn test_declared_function_untyped_param_is_rejected_natively() {
+        // Same hazard as the lambda case: keying the guard on the
+        // `__lambda_` name prefix left this identical hole open.
+        assert_eq!(
+            compile_or_code("بسم_الله\nدالة ضاعف(س) { أرجع س * 2 }\nاطبع(ضاعف(5))؛\nالحمد_لله")
+                .unwrap_err()
+                .as_deref(),
+            Some(ERR_UNTYPED_LAMBDA_PARAM.to_string().as_str())
+        );
+    }
+
+    #[test]
+    fn test_annotated_map_param_is_not_falsely_rejected() {
+        // `قاموس<…>` legitimately lowers to `Ptr(Void)`, so the old
+        // shape-keyed guard rejected fully-annotated code.
+        compile_or_code(
+            "بسم_الله\nثابت ف: (قاموس<نص، عدد>) -> عدد = (خ) => 1؛\nاطبع(ف({}))؛\nالحمد_لله",
+        )
+        .expect("an annotated قاموس parameter must compile natively");
+    }
+
+    #[test]
+    fn test_curried_lambda_threads_hint_to_inner_lambda() {
+        // LANGUAGE_SPEC §5.3's curried form: the inner lambda must inherit
+        // its parameter type from the outer annotation's return signature,
+        // or it lifts untyped and native codegen refuses documented syntax.
+        let ir = compile_or_code(
+            "بسم_الله\nثابت ف: (عدد) -> (عدد) -> عدد = (أ) => (ب) => ب * 2؛\nاطبع(ف(1)(21))؛\nالحمد_لله",
+        )
+        .expect("a curried annotated lambda must compile natively");
+        assert!(
+            ir.contains("(i64 %arg.0)"),
+            "both lifted lambdas must take a concrete i64 param, in:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn test_lambda_assigned_to_annotated_slot_threads_hint() {
+        // Assignment position previously skipped the hint, so reassigning a
+        // lambda to an already-annotated function-typed variable was
+        // rejected with "declare a type" — which the user had declared.
+        compile_or_code(
+            "بسم_الله\nدالة رئيسية() {\nمتغير ف: (عدد) -> عدد = (س) => س + 1؛\nف = (س) => س * 10؛\nاطبع(ف(3))؛\n}\nالحمد_لله",
+        )
+        .expect("a lambda assigned to an annotated slot must compile natively");
+    }
+
+    #[test]
+    fn test_non_unifiable_mixed_returns_give_a_tarqeem_diagnostic() {
+        // Semantic analysis folds mixed return types to `أي` on purpose and
+        // the interpreter dispatches dynamically, but native code needs one
+        // ABI — the user must get a Tarqeem error, not a leaked clang one.
+        assert_eq!(
+            compile_or_code(
+                "بسم_الله\nدالة رئيسية() {\nثابت ف = (س: عدد) => { إذا (س > 0) { أرجع \"نص\" } أرجع 1 }؛\nاطبع(ف(5))؛\n}\nالحمد_لله"
+            )
+            .unwrap_err()
+            .as_deref(),
+            Some(ERR_UNTYPED_LAMBDA_PARAM.to_string().as_str())
+        );
     }
 }

@@ -180,6 +180,36 @@ impl Type {
             | (Type::String, ">", Type::String)
             | (Type::String, ">=", Type::String) => Some(Type::Bool),
 
+            // Untyped lambda/function params resolve to `أي` (LANGUAGE_SPEC
+            // §8.3); without these arms, spec-legal code like `(أ، ب) => أ + ب`
+            // could never type-check its own body. Deliberately narrow: the
+            // *other* operand must be something the operator could plausibly
+            // accept, so `أي` stays an escape hatch for unknown-but-valid
+            // values instead of switching off arithmetic checking wholesale
+            // (e.g. `س ** "نص"` must still be rejected).
+            (Type::Any, "+", other) | (other, "+", Type::Any)
+                if matches!(
+                    other,
+                    Type::Int | Type::Float | Type::String | Type::Bool | Type::Any
+                ) =>
+            {
+                Some(Type::Any)
+            }
+
+            (Type::Any, "-" | "*" | "/" | "%" | "**", other)
+            | (other, "-" | "*" | "/" | "%" | "**", Type::Any)
+                if matches!(other, Type::Int | Type::Float | Type::Any) =>
+            {
+                Some(Type::Any)
+            }
+
+            (Type::Any, "<" | "<=" | ">" | ">=", other)
+            | (other, "<" | "<=" | ">" | ">=", Type::Any)
+                if matches!(other, Type::Int | Type::Float | Type::String | Type::Any) =>
+            {
+                Some(Type::Bool)
+            }
+
             (a, "==", b) | (a, "!=", b) if a.is_compatible_with(b) => Some(Type::Bool),
 
             (Type::Bool, "&&", Type::Bool) | (Type::Bool, "||", Type::Bool) => Some(Type::Bool),

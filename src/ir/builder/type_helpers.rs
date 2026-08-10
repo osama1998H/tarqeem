@@ -3,7 +3,9 @@
 //! This module provides utilities for converting AST types to IR types
 //! and inferring expression types.
 
-use crate::parser::{BinaryOp as AstBinaryOp, Expr, ExprKind, Literal, TypeAnnotation, TypeKind};
+use crate::parser::{
+    BinaryOp as AstBinaryOp, Expr, ExprKind, Literal, Param, TypeAnnotation, TypeKind,
+};
 
 use super::super::{ClassId, Constant, IrType};
 use super::IrBuilder;
@@ -20,7 +22,14 @@ impl IrBuilder {
                 return_type,
             } => IrType::Function {
                 params: params.iter().map(|p| self.convert_type(p)).collect(),
-                ret: Box::new(self.convert_type(return_type)),
+                // Bare `()` (no return type) lowers to Void — the same
+                // idiom `build_func_decl` uses for `دالة` with no `-> نوع`.
+                ret: Box::new(
+                    return_type
+                        .as_ref()
+                        .map(|t| self.convert_type(t))
+                        .unwrap_or(IrType::Void),
+                ),
             },
             TypeKind::Generic { base, args } => match base.as_str() {
                 "مصفوفة" | "array" | "Array" => {
@@ -142,6 +151,12 @@ impl IrBuilder {
             Constant::Bool(_) => IrType::Bool,
             Constant::String(_) => IrType::String,
             Constant::Null => IrType::Ptr(Box::new(IrType::Void)),
+            // A function value is never itself the result of const-folding
+            // another expression (this function evaluates compile-time
+            // constant *expressions*, and `Constant::Function` is only ever
+            // produced directly by `build_lambda`/`build_identifier`), so
+            // this arm exists purely for exhaustiveness.
+            Constant::Function(_) => IrType::Ptr(Box::new(IrType::Void)),
         }
     }
 
@@ -258,6 +273,16 @@ impl IrBuilder {
             }
             ExprKind::Call { callee, .. } => {
                 if let ExprKind::Identifier(name) = &callee.kind {
+                    // A call *through a function value* (a lambda or a named
+                    // function held in a variable) returns that signature's
+                    // `ret`, not the global function table's entry — there is
+                    // no declared function of this name to look up. Missing
+                    // this leaves the result slot typed `Ptr(Void)`, so a
+                    // later `اطبع` natively emits `trq_print(ptr %x)` on what
+                    // is really an integer and dereferences it.
+                    if let Some(IrType::Function { ret, .. }) = self.callee_value_type(name) {
+                        return (*ret).clone();
+                    }
                     self.get_function_return_type(name)
                 } else if let ExprKind::Member { object, property } = &callee.kind {
                     if let Some(class) = self.class_name_receiver(object) {
@@ -313,6 +338,43 @@ impl IrBuilder {
             }
             _ => IrType::Ptr(Box::new(IrType::Void)),
         }
+    }
+
+    pub(crate) fn untyped_param_reason(param_name: &str) -> String {
+        format!(
+            "المعامل '{}' بدون نوع محدد (النوع 'أي' لا يكفي للترجمة الأصلية)",
+            param_name
+        )
+    }
+
+    /// Names of `params` that never resolved to a concrete type, so native
+    /// codegen cannot pick an ABI for them: unannotated (and not covered by
+    /// a contextual `hint`), or explicitly annotated `أي`. The interpreter is
+    /// dynamically typed and unaffected — this only gates `tarqeem compile`.
+    pub(crate) fn unlowerable_param_names(
+        &self,
+        params: &[Param],
+        hint_params: &[IrType],
+    ) -> Vec<String> {
+        params
+            .iter()
+            .enumerate()
+            .filter(|(i, p)| match &p.ty {
+                None => hint_params.get(*i).is_none(),
+                Some(ann) => matches!(&ann.kind, TypeKind::Simple(n) if n == "أي" || n == "اي"),
+            })
+            .map(|(_, p)| p.name.clone())
+            .collect()
+    }
+
+    /// The recorded type of `name` when it is a local or global *variable*
+    /// holding a value (as opposed to a declared function). Used to tell a
+    /// call through a function value apart from a direct call.
+    pub(crate) fn callee_value_type(&self, name: &str) -> Option<IrType> {
+        if let Some(ptr) = self.lookup_var(name) {
+            return self.var_types.get(&ptr.0).cloned();
+        }
+        self.global_var_types.get(name).cloned()
     }
 
     /// Get the return type of a function by name.

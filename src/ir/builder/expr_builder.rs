@@ -138,12 +138,31 @@ impl IrBuilder {
 
             Ok(dest)
         } else if self.function_names.contains(name) {
+            // A bare reference to a declared function's name used as a
+            // value (e.g. `ثابت ف = مربع؛`) — mirrors build_lambda's
+            // Constant::Function so a named function is just as usable as a
+            // lambda via CallIndirect (issue #180).
+            let params = self
+                .function_param_types
+                .get(name)
+                .cloned()
+                .unwrap_or_default();
+            let ret = self
+                .function_return_types
+                .get(name)
+                .cloned()
+                .unwrap_or(IrType::Void);
+            let fn_ty = IrType::Function {
+                params,
+                ret: Box::new(ret),
+            };
             let dest = self.new_var();
             self.emit(Instruction::Const {
                 dest,
-                value: Constant::Null, // Will be replaced with actual function pointer in codegen
-                ty: IrType::Ptr(Box::new(IrType::Void)),
+                value: Constant::Function(name.to_string()),
+                ty: fn_ty.clone(),
             });
+            self.var_types.insert(dest.0, fn_ty);
             Ok(dest)
         } else if let Some((const_val, const_ty)) = self.global_constants.get(name).cloned() {
             let dest = self.new_var();
@@ -438,10 +457,23 @@ impl IrBuilder {
             return self.build_super_constructor_call(args);
         }
 
-        let arg_vars: Vec<VarId> = args
-            .iter()
-            .map(|a| self.build_expr(a))
-            .collect::<Result<Vec<_>>>()?;
+        // Callee parameter types, resolved *before* the arguments are
+        // built, so a lambda literal passed as an argument picks up its
+        // param types from the callee's signature — the same contextual
+        // inference the semantic layer performs via `expected_type`.
+        // Without this, `طبق((س) => س * ٢، ٥)` lifts the lambda with
+        // untyped (`Ptr(Void)`) params and native compilation rejects
+        // spec-legal code with ت٠٣٠١.
+        let expected_params: Option<Vec<IrType>> = match &callee.kind {
+            ExprKind::Identifier(name) => self.callee_param_types(name),
+            _ => None,
+        };
+
+        let arg_vars = self.build_call_args(args, expected_params.as_deref())?;
+        let arg_vars = match expected_params.as_deref() {
+            Some(params) => self.coerce_args_to_params(arg_vars, params),
+            None => arg_vars,
+        };
 
         if let ExprKind::Identifier(name) = &callee.kind {
             if name == "اطبع" {
@@ -483,6 +515,43 @@ impl IrBuilder {
                         .unwrap_or(IrType::Int);
                     return self.convert_to_string(*arg_var, &arg_ty);
                 }
+            }
+
+            // `name` may be a local/global variable holding a function
+            // value (a lambda, or a named function used as a value) rather
+            // than a directly-callable declared function — dispatch through
+            // CallIndirect in that case (issue #180). An untyped local still
+            // counts as a function value as long as no *declared* function
+            // of the same name exists, preserving today's behavior when a
+            // local merely shadows an unrelated function name.
+            let local_var = self.lookup_var(name);
+            let local_ty = local_var.and_then(|v| self.var_types.get(&v.0).cloned());
+            let is_callable_value = if local_var.is_some() {
+                matches!(local_ty, Some(IrType::Function { .. }))
+                    || !self.function_names.contains(name)
+            } else if self.global_variables.contains(name) {
+                let global_ty = self.global_var_types.get(name).cloned();
+                matches!(global_ty, Some(IrType::Function { .. }))
+                    || !self.function_names.contains(name)
+            } else {
+                false
+            };
+
+            if is_callable_value {
+                let callee_var = self.build_identifier(name)?;
+                let ret_ty = match self.var_types.get(&callee_var.0) {
+                    Some(IrType::Function { ret, .. }) => (**ret).clone(),
+                    _ => IrType::Ptr(Box::new(IrType::Void)),
+                };
+                let dest = self.new_var();
+                self.emit(Instruction::CallIndirect {
+                    dest: Some(dest),
+                    func_ptr: callee_var,
+                    args: arg_vars,
+                    ret_ty: ret_ty.clone(),
+                });
+                self.var_types.insert(dest.0, ret_ty);
+                return Ok(dest);
             }
 
             let ret_ty = self.get_function_return_type(name);
@@ -609,7 +678,13 @@ impl IrBuilder {
         }
 
         let callee_var = self.build_expr(callee)?;
-        let ret_ty = IrType::Ptr(Box::new(IrType::Void));
+        let (arg_vars, ret_ty) = match self.var_types.get(&callee_var.0).cloned() {
+            Some(IrType::Function { params, ret }) => (
+                self.coerce_args_to_params(arg_vars, &params),
+                (*ret).clone(),
+            ),
+            _ => (arg_vars, IrType::Ptr(Box::new(IrType::Void))),
+        };
         let dest = self.new_var();
         self.emit(Instruction::CallIndirect {
             dest: Some(dest),
@@ -619,6 +694,76 @@ impl IrBuilder {
         });
         self.var_types.insert(dest.0, ret_ty);
         Ok(dest)
+    }
+
+    /// The callee's parameter types when statically known — from a
+    /// function-typed local/global variable (indirect call) or a declared
+    /// function's collected signature (direct call). `None` when the callee
+    /// has no recoverable signature (builtins, untyped values).
+    fn callee_param_types(&self, name: &str) -> Option<Vec<IrType>> {
+        if let Some(v) = self.lookup_var(name) {
+            return match self.var_types.get(&v.0) {
+                Some(IrType::Function { params, .. }) => Some(params.clone()),
+                // An untyped local shadowing a declared function name still
+                // dispatches to the declared function (see build_call's
+                // shadowing rule), so its signature applies.
+                _ if self.function_names.contains(name) => {
+                    self.function_param_types.get(name).cloned()
+                }
+                _ => None,
+            };
+        }
+        if let Some(IrType::Function { params, .. }) = self.global_var_types.get(name) {
+            return Some(params.clone());
+        }
+        self.function_param_types.get(name).cloned()
+    }
+
+    /// Builds call arguments, threading the callee's parameter type as a
+    /// hint into any bare lambda literal argument (mirrors what
+    /// `build_init_expr` does for annotated variable declarations).
+    fn build_call_args(
+        &mut self,
+        args: &[Expr],
+        expected: Option<&[IrType]>,
+    ) -> Result<Vec<VarId>> {
+        args.iter()
+            .enumerate()
+            .map(|(i, a)| {
+                if let ExprKind::Lambda { params, body } = &a.kind {
+                    if let Some(hint @ IrType::Function { .. }) = expected.and_then(|e| e.get(i)) {
+                        return self.build_lambda_with_hint(params, body, Some(hint));
+                    }
+                }
+                self.build_expr(a)
+            })
+            .collect()
+    }
+
+    /// Implicit عدد → عدد_عشري coercion (spec §5.6) at call arguments:
+    /// passing an integer where the callee's signature expects a float must
+    /// go through `IntToFloat`, or native codegen emits a call whose raw
+    /// i64 bit pattern the callee reinterprets as a double.
+    fn coerce_args_to_params(&mut self, arg_vars: Vec<VarId>, params: &[IrType]) -> Vec<VarId> {
+        arg_vars
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| {
+                if params.get(i) == Some(&IrType::Float)
+                    && self.var_types.get(&v.0) == Some(&IrType::Int)
+                {
+                    let coerced = self.new_var();
+                    self.emit(Instruction::IntToFloat {
+                        dest: coerced,
+                        src: v,
+                    });
+                    self.var_types.insert(coerced.0, IrType::Float);
+                    coerced
+                } else {
+                    v
+                }
+            })
+            .collect()
     }
 
     /// Build IR for a member access.
@@ -749,7 +894,21 @@ impl IrBuilder {
 
     /// Build IR for an assignment expression.
     pub(crate) fn build_assignment(&mut self, target: &Expr, value: &Expr) -> Result<VarId> {
-        let value_var = self.build_expr(value)?;
+        // Assigning a bare lambda to an already-annotated function-typed
+        // slot must thread that slot's signature in as a hint, exactly as a
+        // declaration does — otherwise the lambda lifts with untyped params
+        // and native codegen rejects code whose type the user *did* declare.
+        let value_var = match (&target.kind, &value.kind) {
+            (ExprKind::Identifier(name), ExprKind::Lambda { params, body }) => {
+                let slot_ty = self.callee_value_type(name);
+                if matches!(slot_ty, Some(IrType::Function { .. })) {
+                    self.build_lambda_with_hint(params, body, slot_ty.as_ref())?
+                } else {
+                    self.build_expr(value)?
+                }
+            }
+            _ => self.build_expr(value)?,
+        };
 
         match &target.kind {
             ExprKind::Identifier(name) => {
@@ -1019,11 +1178,50 @@ impl IrBuilder {
         Ok(dest)
     }
 
-    /// Build IR for a lambda expression.
+    /// Build IR for a lambda expression with no type hint from context.
     pub(crate) fn build_lambda(&mut self, params: &[Param], body: &LambdaBody) -> Result<VarId> {
+        self.build_lambda_with_hint(params, body, None)
+    }
+
+    /// Build IR for a lambda expression, optionally hinted by a declared
+    /// function type from context (e.g. `ثابت ف: (عدد) -> عدد = (س) => ...`).
+    /// The hint fills in a concrete type for any unannotated parameter that
+    /// would otherwise default to `Ptr(Void)`.
+    ///
+    /// Lifts the body into a real module-level function (`__lambda_N`) and
+    /// leaves behind a `Constant::Function` value referencing it by name —
+    /// the missing piece that made lambdas type-check but never execute
+    /// (issue #180).
+    pub(crate) fn build_lambda_with_hint(
+        &mut self,
+        params: &[Param],
+        body: &LambdaBody,
+        hint: Option<&IrType>,
+    ) -> Result<VarId> {
         use super::super::Parameter;
 
-        let lambda_name = format!("__lambda_{}", self.var_counter);
+        let hint_params: &[IrType] = match hint {
+            Some(IrType::Function { params, .. }) => params.as_slice(),
+            _ => &[],
+        };
+
+        let lambda_name = format!("__lambda_{}", self.lambda_counter);
+        self.lambda_counter += 1;
+
+        // Defense in depth: the module-scoped counter above should make a
+        // collision unreachable, but a user program can't otherwise declare
+        // a function named `__lambda_N`, so this is a one-line guard rather
+        // than a real expected path.
+        if self
+            .module
+            .get_function(&FuncId(lambda_name.clone()))
+            .is_some()
+        {
+            return Err(IrError::new(format!(
+                "الدالة الداخلية '{}' معرّفة مسبقاً",
+                lambda_name
+            )));
+        }
 
         let ir_params: Vec<Parameter> = params
             .iter()
@@ -1032,6 +1230,7 @@ impl IrBuilder {
                 let ty =
                     p.ty.as_ref()
                         .map(|t| self.convert_type(t))
+                        .or_else(|| hint_params.get(i).cloned())
                         .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                 Parameter {
                     id: VarId(i as u32),
@@ -1040,53 +1239,282 @@ impl IrBuilder {
                 }
             })
             .collect();
+        let real_param_tys: Vec<IrType> = ir_params.iter().map(|p| p.ty.clone()).collect();
 
+        // `begin_function` mutates `current_function`, `current_block`,
+        // `var_counter`, `block_counter`, and clears `variables`/
+        // `parameters` — all of that must round-trip around a nested lambda
+        // build, or building a lambda mid-function corrupts the enclosing
+        // function's state once it resumes.
         let saved_function = self.current_function.take();
+        let saved_block = self.current_block;
+        let saved_var_counter = self.var_counter;
+        let saved_block_counter = self.block_counter;
         let saved_variables = self.variables.clone();
+        let saved_parameters = std::mem::take(&mut self.parameters);
+        // `var_types` is keyed by a raw VarId (u32) that resets to the
+        // lambda's own param count inside `begin_function` — without
+        // cloning and restoring this, VarIds reused inside the lambda body
+        // silently overwrite the enclosing function's type entries for the
+        // same numeric id. It is also *emptied* below, so the lambda cannot
+        // read the enclosing frame's leftover entry for a colliding id and
+        // mistype its own value.
+        let saved_var_types = std::mem::take(&mut self.var_types);
+        // `loop_stack` holds BlockIds that get aliased once `block_counter`
+        // resets for the lambda; isolate it completely so `أوقف`/`استمر`
+        // inside the lambda (or resumed in the outer function afterward)
+        // can never jump to the wrong block.
+        let saved_loop_stack = std::mem::take(&mut self.loop_stack);
 
+        let unlowerable = self.unlowerable_param_names(params, hint_params);
         self.begin_function(
             lambda_name.clone(),
             ir_params,
-            IrType::Ptr(Box::new(IrType::Void)),
+            IrType::Ptr(Box::new(IrType::Void)), // provisional; patched below
         )?;
+        if let Some(name) = unlowerable.first() {
+            self.block_native_lowering(Self::untyped_param_reason(name));
+        }
 
-        match body {
+        // Read whatever the lambda's own build produces (return type) from
+        // its own var_types/current_function *before* the outer state below
+        // is restored.
+        let real_ret_ty = match body {
             LambdaBody::Expr(expr) => {
-                let result = self.build_expr(expr)?;
-                self.emit(Instruction::Return {
-                    value: Some(result),
-                });
+                // A curried lambda (`(أ) => (ب) => ...`, spec §5.3) must pass
+                // the outer hint's *return* signature down, or the inner
+                // lambda's params stay untyped and native codegen rejects the
+                // very syntax the annotation spelled out.
+                let inner_hint = match (&expr.kind, hint) {
+                    (ExprKind::Lambda { .. }, Some(IrType::Function { ret, .. }))
+                        if matches!(**ret, IrType::Function { .. }) =>
+                    {
+                        Some((**ret).clone())
+                    }
+                    _ => None,
+                };
+                let result = match (&expr.kind, &inner_hint) {
+                    (ExprKind::Lambda { params, body }, Some(h)) => {
+                        self.build_lambda_with_hint(params, body, Some(h))?
+                    }
+                    _ => self.build_expr(expr)?,
+                };
+                let ret_ty = self
+                    .var_types
+                    .get(&result.0)
+                    .cloned()
+                    .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+                // A Void-valued body (`(س) => اطبع(س)` — an idiomatic
+                // callback) has no value to return: `ret void %v` is invalid
+                // LLVM, and a void `Call` never even names a dest for `%v`
+                // to refer to.
+                if ret_ty == IrType::Void {
+                    self.emit(Instruction::Return { value: None });
+                } else {
+                    self.emit(Instruction::Return {
+                        value: Some(result),
+                    });
+                }
+                ret_ty
             }
             LambdaBody::Block(block) => {
                 for stmt in &block.statements {
                     self.build_stmt(stmt)?;
                 }
-                if let Some(ref func) = self.current_function {
-                    if let Some(blk) = func.blocks.last() {
-                        if !blk.has_terminator() {
-                            self.emit(Instruction::Return { value: None });
-                        }
+
+                // Scan ALL returns, not just the first: semantic analysis
+                // accepts mixed bare/valued and عدد/عدد_عشري returns (folded
+                // to أي), so the lifted function must be patched to one
+                // consistent return type or native codegen emits invalid
+                // LLVM IR (`ret void` inside `define i64`, or `ret i64` of
+                // a double).
+                let valued: Vec<IrType> = self
+                    .current_function
+                    .as_ref()
+                    .map(|func| {
+                        func.blocks
+                            .iter()
+                            .flat_map(|b| &b.instructions)
+                            .filter_map(|inst| match inst {
+                                Instruction::Return { value: Some(v) } => Some(
+                                    self.var_types
+                                        .get(&v.0)
+                                        .cloned()
+                                        .unwrap_or(IrType::Ptr(Box::new(IrType::Void))),
+                                ),
+                                _ => None,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let ret_ty = if valued.is_empty() {
+                    IrType::Void
+                } else if valued.iter().all(|t| *t == valued[0]) {
+                    valued[0].clone()
+                } else if valued
+                    .iter()
+                    .all(|t| matches!(t, IrType::Int | IrType::Float))
+                {
+                    // Mixed عدد/عدد_عشري returns widen to عدد_عشري
+                    // (spec §5.6's implicit coercion, applied per-return in
+                    // the patch pass below).
+                    IrType::Float
+                } else {
+                    // Non-unifiable mix (e.g. `أرجع "نص"` and `أرجع ١` in one
+                    // lambda) — semantic analysis folds this to `أي` and the
+                    // interpreter dispatches on runtime values, but native
+                    // code needs one concrete ABI. Keep the first type so the
+                    // IR stays well-formed for the interpreter, and block
+                    // native lowering so the user gets a Tarqeem diagnostic
+                    // instead of a leaked clang type error.
+                    self.block_native_lowering(
+                        "قيم الإرجاع في الدالة السهمية ذات أنواع غير متوافقة".to_string(),
+                    );
+                    valued[0].clone()
+                };
+
+                if ret_ty != IrType::Void {
+                    self.patch_block_lambda_returns(&ret_ty);
+                }
+
+                let needs_terminator = self
+                    .current_function
+                    .as_ref()
+                    .and_then(|func| func.blocks.last())
+                    .map(|blk| !blk.has_terminator())
+                    .unwrap_or(false);
+
+                if needs_terminator {
+                    if ret_ty == IrType::Void {
+                        self.emit(Instruction::Return { value: None });
+                    } else {
+                        // Defensive default: semantic analysis is expected to
+                        // guarantee every path returns whenever a non-void
+                        // return type was inferred, so this should be
+                        // unreachable for valid programs — it exists only to
+                        // avoid an ill-typed `ret void` inside a non-void
+                        // function if it ever is.
+                        let dest = self.new_var();
+                        let zero = match &ret_ty {
+                            IrType::Float => Constant::Float(0.0),
+                            IrType::Bool => Constant::Bool(false),
+                            IrType::Int => Constant::Int(0),
+                            _ => Constant::Null,
+                        };
+                        self.emit(Instruction::Const {
+                            dest,
+                            value: zero,
+                            ty: ret_ty.clone(),
+                        });
+                        self.var_types.insert(dest.0, ret_ty.clone());
+                        self.emit(Instruction::Return { value: Some(dest) });
                     }
                 }
+
+                ret_ty
             }
+        };
+
+        if let Some(ref mut func) = self.current_function {
+            func.return_type = real_ret_ty.clone();
         }
 
         self.end_function()?;
 
         self.current_function = saved_function;
+        self.current_block = saved_block;
+        self.var_counter = saved_var_counter;
+        self.block_counter = saved_block_counter;
         self.variables = saved_variables;
+        self.parameters = saved_parameters;
+        self.var_types = saved_var_types;
+        self.loop_stack = saved_loop_stack;
+
+        self.function_param_types
+            .insert(lambda_name.clone(), real_param_tys.clone());
+        self.function_return_types
+            .insert(lambda_name.clone(), real_ret_ty.clone());
+
+        let fn_ty = IrType::Function {
+            params: real_param_tys,
+            ret: Box::new(real_ret_ty),
+        };
 
         let dest = self.new_var();
         self.emit(Instruction::Const {
             dest,
-            value: Constant::Null, // Will be replaced with function pointer
-            ty: IrType::Function {
-                params: vec![],
-                ret: Box::new(IrType::Void),
-            },
+            value: Constant::Function(lambda_name),
+            ty: fn_ty.clone(),
         });
+        self.var_types.insert(dest.0, fn_ty);
 
         Ok(dest)
+    }
+
+    /// Rewrites every `أرجع` in the (still-current) lifted lambda to match
+    /// the unified non-void return type: bare `Return {None}` becomes a
+    /// zero-of-type return, and an `Int`-valued return in a `Float`-typed
+    /// lambda gains an `IntToFloat` (spec §5.6). Without this, mixed
+    /// returns — legal early-return code the semantic layer folds to أي —
+    /// lower to invalid LLVM IR (`ret void` inside `define i64`).
+    fn patch_block_lambda_returns(&mut self, ret_ty: &IrType) {
+        // Plan first (immutable scan), then apply — each patch allocates a
+        // fresh VarId, which needs `&mut self`.
+        let mut plan: Vec<(usize, usize, Option<VarId>)> = Vec::new();
+        let Some(func) = self.current_function.as_ref() else {
+            return;
+        };
+        for (bi, blk) in func.blocks.iter().enumerate() {
+            for (ii, inst) in blk.instructions.iter().enumerate() {
+                match inst {
+                    Instruction::Return { value: None } => plan.push((bi, ii, None)),
+                    Instruction::Return { value: Some(v) }
+                        if *ret_ty == IrType::Float
+                            && self.var_types.get(&v.0) == Some(&IrType::Int) =>
+                    {
+                        plan.push((bi, ii, Some(*v)));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Reverse order keeps earlier indices valid while each patch
+        // replaces one instruction with two.
+        for (bi, ii, src) in plan.into_iter().rev() {
+            let dest = self.new_var();
+            let (replacement, dest_ty) = match src {
+                None => {
+                    let zero = match ret_ty {
+                        IrType::Float => Constant::Float(0.0),
+                        IrType::Bool => Constant::Bool(false),
+                        IrType::Int => Constant::Int(0),
+                        _ => Constant::Null,
+                    };
+                    (
+                        vec![
+                            Instruction::Const {
+                                dest,
+                                value: zero,
+                                ty: ret_ty.clone(),
+                            },
+                            Instruction::Return { value: Some(dest) },
+                        ],
+                        ret_ty.clone(),
+                    )
+                }
+                Some(v) => (
+                    vec![
+                        Instruction::IntToFloat { dest, src: v },
+                        Instruction::Return { value: Some(dest) },
+                    ],
+                    IrType::Float,
+                ),
+            };
+            self.var_types.insert(dest.0, dest_ty);
+            if let Some(func) = self.current_function.as_mut() {
+                func.blocks[bi].instructions.splice(ii..=ii, replacement);
+            }
+        }
     }
 
     /// Build IR for a new object instantiation.

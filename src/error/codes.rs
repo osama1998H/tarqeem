@@ -281,6 +281,9 @@ pub const ERR_THIS_OUTSIDE_CLASS: ErrorCode = ErrorCode::new(ErrorCategory::Dala
 /// د٠٣٠٥: استخدام 'الأصل' خارج صنف
 pub const ERR_SUPER_OUTSIDE_CLASS: ErrorCode = ErrorCode::new(ErrorCategory::Dalala, 305);
 
+/// د٠٣٠٦: التقاط متغير خارجي داخل دالة سهمية
+pub const ERR_LAMBDA_CAPTURE: ErrorCode = ErrorCode::new(ErrorCategory::Dalala, 306);
+
 // ============================================================================
 // رموز أخطاء الأنواع (ن) - Type Error Codes
 // ============================================================================
@@ -358,6 +361,23 @@ pub const ERR_LINKING_FAILED: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed,
 /// Entry point mode conflict: Cannot have both top-level executable code (Script mode)
 /// and دالة رئيسية() (Program mode) in the same file.
 pub const ERR_ENTRY_POINT_CONFLICT: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 201);
+
+/// ت٠٣٠١: معامل دالة سهمية بدون نوع في الترجمة الأصلية
+/// Native codegen cannot lower an arrow-function parameter that never
+/// resolved to a concrete type (no annotation, no inferable hint) — the
+/// interpreter handles this fine dynamically, but native mode needs a real
+/// LLVM type. Restricted to `tarqeem compile`/native; `tarqeem run` is
+/// unaffected (see issue #180).
+pub const ERR_UNTYPED_LAMBDA_PARAM: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 301);
+
+/// ت٠٣٠٢: استدعاء قيمة دالة بدون توقيع معروف في الترجمة الأصلية
+/// A native indirect call's LLVM signature comes entirely from static
+/// types; calling a function value whose static type isn't a function
+/// signature (e.g. one reaching the call through an `أي`-typed slot) would
+/// emit an ABI-mismatched `call` that silently corrupts data. The
+/// interpreter dispatches on runtime values and is unaffected; only
+/// `tarqeem compile`/native rejects this (see issue #180).
+pub const ERR_UNTYPED_INDIRECT_CALL: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 302);
 
 // ============================================================================
 // رموز التحذيرات (ح) - Warning Codes

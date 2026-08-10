@@ -230,7 +230,15 @@ impl Analyzer {
                 return_type,
             } => Type::Function {
                 params: params.iter().map(|p| self.resolve_type(p)).collect(),
-                return_type: Box::new(self.resolve_type(return_type)),
+                // Bare `()` (no return type) resolves to Void — the same
+                // idiom `func_signature_types` uses for a `دالة` with no
+                // `-> نوع`.
+                return_type: Box::new(
+                    return_type
+                        .as_ref()
+                        .map(|t| self.resolve_type(t))
+                        .unwrap_or(Type::Void),
+                ),
             },
             TypeKind::Generic { base, args } => match base.as_str() {
                 "مصفوفة" | "array" | "Array" => {
@@ -268,6 +276,32 @@ impl Analyzer {
     pub(crate) fn push_function_scope(&mut self, return_type: Type) {
         let old_scope = std::mem::replace(&mut self.scope, Scope::new_global());
         self.scope = Scope::new_function(old_scope, return_type);
+    }
+
+    /// Push a lambda scope with return type. Mirrors `push_function_scope`,
+    /// but tags the scope `ScopeKind::Lambda` (see `Scope::new_lambda`) so
+    /// capture detection and return-type inference (issue #180) can tell an
+    /// arrow lambda's body apart from a declared function's.
+    pub(crate) fn push_lambda_scope(&mut self, return_type: Type) {
+        let old_scope = std::mem::replace(&mut self.scope, Scope::new_global());
+        self.scope = Scope::new_lambda(old_scope, return_type);
+    }
+
+    /// Runs `f` with `self.expected_type` temporarily set to `expected`,
+    /// restoring whatever was there before on return. Unlike a raw
+    /// assign-then-reset-to-`None`, this composes correctly when `f` itself
+    /// reads or sets `expected_type` (e.g. a lambda argument whose own body
+    /// contains a nested array/map literal or lambda that must not inherit
+    /// the outer expectation — see `infer_lambda_expr`).
+    pub(crate) fn with_expected<R>(
+        &mut self,
+        expected: Option<Type>,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let saved = std::mem::replace(&mut self.expected_type, expected);
+        let out = f(self);
+        self.expected_type = saved;
+        out
     }
 
     /// Pop the current scope.
@@ -644,7 +678,12 @@ pub fn resolve_type_annotation(type_ann: &TypeAnnotation) -> Type {
             return_type,
         } => Type::Function {
             params: params.iter().map(resolve_type_annotation).collect(),
-            return_type: Box::new(resolve_type_annotation(return_type)),
+            return_type: Box::new(
+                return_type
+                    .as_ref()
+                    .map(|t| resolve_type_annotation(t))
+                    .unwrap_or(Type::Void),
+            ),
         },
         TypeKind::Generic { base, args } => match base.as_str() {
             "مصفوفة" | "array" | "Array" => {

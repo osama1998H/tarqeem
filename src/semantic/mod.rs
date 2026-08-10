@@ -30,4 +30,4 @@ pub use generics::{GenericContext, GenericResolver};
 pub use method_resolver::{MemberResolution, MethodCallResolution, MethodResolver};
 pub use modules::{ExportKind, ExportedSymbol, LoadedModule, ModuleId, ModuleLoader};
 pub use scope::{Scope, Symbol, SymbolKind};
-pub use types::Type;
+pub use types::{parse_type_name, Type};
