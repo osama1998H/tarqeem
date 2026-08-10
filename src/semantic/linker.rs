@@ -24,6 +24,12 @@ use super::scope::normalize_name;
 /// (the REPL and in-memory callers analyze source with no file behind it).
 const MAIN_FILE_LABEL: &str = "<الملف الرئيسي>";
 
+/// The name `IrBuilder::build` (`src/ir/builder/mod.rs`) reads as the
+/// Program-mode entry point. Matched byte-for-byte the way it is there — the
+/// merge must drop exactly what would flip `has_user_main`, and nothing else.
+/// The two cannot share a constant: `ir` sits after `semantic` in the pipeline.
+const ENTRY_POINT_NAME: &str = "رئيسية";
+
 /// What the merge does with one top-level statement of an imported module.
 enum Disposition<'a> {
     /// Kept, already unwrapped out of any `صدّر`.
@@ -32,6 +38,8 @@ enum Disposition<'a> {
     Drop,
     /// Executable code at a module's top level. Dropped, and warned about.
     DropExecutable,
+    /// A module's own `دالة رئيسية()`. Dropped, and warned about.
+    DropEntryPoint,
 }
 
 /// Build a single `Ast` containing every loaded module's declarations followed
@@ -78,6 +86,7 @@ pub fn link_program(
             .unwrap_or_else(Span::default);
 
         let mut dropped_executables = 0usize;
+        let mut dropped_entry_point = false;
 
         for stmt in &module.ast.statements {
             match disposition(stmt) {
@@ -95,7 +104,24 @@ pub fn link_program(
                 }
                 Disposition::Drop => {}
                 Disposition::DropExecutable => dropped_executables += 1,
+                Disposition::DropEntryPoint => dropped_entry_point = true,
             }
+        }
+
+        if dropped_entry_point {
+            warnings.push(Diagnostic::warning(
+                format!(
+                    "تم تجاهل دالة 'رئيسية' الخاصة بالوحدة '{}'؛ نقطة دخول الوحدة \
+                     لا معنى لها بعد الدمج، ونقطة دخول البرنامج هي نقطة دخول الملف \
+                     الرئيسي وحده. / \
+                     Ignored module '{}'s own 'رئيسية'; a module's entry point is \
+                     meaningless once merged — the program's entry point is the \
+                     main file's alone.",
+                    module.path.display(),
+                    module.path.display()
+                ),
+                collision_span,
+            ));
         }
 
         if dropped_executables > 0 {
@@ -165,26 +191,36 @@ fn main_import_spans(
 }
 
 fn disposition(stmt: &Stmt) -> Disposition<'_> {
-    match &stmt.kind {
+    // Unwrapped first so the merged list is uniform bare declarations — every
+    // IR pass then sees the same shape regardless of which file a declaration
+    // came from — and so that `صدّر دالة رئيسية()` is judged by what it
+    // declares, not by the `صدّر` around it.
+    let decl = unwrap_exported_decl(stmt);
+
+    match &decl.kind {
+        // A library that also runs standalone declares its own entry point.
+        // Carrying it would flip `has_user_main` for the merged AST and make
+        // the IR builder reject a perfectly valid script-mode main with ت٠٢٠١,
+        // naming two constructs that are not even in the same file.
+        StmtKind::FuncDecl { name, .. } if name == ENTRY_POINT_NAME => Disposition::DropEntryPoint,
+
         StmtKind::FuncDecl { .. }
         | StmtKind::ClassDecl { .. }
         | StmtKind::InterfaceDecl { .. }
         | StmtKind::EnumDecl { .. }
-        | StmtKind::VarDecl { .. } => Disposition::Carry(stmt),
-
-        // Unwrapped so the merged list is uniform bare declarations; every IR
-        // pass then sees the same shape regardless of which file a declaration
-        // came from.
-        StmtKind::Export(ExportItems::Declaration(inner)) => Disposition::Carry(inner.as_ref()),
+        | StmtKind::VarDecl { .. } => Disposition::Carry(decl),
 
         StmtKind::Import { .. } | StmtKind::Export(..) => Disposition::Drop,
 
         // A strict no-regression: module top-level code has never run, because
         // imports were always dropped at IR. Running it now would need a
-        // module-initialization ordering model. Dropping it also keeps
-        // `has_top_level_executable` answering the same for the merged AST as
-        // for main alone — otherwise one stray statement in a library would
-        // flip a Program-mode main into ت٠٢٠١.
+        // module-initialization ordering model.
+        //
+        // Dropping it — like dropping the entry point above — also keeps the
+        // IR builder's two entry-point predicates answering the same for the
+        // merged AST as for main alone: `has_top_level_executable` here,
+        // `has_user_main` there. Either one flipped by an imported file turns a
+        // valid main into ت٠٢٠١.
         _ => Disposition::DropExecutable,
     }
 }
@@ -376,6 +412,65 @@ mod tests {
             "warning must name the module: {}",
             warnings[0].message
         );
+    }
+
+    // A library that also runs standalone keeps its own رئيسية. Carrying it
+    // flipped `has_user_main` for the merged AST, and a script-mode main then
+    // died with ت٠٢٠١ over a دالة رئيسية it never wrote.
+    #[test]
+    fn test_module_entry_point_is_dropped_with_warning() {
+        for module_body in [
+            "صدّر دالة ضاعف(س: عدد) -> عدد { أرجع س * 2 }\nدالة رئيسية() { اطبع(\"وحدة\") }",
+            "صدّر دالة ضاعف(س: عدد) -> عدد { أرجع س * 2 }\nصدّر دالة رئيسية() { اطبع(\"وحدة\") }",
+        ] {
+            let dir = TempDir::new().unwrap();
+            let lib = create_module(dir.path(), "أدوات.ترقيم", module_body);
+            let loader = loader_with(&[&lib]);
+
+            let main = parse_main("استورد { ضاعف } من \"./أدوات\"\nاطبع(ضاعف(21))");
+            let mut warnings = Vec::new();
+            let linked = link_program(&main, &loader, None, &mut warnings).unwrap();
+
+            assert_eq!(
+                names(&linked),
+                vec!["ضاعف"],
+                "the module's رئيسية must not reach the merged AST: {}",
+                module_body
+            );
+            assert_eq!(
+                warnings.len(),
+                1,
+                "expected one warning, got {:?}",
+                warnings
+            );
+            assert!(
+                warnings[0].message.contains("رئيسية")
+                    && warnings[0].message.contains("أدوات.ترقيم"),
+                "the warning must name both the entry point and its module: {}",
+                warnings[0].message
+            );
+        }
+    }
+
+    // The drop happens before the name is claimed, so main keeps its own
+    // رئيسية instead of colliding with the module's.
+    #[test]
+    fn test_module_entry_point_does_not_collide_with_main_entry_point() {
+        let dir = TempDir::new().unwrap();
+        let lib = create_module(
+            dir.path(),
+            "أدوات.ترقيم",
+            "صدّر دالة ضاعف(س: عدد) -> عدد { أرجع س * 2 }\nدالة رئيسية() { اطبع(\"وحدة\") }",
+        );
+        let loader = loader_with(&[&lib]);
+
+        let main_path = dir.path().join("رئيسي.ترقيم");
+        let main = parse_main("استورد { ضاعف } من \"./أدوات\"\nدالة رئيسية() { اطبع(ضاعف(21)) }");
+        let mut warnings = Vec::new();
+        let linked = link_program(&main, &loader, Some(&main_path), &mut warnings)
+            .expect("a module's own entry point must not collide with main's");
+
+        assert_eq!(names(&linked), vec!["ضاعف", "رئيسية"]);
     }
 
     #[test]

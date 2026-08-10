@@ -114,18 +114,54 @@ impl IrBuilder {
         Ok(dest)
     }
 
+    /// Does a real declaration — a local, a global or a function — already
+    /// claim `name`?
+    ///
+    /// Import naming (a wildcard namespace or a named-import alias) is
+    /// compile-time-only sugar layered over the AST the linker merged, so any
+    /// such declaration in the importing file must win over it. Guarding on
+    /// locals alone let `استورد { ضاعف كـ اضعف }` silently hijack a `دالة
+    /// اضعف` declared in the importing file — no diagnostic, just the wrong
+    /// function called.
+    fn is_declared_name(&self, name: &str) -> bool {
+        self.lookup_var(name).is_some()
+            || self.global_variables.contains(name)
+            || self.function_names.contains(name)
+    }
+
     /// Is `expr` a bare identifier naming a wildcard-import namespace
-    /// (`استورد * كـ رياض`)? A local, global or function of the same name
-    /// shadows it, mirroring the precedence `class_name_receiver` already
-    /// applies to `ClassName.member`.
+    /// (`استورد * كـ رياض`)? A declaration of the same name shadows it,
+    /// mirroring the precedence `class_name_receiver` already applies to
+    /// `ClassName.member`.
     fn is_namespace_receiver(&self, expr: &Expr) -> bool {
         let ExprKind::Identifier(name) = &expr.kind else {
             return false;
         };
-        self.lookup_var(name).is_none()
-            && !self.global_variables.contains(name)
-            && !self.function_names.contains(name)
-            && self.namespace_aliases.contains(name)
+        !self.is_declared_name(name) && self.namespace_aliases.contains(name)
+    }
+
+    /// The bare name a named-import alias redirects to (`اضعف` → `ضاعف`), or
+    /// `None` when `name` is not an alias or a declaration of its own shadows
+    /// it.
+    fn alias_target(&self, name: &str) -> Option<String> {
+        if self.is_declared_name(name) {
+            return None;
+        }
+        self.import_aliases.get(name).cloned()
+    }
+
+    /// The class a `جديد <name>` refers to. `استورد { نقطة كـ إحداثية }` merges
+    /// the class under `نقطة`, so the alias has to reach it; a class of the
+    /// alias's own name shadows the import.
+    ///
+    /// Both the instantiation site and `infer_expr_type` must agree, or the
+    /// object is allocated as one struct and its fields read through another —
+    /// which codegen emits as a `getelementptr` on an undefined LLVM type.
+    pub(super) fn resolve_class_name(&self, name: &str) -> String {
+        if self.class_names.contains(name) {
+            return name.to_string();
+        }
+        self.alias_target(name).unwrap_or_else(|| name.to_string())
     }
 
     /// Rewrites a reference that names an import binding to the bare name the
@@ -142,9 +178,7 @@ impl IrBuilder {
             ExprKind::Member { object, property } if self.is_namespace_receiver(object) => {
                 property.clone()
             }
-            ExprKind::Identifier(name) if self.lookup_var(name).is_none() => {
-                self.import_aliases.get(name).cloned()?
-            }
+            ExprKind::Identifier(name) => self.alias_target(name)?,
             _ => return None,
         };
         Some(Expr::new(ExprKind::Identifier(resolved), expr.span))
@@ -154,13 +188,9 @@ impl IrBuilder {
     pub(crate) fn build_identifier(&mut self, name: &str) -> Result<VarId> {
         // An aliased named import declares nothing of its own: `استورد
         // { ضاعف كـ اضعف }` leaves the body merged under `ضاعف`, so the alias
-        // has to reach it. A local binding of the same name still shadows the
+        // has to reach it. A declaration of the same name still shadows the
         // import, matching the semantic analyzer's scoping.
-        let alias_target = if self.lookup_var(name).is_none() {
-            self.import_aliases.get(name).cloned()
-        } else {
-            None
-        };
+        let alias_target = self.alias_target(name);
         let name = alias_target.as_deref().unwrap_or(name);
 
         if let Some(var_id) = self.lookup_var(name) {
@@ -405,6 +435,12 @@ impl IrBuilder {
         is_increment: bool,
         is_prefix: bool,
     ) -> Result<VarId> {
+        // `ع++` on an import binding names the merged declaration, exactly as
+        // `ع = ع + ١` and `ع += ١` already do — without this rewrite the alias
+        // reached the read-modify-write path unresolved and failed there.
+        let resolved_operand = self.resolve_import_ref(operand);
+        let operand = resolved_operand.as_ref().unwrap_or(operand);
+
         let name = match &operand.kind {
             ExprKind::Identifier(name) => name.clone(),
             _ => return Err(IrError::new("الزيادة/النقصان تتطلب متغيراً")),
@@ -1315,30 +1351,7 @@ impl IrBuilder {
             .collect();
         let real_param_tys: Vec<IrType> = ir_params.iter().map(|p| p.ty.clone()).collect();
 
-        // `begin_function` mutates `current_function`, `current_block`,
-        // `var_counter`, `block_counter`, and clears `variables`/
-        // `parameters` — all of that must round-trip around a nested lambda
-        // build, or building a lambda mid-function corrupts the enclosing
-        // function's state once it resumes.
-        let saved_function = self.current_function.take();
-        let saved_block = self.current_block;
-        let saved_var_counter = self.var_counter;
-        let saved_block_counter = self.block_counter;
-        let saved_variables = self.variables.clone();
-        let saved_parameters = std::mem::take(&mut self.parameters);
-        // `var_types` is keyed by a raw VarId (u32) that resets to the
-        // lambda's own param count inside `begin_function` — without
-        // cloning and restoring this, VarIds reused inside the lambda body
-        // silently overwrite the enclosing function's type entries for the
-        // same numeric id. It is also *emptied* below, so the lambda cannot
-        // read the enclosing frame's leftover entry for a colliding id and
-        // mistype its own value.
-        let saved_var_types = std::mem::take(&mut self.var_types);
-        // `loop_stack` holds BlockIds that get aliased once `block_counter`
-        // resets for the lambda; isolate it completely so `أوقف`/`استمر`
-        // inside the lambda (or resumed in the outer function afterward)
-        // can never jump to the wrong block.
-        let saved_loop_stack = std::mem::take(&mut self.loop_stack);
+        let saved = self.suspend_function_context();
 
         let unlowerable = self.unlowerable_param_names(params, hint_params);
         self.begin_function(
@@ -1495,14 +1508,7 @@ impl IrBuilder {
 
         self.end_function()?;
 
-        self.current_function = saved_function;
-        self.current_block = saved_block;
-        self.var_counter = saved_var_counter;
-        self.block_counter = saved_block_counter;
-        self.variables = saved_variables;
-        self.parameters = saved_parameters;
-        self.var_types = saved_var_types;
-        self.loop_stack = saved_loop_stack;
+        self.resume_function_context(saved);
 
         self.function_param_types
             .insert(lambda_name.clone(), real_param_tys.clone());
@@ -1594,7 +1600,7 @@ impl IrBuilder {
     /// Build IR for a new object instantiation.
     pub(crate) fn build_new(&mut self, class: &Expr, args: &[Expr]) -> Result<VarId> {
         let class_name = if let ExprKind::Identifier(name) = &class.kind {
-            name.clone()
+            self.resolve_class_name(name)
         } else {
             "__dynamic__".to_string()
         };

@@ -153,7 +153,7 @@ impl Analyzer {
         let module_spans = self.preload_imported_modules(ast);
 
         // First pass: register all types (classes and interfaces)
-        self.register_module_types(&module_spans);
+        let module_type_spans = self.register_module_types(&module_spans);
         for stmt in &ast.statements {
             self.register_types(stmt);
         }
@@ -179,9 +179,23 @@ impl Analyzer {
         // Build vtables for method dispatch
         self.class_resolver.build_vtables();
 
-        // Validate class hierarchy
+        // Validate class hierarchy.
+        //
+        // A module's classes are registered — `جديد نقطة()` on an imported
+        // class needs them — but their hierarchy violations are not the user's
+        // to fix and cannot even be shown: every one is anchored to main's
+        // `استورد` (or to nothing at all, for a transitively loaded module), so
+        // it renders against a line of main that has nothing to do with it.
+        // Reporting them made a single `استورد { قائمة } من "مجموعات"` fail
+        // every program that imported the stdlib collections. A violation
+        // involving a *main* class — including one inheriting from a module
+        // class — is anchored to that class and still reported.
         if let Err(diags) = self.class_resolver.validate() {
-            self.diagnostics.extend(diags);
+            self.diagnostics.extend(
+                diags
+                    .into_iter()
+                    .filter(|diagnostic| !module_type_spans.contains(&diagnostic.span)),
+            );
         }
 
         // Third pass: analyze statements
@@ -252,6 +266,7 @@ impl Analyzer {
             .collect();
 
         let mut spans = HashMap::new();
+        let circular = ERR_CIRCULAR_DEPENDENCY.to_string();
 
         for (from, span) in imports {
             // Stdlib names resolve against a builtin table and are never read
@@ -264,30 +279,42 @@ impl Analyzer {
                 continue;
             };
 
-            if self.module_loader.load_module(&path, span).is_ok() {
+            let loaded = self.module_loader.load_module(&path, span).is_ok();
+
+            // Drained per import, because who reported what is only knowable
+            // here: this batch is everything one direct import produced.
+            let reported = self.module_loader.take_diagnostics();
+
+            if loaded {
                 spans.entry(path).or_insert(span);
+
+                // The direct module is fine, so every diagnostic in the batch
+                // came from something it pulled in. Nothing re-reports those:
+                // `analyze_import` reloads the direct specifier in the third
+                // pass and finds it cached, which never revisits its
+                // dependencies. Dropping them let a project with a broken
+                // transitive module pass `check` with "No errors found!" and
+                // then fail at run time with a misleading undefined-function
+                // error.
+                self.diagnostics.extend(reported);
+            } else {
+                // The direct module itself failed, and `load_module_internal`
+                // gives up before loading any dependency — so the batch is its
+                // own failure alone. It is absent from the cache, so
+                // `analyze_import` retries in the third pass and reports the
+                // same failure there; keeping this copy would report it twice.
+                //
+                // A cycle is the exception: it is detected by a *nested* load,
+                // and every module on it still lands in the cache, so the third
+                // pass finds them present and never re-reports. Dropping it
+                // here too let `أ` ⇄ `ب` compile and run silently (issue #182).
+                self.diagnostics.extend(
+                    reported
+                        .into_iter()
+                        .filter(|diagnostic| diagnostic.code.as_deref() == Some(circular.as_str())),
+                );
             }
         }
-
-        // `analyze_import` resolves and loads every specifier again in the
-        // third pass, and is the one place that reports a load failure to the
-        // user. A module that failed here is absent from the cache, so that
-        // retry reproduces the diagnostic — keeping this copy as well would
-        // report each broken module twice.
-        //
-        // A circular dependency is the exception: the cycle is detected by a
-        // *nested* load, and every module on the cycle still lands in the
-        // cache, so the third pass finds them all present and never re-reports
-        // it. Dropping it here too let `أ` ⇄ `ب` compile and run silently
-        // (issue #182). Keep و٠٣٠١ and discard the rest.
-        let circular = ERR_CIRCULAR_DEPENDENCY.to_string();
-        let cycles: Vec<Diagnostic> = self
-            .module_loader
-            .take_diagnostics()
-            .into_iter()
-            .filter(|diagnostic| diagnostic.code.as_deref() == Some(circular.as_str()))
-            .collect();
-        self.diagnostics.extend(cycles);
 
         spans
     }
@@ -300,8 +327,14 @@ impl Analyzer {
     /// a span inside the module: `Span` carries no file identity and
     /// `Diagnostic::emit` renders every span against the main file's source
     /// (the rule `link_program` documents).
-    fn register_module_types(&mut self, module_spans: &HashMap<PathBuf, Span>) {
+    ///
+    /// Returns exactly those anchor spans, which is what lets `analyze` tell a
+    /// module class's hierarchy diagnostic from a main class's. A `Vec` rather
+    /// than a set because `Span` is not `Hash`, and a program imports few
+    /// enough modules for the scan to be free.
+    fn register_module_types(&mut self, module_spans: &HashMap<PathBuf, Span>) -> Vec<Span> {
         let main_path = self.main_module_path();
+        let mut anchors = Vec::new();
 
         for module in self.module_loader.modules_in_load_order() {
             if main_path.as_deref() == Some(module.path.as_path()) {
@@ -313,6 +346,8 @@ impl Analyzer {
                 .get(&module.path)
                 .copied()
                 .unwrap_or_else(Span::default);
+
+            let mut registered_here = false;
 
             for stmt in &module.ast.statements {
                 match &unwrap_exported_decl(stmt).kind {
@@ -330,14 +365,22 @@ impl Analyzer {
                             implements,
                             span,
                         );
+                        registered_here = true;
                     }
                     StmtKind::InterfaceDecl { name, .. } => {
                         self.class_resolver.register_interface(name, &[], span);
+                        registered_here = true;
                     }
                     _ => {}
                 }
             }
+
+            if registered_here {
+                anchors.push(span);
+            }
         }
+
+        anchors
     }
 
     /// Second-pass counterpart of `register_module_types`. Split for the same
@@ -1722,6 +1765,86 @@ mod tests {
         assert_eq!(
             about_module, 1,
             "one diagnostic per broken module, got {:?}",
+            diagnostics
+        );
+    }
+
+    // A failure inside a *transitively* imported module has nobody to
+    // re-report it: the third pass reloads main's own specifiers only, and
+    // finds them cached. Dropping it here let `check` announce "No errors
+    // found!" for a project that then died at run time on a function whose
+    // module never parsed.
+    #[test]
+    fn test_failing_transitive_module_is_reported() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[
+                ("ج.ترقيم", "صدّر دالة ثلاثة() -> عدد { أرجع ((( }"),
+                (
+                    "ب.ترقيم",
+                    "استورد { ثلاثة } من \"./ج\"\n\
+                     صدّر دالة ضاعف(س: عدد) -> عدد { أرجع س * 2 }",
+                ),
+            ],
+            "استورد { ضاعف } من \"./ب\"\nاطبع(ضاعف(21))",
+        );
+
+        let diagnostics =
+            result.expect_err("a broken transitive module must fail the whole program");
+        let about_broken = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("ج.ترقيم"))
+            .count();
+
+        assert_eq!(
+            about_broken, 1,
+            "the transitive failure must be reported exactly once, got {:?}",
+            diagnostics
+        );
+    }
+
+    // Registering a module's classes also fed them to `ClassResolver::validate`,
+    // so any hierarchy violation inside a library failed the importing program —
+    // `استورد { قائمة } من "مجموعات"` alone was enough. The classes must stay
+    // registered, since `جديد` on an imported class needs them.
+    #[test]
+    fn test_module_class_violation_does_not_fail_main() {
+        let (analyzer, result, _dir) = analyze_project(
+            &[(
+                "أشكال.ترقيم",
+                "ميثاق مرسوم {\n دالة ارسم() -> نص\n}\n\
+                 صدّر صنف مربع يلتزم مرسوم {\n عام دالة ارسم() -> عدد { أرجع 1 }\n}",
+            )],
+            "استورد { مربع } من \"./أشكال\"\nمتغير م = جديد مربع()\nاطبع(\"مرحبا\")",
+        );
+
+        assert!(
+            result.is_ok(),
+            "a violation the user cannot see or fix must not fail their program: {:?}",
+            result
+        );
+        assert!(
+            analyzer.class_resolver().get_class("مربع").is_some(),
+            "the module class must still be registered"
+        );
+    }
+
+    // The other half of the same filter: a violation by a class the user did
+    // write is anchored to that class, so it survives.
+    #[test]
+    fn test_main_class_violation_against_imported_interface_is_reported() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[("أشكال.ترقيم", "صدّر ميثاق مرسوم {\n دالة ارسم() -> نص\n}")],
+            "استورد { مرسوم } من \"./أشكال\"\n\
+             صنف مربع يلتزم مرسوم {\n عام دالة ارسم() -> عدد { أرجع 1 }\n}\n\
+             اطبع(\"مرحبا\")",
+        );
+
+        let diagnostics = result.expect_err("a main-file class must still be validated");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message.contains("مربع") && d.message.contains("ارسم")),
+            "expected the override violation, got {:?}",
             diagnostics
         );
     }

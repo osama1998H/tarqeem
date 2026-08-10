@@ -2,8 +2,11 @@
 //!
 //! This module handles type inference and semantic analysis of expressions.
 
+use std::path::PathBuf;
+
 use super::super::generics::GenericParam;
 use super::super::method_resolver::{MemberResolution, MethodResolver};
+use super::super::modules::ExportKind;
 use super::super::scope::{Scope, ScopeKind, Symbol, SymbolKind};
 use super::super::types::Type;
 use super::Analyzer;
@@ -38,7 +41,12 @@ impl Analyzer {
                 self.scope.mark_used(name);
                 self.check_no_capture(name, expr.span);
                 if let Some(symbol) = self.scope.lookup(name) {
-                    symbol.ty.clone()
+                    let ty = symbol.ty.clone();
+                    if matches!(ty, Type::Module(_)) {
+                        self.namespace_as_value_error(name, expr.span);
+                        return Type::Error;
+                    }
+                    ty
                 } else {
                     let similar_names = self.find_similar_names(name, 3);
                     self.undefined_error(
@@ -61,7 +69,7 @@ impl Analyzer {
             ExprKind::Call { callee, args } => self.infer_call_expr(callee, args, expr.span),
 
             ExprKind::Member { object, property } => {
-                let object_type = self.infer_type(object);
+                let object_type = self.infer_receiver_type(object);
                 let receiver_is_class = self.receiver_is_class_name(object);
                 self.resolve_member_type(&object_type, property, expr.span, receiver_is_class)
             }
@@ -354,7 +362,13 @@ impl Analyzer {
                     );
                 }
             }
-            ExprKind::Member { object, .. } | ExprKind::Index { object, .. } => {
+            ExprKind::Member { object, property } => {
+                let object_type = self.infer_receiver_type(object);
+                if let Type::Module(specifier) = &object_type {
+                    self.check_module_member_assignable(specifier, property, target.span);
+                }
+            }
+            ExprKind::Index { object, .. } => {
                 self.infer_type(object);
             }
             _ => {
@@ -363,6 +377,62 @@ impl Analyzer {
         }
 
         value_type
+    }
+
+    /// Reject `اسم_الوحدة.ثابت = قيمة`.
+    ///
+    /// The linker merges a module's `صدّر ثابت` into the program as a global
+    /// constant, so the IR builder const-folds every read of it while still
+    /// emitting the store: the assignment became a silent no-op that printed
+    /// the old value and exited 0. `check` agreed it was fine. A const
+    /// assignment through a named import (`استورد { الحد }`) already failed
+    /// here — the symbol carries `mutable: false` — so only the wildcard form
+    /// escaped, because its members live in the module's export table rather
+    /// than in scope.
+    fn check_module_member_assignable(&mut self, specifier: &str, property: &str, span: Span) {
+        let is_constant = match self.module_constant(specifier, property) {
+            Some(is_constant) => is_constant,
+            // Nothing to say about a member that does not exist. A target that
+            // is also read is already reported by `resolve_module_member`; one
+            // that is only written to is not reported at all, which is the
+            // pre-existing state of every assignment target here — a hole to
+            // close on its own terms, not by guessing at it from const-ness.
+            None => return,
+        };
+
+        if is_constant {
+            self.error_with_code(
+                &format!("لا يمكن تعيين قيمة لمتغير ثابت '{}'", property),
+                span,
+                &ERR_CONST_ASSIGNMENT.to_string(),
+            );
+        }
+    }
+
+    /// Was `specifier.property` exported as `ثابت`? `None` when the export
+    /// cannot be found at all.
+    fn module_constant(&self, specifier: &str, property: &str) -> Option<bool> {
+        // A stdlib specifier is never read from disk; its members come from the
+        // builtin table, which carries the same mutability flag.
+        if Scope::get_stdlib_modules().contains(&specifier) {
+            return Scope::get_stdlib_builtin(specifier, property).map(|symbol| !symbol.mutable);
+        }
+
+        // The same `current_file` fallback `preload_imported_modules` and
+        // `analyze_import` use — all three must resolve a specifier to the very
+        // same file, or this would consult a different copy of the module.
+        let current_file = self
+            .current_file
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
+        let path = self.module_loader.resolve_path(&current_file, specifier)?;
+        let exported = self
+            .module_loader
+            .get_module(&path)?
+            .exports
+            .get(property)?;
+
+        Some(matches!(exported.kind, ExportKind::Constant(_)))
     }
 
     /// Infer array expression type.
@@ -556,7 +626,7 @@ impl Analyzer {
         span: Span,
     ) -> Type {
         let class_name = match &class.kind {
-            ExprKind::Identifier(name) => name.clone(),
+            ExprKind::Identifier(name) => self.resolve_class_alias(name),
             _ => {
                 self.error("تعبير جديد يتطلب اسم صنف", class.span);
                 return Type::Error;
@@ -809,6 +879,71 @@ impl Analyzer {
         }
     }
 
+    /// The class-hierarchy name `اسم` denotes in `جديد اسم(...)`.
+    ///
+    /// Usually `اسم` itself. `استورد { نقطة كـ إحداثية }` is the exception: the
+    /// module's class is registered under `نقطة`, the name it was declared
+    /// with, while the alias exists only as a scope symbol typed
+    /// `Type::Class("نقطة")` — so `جديد إحداثية()` was rejected as an unknown
+    /// class (د٠٠٠٣) while the byte-identical program without `كـ` compiled.
+    ///
+    /// Redirecting at lookup rather than registering a second class under the
+    /// alias is deliberate: imports are analyzed in the third pass, after
+    /// members are attached and vtables built, so a class registered here would
+    /// be an empty shell and `جديد إحداثية(7)` would fail for having no
+    /// constructor instead. It also mirrors how the IR builder resolves an
+    /// aliased import — one hop to the name the linker merged the body under.
+    fn resolve_class_alias(&self, name: &str) -> String {
+        if self.class_resolver.get_class(name).is_some() {
+            return name.to_string();
+        }
+
+        match self.scope.lookup(name) {
+            Some(Symbol {
+                kind: SymbolKind::Import,
+                ty: Type::Class(original),
+                ..
+            }) => original.clone(),
+            _ => name.to_string(),
+        }
+    }
+
+    /// Type of `object` in `object.عضو` position.
+    ///
+    /// Identical to `infer_type` except that an alias bound by `استورد * كـ`
+    /// keeps its `Type::Module`. That type denotes a compile-time qualifier,
+    /// never a value: the IR builder records the alias in `namespace_aliases`
+    /// and emits nothing for it, so anywhere else it would type-check here and
+    /// then abort the build with `معرّف غير معرّف`. Member access is the one
+    /// position where it is meaningful, so it is the one position that admits
+    /// it — `infer_type` rejects it everywhere else.
+    fn infer_receiver_type(&mut self, object: &Expr) -> Type {
+        if let ExprKind::Identifier(name) = &object.kind {
+            let module_type = self
+                .scope
+                .lookup(name)
+                .map(|symbol| symbol.ty.clone())
+                .filter(|ty| matches!(ty, Type::Module(_)));
+            if let Some(ty) = module_type {
+                self.scope.mark_used(name);
+                return ty;
+            }
+        }
+        self.infer_type(object)
+    }
+
+    fn namespace_as_value_error(&mut self, name: &str, span: Span) {
+        self.error(
+            &format!(
+                "'{}' اسم وحدة لا قيمة؛ لا يصلح إلا مؤهِّلاً لعضو ({}.عضو) / \
+                 '{}' names a module, not a value; it is only valid as a member \
+                 qualifier ({}.member)",
+                name, name, name, name
+            ),
+            span,
+        );
+    }
+
     /// Resolve member type from an object.
     /// Is `object` a bare identifier naming a declared class (`اسم_الصنف.عضو`
     /// form), as opposed to an instance? Used to reject `ClassName.member`
@@ -1006,5 +1141,189 @@ impl Analyzer {
                 false
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::codes::ERR_CONST_ASSIGNMENT;
+    use crate::error::Diagnostic;
+    use crate::parser::Parser;
+    use tempfile::TempDir;
+
+    /// Analyze `main` as a file on disk alongside `modules`, so a relative
+    /// `استورد` resolves the way it does for a real program.
+    ///
+    /// A near-twin of `analyzer::tests::analyze_project`, which is private to
+    /// that file's test module; these cases all concern expression analysis and
+    /// belong next to the code they cover.
+    ///
+    /// The `TempDir` travels back in the tuple because dropping it deletes the
+    /// fixtures; a caller that discards it would race its own analysis.
+    fn analyze_project(
+        modules: &[(&str, &str)],
+        main: &str,
+    ) -> (Result<(), Vec<Diagnostic>>, TempDir) {
+        let dir = TempDir::new().unwrap();
+
+        let wrap = |body: &str| format!("بسم_الله\n{}\nالحمد_لله", body.trim());
+
+        for (name, body) in modules {
+            std::fs::write(dir.path().join(name), wrap(body)).unwrap();
+        }
+
+        let source = wrap(main);
+        let main_path = dir.path().join("رئيسي.ترقيم");
+        std::fs::write(&main_path, &source).unwrap();
+
+        let ast = Parser::new(&source).parse().expect("main must parse");
+        let mut analyzer = Analyzer::for_file(main_path);
+        let result = analyzer.analyze(&ast);
+
+        (result, dir)
+    }
+
+    fn errors(result: &Result<(), Vec<Diagnostic>>) -> Vec<String> {
+        match result {
+            Ok(()) => Vec::new(),
+            Err(diagnostics) => diagnostics.iter().map(|d| d.message.clone()).collect(),
+        }
+    }
+
+    const CONSTANT_MODULE: (&str, &str) = ("م.ترقيم", "صدّر ثابت الحد = 7");
+    const FUNCTION_MODULE: (&str, &str) = (
+        "أدوات.ترقيم",
+        "صدّر دالة جمع(أ: عدد، ب: عدد) -> عدد {\n أرجع أ + ب\n}",
+    );
+    const CLASS_MODULE: (&str, &str) = (
+        "أشكال.ترقيم",
+        "صدّر صنف نقطة {\n عام س: عدد\n منشئ(س: عدد) { هذا.س = س }\n}",
+    );
+
+    /// Assigning through a wildcard alias used to type-check, and then be
+    /// discarded: the store reached the merged global while every read was
+    /// const-folded, so the program printed the old value and exited 0.
+    #[test]
+    fn test_assigning_to_an_imported_constant_through_a_namespace_is_rejected() {
+        let (result, _dir) = analyze_project(
+            &[CONSTANT_MODULE],
+            "استورد * كـ ث من \"./م\"\nاطبع(ث.الحد)\nث.الحد = 99",
+        );
+
+        let messages = errors(&result);
+        assert!(
+            messages.iter().any(|m| m.contains("ثابت")),
+            "expected a const-assignment error, got {:?}",
+            messages
+        );
+        let codes = match &result {
+            Err(diagnostics) => diagnostics
+                .iter()
+                .filter_map(|d| d.code.clone())
+                .collect::<Vec<_>>(),
+            Ok(()) => Vec::new(),
+        };
+        assert!(
+            codes.contains(&ERR_CONST_ASSIGNMENT.to_string()),
+            "expected {} , got codes {:?}",
+            ERR_CONST_ASSIGNMENT,
+            codes
+        );
+    }
+
+    /// The mutable counterpart must keep working — the rejection is about
+    /// const-ness, not about assigning through a namespace at all.
+    #[test]
+    fn test_assigning_to_an_imported_variable_through_a_namespace_is_allowed() {
+        let (result, _dir) = analyze_project(
+            &[("م.ترقيم", "صدّر متغير عداد = 0")],
+            "استورد * كـ ث من \"./م\"\nث.عداد = 99\nاطبع(ث.عداد)",
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected no errors, got {:?}",
+            errors(&result)
+        );
+    }
+
+    /// A namespace alias names no value: the IR builder records it as a
+    /// qualifier and emits nothing for it, so using it as one passed `check`
+    /// and then aborted the build with `معرّف غير معرّف`.
+    #[test]
+    fn test_namespace_alias_used_as_a_value_is_rejected() {
+        let (result, _dir) = analyze_project(
+            &[FUNCTION_MODULE],
+            "استورد * كـ أدوات من \"./أدوات\"\nمتغير مرجع = أدوات",
+        );
+
+        let messages = errors(&result);
+        assert!(
+            messages.iter().any(|m| m.contains("اسم وحدة لا قيمة")),
+            "expected a namespace-as-value error, got {:?}",
+            messages
+        );
+    }
+
+    #[test]
+    fn test_namespace_alias_passed_as_an_argument_is_rejected() {
+        let (result, _dir) = analyze_project(
+            &[FUNCTION_MODULE],
+            "استورد * كـ أدوات من \"./أدوات\"\nاطبع(أدوات)",
+        );
+
+        let messages = errors(&result);
+        assert!(
+            messages.iter().any(|m| m.contains("اسم وحدة لا قيمة")),
+            "expected a namespace-as-value error, got {:?}",
+            messages
+        );
+    }
+
+    /// The receiver position stays legal — that is the whole point of the type.
+    #[test]
+    fn test_namespace_alias_as_a_member_receiver_still_resolves() {
+        let (result, _dir) = analyze_project(
+            &[FUNCTION_MODULE],
+            "استورد * كـ أدوات من \"./أدوات\"\nمتغير س: عدد = أدوات.جمع(2، 3)",
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected no errors, got {:?}",
+            errors(&result)
+        );
+    }
+
+    /// `جديد إحداثية()` used to fail with د٠٠٠٣ while the byte-identical
+    /// program without `كـ` compiled: the alias binds to `Type::Class(نقطة)`
+    /// but nothing registers the module's class under the alias name.
+    #[test]
+    fn test_aliased_imported_class_can_be_constructed() {
+        let (result, _dir) = analyze_project(
+            &[CLASS_MODULE],
+            "استورد { نقطة كـ إحداثية } من \"./أشكال\"\nمتغير ن = جديد إحداثية(7)\nاطبع(ن.س)",
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected no errors, got {:?}",
+            errors(&result)
+        );
+    }
+
+    /// The redirect must not invent classes: a name that is neither a class nor
+    /// a class-typed import is still an unknown class.
+    #[test]
+    fn test_unknown_class_name_is_still_rejected() {
+        let (result, _dir) = analyze_project(&[CLASS_MODULE], "متغير ن = جديد لا_وجود_له(7)");
+
+        let messages = errors(&result);
+        assert!(
+            messages.iter().any(|m| m.contains("صنف غير معروف")),
+            "expected an unknown-class error, got {:?}",
+            messages
+        );
     }
 }
