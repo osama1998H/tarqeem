@@ -16,11 +16,29 @@ use super::Parser;
 impl Parser {
     /// Parse a declaration (variable, function, class, etc.).
     pub(crate) fn parse_declaration(&mut self) -> Result<Stmt, Diagnostic> {
+        self.parse_declaration_with_doc(None)
+    }
+
+    /// Parse a declaration, optionally carrying a doc comment consumed by a
+    /// caller that has already passed the point where it appeared.
+    ///
+    /// `صدّر` needs this: `parse_declaration` consumes the doc comment before it
+    /// can tell which declaration follows, then recurses through
+    /// `parse_export_statement` — by which point the token is gone and the inner
+    /// declaration used to end up with `doc_comment: None`, silently dropping
+    /// docs on every `صدّر دالة`/`صدّر صنف` (issue #204). Threading the value
+    /// down keeps the AST built once, rather than patching it afterwards.
+    pub(crate) fn parse_declaration_with_doc(
+        &mut self,
+        inherited_doc: Option<String>,
+    ) -> Result<Stmt, Diagnostic> {
         // Collect any line comments before the declaration
         self.collect_line_comments();
         let leading_comments = self.take_pending_comments();
 
-        let doc_comment = self.consume_doc_comment();
+        // An inherited doc comment was written before the outer keyword, so it
+        // wins; only look for one here when the caller had none.
+        let doc_comment = inherited_doc.or_else(|| self.consume_doc_comment());
 
         // Skip newlines after doc comment before the actual declaration
         self.skip_newlines();
@@ -41,7 +59,7 @@ impl Parser {
         } else if self.check(&TokenKind::Import) {
             self.parse_import_statement()?
         } else if self.check(&TokenKind::Export) {
-            self.parse_export_statement()?
+            self.parse_export_statement(doc_comment)?
         } else {
             self.parse_statement()?
         };
@@ -688,7 +706,15 @@ impl Parser {
     /// - `صدّر { name1، name2 }` - Named exports
     /// - `صدّر { name1، name2 } من "module"` - Named re-exports
     /// - `صدّر * من "module"` - Wildcard re-export
-    pub(crate) fn parse_export_statement(&mut self) -> Result<Stmt, Diagnostic> {
+    ///
+    /// `doc_comment` is the doc comment `parse_declaration` already consumed
+    /// before it knew a `صدّر` followed; it belongs to the exported declaration
+    /// (issue #204). `ExportItems::Named`/`Wildcard`/`NamedReexport` have no
+    /// field to hold it, so a doc comment on those forms is still dropped.
+    pub(crate) fn parse_export_statement(
+        &mut self,
+        doc_comment: Option<String>,
+    ) -> Result<Stmt, Diagnostic> {
         let start = self.current_span();
         self.advance(); // consume 'export' (صدّر)
 
@@ -727,7 +753,7 @@ impl Parser {
             }
         } else {
             // صدّر دالة/صنف/ثابت... - Declaration export
-            let stmt = self.parse_declaration()?;
+            let stmt = self.parse_declaration_with_doc(doc_comment)?;
             ExportItems::Declaration(Box::new(stmt))
         };
 

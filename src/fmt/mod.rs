@@ -32,7 +32,21 @@ pub fn format_source(source: &str, config: &FormatConfig) -> Result<String, Form
     })?;
 
     let formatter = Formatter::new(config.clone());
-    Ok(formatter.format(&ast))
+    let formatted = formatter.format(&ast);
+
+    // Refuse to hand back output the compiler cannot read. `fmt -w` overwrites
+    // the user's file, so a formatter bug here destroys source (issue #201:
+    // stripped `///` markers turned doc text into bare words). Verifying in
+    // `format_source` rather than the CLI means `--check`, `--diff` and library
+    // callers are all covered. This bounds *unparseable* output only — a
+    // formatter that silently drops a comment still parses fine.
+    if let Err(e) = Parser::new(&formatted).parse() {
+        return Err(FormatError::OutputNotReparsable {
+            message: format!("{:?}", e),
+        });
+    }
+
+    Ok(formatted)
 }
 
 pub fn check_formatted(source: &str, config: &FormatConfig) -> Result<bool, FormatError> {
@@ -79,9 +93,20 @@ pub fn show_diff(source: &str, config: &FormatConfig) -> Result<String, FormatEr
 
 #[derive(Debug, Clone)]
 pub enum FormatError {
-    ParseError { message: String },
-    IoError { message: String },
-    ConfigError { message: String },
+    ParseError {
+        message: String,
+    },
+    IoError {
+        message: String,
+    },
+    ConfigError {
+        message: String,
+    },
+    /// The formatter produced output that no longer parses — always a bug in the
+    /// formatter, never in the user's source, which parsed on the way in.
+    OutputNotReparsable {
+        message: String,
+    },
 }
 
 impl std::fmt::Display for FormatError {
@@ -95,6 +120,16 @@ impl std::fmt::Display for FormatError {
             }
             FormatError::ConfigError { message } => {
                 write!(f, "Config error / خطأ في الإعدادات: {}", message)
+            }
+            FormatError::OutputNotReparsable { message } => {
+                write!(
+                    f,
+                    "Internal formatter bug: formatted output does not re-parse; \
+                     the file was left unchanged / \
+                     خطأ داخلي في المنسق: الناتج المنسق لا يمكن تحليله، \
+                     ولم يُعدَّل الملف: {}",
+                    message
+                )
             }
         }
     }

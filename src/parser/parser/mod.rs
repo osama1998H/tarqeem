@@ -254,15 +254,29 @@ impl Parser {
     }
 
     /// Consume a doc comment if present.
+    ///
+    /// Accepts both `///` and `/** */`. Before this accepted `BlockDocComment`,
+    /// a `/** */` preceding a declaration was left unconsumed and fell through
+    /// to the expression parser as a hard error (`رمز غير متوقع:
+    /// BlockDocComment(..)`) — see issue #201. It is only safe to attach now
+    /// that the formatter re-prefixes `///` on every doc line; attaching it
+    /// while the formatter still stripped markers would have turned that loud
+    /// error into silent corruption.
+    ///
+    /// Only the declaration branches that own a `doc_comment` field consume the
+    /// result, so a doc comment written before a non-declaration statement
+    /// (`إذا`, `طالما`, an expression) is still dropped — pre-existing behaviour
+    /// for `///`, now shared by `/** */`.
     pub(crate) fn consume_doc_comment(&mut self) -> Option<String> {
-        if let TokenKind::DocComment(comment) = &self.peek().kind {
-            let comment = comment.clone();
-            self.advance();
-            // Skip any newlines after doc comment
-            self.skip_newlines();
-            Some(comment)
-        } else {
-            None
+        match &self.peek().kind {
+            TokenKind::DocComment(comment) | TokenKind::BlockDocComment(comment) => {
+                let comment = comment.clone();
+                self.advance();
+                // Skip any newlines after doc comment
+                self.skip_newlines();
+                Some(comment)
+            }
+            _ => None,
         }
     }
 
