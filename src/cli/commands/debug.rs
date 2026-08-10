@@ -52,9 +52,24 @@ pub fn debug(args: DebugArgs, lang: Language) -> Result<(), String> {
         return Err(format!("وُجد {} خطأ/أخطاء", diagnostics.len()));
     }
 
+    // Imported module bodies only reach the debug interpreter through this
+    // merge; the IR builder itself accepts a single Ast and drops `استورد`.
+    let mut link_warnings = Vec::new();
+    let linked = analyzer
+        .linked_ast(&ast, &mut link_warnings)
+        .map_err(|diagnostics| {
+            for diag in &diagnostics {
+                diag.emit(&source, &filename, lang);
+            }
+            format!("وُجد {} خطأ/أخطاء", diagnostics.len())
+        })?;
+    for diag in &link_warnings {
+        diag.emit(&source, &filename, lang);
+    }
+
     let ir_builder = IrBuilder::new(filename.clone());
     let ir_module = ir_builder
-        .build(&ast)
+        .build(&linked)
         .map_err(|e| format!("خطأ بناء التمثيل الوسيط: {}", e.message))?;
 
     if args.dap_stdio || args.dap_port.is_some() {

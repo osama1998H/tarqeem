@@ -14,6 +14,7 @@
 mod analyzer;
 mod class_resolver;
 mod generics;
+mod linker;
 mod method_resolver;
 mod modules;
 mod scope;
@@ -27,6 +28,7 @@ mod types_tests;
 pub use analyzer::Analyzer;
 pub use class_resolver::{ClassInfo, ClassResolver, FieldInfo, InterfaceInfo, MethodInfo};
 pub use generics::{GenericContext, GenericResolver};
+pub use linker::link_program;
 pub use method_resolver::{MemberResolution, MethodCallResolution, MethodResolver};
 pub use modules::{ExportKind, ExportedSymbol, LoadedModule, ModuleId, ModuleLoader};
 pub use scope::{Scope, Symbol, SymbolKind};

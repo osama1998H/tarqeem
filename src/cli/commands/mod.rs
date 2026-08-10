@@ -527,8 +527,27 @@ fn run_command(
         ));
     }
 
+    // Imported module bodies only reach the backends through this merge; the IR
+    // builder itself accepts a single Ast and drops `استورد`.
+    let mut link_warnings = Vec::new();
+    let linked = analyzer
+        .linked_ast(&ast, &mut link_warnings)
+        .map_err(|diagnostics| {
+            for diag in &diagnostics {
+                diag.emit(&source, &filename, lang);
+            }
+            format!(
+                "{} error(s) found / وُجد {} خطأ/أخطاء",
+                diagnostics.len(),
+                diagnostics.len()
+            )
+        })?;
+    for diag in &link_warnings {
+        diag.emit(&source, &filename, lang);
+    }
+
     let ir_builder = IrBuilder::new(filename.clone());
-    let ir_module = ir_builder.build(&ast).map_err(|e| {
+    let ir_module = ir_builder.build(&linked).map_err(|e| {
         format!(
             "IR build error: {} / خطأ بناء التمثيل الوسيط: {}",
             e.message, e.message

@@ -14,6 +14,7 @@ mod stmt_analyzer;
 
 use super::class_resolver::ClassResolver;
 use super::generics::{GenericContext, GenericParam, GenericResolver};
+use super::linker::link_program;
 use super::modules::ModuleLoader;
 use super::scope::{Scope, ScopeKind, SymbolKind};
 use super::types::{parse_type_name, Type};
@@ -90,6 +91,27 @@ impl Analyzer {
     /// Get the exports from this module.
     pub fn exports(&self) -> &HashMap<String, Type> {
         &self.exports
+    }
+
+    /// Fold every module reached by `analyze` into `main`, producing the single
+    /// `Ast` that `IrBuilder::build` accepts.
+    ///
+    /// Must be called *after* `analyze`, which is what populates the module
+    /// cache; on a fresh analyzer this returns a clone of `main`.
+    ///
+    /// `warnings` is an out-parameter because the `Err` arm carries fatal
+    /// collisions only; callers emit the warnings and keep going.
+    pub fn linked_ast(
+        &self,
+        main: &Ast,
+        warnings: &mut Vec<Diagnostic>,
+    ) -> Result<Ast, Vec<Diagnostic>> {
+        link_program(
+            main,
+            &self.module_loader,
+            self.current_file.as_deref(),
+            warnings,
+        )
     }
 
     /// Get the class resolver.
