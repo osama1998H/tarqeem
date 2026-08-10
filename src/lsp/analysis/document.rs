@@ -5,7 +5,9 @@
 use crate::error::codes::ERR_ENTRY_POINT_CONFLICT;
 use crate::error::{Diagnostic, DiagnosticLevel, Language, Span};
 use crate::lexer::{Lexer, Token, TokenKind};
-use crate::parser::{Ast, ClassMember, Parser, StmtKind, TypeAnnotation, TypeKind};
+use crate::parser::{
+    Ast, ClassMember, ExportItems, Parser, Stmt, StmtKind, TypeAnnotation, TypeKind,
+};
 use crate::semantic::{Analyzer, Type};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::Url;
@@ -150,7 +152,13 @@ impl DocumentState {
         };
 
         if let Some(ref ast) = ast {
-            let mut analyzer = Analyzer::new();
+            // Relative imports (`./وحدة`) resolve against the importing file's
+            // directory, so the analyzer needs this document's path. Non-file
+            // URIs (untitled buffers) have no directory to resolve against.
+            let mut analyzer = match self.uri.to_file_path() {
+                Ok(path) => Analyzer::for_file(path),
+                Err(_) => Analyzer::new(),
+            };
 
             self.collect_symbols(ast, &mut symbols);
 
@@ -177,13 +185,26 @@ impl DocumentState {
         }
     }
 
+    /// Unwraps `صدّر <declaration>` to the declaration it exports.
+    ///
+    /// Duplicated from `ir::builder::as_top_level_decl` rather than shared:
+    /// the LSP layer must not reach into the IR layer. Both classifications
+    /// of "top-level executable code" must stay in step, or the editor and
+    /// the compiler disagree about ت٠٢٠١.
+    fn unwrap_exported_decl(stmt: &Stmt) -> &Stmt {
+        match &stmt.kind {
+            StmtKind::Export(ExportItems::Declaration(inner)) => inner,
+            _ => stmt,
+        }
+    }
+
     /// Check for entry point mode conflict (Script mode vs Program mode).
     /// Returns an error diagnostic if both top-level executable statements
     /// AND دالة رئيسية() exist in the same file.
     fn check_entry_point_conflict(&self, ast: &Ast) -> Option<Diagnostic> {
         // Find دالة رئيسية() declaration (Program mode entry point)
         let main_func_span = ast.statements.iter().find_map(|stmt| {
-            if let StmtKind::FuncDecl { name, .. } = &stmt.kind {
+            if let StmtKind::FuncDecl { name, .. } = &Self::unwrap_exported_decl(stmt).kind {
                 if name == "رئيسية" {
                     return Some(stmt.span);
                 }
@@ -196,13 +217,16 @@ impl DocumentState {
         // Everything else is executable code
         let first_executable_span = ast.statements.iter().find_map(|stmt| {
             if !matches!(
-                &stmt.kind,
+                &Self::unwrap_exported_decl(stmt).kind,
                 StmtKind::FuncDecl { .. }
                     | StmtKind::ClassDecl { .. }
                     | StmtKind::InterfaceDecl { .. }
                     | StmtKind::EnumDecl { .. }
                     | StmtKind::VarDecl { .. }
                     | StmtKind::Import { .. }
+                    // Named/wildcard/re-exports survive the unwrapping above;
+                    // all are module metadata, never executable code.
+                    | StmtKind::Export(..)
             ) {
                 return Some(stmt.span);
             }

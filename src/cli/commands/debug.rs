@@ -13,7 +13,7 @@ use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
-use super::{configure_analyzer, warn_invalid_extension};
+use super::{analyzer_file_path, configure_analyzer, warn_invalid_extension};
 
 /// Arguments for the debug command
 pub struct DebugArgs {
@@ -43,7 +43,7 @@ pub fn debug(args: DebugArgs, lang: Language) -> Result<(), String> {
         "خطأ في التحليل".to_string()
     })?;
 
-    let mut analyzer = Analyzer::new();
+    let mut analyzer = Analyzer::for_file(analyzer_file_path(&args.file));
     configure_analyzer(&mut analyzer, args.verbose);
     if let Err(diagnostics) = analyzer.analyze(&ast) {
         for diag in &diagnostics {

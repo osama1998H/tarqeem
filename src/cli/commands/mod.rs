@@ -186,6 +186,17 @@ fn find_stdlib_path() -> Option<PathBuf> {
         .find(|path| path.exists() && path.is_dir())
 }
 
+/// Absolute path to hand `Analyzer::for_file`.
+///
+/// Relative imports resolve against `path.parent()`, which is `""` — not the
+/// file's directory — for a bare `برنامج.ترقيم` argument, so the path must be
+/// made absolute first. Canonicalization can only fail on a file we already
+/// read successfully (races, permissions); the raw path is then no worse than
+/// the pre-existing behaviour of no path at all.
+pub(super) fn analyzer_file_path(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
 pub(super) fn configure_analyzer(analyzer: &mut Analyzer, verbose: bool) {
     if let Some(stdlib_path) = find_stdlib_path() {
         // Arabic-only: ترقيم لغة برمجة عربية
@@ -503,7 +514,7 @@ fn run_command(
         "خطأ في التحليل".to_string()
     })?;
 
-    let mut analyzer = Analyzer::new();
+    let mut analyzer = Analyzer::for_file(analyzer_file_path(&file));
     configure_analyzer(&mut analyzer, verbose);
     if let Err(diagnostics) = analyzer.analyze(&ast) {
         for diag in &diagnostics {
@@ -603,7 +614,7 @@ fn check_command(file: PathBuf, verbose: bool, lang: Language) -> Result<(), Str
         "خطأ في التحليل".to_string()
     })?;
 
-    let mut analyzer = Analyzer::new();
+    let mut analyzer = Analyzer::for_file(analyzer_file_path(&file));
     configure_analyzer(&mut analyzer, verbose);
     if let Err(diagnostics) = analyzer.analyze(&ast) {
         for diag in &diagnostics {
@@ -614,6 +625,14 @@ fn check_command(file: PathBuf, verbose: bool, lang: Language) -> Result<(), Str
             diagnostics.len(),
             diagnostics.len()
         ));
+    }
+
+    // `analyze` returns Ok when only warnings were raised, so a warnings-only
+    // run reported success while silently discarding them — the module
+    // not-found warning in particular was invisible. Warnings still must not
+    // fail `check`.
+    for diag in analyzer.diagnostics() {
+        diag.emit(&source, &filename, lang);
     }
 
     println!(
@@ -668,6 +687,8 @@ fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
                 let mut parser = Parser::new(&source);
                 match parser.parse() {
                     Ok(ast) => {
+                        // No file backs a REPL line, so relative imports here
+                        // resolve against the working directory.
                         let mut analyzer = Analyzer::new();
                         configure_analyzer(&mut analyzer, verbose);
                         if let Err(diagnostics) = analyzer.analyze(&ast) {

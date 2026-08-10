@@ -15,7 +15,7 @@ mod stmt_builder;
 mod type_helpers;
 
 use crate::error::codes::ERR_ENTRY_POINT_CONFLICT;
-use crate::parser::{Ast, ClassMember, Expr, Param, StmtKind, TypeAnnotation};
+use crate::parser::{Ast, ClassMember, ExportItems, Expr, Param, Stmt, StmtKind, TypeAnnotation};
 
 use super::{
     BasicBlock, BlockId, Class, ClassId, Constant, FuncId, Function, Instruction, IrType, Module,
@@ -121,6 +121,19 @@ pub struct IrBuilder {
     /// Static field/property initializers that are not compile-time
     /// constants, keyed by their "Class::member" global name.
     pub(crate) pending_static_inits: Vec<(String, Expr)>,
+}
+
+/// Unwraps `صدّر <declaration>` to the declaration it exports.
+///
+/// Every top-level scan in `build` classifies statements by `StmtKind`, so
+/// without this an exported function/class/global stays invisible to those
+/// scans even though `build_stmt` descends into it — mirrors
+/// `hoist_func_decl`/`hoist_enum_decl` in the semantic analyzer.
+fn as_top_level_decl(stmt: &Stmt) -> &Stmt {
+    match &stmt.kind {
+        StmtKind::Export(ExportItems::Declaration(inner)) => inner,
+        _ => stmt,
+    }
 }
 
 impl IrBuilder {
@@ -252,7 +265,7 @@ impl IrBuilder {
                 params,
                 return_type,
                 ..
-            } = &stmt.kind
+            } = &as_top_level_decl(stmt).kind
             {
                 self.collect_function_signature(name, params, return_type)?;
             }
@@ -265,7 +278,7 @@ impl IrBuilder {
                 extends,
                 members,
                 ..
-            } = &stmt.kind
+            } = &as_top_level_decl(stmt).kind
             {
                 self.collect_class(name, extends.as_ref(), members)?;
             }
@@ -279,7 +292,7 @@ impl IrBuilder {
                 ty,
                 init,
                 ..
-            } = &stmt.kind
+            } = &as_top_level_decl(stmt).kind
             {
                 let ir_type = if let Some(t) = ty {
                     self.convert_type(t)
@@ -321,22 +334,25 @@ impl IrBuilder {
         }
 
         // Check if user defined دالة رئيسية() (Program mode entry point)
-        let has_user_main = ast
-            .statements
-            .iter()
-            .any(|stmt| matches!(&stmt.kind, StmtKind::FuncDecl { name, .. } if name == "رئيسية"));
+        let has_user_main = ast.statements.iter().any(
+            |stmt| matches!(&as_top_level_decl(stmt).kind, StmtKind::FuncDecl { name, .. } if name == "رئيسية"),
+        );
 
         // Check if there's top-level EXECUTABLE code (Script mode entry point)
         // VarDecl is allowed (global variables), but other statements are executable code
         // Import statements are declarations, not executable code
         let has_top_level_executable = ast.statements.iter().any(|stmt| {
             !matches!(
-                &stmt.kind,
+                &as_top_level_decl(stmt).kind,
                 StmtKind::FuncDecl { .. }
                     | StmtKind::ClassDecl { .. }
                     | StmtKind::InterfaceDecl { .. }
+                    | StmtKind::EnumDecl { .. }
                     | StmtKind::VarDecl { .. }
                     | StmtKind::Import { .. }
+                    // Named/wildcard/re-exports survive `as_top_level_decl`
+                    // unwrapping; all are module metadata that emits no IR.
+                    | StmtKind::Export(..)
             )
         });
 
@@ -355,7 +371,7 @@ impl IrBuilder {
             .statements
             .iter()
             .filter_map(|stmt| {
-                if let StmtKind::VarDecl { name, init, .. } = &stmt.kind {
+                if let StmtKind::VarDecl { name, init, .. } = &as_top_level_decl(stmt).kind {
                     if self.global_variables.contains(name) {
                         if let Some(init_expr) = init {
                             // Only include if it's NOT a constant (arrays, objects, etc.)
@@ -1121,6 +1137,84 @@ mod tests {
         assert!(
             has_int_to_float,
             "float-typed local with int initializer must emit IntToFloat"
+        );
+    }
+
+    #[test]
+    fn test_exported_function_signature_reaches_return_types() {
+        // `function_return_types` isn't observable after `build` consumes the
+        // builder, so assert through the global whose type it drives. Program
+        // mode is required: `__global_init__` is emitted before any function
+        // body exists, so the global's type can only come from the first-pass
+        // signature scan. (Script mode re-infers it once the body is built,
+        // which masks a missed signature.)
+        let source = r#"
+            صدّر دالة تحية() -> نص {
+                أرجع "مرحبا"
+            }
+            متغير رسالة = تحية()
+            دالة رئيسية() {
+                اطبع(رسالة)
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+        let (name, ty, _) = &module.globals[0];
+        assert_eq!(name, "رسالة");
+        assert!(
+            matches!(ty, IrType::String),
+            "exported function's return type must reach function_return_types, got {:?}",
+            ty
+        );
+    }
+
+    #[test]
+    fn test_exported_declarations_are_not_top_level_executable() {
+        let source = r#"
+            صدّر دالة مساعدة() -> عدد {
+                أرجع 5
+            }
+            صدّر صنف أداة {}
+            صدّر ثابت الإصدار = 1
+            دالة رئيسية() {
+                اطبع(مساعدة())
+            }
+        "#;
+        assert!(
+            build_ir(source).is_ok(),
+            "a file of صدّر declarations plus دالة رئيسية must not trigger ت٠٢٠١"
+        );
+    }
+
+    #[test]
+    fn test_named_export_is_not_top_level_executable() {
+        // Named/wildcard exports never unwrap to a declaration, so they need
+        // their own exclusion from the executable-code scan.
+        let source = r#"
+            دالة مساعدة() -> عدد {
+                أرجع 5
+            }
+            صدّر { مساعدة }
+            دالة رئيسية() {
+                اطبع(مساعدة())
+            }
+        "#;
+        assert!(
+            build_ir(source).is_ok(),
+            "a named export must not count as top-level executable code"
+        );
+    }
+
+    #[test]
+    fn test_pure_export_declarations_generate_no_main() {
+        let source = r#"
+            صدّر دالة مساعدة() -> عدد {
+                أرجع 5
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+        assert!(
+            !module.functions.iter().any(|f| f.name == "__main__"),
+            "a declarations-only module must not synthesize a script-mode __main__"
         );
     }
 }

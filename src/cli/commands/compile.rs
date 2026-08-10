@@ -40,7 +40,9 @@ impl CompilationTiming {
     }
 }
 
-use super::{configure_analyzer, find_runtime, find_wasm_runtime, warn_invalid_extension};
+use super::{
+    analyzer_file_path, configure_analyzer, find_runtime, find_wasm_runtime, warn_invalid_extension,
+};
 
 /// Arguments for the compile command
 pub struct CompileArgs {
@@ -115,7 +117,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
 
     // Semantic analysis timing
     let semantic_start = Instant::now();
-    let mut analyzer = Analyzer::new();
+    let mut analyzer = Analyzer::for_file(analyzer_file_path(&args.file));
     configure_analyzer(&mut analyzer, args.verbose);
     if let Err(diagnostics) = analyzer.analyze(&ast) {
         for diag in &diagnostics {

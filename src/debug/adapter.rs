@@ -385,7 +385,12 @@ impl DapAdapter {
             Err(e) => return DapResponse::error(request, format!("خطأ في التحليل: {}", e.message)),
         };
 
-        let mut analyzer = crate::semantic::Analyzer::new();
+        // Relative imports resolve against the launched program's directory.
+        let mut analyzer = crate::semantic::Analyzer::for_file(
+            program_path
+                .canonicalize()
+                .unwrap_or_else(|_| program_path.clone()),
+        );
         if let Err(diagnostics) = analyzer.analyze(&ast) {
             let msg = diagnostics
                 .iter()

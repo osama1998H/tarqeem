@@ -1225,13 +1225,16 @@ impl Analyzer {
     /// Convert export kind to type.
     fn export_kind_to_type(&self, kind: &ExportKind, name: &str) -> Type {
         match kind {
-            ExportKind::Function => Type::Function {
-                params: vec![],
-                return_type: Box::new(Type::Any),
+            ExportKind::Function {
+                params,
+                return_type,
+            } => Type::Function {
+                params: params.clone(),
+                return_type: Box::new(return_type.clone()),
             },
             ExportKind::Class => Type::Class(name.to_string()),
             ExportKind::Interface => Type::Interface(name.to_string()),
-            ExportKind::Variable | ExportKind::Constant => Type::Any,
+            ExportKind::Variable(ty) | ExportKind::Constant(ty) => ty.clone(),
         }
     }
 
