@@ -134,6 +134,7 @@ jobs:
           - وضع_البرنامج
           - بصمة
           - ضغط
+          - دوال_سهمية
     steps:
       - uses: actions/checkout@v7
 
@@ -191,6 +192,7 @@ jobs:
           - وضع_البرنامج
           - بصمة
           - ضغط
+          - دوال_سهمية
     steps:
       - uses: actions/checkout@v7
 
@@ -248,6 +250,7 @@ jobs:
           - وضع_البرنامج
           - بصمة
           - ضغط
+          - دوال_سهمية
     steps:
       - uses: actions/checkout@v7
 
