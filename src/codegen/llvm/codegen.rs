@@ -772,6 +772,51 @@ impl LlvmCodegen {
         emit!(self, "declare i1 @trq_gzip_compress_file(ptr, ptr)");
         emit!(self, "declare i1 @trq_gzip_decompress_file(ptr, ptr)");
 
+        // SDL2 Graphics - Core
+        emit!(self, "declare i64 @trq_sdl_init()");
+        emit!(self, "declare void @trq_sdl_quit()");
+        emit!(self, "declare i64 @trq_window_create(ptr, i64, i64)");
+        emit!(self, "declare void @trq_window_close(i64)");
+
+        // SDL2 Graphics - Rendering
+        emit!(self, "declare void @trq_render_clear(i64)");
+        emit!(self, "declare void @trq_render_present(i64)");
+        emit!(
+            self,
+            "declare void @trq_render_set_color(i64, i64, i64, i64, i64)"
+        );
+        emit!(
+            self,
+            "declare void @trq_render_rect(i64, i64, i64, i64, i64)"
+        );
+        emit!(
+            self,
+            "declare void @trq_render_fill_rect(i64, i64, i64, i64, i64)"
+        );
+        emit!(
+            self,
+            "declare void @trq_render_line(i64, i64, i64, i64, i64)"
+        );
+        emit!(self, "declare void @trq_render_point(i64, i64, i64)");
+        emit!(self, "declare void @trq_render_circle(i64, i64, i64, i64)");
+        emit!(
+            self,
+            "declare void @trq_render_fill_circle(i64, i64, i64, i64)"
+        );
+
+        // SDL2 Graphics - Events
+        emit!(self, "declare i64 @trq_event_poll()");
+        emit!(self, "declare i64 @trq_event_wait()");
+        emit!(self, "declare i64 @trq_event_type()");
+        emit!(self, "declare i64 @trq_event_key()");
+        emit!(self, "declare i64 @trq_event_mouse_x()");
+        emit!(self, "declare i64 @trq_event_mouse_y()");
+        emit!(self, "declare i64 @trq_event_mouse_button()");
+
+        // SDL2 Graphics - Timing
+        emit!(self, "declare void @trq_delay(i64)");
+        emit!(self, "declare i64 @trq_get_ticks()");
+
         emit!(self, "declare void @trq_throw(ptr)");
         emit!(self, "declare ptr @trq_get_exception()");
         emit!(self, "declare void @trq_panic(ptr)");
@@ -2427,6 +2472,30 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "فك_ضغط_ثنائي" => Some("trq_gzip_decompress_bytes"),
         "اضغط_ملف" => Some("trq_gzip_compress_file"),
         "فك_ضغط_ملف" => Some("trq_gzip_decompress_file"),
+
+        // SDL2 Graphics (رسوميات = graphics)
+        "هيئ" => Some("trq_sdl_init"),
+        "أنهِ" => Some("trq_sdl_quit"),
+        "أنشئ_نافذة" => Some("trq_window_create"),
+        "أغلق_نافذة" => Some("trq_window_close"),
+        "امسح" => Some("trq_render_clear"),
+        "اعرض" => Some("trq_render_present"),
+        "عيّن_لون" => Some("trq_render_set_color"),
+        "ارسم_مستطيل" => Some("trq_render_rect"),
+        "ارسم_مستطيل_ممتلئ" => Some("trq_render_fill_rect"),
+        "ارسم_خط" => Some("trq_render_line"),
+        "ارسم_نقطة" => Some("trq_render_point"),
+        "ارسم_دائرة" => Some("trq_render_circle"),
+        "ارسم_دائرة_ممتلئة" => Some("trq_render_fill_circle"),
+        "استطلع_حدث" => Some("trq_event_poll"),
+        "انتظر_حدث" => Some("trq_event_wait"),
+        "نوع_الحدث" => Some("trq_event_type"),
+        "مفتاح_الحدث" => Some("trq_event_key"),
+        "فأرة_س" => Some("trq_event_mouse_x"),
+        "فأرة_ص" => Some("trq_event_mouse_y"),
+        "زر_الفأرة" => Some("trq_event_mouse_button"),
+        "تأخير" => Some("trq_delay"),
+        "وقت_التشغيل" => Some("trq_get_ticks"),
 
         "اطبع" | "طباعة" => Some("trq_print"),
         "اطبع_سطر" => Some("trq_print"), // Will add newline in wrapper
