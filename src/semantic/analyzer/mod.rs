@@ -18,7 +18,9 @@ use super::linker::{link_program, unwrap_exported_decl};
 use super::modules::ModuleLoader;
 use super::scope::{Scope, ScopeKind, SymbolKind};
 use super::types::{parse_type_name, Type};
-use crate::error::codes::{WARN_UNUSED_FUNCTION, WARN_UNUSED_IMPORT, WARN_UNUSED_VARIABLE};
+use crate::error::codes::{
+    ERR_CIRCULAR_DEPENDENCY, WARN_UNUSED_FUNCTION, WARN_UNUSED_IMPORT, WARN_UNUSED_VARIABLE,
+};
 use crate::error::{Diagnostic, Language, Span};
 use crate::parser::*;
 use std::collections::HashMap;
@@ -272,7 +274,20 @@ impl Analyzer {
         // user. A module that failed here is absent from the cache, so that
         // retry reproduces the diagnostic — keeping this copy as well would
         // report each broken module twice.
-        let _ = self.module_loader.take_diagnostics();
+        //
+        // A circular dependency is the exception: the cycle is detected by a
+        // *nested* load, and every module on the cycle still lands in the
+        // cache, so the third pass finds them all present and never re-reports
+        // it. Dropping it here too let `أ` ⇄ `ب` compile and run silently
+        // (issue #182). Keep و٠٣٠١ and discard the rest.
+        let circular = ERR_CIRCULAR_DEPENDENCY.to_string();
+        let cycles: Vec<Diagnostic> = self
+            .module_loader
+            .take_diagnostics()
+            .into_iter()
+            .filter(|diagnostic| diagnostic.code.as_deref() == Some(circular.as_str()))
+            .collect();
+        self.diagnostics.extend(cycles);
 
         spans
     }

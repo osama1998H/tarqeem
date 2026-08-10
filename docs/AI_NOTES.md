@@ -2,6 +2,47 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-10 — Issue #182 step 8: execution tests, and و٠٣٠١ starts reaching the user
+
+New `tests/module_execution_tests.rs` — the first module tests that *execute*
+programs instead of stopping at `analyzes_ok` (issue #187). 12 tests, each swept
+over three backends (`run`, `run --jit`, `compile` + execute the binary) and two
+working directories (CWD inside the fixture; repo root with an absolute path to
+main — only the second catches the original defect, since CWD-relative
+resolution used to succeed by accident).
+
+### Cycle detection was implemented but discarded before reaching the user
+Writing the circular-import case revealed that `أ` ⇄ `ب` compiled and ran
+silently, exit 0, despite `ModuleLoader` correctly detecting the cycle. Cause:
+`preload_imported_modules` ended with `let _ = self.module_loader
+.take_diagnostics()`, deliberately dropping loader diagnostics because
+`analyze_import` re-reports load *failures* in the third pass and would
+otherwise double-report them. That rationale does not extend to cycles: every
+module on a cycle still lands in the cache, so the third pass finds them all
+present and never re-reports it. The diagnostic was produced and thrown away.
+
+Fix is one filter — keep و٠٣٠١, discard the rest — so the de-dup guarantee for
+load failures is untouched. Verified no false positive on the diamond
+(A→B, A→C, both→D): the cache hit returns before the `loading_stack` push.
+`modules.rs::test_circular_dependency_detection` only ever asserted on the
+loader in isolation, which is why the gap survived it.
+
+### Discovery: native stdlib imports segfault (pre-existing, issue #185 item 3)
+`استورد * كـ رياض من "رياضيات"` — and equally a plain named stdlib import —
+prints correctly under the interpreter and JIT but segfaults (exit 139, no
+output) once natively compiled. Stdlib names short-circuit to a builtin table
+and are never read from disk, so no body is linked into the object file. Already
+filed as #185 item 3; unrelated to the module merge (it crashes identically with
+`link_program` stubbed out), and every *local-file* fixture passes natively. The
+test asserts the current failure rather than skipping it, so whoever fixes it
+sees the assertion trip and re-enables the native leg.
+
+### Also noted
+`codegen::linker::tests::test_find_runtime_with_env_var` is flaky under the full
+suite: it and `test_find_runtime_nonexistent_env_path` both mutate the
+process-global `TARQEEM_RUNTIME_PATH` concurrently. Passes in isolation and in 5
+consecutive `cargo test --lib` runs. Pre-existing, unrelated, unfiled.
+
 ## 2026-08-10 — Issue #182 step 5: imported module bodies now execute (AST merge)
 
 `check` already passed after steps 1–4, but `tarqeem run` still died with
