@@ -27,16 +27,16 @@ unicode-normalization = "0.1"
 
 # Utilities
 indexmap = "2.12"
-phf = { version = "0.13", features = ["macros"] }
+phf = { version = "0.14", features = ["macros"] }
 
 # Serialization (for package manager)
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml = "0.9"
+toml = "1.1"
 
 # Package management
 semver = "1.0"
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 flate2 = "1.0"
 tar = "0.4"
@@ -59,12 +59,12 @@ cranelift-frontend = { version = "0.129", optional = true }
 cranelift-jit = { version = "0.129", optional = true }
 cranelift-module = { version = "0.129", optional = true }
 cranelift-native = { version = "0.129", optional = true }
-target-lexicon = { version = "0.12", optional = true }
+target-lexicon = { version = "0.13", optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1.4"
 tempfile = "3.14"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 
 [features]
 profiling = []   # Enable profiling instrumentation
