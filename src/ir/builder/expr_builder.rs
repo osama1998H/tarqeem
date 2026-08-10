@@ -1352,6 +1352,15 @@ impl IrBuilder {
         let real_param_tys: Vec<IrType> = ir_params.iter().map(|p| p.ty.clone()).collect();
 
         let saved = self.suspend_function_context();
+        // A lifted lambda is the one nested build that also needs its own
+        // `parameters`/`var_types`: it re-numbers its parameters from zero, so
+        // the enclosing function's entries for those same ids would otherwise
+        // describe the lambda's slots. Declaration builds must NOT isolate
+        // these — `build_func_decl` has always let them accumulate, and enum
+        // payload types registered while lowering one function are read back
+        // while lowering the next.
+        let saved_parameters = std::mem::take(&mut self.parameters);
+        let saved_var_types = std::mem::take(&mut self.var_types);
 
         let unlowerable = self.unlowerable_param_names(params, hint_params);
         self.begin_function(
@@ -1509,6 +1518,8 @@ impl IrBuilder {
         self.end_function()?;
 
         self.resume_function_context(saved);
+        self.parameters = saved_parameters;
+        self.var_types = saved_var_types;
 
         self.function_param_types
             .insert(lambda_name.clone(), real_param_tys.clone());

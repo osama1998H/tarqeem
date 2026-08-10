@@ -147,9 +147,6 @@ pub(crate) struct FunctionContext {
     var_counter: u32,
     block_counter: u32,
     variables: HashMap<String, VarId>,
-    parameters: HashSet<u32>,
-    var_types: HashMap<u32, IrType>,
-    loop_stack: Vec<(BlockId, BlockId)>,
 }
 
 /// Unwraps `صدّر <declaration>` to the declaration it exports.
@@ -781,9 +778,6 @@ impl IrBuilder {
             var_counter: self.var_counter,
             block_counter: self.block_counter,
             variables: std::mem::take(&mut self.variables),
-            parameters: std::mem::take(&mut self.parameters),
-            var_types: std::mem::take(&mut self.var_types),
-            loop_stack: std::mem::take(&mut self.loop_stack),
         }
     }
 
@@ -795,9 +789,6 @@ impl IrBuilder {
         self.var_counter = saved.var_counter;
         self.block_counter = saved.block_counter;
         self.variables = saved.variables;
-        self.parameters = saved.parameters;
-        self.var_types = saved.var_types;
-        self.loop_stack = saved.loop_stack;
     }
 
     /// Begin building a new function.
