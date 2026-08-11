@@ -188,6 +188,7 @@ jobs:
           - بصمة
           - ضغط
           - دوال_سهمية
+          - أسطر_متعددة
     steps:
       - uses: actions/checkout@v7
 
@@ -248,6 +249,7 @@ jobs:
           - بصمة
           - ضغط
           - دوال_سهمية
+          - أسطر_متعددة
     steps:
       - uses: actions/checkout@v7
 
@@ -308,6 +310,7 @@ jobs:
           - بصمة
           - ضغط
           - دوال_سهمية
+          - أسطر_متعددة
     steps:
       - uses: actions/checkout@v7
 
