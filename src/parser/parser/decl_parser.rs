@@ -32,9 +32,6 @@ impl Parser {
         &mut self,
         inherited_doc: Option<String>,
     ) -> Result<Stmt, Diagnostic> {
-        // Consume the whole trivia run in one pass. Doing it as two one-shot
-        // calls left every comment after the first doc block in the stream,
-        // where it became ب٠٠٠١ (issue #203).
         // Consume the whole trivia run in one pass; the doc it holds is only
         // moved into `trivia.comments` if nothing below can carry it, so a
         // demotion lands back on the line the user wrote it on.
@@ -114,7 +111,7 @@ impl Parser {
         self.advance(); // consume 'let' or 'const'
 
         let name = self
-            .expect_identifier("متوقع اسم المتغير")
+            .expect_declaration_name("متوقع اسم المتغير")
             .map_err(|e| e.with_code(ERR_EXPECTED_VARIABLE_NAME.to_string()))?;
 
         let ty = if self.match_token(&TokenKind::Colon) {
@@ -154,7 +151,7 @@ impl Parser {
         self.expect(&TokenKind::Function, "متوقع 'دالة'")?;
 
         let name = self
-            .expect_identifier("متوقع اسم الدالة")
+            .expect_declaration_name("متوقع اسم الدالة")
             .map_err(|e| e.with_code(ERR_EXPECTED_FUNCTION_NAME.to_string()))?;
 
         self.expect(&TokenKind::LeftParen, "متوقع '('")?;
@@ -329,7 +326,7 @@ impl Parser {
         } else if self.check(&TokenKind::Function) || self.check(&TokenKind::Async) {
             let is_async = self.match_token(&TokenKind::Async);
             self.expect(&TokenKind::Function, "متوقع 'دالة'")?;
-            let name = self.expect_identifier("متوقع اسم الدالة")?;
+            let name = self.expect_declaration_name("متوقع اسم الدالة")?;
             self.expect(&TokenKind::LeftParen, "متوقع '('")?;
             let params = self.parse_parameters()?;
             self.expect(&TokenKind::RightParen, "متوقع ')'")?;
@@ -355,7 +352,7 @@ impl Parser {
             })
         } else if self.check(&TokenKind::Property) {
             self.advance();
-            let name = self.expect_identifier("متوقع اسم الخاصية")?;
+            let name = self.expect_declaration_name("متوقع اسم الخاصية")?;
             self.expect(&TokenKind::Colon, "متوقع ':'")?;
             let ty = self.parse_type_annotation()?;
 
@@ -383,7 +380,7 @@ impl Parser {
                 doc_comment: member_doc,
             })
         } else {
-            let name = self.expect_identifier("متوقع اسم الحقل")?;
+            let name = self.expect_declaration_name("متوقع اسم الحقل")?;
             let ty = if self.match_token(&TokenKind::Colon) {
                 Some(self.parse_type_annotation()?)
             } else {
@@ -443,7 +440,7 @@ impl Parser {
                 });
             } else if self.match_token(&TokenKind::Set) {
                 let param_name = if self.match_token(&TokenKind::LeftParen) {
-                    let name = self.expect_identifier("متوقع اسم المعامل")?;
+                    let name = self.expect_declaration_name("متوقع اسم المعامل")?;
                     self.expect(&TokenKind::RightParen, "متوقع ')'")?;
                     name
                 } else {
@@ -519,7 +516,7 @@ impl Parser {
             let method_doc = self.consume_doc_comment();
 
             self.expect(&TokenKind::Function, "متوقع 'دالة'")?;
-            let method_name = self.expect_identifier("متوقع اسم الدالة")?;
+            let method_name = self.expect_declaration_name("متوقع اسم الدالة")?;
             self.expect(&TokenKind::LeftParen, "متوقع '('")?;
             let params = self.parse_parameters()?;
             self.expect(&TokenKind::RightParen, "متوقع ')'")?;
@@ -610,7 +607,7 @@ impl Parser {
 
         let variant_doc = self.consume_doc_comment();
 
-        let name = self.expect_identifier("متوقع اسم الحالة")?;
+        let name = self.expect_variant_name("متوقع اسم الحالة")?;
 
         let discriminant = if self.match_token(&TokenKind::Equal) {
             let is_negative = self.match_token(&TokenKind::Minus);
@@ -890,7 +887,7 @@ impl Parser {
         if !self.check(&TokenKind::RightParen) {
             loop {
                 let start = self.current_span();
-                let name = self.expect_identifier("متوقع اسم المعامل")?;
+                let name = self.expect_declaration_name("متوقع اسم المعامل")?;
 
                 let ty = if self.match_token(&TokenKind::Colon) {
                     Some(self.parse_type_annotation()?)

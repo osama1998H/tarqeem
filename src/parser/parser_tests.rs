@@ -3742,3 +3742,188 @@ fn test_doc_comment_before_property_accessor_still_errors_loudly() {
         "an unattachable comment before an accessor must be reported, not swallowed"
     );
 }
+
+// ─── Group 12: keywords in name positions (#202, #196) ───
+
+/// `عدد` is `TokenKind::TypeInt`, so a method named after a type was rejected
+/// even though nothing else can appear after `دالة`. Mirrors
+/// `stdlib_trq/اختبار/مشغل.ترقيم:61` and `stdlib_trq/رياضيات/عشوائي.ترقيم:18`.
+#[test]
+fn test_parse_method_named_with_type_keyword() {
+    let source = r#"
+        صنف س {
+            عام دالة عدد() -> عدد {
+                أرجع 1
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("a method named عدد must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => match &members[0] {
+            ClassMember::Method { name, .. } => assert_eq!(name, "عدد"),
+            other => panic!("Expected Method, got {other:?}"),
+        },
+        other => panic!("Expected ClassDecl, got {other:?}"),
+    }
+}
+
+/// Declaring such a method is useless unless it can be called: member access
+/// after `.` demanded a plain identifier too, so `هذا.عدد()` failed separately
+/// with متوقع اسم الخاصية.
+#[test]
+fn test_parse_member_access_with_type_keyword_name() {
+    let source = r#"
+        دالة س(كائن: أي) {
+            اطبع(كائن.عدد())
+            اطبع(كائن.نص)
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser
+        .parse()
+        .expect("member access on a type-keyword name must parse");
+}
+
+/// `صدّر دالة اطبع(نص: نص)` — a parameter named after a type. This is the shape
+/// that blocks 7 stdlib files (طرفية/*, نص/*, وقت/تاريخ).
+#[test]
+fn test_parse_parameter_named_with_type_keyword() {
+    let source = r#"
+        دالة اطبع_نص(نص: نص) {
+            اطبع(نص)
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("a parameter named نص must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { params, .. } => assert_eq!(params[0].name, "نص"),
+        other => panic!("Expected FuncDecl, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_field_and_variable_named_with_type_keyword() {
+    let source = r#"
+        صنف س {
+            خاص نص: نص
+        }
+        دالة ص() {
+            متغير نص = "قيمة"
+            اطبع(نص)
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser
+        .parse()
+        .expect("a field/variable named نص must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => match &members[0] {
+            ClassMember::Field { name, .. } => assert_eq!(name, "نص"),
+            other => panic!("Expected Field, got {other:?}"),
+        },
+        other => panic!("Expected ClassDecl, got {other:?}"),
+    }
+}
+
+/// A type keyword in name position must keep the spelling the user wrote, like
+/// عين/عيّن do — `expect_type_name` canonicalizes `اي` to `أي`, but that is a
+/// *type* reference, and renaming an identifier would let `fmt -w` rewrite the
+/// user's source (the #183 review decision).
+#[test]
+fn test_type_keyword_name_keeps_its_spelling() {
+    let source = r#"
+        دالة اي() {
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { name, .. } => assert_eq!(name, "اي", "must not become أي"),
+        other => panic!("Expected FuncDecl, got {other:?}"),
+    }
+}
+
+/// `خطأ` lexes as the boolean-false literal, so the variant in
+/// `stdlib_trq/اختبار/نتائج.ترقيم:27` could not be declared.
+#[test]
+fn test_parse_enum_variant_named_false_keyword() {
+    let source = r#"
+        تعداد حالة_الاختبار {
+            نجح،
+            خطأ
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("a variant named خطأ must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::EnumDecl { variants, .. } => {
+            assert_eq!(variants[0].name, "نجح");
+            assert_eq!(variants[1].name, "خطأ");
+        }
+        other => panic!("Expected EnumDecl, got {other:?}"),
+    }
+}
+
+/// The variant is only reachable through `::`, which is what makes allowing the
+/// literal keyword there safe — so both reference sites must accept it too, or
+/// the variant is declarable but unusable.
+#[test]
+fn test_enum_variant_named_false_keyword_is_referenceable() {
+    let source = r#"
+        تعداد ح {
+            خطأ
+        }
+        دالة س() {
+            متغير قيمة = ح::خطأ
+            تطابق (قيمة) {
+                حالة ح::خطأ => اطبع("حالة")
+                غير_ذلك => اطبع("أخرى")
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser
+        .parse()
+        .expect("ح::خطأ must parse in both expression and pattern position");
+}
+
+/// The non-regression that makes #196 safe: outside variant position `خطأ` is
+/// still the boolean literal, not an identifier.
+#[test]
+fn test_bare_false_keyword_is_still_a_boolean_literal() {
+    let source = r#"
+        متغير س = خطأ
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init: Some(e), .. } => match &e.kind {
+            ExprKind::Literal(Literal::Bool(value)) => assert!(!value),
+            other => panic!("Expected a boolean literal, got {other:?}"),
+        },
+        other => panic!("Expected VarDecl, got {other:?}"),
+    }
+}
+
+/// Type keywords must stay *out* of `identifier_like_name`, which also backs the
+/// name-or-type disambiguator for enum-variant payloads. Widening it there would
+/// consume `مصفوفة` as a field name and strand the `<عدد>`.
+#[test]
+fn test_generic_type_in_enum_variant_payload_still_parses_as_a_type() {
+    let source = r#"
+        تعداد ح {
+            قيمة(مصفوفة<عدد>)
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser
+        .parse()
+        .expect("a generic type in a variant payload must still be read as a type");
+}

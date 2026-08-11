@@ -113,7 +113,7 @@ impl Parser {
         self.advance(); // consume 'for'
 
         if self.check_identifier() {
-            let var_name = self.expect_identifier("متوقع اسم المتغير")?;
+            let var_name = self.expect_declaration_name("متوقع اسم المتغير")?;
             if self.check(&TokenKind::In) {
                 self.advance();
                 let iterable = self.parse_expression()?;
@@ -285,7 +285,7 @@ impl Parser {
                 self.advance(); // consume ::
 
                 // Get variant name
-                let variant_name = self.expect_identifier("متوقع اسم الحالة بعد '::'")?;
+                let variant_name = self.expect_variant_name("متوقع اسم الحالة بعد '::'")?;
 
                 // Check for bindings
                 let bindings = if self.match_token(&TokenKind::LeftParen) {

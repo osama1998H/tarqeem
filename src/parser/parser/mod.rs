@@ -79,6 +79,46 @@ pub(crate) fn identifier_like_name(token: &Token) -> Option<&str> {
     }
 }
 
+/// A name the user chose, in a position where the grammar can hold nothing else:
+/// after `دالة`, before a `:` in a member or parameter list, after `.`. Type
+/// names are keywords here (`عدد` is `TokenKind::TypeInt`), so a method or
+/// parameter named after a type was rejected outright — issue #202, which the
+/// shipped stdlib hits with `دالة عدد()` and `دالة اطبع(نص: نص)`.
+///
+/// Deliberately *not* folded into `identifier_like_name`, even though that is
+/// where the احصل/عيّن/حالة precedent lives: that helper also backs
+/// `check_identifier`, which is the name-or-type disambiguator for enum-variant
+/// payloads and `looks_like_type`. Widening it there would make `مصفوفة<عدد>`
+/// parse as a field named `مصفوفة` and strand the `<عدد>`.
+///
+/// Returns the lexeme rather than a canonical spelling, so `اي` stays `اي` — the
+/// #183 rule that `tarqeem fmt` must never rename a user's identifier. The lexer
+/// NFC-normalizes the whole source, so the lexeme is already normalized.
+pub(crate) fn declaration_name(token: &Token) -> Option<&str> {
+    identifier_like_name(token).or_else(|| {
+        token
+            .kind
+            .is_type_keyword()
+            .then_some(token.lexeme.as_str())
+    })
+}
+
+/// A name in enum-variant position, which additionally allows the boolean
+/// literals: `خطأ` is `TokenKind::False`, and `stdlib_trq/اختبار/نتائج.ترقيم`
+/// declares a variant with exactly that name (issue #196).
+///
+/// Unambiguous because a variant is only ever *referenced* through `::`. A bare
+/// `خطأ` in an expression or a match pattern still resolves to the literal, so
+/// nothing outside variant position changes. Class names are pointedly excluded:
+/// `جديد خطأ()` parses its callee as a primary expression, which would yield
+/// `false` rather than a type name — which is why the stdlib's `صنف خطأ` has to
+/// be renamed (#243) instead.
+pub(crate) fn variant_name(token: &Token) -> Option<&str> {
+    declaration_name(token).or_else(|| {
+        matches!(token.kind, TokenKind::True | TokenKind::False).then_some(token.lexeme.as_str())
+    })
+}
+
 impl Parser {
     /// Create a new parser from source code.
     pub fn new(source: &str) -> Self {
@@ -224,8 +264,10 @@ impl Parser {
         self.panic_mode = false;
 
         while !self.is_at_end() {
-            // Field/method names, including the contextual keywords احصل/عيّن/حالة
-            if self.check_identifier() {
+            // Field/method names: the contextual keywords احصل/عيّن/حالة and, since
+            // a member may be named after a type (#202), the type keywords too —
+            // recovery has to resume at `عدد: نص` or it skips the whole member.
+            if self.check_declaration_name() {
                 return;
             }
 
@@ -656,6 +698,31 @@ impl Parser {
     /// Expect an identifier (including contextual keywords) or error.
     pub(crate) fn expect_identifier(&mut self, message: &str) -> Result<String, Diagnostic> {
         if let Some(name) = identifier_like_name(self.peek()).map(str::to_string) {
+            self.advance();
+            Ok(name)
+        } else {
+            Err(Diagnostic::error(message, self.current_span()))
+        }
+    }
+
+    /// True if the current token can name a declaration, member or parameter.
+    pub(crate) fn check_declaration_name(&self) -> bool {
+        declaration_name(self.peek()).is_some()
+    }
+
+    /// Expect a declaration/member/parameter name, which may be a type keyword.
+    pub(crate) fn expect_declaration_name(&mut self, message: &str) -> Result<String, Diagnostic> {
+        if let Some(name) = declaration_name(self.peek()).map(str::to_string) {
+            self.advance();
+            Ok(name)
+        } else {
+            Err(Diagnostic::error(message, self.current_span()))
+        }
+    }
+
+    /// Expect an enum-variant name, which may also be a boolean literal keyword.
+    pub(crate) fn expect_variant_name(&mut self, message: &str) -> Result<String, Diagnostic> {
+        if let Some(name) = variant_name(self.peek()).map(str::to_string) {
             self.advance();
             Ok(name)
         } else {

@@ -9,7 +9,7 @@ use crate::lexer::TokenKind;
 
 use super::super::ast::*;
 use super::super::precedence::Precedence;
-use super::{identifier_like_name, Parser};
+use super::{declaration_name, identifier_like_name, Parser};
 
 impl Parser {
     /// Parse an expression.
@@ -56,7 +56,7 @@ impl Parser {
             // Check for enum variant access: Identifier::Variant or Identifier<T>::Variant
             if self.check(&TokenKind::ColonColon) {
                 self.advance(); // consume '::'
-                let variant_name = self.expect_identifier("متوقع اسم الحالة بعد '::'")?;
+                let variant_name = self.expect_variant_name("متوقع اسم الحالة بعد '::'")?;
 
                 // Check for variant arguments: Variant(args)
                 let args = if self.match_token(&TokenKind::LeftParen) {
@@ -365,7 +365,7 @@ impl Parser {
 
             TokenKind::Dot => {
                 self.advance();
-                let property = self.expect_identifier("متوقع اسم الخاصية")?;
+                let property = self.expect_declaration_name("متوقع اسم الخاصية")?;
                 let span = left.span.merge(&self.previous_span());
                 Ok(Expr::new(
                     ExprKind::Member {
@@ -587,7 +587,7 @@ impl Parser {
         loop {
             let param_start = self.current_span();
 
-            let name = match identifier_like_name(self.peek()).map(str::to_string) {
+            let name = match declaration_name(self.peek()).map(str::to_string) {
                 Some(name) => {
                     self.advance();
                     name
