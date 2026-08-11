@@ -489,6 +489,10 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        // A fractional part does not end the literal: an exponent may follow it.
+        // Returning here is why `2.5e10` never lexed, even though LANGUAGE_SPEC
+        // §4.4 documents it and the integer form `2e10` worked (issue #256).
+        let mut mantissa: Option<f64> = None;
         if self.peek() == '.' && self.is_digit(self.peek_next()) {
             self.advance(); // consume '.'
 
@@ -501,7 +505,7 @@ impl<'a> Lexer<'a> {
                 divisor *= 10.0;
             }
 
-            return self.make_token(TokenKind::FloatLiteral(value as f64 + fraction));
+            mantissa = Some(value as f64 + fraction);
         }
 
         if self.peek() == 'e' || self.peek() == 'E' {
@@ -516,13 +520,32 @@ impl<'a> Lexer<'a> {
             }
 
             let mut exp: i32 = 0;
+            let mut saw_exponent_digit = false;
             while !self.is_at_end() && self.is_digit(self.peek()) {
                 let c = self.advance();
-                exp = exp * 10 + self.digit_value(c) as i32;
+                saw_exponent_digit = true;
+                // Saturate rather than wrap: an absurd exponent must still yield
+                // a token, and i32 overflow panics in a debug build.
+                exp = exp
+                    .saturating_mul(10)
+                    .saturating_add(self.digit_value(c) as i32);
             }
 
-            let float_val = value as f64 * 10f64.powi(exp_sign * exp);
-            return self.make_token(TokenKind::FloatLiteral(float_val));
+            // `2.5e` consumed the marker and silently produced 2.5 before, since
+            // an empty exponent computed 10^0.
+            if !saw_exponent_digit {
+                return self.make_error_with_code(
+                    "Exponent has no digits / الأس بلا أرقام",
+                    &ERR_INVALID_NUMBER_FORMAT,
+                );
+            }
+
+            let base = mantissa.unwrap_or(value as f64);
+            return self.make_token(TokenKind::FloatLiteral(base * 10f64.powi(exp_sign * exp)));
+        }
+
+        if let Some(float_value) = mantissa {
+            return self.make_token(TokenKind::FloatLiteral(float_value));
         }
 
         if overflowed {
@@ -813,6 +836,54 @@ mod tests {
         assert_eq!(tokens[0].kind, TokenKind::IntLiteral(42));
         assert!(matches!(tokens[1].kind, TokenKind::FloatLiteral(f) if (f - 3.14).abs() < 0.001));
         assert!(matches!(tokens[2].kind, TokenKind::FloatLiteral(_)));
+    }
+
+    /// LANGUAGE_SPEC §4.4 documents `2.5e10` and `1.0E-5`, but the fractional
+    /// branch returned before the exponent was read, so only the integer form
+    /// `2e10` ever worked — and `stdlib_trq/رياضيات/ثوابت.ترقيم` defines machine
+    /// epsilon as `2.220446049250313e-16` (issue #256).
+    #[test]
+    fn test_float_with_exponent() {
+        let mut lexer = Lexer::new("2.5e10 1.0E-5 2e3 2.220446049250313e-16");
+        let tokens: Vec<_> = lexer.tokenize();
+
+        let value = |token: &Token| match token.kind {
+            TokenKind::FloatLiteral(f) => f,
+            ref other => panic!("Expected a float literal, got {other:?}"),
+        };
+
+        assert!((value(&tokens[0]) - 2.5e10).abs() < 1.0);
+        assert!((value(&tokens[1]) - 1.0e-5).abs() < 1e-12);
+        assert!((value(&tokens[2]) - 2000.0).abs() < 0.001);
+        assert!((value(&tokens[3]) - 2.220446049250313e-16).abs() < 1e-20);
+    }
+
+    /// An empty exponent used to consume the `e` and compute 10^0, silently
+    /// yielding `2.5` for what the user wrote as `2.5e`.
+    #[test]
+    fn test_float_with_empty_exponent_is_an_error() {
+        let mut lexer = Lexer::new("2.5e");
+        let tokens: Vec<_> = lexer.tokenize();
+
+        assert!(
+            matches!(&tokens[0].kind, TokenKind::Error(message) if message.contains("الأس")),
+            "expected a bilingual exponent error, got {:?}",
+            tokens[0].kind
+        );
+    }
+
+    /// The exponent is accumulated in an i32, which panics on overflow in a debug
+    /// build — user input must never do that.
+    #[test]
+    fn test_absurd_exponent_saturates_instead_of_overflowing() {
+        let mut lexer = Lexer::new("1e999999999999");
+        let tokens: Vec<_> = lexer.tokenize();
+
+        assert!(
+            matches!(tokens[0].kind, TokenKind::FloatLiteral(f) if f.is_infinite()),
+            "expected infinity, got {:?}",
+            tokens[0].kind
+        );
     }
 
     #[test]
