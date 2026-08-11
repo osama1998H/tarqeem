@@ -570,13 +570,11 @@ fn test_accessors_address_their_own_backing_field_slot() {
 /// `inherited_field_count` itself, so a subclass's first auto-property is slot
 /// 0 of that subclass, not slot 1 of the flattened layout.
 ///
-/// Asserted on the IR rather than by running the program: accessing an
-/// inherited instance field natively is separately broken (issue #249) — the
-/// subclass's LLVM struct type omits its parent's fields, so
-/// `inherited_count + index` GEPs out of bounds (`invalid getelementptr
-/// indices`, or a segfault). That reproduces with plain fields and no
-/// properties at all, so it is not this issue. A super-constructor call that
-/// writes an auto-property loses the write too (issue #250).
+/// Asserted on the IR because that is the level the invariant lives at — the
+/// index is the thing under test, and the interpreter discards it. The
+/// end-to-end sibling is `test_inherited_auto_property_runs_end_to_end` below;
+/// it was impossible when this test was written, because reading an inherited
+/// member was broken in the IR builder (issue #249, and #250 with it).
 ///
 /// The parent deliberately carries two properties: the subclass's own property
 /// is slot 0 own-relative but would be slot 2 under a flattened scheme, so this
@@ -627,4 +625,44 @@ fn test_accessor_indices_are_own_class_relative() {
             indices
         );
     }
+}
+
+/// The running counterpart of `test_accessor_indices_are_own_class_relative`:
+/// the same layout, executed, so the own-relative indices are shown to compose
+/// with the `inherited_field_count` codegen adds rather than merely being the
+/// numbers this file expects.
+///
+/// Unblocked by the #249 fix. Interleaving the subclass's own property between
+/// reads of the parent's two is what makes a flattened-vs-own-relative mismatch
+/// show up as a swap rather than as a plausible-looking value.
+#[test]
+fn test_inherited_auto_property_runs_end_to_end() {
+    assert_prints(
+        r#"
+صنف أصل {
+    خاصية قيمة: عدد = 0
+    خاصية ثانية: عدد = 0
+
+    منشئ() {
+        هذا.قيمة = 1
+        هذا.ثانية = 2
+    }
+}
+
+صنف فرع يرث أصل {
+    خاصية إضافة: عدد = 0
+
+    منشئ() {
+        الأصل()
+        هذا.إضافة = 3
+    }
+}
+
+متغير كائن = جديد فرع()
+اطبع(كائن.قيمة)
+اطبع(كائن.إضافة)
+اطبع(كائن.ثانية)
+"#,
+        &["1", "3", "2"],
+    );
 }

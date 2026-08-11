@@ -268,6 +268,13 @@ impl IrBuilder {
                 }
                 let obj_ty = self.infer_expr_type(object);
                 if let IrType::Struct(class_id) = obj_ty {
+                    // A property is read through its accessor, and its backing
+                    // field is named `_{prop}` — so the field lookup below
+                    // cannot see it under the name the source used.
+                    if let Some((_, _, ty)) = self.resolve_instance_property(&class_id.0, property)
+                    {
+                        return ty;
+                    }
                     self.get_field_type(&class_id.0, property)
                 } else {
                     IrType::Ptr(Box::new(IrType::Void))
@@ -394,16 +401,15 @@ impl IrBuilder {
         IrType::Ptr(Box::new(IrType::Void))
     }
 
-    /// Get the type of a field in a class.
+    /// Get the type of a field in a class, or of any field it inherits.
+    ///
+    /// Walks the parent chain: an inherited field that resolved to `Ptr(Void)`
+    /// here is how `اطبع(كائن.حقل_موروث)` ended up emitting `trq_print(ptr %x)`
+    /// against an integer (issue #249).
     pub(crate) fn get_field_type(&self, class_name: &str, field_name: &str) -> IrType {
-        if let Some(fields) = self.class_fields.get(class_name) {
-            for (name, ty) in fields {
-                if name == field_name {
-                    return ty.clone();
-                }
-            }
-        }
-        IrType::Ptr(Box::new(IrType::Void))
+        self.resolve_instance_field(class_name, field_name)
+            .map(|(_, _, ty)| ty)
+            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)))
     }
 
     /// Get field information (index and type) for a class field.
@@ -529,4 +535,115 @@ impl IrBuilder {
         }
         None
     }
+
+    /// Walk `class` up through `class_parents` looking for an instance field —
+    /// a plain `عام`/`خاص`/`محمي` field, or an auto-property's `_`-prefixed
+    /// backing field — and return the *defining* class alongside the slot's
+    /// index **within that class**.
+    ///
+    /// `get_field_info` searches one class's own fields only, and
+    /// `collect_class` never merges the parent chain into `class_fields`, so an
+    /// inherited member misses there. Callers used to read that miss as "index
+    /// 0, type `ptr`, owned by the receiver" — three wrong values at once, which
+    /// codegen faithfully turned into an out-of-bounds GEP or a `trq_print(ptr)`
+    /// on an integer (issue #249). Naming the definer is what keeps codegen's
+    /// `inherited_field_count[definer] + index` correct: with single
+    /// inheritance the flattened layout is `[ancestors…, own…]`, so a field
+    /// declared in `D` at own-index `i` sits at that same offset in *every*
+    /// subclass of `D`.
+    pub(crate) fn resolve_instance_field(
+        &self,
+        class: &str,
+        member: &str,
+    ) -> Option<(String, u32, IrType)> {
+        let mut current = Some(class.to_string());
+        let mut visited = std::collections::HashSet::new();
+        while let Some(c) = current {
+            if !visited.insert(c.clone()) {
+                break; // cyclic inheritance is rejected by semantic analysis; don't hang here
+            }
+            if let Some((index, ty)) = self.get_field_info(&c, member) {
+                return Some((c, index, ty));
+            }
+            current = self.class_parents.get(&c).cloned();
+        }
+        None
+    }
+
+    /// Walk `class` up through `class_parents` looking for a non-`مشترك`
+    /// `خاصية`, returning the defining class, its getter's bare method name,
+    /// and the property's type.
+    ///
+    /// The class is returned separately because `MethodId` carries it, and it
+    /// must be the *definer*: both backends mint the callee symbol from
+    /// `MethodId.class` — natively in `CallMethod`'s static bind, interpreted in
+    /// `resolve_virtual_method`'s fallback — and `{subclass}::__احصل_{prop}` is
+    /// never synthesized. `property_getters` holds static and instance
+    /// properties alike, so `static_properties` is what separates them; the
+    /// static side has its own resolver above and reaches storage through
+    /// globals rather than a receiver.
+    pub(crate) fn resolve_instance_property(
+        &self,
+        class: &str,
+        member: &str,
+    ) -> Option<(ClassId, String, IrType)> {
+        let mut current = Some(class.to_string());
+        let mut visited = std::collections::HashSet::new();
+        while let Some(c) = current {
+            if !visited.insert(c.clone()) {
+                break;
+            }
+            let key = format!("{}::{}", c, member);
+            if !self.static_properties.contains(&key) {
+                if let Some((getter_name, ty)) = self.property_getters.get(&key) {
+                    return Some((ClassId(c), bare_method_name(getter_name), ty.clone()));
+                }
+            }
+            current = self.class_parents.get(&c).cloned();
+        }
+        None
+    }
+
+    /// Same as `resolve_instance_property`, but for the setter side of an
+    /// assignment target.
+    pub(crate) fn resolve_instance_property_setter(
+        &self,
+        class: &str,
+        member: &str,
+    ) -> Option<(ClassId, String)> {
+        let mut current = Some(class.to_string());
+        let mut visited = std::collections::HashSet::new();
+        while let Some(c) = current {
+            if !visited.insert(c.clone()) {
+                break;
+            }
+            let key = format!("{}::{}", c, member);
+            if !self.static_properties.contains(&key) {
+                if let Some(setter_name) = self.property_setters.get(&key) {
+                    return Some((ClassId(c), bare_method_name(setter_name)));
+                }
+            }
+            current = self.class_parents.get(&c).cloned();
+        }
+        None
+    }
+
+    /// Does the IR builder know a field layout for `class`? False for `أي`-typed
+    /// and unresolved receivers, and for `__anonymous__` object literals, whose
+    /// fields codegen resolves by name and which `collect_class` therefore never
+    /// registers. Field resolution stays lenient for those; a *declared* class
+    /// missing one of its own members is an internal invariant violation.
+    pub(crate) fn has_field_layout(&self, class: &str) -> bool {
+        self.class_fields.contains_key(class)
+    }
+}
+
+/// Accessors are registered as `{Class}::{method}` but `MethodId` names the
+/// method alone, with the class travelling in `MethodId.class`.
+fn bare_method_name(qualified: &str) -> String {
+    qualified
+        .rsplit("::")
+        .next()
+        .unwrap_or(qualified)
+        .to_string()
 }

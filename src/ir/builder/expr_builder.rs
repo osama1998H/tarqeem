@@ -22,6 +22,23 @@ fn is_super_receiver(object: &Expr) -> bool {
     matches!(object.kind, ExprKind::Super)
 }
 
+/// A member that resolves to neither a field nor a property on a class whose
+/// layout the builder knows — nor on any of its ancestors.
+///
+/// This used to be a silent fallback to `index: 0` with type `ptr`, which
+/// codegen turned into an out-of-bounds GEP or a `trq_print(ptr)` against an
+/// integer (issue #249). Semantic analysis rejects unknown members before the IR
+/// builder runs, so reaching this means the analyzer and `collect_class` disagree
+/// about a class's shape: an internal invariant, not a user diagnostic, hence no
+/// ت/د error code — but still bilingual, since a contributor reading it is
+/// exactly who it is for. Same reasoning as `backing_field_index`.
+fn unknown_member_error(class: &str, member: &str) -> IrError {
+    IrError::new(format!(
+        "العضو '{member}' غير موجود في تخطيط الصنف '{class}' ولا في أي من أصوله \
+         / member '{member}' is missing from the layout of class '{class}' and all of its ancestors"
+    ))
+}
+
 impl IrBuilder {
     /// Build IR for an expression.
     pub(crate) fn build_expr(&mut self, expr: &Expr) -> Result<VarId> {
@@ -911,23 +928,20 @@ impl IrBuilder {
             _ => None,
         };
 
-        // Check if this is a property with a getter
+        // A property is read through its accessor. The accessor may be declared
+        // on an ancestor, and then it is the *ancestor* that must be named: both
+        // backends mint the callee symbol from `MethodId.class`, and
+        // `{subclass}::__احصل_{prop}` is never synthesized.
         if let Some(ref class_id) = class_id_opt {
-            let prop_key = format!("{}::{}", class_id.0, property);
-            if let Some((getter_name, prop_type)) = self.property_getters.get(&prop_key).cloned() {
-                // Extract just the method name part (e.g., "__احصل_اسم" from "شخص::__احصل_اسم")
-                let method_name_only = getter_name
-                    .split("::")
-                    .last()
-                    .unwrap_or(&getter_name)
-                    .to_string();
-                // Emit a method call to the getter instead of GetField
+            if let Some((defining_class, getter_name, prop_type)) =
+                self.resolve_instance_property(&class_id.0, property)
+            {
                 self.emit(Instruction::CallMethod {
                     dest: Some(dest),
                     object: obj_var,
                     method: MethodId {
-                        class: class_id.clone(),
-                        name: method_name_only,
+                        class: defining_class,
+                        name: getter_name,
                     },
                     args: vec![],
                     ret_ty: prop_type.clone(),
@@ -939,10 +953,14 @@ impl IrBuilder {
         }
 
         let (field_ty, field_index, class_id) = if let Some(class_id) = class_id_opt {
-            if let Some((idx, ty)) = self.get_field_info(&class_id.0, property) {
-                (ty, idx, class_id)
-            } else {
-                (IrType::Ptr(Box::new(IrType::Void)), 0, class_id)
+            match self.resolve_instance_field(&class_id.0, property) {
+                Some((defining_class, idx, ty)) => (ty, idx, ClassId(defining_class)),
+                None if self.has_field_layout(&class_id.0) => {
+                    return Err(unknown_member_error(&class_id.0, property));
+                }
+                // No layout to check against: `__anonymous__` object literals,
+                // whose fields codegen resolves by name. Stay lenient.
+                None => (IrType::Ptr(Box::new(IrType::Void)), 0, class_id),
             }
         } else {
             (
@@ -1100,22 +1118,18 @@ impl IrBuilder {
             _ => None,
         };
 
+        // Mirrors the read path in `build_member`: the setter may be inherited,
+        // and then `MethodId.class` must name the class that declares it.
         if let Some(ref class_id) = class_id_opt {
-            let prop_key = format!("{}::{}", class_id.0, property);
-            if let Some(setter_name) = self.property_setters.get(&prop_key).cloned() {
-                // "شخص::__عيّن_اسم" -> "__عيّن_اسم"; CallMethod names the method
-                // alone, the class travels in MethodId.
-                let method_name_only = setter_name
-                    .split("::")
-                    .last()
-                    .unwrap_or(&setter_name)
-                    .to_string();
+            if let Some((defining_class, setter_name)) =
+                self.resolve_instance_property_setter(&class_id.0, property)
+            {
                 self.emit(Instruction::CallMethod {
                     dest: None,
                     object: obj_var,
                     method: MethodId {
-                        class: class_id.clone(),
-                        name: method_name_only,
+                        class: defining_class,
+                        name: setter_name,
                     },
                     args: vec![value],
                     ret_ty: IrType::Void,
@@ -1126,11 +1140,13 @@ impl IrBuilder {
         }
 
         let (class_id, field_index) = if let Some(class_id) = class_id_opt {
-            let index = self
-                .get_field_info(&class_id.0, property)
-                .map(|(idx, _)| idx)
-                .unwrap_or(0);
-            (class_id, index)
+            match self.resolve_instance_field(&class_id.0, property) {
+                Some((defining_class, index, _)) => (ClassId(defining_class), index),
+                None if self.has_field_layout(&class_id.0) => {
+                    return Err(unknown_member_error(&class_id.0, property));
+                }
+                None => (class_id, 0),
+            }
         } else {
             (ClassId("".to_string()), 0)
         };
