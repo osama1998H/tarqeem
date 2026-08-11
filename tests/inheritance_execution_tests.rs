@@ -550,6 +550,54 @@ fn test_field_inherited_across_two_levels() {
     );
 }
 
+/// `+=` on an inherited member, both a plain field and an auto-property, from
+/// inside the subclass and from outside it.
+///
+/// Compound assignment reads through `build_member` and writes through
+/// `store_to_member`, so it inherits both halves of the fix — but it reaches them
+/// by its own route, and it has its own history: `deb90d9` exists because `+=`
+/// once bypassed the property setter entirely. `property_execution_tests.rs`
+/// covers `+=` on a *same-class* property only.
+#[test]
+fn test_compound_assignment_to_inherited_members() {
+    assert_prints(
+        r#"
+صنف أصل {
+    عام عدد_موروث: عدد
+    خاصية قيمة: عدد = 0
+
+    منشئ() {
+        هذا.عدد_موروث = 10
+        هذا.قيمة = 20
+    }
+}
+
+صنف فرع يرث أصل {
+    عام خاص_به: عدد
+
+    منشئ() {
+        الأصل()
+        هذا.خاص_به = 30
+    }
+
+    عام دالة زد() {
+        هذا.عدد_موروث += 1
+        هذا.قيمة += 1
+    }
+}
+
+متغير كائن = جديد فرع()
+كائن.زد()
+كائن.عدد_موروث += 100
+كائن.قيمة += 100
+اطبع(كائن.عدد_موروث)
+اطبع(كائن.قيمة)
+اطبع(كائن.خاص_به)
+"#,
+        &["111", "121", "30"],
+    );
+}
+
 /// Guards the strictness boundary of the fix rather than the fix itself.
 ///
 /// Resolution failure on a class the builder has a layout for is now a hard
