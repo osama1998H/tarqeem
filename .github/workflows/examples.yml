@@ -106,6 +106,57 @@ jobs:
           path: check-results.md
 
   # ============================================
+  # Validate the Standard Library (Syntax Check)
+  # ============================================
+  check-stdlib:
+    name: Check Stdlib Syntax
+    runs-on: ubuntu-latest
+    needs: build-compiler
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download compiler
+        uses: actions/download-artifact@v8
+        with:
+          name: tarqeem-compiler
+          path: ./bin
+
+      - name: Make compiler executable
+        run: chmod +x ./bin/tarqeem
+
+      # 33 of 43 stdlib files did not parse before #228 and nothing noticed,
+      # because the only stdlib parse coverage was two hard-coded files. The
+      # allowlist mirrors KNOWN_UNPARSEABLE in tests/integration_tests.rs and may
+      # only shrink.
+      - name: Parse every stdlib file
+        run: |
+          ALLOWED="stdlib_trq/أخطاء/فهرس.ترقيم"   # #243
+          PASS=0
+          FAIL=0
+
+          while IFS= read -r file; do
+            if ./bin/tarqeem parse "$file" >/dev/null 2>&1; then
+              PASS=$((PASS + 1))
+              if [ "$file" = "$ALLOWED" ]; then
+                echo "::error::$file parses now — drop it from the allowlist here and in tests/integration_tests.rs"
+                exit 1
+              fi
+            elif [ "$file" = "$ALLOWED" ]; then
+              echo "known blocker (#243): $file"
+            else
+              echo "::error::$file no longer parses"
+              ./bin/tarqeem parse "$file" 2>&1 | head -12
+              FAIL=$((FAIL + 1))
+            fi
+          done < <(find stdlib_trq -name '*.ترقيم' | sort)
+
+          echo "**Parsed:** $PASS | **Failed:** $FAIL"
+
+          if [ $FAIL -gt 0 ]; then
+            exit 1
+          fi
+
+  # ============================================
   # Run Examples with Interpreter (Default Mode)
   # ============================================
   run-examples-interpreted:
@@ -503,7 +554,7 @@ jobs:
   summary:
     name: Examples Summary
     runs-on: ubuntu-latest
-    needs: [check-examples, run-examples-interpreted, run-examples-jit, run-examples-compiled, run-stdlib]
+    needs: [check-examples, check-stdlib, run-examples-interpreted, run-examples-jit, run-examples-compiled, run-stdlib]
     if: always()
     steps:
       - name: Download all artifacts

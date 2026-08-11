@@ -534,16 +534,11 @@ mod contextual_keywords_183 {
     use super::*;
 
     /// stdlib files previously killed by the keyword collision must parse.
-    /// (نتائج.ترقيم / http.ترقيم / مشغل.ترقيم still have independent,
-    /// out-of-scope parse blockers, verified individually via `tarqeem parse`:
-    /// نتائج.ترقيم — enum variant named خطأ (#196); http.ترقيم — a top-level
-    /// `//` banner following a `///` doc block, which parse_declaration()
-    /// never re-collects (separate follow-up; منشئ_كامل, #197, sits later in
-    /// the same file and is masked by this earlier error); مشغل.ترقيم — a
-    /// method named `عدد`, a type keyword rejected by expect_identifier
-    /// (separate follow-up extending #183's contextual-keyword pattern to
-    /// type keywords — comment-only function bodies, #198, no longer block
-    /// this file).
+    /// The independent blockers this comment used to list — نتائج.ترقيم's `خطأ`
+    /// variant (#196), http.ترقيم's banner-after-doc-block (#203) and
+    /// `منشئ_كامل` (#197), مشغل.ترقيم's method named `عدد` (#202) — are all
+    /// resolved; `test_every_stdlib_file_parses` below now covers the whole
+    /// tree rather than a hand-picked pair.
     #[test]
     fn test_stdlib_collections_parse_with_contextual_keywords() {
         use tarqeem::parser::Parser;
@@ -635,5 +630,92 @@ mod contextual_keywords_183 {
         "#;
         let result = interpret_source(source);
         assert_eq!(result, Ok("5".to_string()));
+    }
+}
+
+/// Regression gate for issue #228: 33 of the 43 files in `stdlib_trq/` did not
+/// parse, and nothing noticed. The only stdlib parse coverage was two hard-coded
+/// collection files, and the fmt corpus guard skips whatever fails to parse — so
+/// the standard library could ship syntax its own compiler rejects.
+///
+/// Walks the tree at runtime so a new stdlib file is covered the moment it is
+/// added. `KNOWN_UNPARSEABLE` may only ever shrink; each entry must name the
+/// issue that will remove it.
+mod stdlib_parses_228 {
+    use super::*;
+
+    /// (file, issue) pairs. Not a place to park new breakage.
+    const KNOWN_UNPARSEABLE: &[(&str, &str)] = &[(
+        "أخطاء/فهرس.ترقيم",
+        "#243 — declares `صنف خطأ`; needs the استثناء redesign",
+    )];
+
+    fn collect(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect(&path, out);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("ترقيم") {
+                out.push(path);
+            }
+        }
+    }
+
+    #[test]
+    fn test_every_stdlib_file_parses() {
+        use tarqeem::parser::Parser;
+
+        let root = project_root().join("stdlib_trq");
+        let mut files = Vec::new();
+        collect(&root, &mut files);
+        files.sort();
+        assert!(
+            files.len() >= 43,
+            "expected at least 43 stdlib files, found {} — is the tree in place?",
+            files.len()
+        );
+
+        let mut unexpected_failures = Vec::new();
+        let mut unexpected_successes = Vec::new();
+
+        for path in &files {
+            let rel = path
+                .strip_prefix(&root)
+                .unwrap_or(path)
+                .display()
+                .to_string();
+            let known = KNOWN_UNPARSEABLE.iter().find(|(name, _)| *name == rel);
+
+            let Ok(source) = fs::read_to_string(path) else {
+                continue;
+            };
+            match Parser::new(&source).parse() {
+                Ok(_) => {
+                    if let Some((name, issue)) = known {
+                        unexpected_successes.push(format!("{name} ({issue})"));
+                    }
+                }
+                Err(diagnostic) => {
+                    if known.is_none() {
+                        unexpected_failures.push(format!("{rel}: {}", diagnostic.message));
+                    }
+                }
+            }
+        }
+
+        assert!(
+            unexpected_failures.is_empty(),
+            "{} stdlib file(s) no longer parse:\n{}",
+            unexpected_failures.len(),
+            unexpected_failures.join("\n")
+        );
+        assert!(
+            unexpected_successes.is_empty(),
+            "these files parse now — remove them from KNOWN_UNPARSEABLE:\n{}",
+            unexpected_successes.join("\n")
+        );
     }
 }
