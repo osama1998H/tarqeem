@@ -303,6 +303,107 @@ jobs:
           timeout 30s "./output_${{ matrix.example }}"
 
   # ============================================
+  # Compare Interpreter vs Native Output
+  # ============================================
+  # The jobs above run every example under both the interpreter and native
+  # compilation, but only ever check the exit code. A miscompilation that
+  # prints wrong numbers and exits 0 passes them both — which is exactly how
+  # issue #239 (auto-property accessors all addressing field slot 0) survived
+  # in `خواص` while CI stayed green. This job diffs the two outputs, so any
+  # backend that silently disagrees with the interpreter fails the build.
+  compare-backends:
+    name: Compare Backends (Interpreter vs Native)
+    runs-on: ubuntu-latest
+    needs: build-compiler
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install LLVM/Clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lld zlib1g-dev
+
+      - name: Download compiler
+        uses: actions/download-artifact@v8
+        with:
+          name: tarqeem-compiler
+          path: ./bin
+
+      - name: Download runtime library
+        uses: actions/download-artifact@v8
+        with:
+          name: tarqeem-runtime
+          path: ./runtime
+
+      - name: Make compiler executable
+        run: chmod +x ./bin/tarqeem
+
+      - name: Diff interpreter output against native output
+        env:
+          # Examples whose backends are known to disagree, with the issue that
+          # tracks each. Entries are removed as the issues are fixed — never
+          # added to silence a fresh divergence without filing one first.
+          #
+          #   ضغط — #185: native طول counts UTF-8 bytes, the interpreter counts
+          #                characters, so every length in the output differs.
+          KNOWN_DIVERGENT: "ضغط"
+        run: |
+          # `find_runtime`'s first priority, and the only one that resolves in a
+          # job that downloads the library as an artifact rather than building
+          # it: no target/ directory, no CARGO_MANIFEST_DIR, no ~/.tarqeem.
+          export TARQEEM_RUNTIME_PATH="$PWD/runtime/libtrq.a"
+          # TARQEEM_HOME is deliberately left unset (not set to ""), so the
+          # stdlib search falls through to this checkout's own stdlib_trq.
+          unset TARQEEM_HOME
+          mkdir -p ./compare
+          status=0
+
+          for file in examples/*.ترقيم; do
+            name="$(basename "$file" .ترقيم)"
+
+            interpreted="./compare/${name}.interpreted"
+            native_out="./compare/${name}.native"
+
+            timeout 30s ./bin/tarqeem run "$file" > "$interpreted" 2>/dev/null || true
+
+            if ! timeout 120s ./bin/tarqeem compile "$file" -o "./compare/${name}.bin" \
+                 > "./compare/${name}.compile.log" 2>&1; then
+              echo "::error file=$file::تعذّرت الترجمة الأصلية / native compile failed"
+              tail -20 "./compare/${name}.compile.log"
+              status=1
+              continue
+            fi
+
+            timeout 30s "./compare/${name}.bin" > "$native_out" 2>/dev/null || true
+
+            if diff -u "$interpreted" "$native_out" > "./compare/${name}.diff"; then
+              echo "ok        $name"
+              # A known-divergent example that has started agreeing means the
+              # tracking issue is fixed; drop it from KNOWN_DIVERGENT.
+              case " $KNOWN_DIVERGENT " in
+                *" $name "*)
+                  echo "::error file=$file::$name متطابق الآن — أزله من KNOWN_DIVERGENT / now agrees, remove it from KNOWN_DIVERGENT"
+                  status=1
+                  ;;
+              esac
+              continue
+            fi
+
+            case " $KNOWN_DIVERGENT " in
+              *" $name "*)
+                echo "known     $name (اختلاف متوقع / expected divergence)"
+                ;;
+              *)
+                echo "::error file=$file::$name يطبع خرجاً مختلفاً بين المفسّر والترجمة الأصلية / interpreter and native output differ"
+                cat "./compare/${name}.diff"
+                status=1
+                ;;
+            esac
+          done
+
+          exit $status
+
+  # ============================================
   # Run Standard Library Tests
   # ============================================
   run-stdlib:

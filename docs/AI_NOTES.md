@@ -2,6 +2,77 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-11 — Issue #239: auto-property accessors all addressed field slot 0
+
+### The issue's own diagnosis was wrong twice over
+
+#239 reported `examples/خواص.ترقيم` printing `4` where the interpreter prints `3`,
+and guessed "an off-by-one or last-write-wins in the **native** field index".
+Both halves are wrong, and the difference matters:
+
+- **It is an IR-builder bug, not a codegen bug.** `build_property_getter` and
+  `build_property_setter` (`src/ir/builder/stmt_builder.rs`) emitted
+  `GetField`/`SetField` with a literal `index: 0`, never calling `get_field_info`.
+  The IR is wrong for every backend; codegen is merely the only consumer that
+  *honours* the index. `src/interpreter/executor/mod.rs` destructures the index
+  away and keys on `field.name`, which is why the interpreter looks correct and
+  why "native divergence" was a misleading frame.
+- **Not an off-by-one — always 0.** So all auto-properties on a class share one
+  slot *and* a write through any of them overwrites whatever real field occupies
+  index 0.
+
+The discriminating experiment, worth keeping as a technique: interleave plain
+fields with auto-properties and give each a distinct value. `plain=11, auto=22,
+plain=33, auto=44` printed `44 44 33 44` natively — the plain field at index 0
+reads back a value written through an auto-property, while the plain field at
+index 2 is untouched. An off-by-one predicts garbage in the last slot instead.
+Reading indices out of the built IR then confirmed it directly.
+
+### Why 1,300+ tests and a full CI examples matrix missed it
+
+`خواص` is in CI's compiled-examples matrix and *ran* there every push — but
+`.github/workflows/examples.yml` only checked exit codes, and no workflow
+compared output at all. The one property test that executes anything
+(`oop_execution_tests.rs::test_static_auto_property`) misses twice: `مشترك`
+properties use the index-free `GlobalLoad`/`GlobalStore` path, and it has no
+native leg. Note the JIT leg proves nothing here either — Tier-0 is the
+interpreter, and short programs never promote to Cranelift.
+
+Fixed by a new `tests/property_execution_tests.rs` (all three backends, exact
+stdout) plus a `compare-backends` CI job that diffs interpreter against native
+output for every example, with an explicit `KNOWN_DIVERGENT` allowlist. The
+allowlist checks both directions: a listed example that starts *agreeing* also
+fails, so entries cannot rot after their issue is fixed. It holds only `ضغط`
+(#185, native `طول` counts bytes).
+
+### A missing backing field is an error, not a fallback to 0
+
+`backing_field_index` returns `Err(IrError)` rather than `unwrap_or(0)`.
+Defaulting to slot 0 *is* the bug being fixed; a silent fallback would let the
+next layout change reintroduce it invisibly.
+
+### Discovered while testing, filed separately — not fixed here
+
+- **#250 — `الأصل(…)` loses a parent-constructor write to an auto-property.**
+  Fails in the *interpreter*, so it is unrelated to field indices. Parent
+  constructed directly works; a child writing the inherited property itself
+  works; `الأصل` with a plain field works. Only the exact combination drops it.
+- **#249 — inherited instance fields are unusable natively.** The subclass's
+  LLVM struct type omits its parent's fields, so codegen's
+  `inherited_count + index` GEPs out of bounds: `invalid getelementptr indices`
+  when the child declares no own fields, SIGSEGV when it does. Reproduces with
+  plain fields and no properties. `examples/صنف.ترقيم` escapes it only because
+  its child constructor touches just its own fields and inherited reads happen
+  inside the parent's own methods.
+- **#251 — field/property defaults are never applied.** `خاصية قيمة: عدد = 7`
+  reads as `لا_شيء` interpreted and `0` natively — both wrong, and divergent.
+  `build_new` emits no instance field/property initializers at all; the native
+  `0` is just `alloc_zeroed`, so any non-zero default is silently wrong.
+
+Consequence for test design: the inherited-auto-property case cannot be asserted
+end to end today, so the own-class-relative index convention is asserted against
+the built IR instead of through a running program.
+
 ## 2026-08-10 — Issue #181: the exception system, from unusable to usable
 
 `ارمِ` could not be used in **any** program. `Analyzer::is_error_type` accepts
