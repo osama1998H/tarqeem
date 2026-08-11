@@ -2,7 +2,8 @@
 //!
 //! Measures IR instructions/second for various program structures.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use std::hint::black_box;
 use tarqeem::{Analyzer, IrBuilder, Parser};
 
 /// Generate source with arithmetic expressions

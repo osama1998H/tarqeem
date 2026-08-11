@@ -2,7 +2,8 @@
 //!
 //! Measures JIT configuration and infrastructure performance.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::hint::black_box;
 use tarqeem::ir::{
     BasicBlock, BinaryOp, BlockId, Constant, FuncId, Function, Instruction, IrType, Module, VarId,
 };

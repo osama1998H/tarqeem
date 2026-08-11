@@ -2,7 +2,8 @@
 //!
 //! Measures full compilation pipeline time for various program sizes.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use std::hint::black_box;
 use tarqeem::ir::{OptLevel, Optimizer};
 use tarqeem::{Analyzer, IrBuilder, Lexer, Parser};
 
