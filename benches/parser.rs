@@ -6,7 +6,8 @@
 // boxing the error type here would only distort the measurement.
 #![allow(clippy::result_large_err)]
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use std::hint::black_box;
 use tarqeem::Parser;
 
 /// Generate a simple source file with repeated variable declarations
