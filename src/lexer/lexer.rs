@@ -546,6 +546,14 @@ impl<'a> Lexer<'a> {
 
         if is_float {
             return match literal.parse::<f64>() {
+                // A literal outside the float range parses to infinity, which no
+                // longer round-trips: the formatter would print `inf`, and the
+                // Arabic-only lexer rejects that as a Latin identifier — so
+                // `fmt` refused to format a file the compiler had accepted.
+                Ok(float_value) if !float_value.is_finite() => self.make_error_with_code(
+                    "Float literal out of range / قيمة عشرية خارج المدى",
+                    &ERR_INVALID_NUMBER_FORMAT,
+                ),
                 Ok(float_value) => self.make_token(TokenKind::FloatLiteral(float_value)),
                 Err(_) => self.make_error_with_code(
                     "Invalid float literal / قيمة عشرية غير صالحة",
@@ -878,18 +886,24 @@ mod tests {
         );
     }
 
-    /// The exponent is accumulated in an i32, which panics on overflow in a debug
-    /// build — user input must never do that.
+    /// A literal beyond the float range must be refused, not silently turned into
+    /// infinity: `fmt` prints a non-finite float as `inf`, which the Arabic-only
+    /// lexer then rejects as a Latin identifier, so the formatter could not format
+    /// a file `check` had accepted. Also covers the overflow itself — the exponent
+    /// used to be accumulated in an i32, which panics in a debug build.
     #[test]
-    fn test_absurd_exponent_saturates_instead_of_overflowing() {
-        let mut lexer = Lexer::new("1e999999999999");
-        let tokens: Vec<_> = lexer.tokenize();
-
-        assert!(
-            matches!(tokens[0].kind, TokenKind::FloatLiteral(f) if f.is_infinite()),
-            "expected infinity, got {:?}",
-            tokens[0].kind
-        );
+    fn test_float_literal_out_of_range_is_an_error() {
+        for source in ["1e999999999999", "1e400", "-1e400"] {
+            let mut lexer = Lexer::new(source);
+            let tokens: Vec<_> = lexer.tokenize();
+            assert!(
+                tokens
+                    .iter()
+                    .any(|t| matches!(&t.kind, TokenKind::Error(m) if m.contains("المدى"))),
+                "{source} must be refused as out of range, got {:?}",
+                tokens.iter().map(|t| &t.kind).collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]

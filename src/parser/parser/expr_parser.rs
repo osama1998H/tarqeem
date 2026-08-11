@@ -21,10 +21,13 @@ impl Parser {
     pub(crate) fn parse_precedence(&mut self, precedence: Precedence) -> Result<Expr, Diagnostic> {
         // Inside an unclosed `(` or `[` a newline cannot be ending a statement,
         // so an operand may sit on the line after its operator (issue #255).
-        // Needed on both sides of the loop: here for the right-hand operand
-        // parse_infix recurses into, below for the operator itself. At depth 0
-        // the newline still terminates the statement, which is what keeps
-        // `متغير س = 1 +⏎ 2` an error.
+        //
+        // Only the *operand* side skips: a newline before the operator stays a
+        // boundary. Skipping there too would let a missing separator fuse two
+        // list elements — `[⏎ ١، ⏎ ٢ ⏎ -٣ ⏎]` parsed as `[١, ٢ - ٣]` and
+        // silently produced a two-element array, where the same typo used to be
+        // a parse error at the expected `]`. At depth 0 nothing is skipped at
+        // all, which is what keeps `متغير س = 1 +⏎ 2` an error.
         if self.bracket_depth > 0 {
             self.skip_newlines();
         }
@@ -32,10 +35,6 @@ impl Parser {
         let mut left = self.parse_prefix()?;
 
         while !self.is_at_end() {
-            if self.bracket_depth > 0 {
-                self.skip_newlines();
-            }
-
             let op_prec = Precedence::of(&self.peek().kind);
             if precedence > op_prec {
                 break;
@@ -380,7 +379,16 @@ impl Parser {
 
             TokenKind::LeftBracket => {
                 self.advance();
-                let index = self.parse_expression()?;
+                // A subscript is an unclosed bracket like any other, so it may
+                // be wrapped — otherwise the newline rule would hold or not
+                // depending on whether a call happened to raise the depth
+                // around it.
+                let index = within_brackets(self, |parser| {
+                    parser.skip_newlines();
+                    let index = parser.parse_expression()?;
+                    parser.skip_newlines();
+                    Ok::<_, Diagnostic>(index)
+                })?;
                 self.expect(&TokenKind::RightBracket, "متوقع ']'")?;
                 let span = left.span.merge(&self.previous_span());
                 Ok(Expr::new(

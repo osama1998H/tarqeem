@@ -463,6 +463,12 @@ impl Parser {
         }
     }
 
+    /// True when the `صدّر` at the current position is a re-export rather than
+    /// an exported declaration, so it can carry no documentation.
+    pub(crate) fn export_is_reexport(&self) -> bool {
+        self.export_has_no_doc_field(self.current)
+    }
+
     /// True when the `صدّر` at `idx` is a re-export rather than an exported
     /// declaration, i.e. `صدّر *` or `صدّر { … }`.
     fn export_has_no_doc_field(&self, idx: usize) -> bool {

@@ -3700,28 +3700,48 @@ fn test_class_member_line_comment_after_doc_block_parses() {
     }
 }
 
-/// `MethodSignature` and `EnumVariant` have no comment field, so the trivia loop
-/// is deliberately NOT adopted in those two loops: demoting there would replace
-/// today's loud error with a silent drop that `fmt -w` makes permanent. Pinned so
-/// a later tidy-up cannot "finish the job" and lose user text instead.
+/// A comment run before an interface method or an enum variant is consumed in
+/// one pass like everywhere else, so a `//` after a `///` no longer hard-errors
+/// inside a `ميثاق`/`تعداد` while the identical shape checks clean inside a
+/// `صنف`. `MethodSignature`/`EnumVariant` have no comment field, so the run's
+/// line comments are discarded — exactly as they already were for a `//`-only
+/// run, which is why this is not a new loss.
 #[test]
-fn test_doc_comment_before_interface_method_still_errors_loudly() {
+fn test_comment_run_before_interface_method_and_enum_variant_parses() {
     let source = r#"
         ميثاق م {
-            /// وثيقة
+            /// وثيقة الدالة
             // ملاحظة
             دالة س()
         }
+        تعداد ح {
+            /// وثيقة الحالة
+            // ملاحظة
+            أول
+        }
     "#;
     let mut parser = parser_with_markers(source);
-    let result = parser.parse();
+    let ast = parser
+        .parse()
+        .expect("a // after a /// must parse in ميثاق and تعداد too");
 
-    assert!(
-        result.is_err() || !parser.get_errors().is_empty(),
-        "an unattachable comment in an interface body must be reported, not swallowed"
-    );
+    match &ast.statements[0].kind {
+        StmtKind::InterfaceDecl { methods, .. } => {
+            assert_eq!(methods[0].doc_comment.as_deref(), Some("وثيقة الدالة"));
+        }
+        other => panic!("Expected InterfaceDecl, got {other:?}"),
+    }
+    match &ast.statements[1].kind {
+        StmtKind::EnumDecl { variants, .. } => {
+            assert_eq!(variants[0].doc_comment.as_deref(), Some("وثيقة الحالة"));
+        }
+        other => panic!("Expected EnumDecl, got {other:?}"),
+    }
 }
 
+/// A property's accessor list is the one place left that reports a stray doc
+/// comment: `PropertyAccessor` has no doc field and the documentation belongs on
+/// the `خاصية` itself, so erroring is better than consuming and dropping it.
 #[test]
 fn test_doc_comment_before_property_accessor_still_errors_loudly() {
     let source = r#"
@@ -4048,4 +4068,153 @@ fn test_parse_parameter_named_array_keyword_is_readable() {
     parser
         .parse()
         .expect("a parameter named مصفوفة must be usable in the body");
+}
+
+// ─── Group 14: the bracket newline rule must not leak or hide typos ───
+
+/// A `{ }` body holds statements, so a block-bodied lambda passed as a call
+/// argument must not inherit the argument list's bracket depth. It did, and the
+/// newline before a `-` was treated as trivia, fusing two statements: the body
+/// `متغير أ = س` / `-١` / `أرجع أ` returned `س - ١`.
+#[test]
+fn test_block_body_inside_brackets_keeps_statement_boundaries() {
+    let source = r#"
+        دالة طبق(ف: (عدد) -> عدد، ق: عدد) -> عدد {
+            أرجع ف(ق)
+        }
+        دالة رئيسية() {
+            اطبع(طبق((س) => {
+                متغير أ = س
+                -١
+                أرجع أ
+            }، ٣))
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    // The lambda body must still hold three statements, not two.
+    fn count_lambda_body_statements(expr: &Expr) -> Option<usize> {
+        match &expr.kind {
+            ExprKind::Lambda { body, .. } => match body {
+                LambdaBody::Block(block) => Some(block.statements.len()),
+                LambdaBody::Expr(_) => None,
+            },
+            ExprKind::Call { args, callee } => args
+                .iter()
+                .chain(std::iter::once(callee.as_ref()))
+                .find_map(count_lambda_body_statements),
+            _ => None,
+        }
+    }
+
+    let found = ast.statements.iter().find_map(|stmt| match &stmt.kind {
+        StmtKind::FuncDecl { body, .. } => body.statements.iter().find_map(|s| match &s.kind {
+            StmtKind::Expr(e) => count_lambda_body_statements(e),
+            _ => None,
+        }),
+        _ => None,
+    });
+    assert_eq!(
+        found,
+        Some(3),
+        "the lambda body's statements must not fuse into one expression"
+    );
+}
+
+/// The newline skip is on the operand side only. Skipping before the operator
+/// too let a missing separator fuse two list elements, so `[⏎ ١، ⏎ ٢ ⏎ -٣ ⏎]`
+/// silently became a two-element array instead of the parse error it had been.
+#[test]
+fn test_missing_comma_in_multiline_array_is_still_an_error() {
+    let source = r#"
+        ثابت إزاحات = [
+            ١،
+            ٢
+            -٣
+        ]
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    assert!(
+        result.is_err() || !parser.get_errors().is_empty(),
+        "a missing separator must not be absorbed as a binary operand"
+    );
+}
+
+/// A subscript is an unclosed bracket like any other; before this it parsed only
+/// when some enclosing call happened to raise the depth.
+#[test]
+fn test_parse_multiline_index_subscript() {
+    let source = r#"
+        ثابت أرقام = [١٠، ٢٠]
+        متغير س = أرقام[
+            ١
+        ]
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser.parse().expect("a wrapped subscript must parse");
+}
+
+/// The C-style `لكل` header is three clauses inside an unclosed `(`, so it wraps
+/// like the `إذا`/`طالما`/`تطابق` conditions already did.
+#[test]
+fn test_parse_multiline_c_style_for_header() {
+    let source = r#"
+        دالة رئيسية() {
+            لكل (متغير ع = ٠؛
+                 ع < ٣؛
+                 ع++) {
+                اطبع(ع)
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser.parse().expect("a wrapped لكل header must parse");
+}
+
+/// The for-in dispatch guard must accept the same names `expect_declaration_name`
+/// does, or a loop variable named after a type falls through to the C-style
+/// branch and reports متوقع '(' — an error naming the wrong problem.
+#[test]
+fn test_parse_for_in_with_type_keyword_variable() {
+    let source = r#"
+        ثابت أرقام = [١، ٢]
+        لكل عدد في أرقام {
+            اطبع(عدد)
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("لكل عدد في … must parse");
+
+    assert!(ast
+        .statements
+        .iter()
+        .any(|s| matches!(&s.kind, StmtKind::ForIn { variable, .. } if variable == "عدد")));
+}
+
+/// A re-export carries no documentation, so a doc comment above one is demoted
+/// like the `استورد` case instead of being handed to `parse_export_statement`,
+/// which dropped it — and `fmt -w` then deleted the line from the user's file.
+#[test]
+fn test_doc_comment_above_reexport_is_demoted_not_dropped() {
+    let source = r#"
+        صدّر دالة أولى() {}
+
+        /// وثيقة إعادة التصدير
+        صدّر * من "./آخر"
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    let reexport = ast
+        .statements
+        .iter()
+        .find(|s| matches!(&s.kind, StmtKind::Export(ExportItems::Wildcard { .. })))
+        .expect("Expected a wildcard re-export");
+    assert_eq!(
+        reexport.leading_comments,
+        vec!["وثيقة إعادة التصدير".to_string()]
+    );
 }

@@ -664,6 +664,41 @@ mod stdlib_parses_228 {
         }
     }
 
+    /// Parsing is not enough for the one stdlib file this work rewrote from the
+    /// inside. `رياضيات/اساسي.ترقيم` repoints its calls at the runtime's Arabic
+    /// names, which are only in scope through an explicit
+    /// `استورد … من "رياضيات"` — so a missing entry there resolves to nothing and
+    /// the module type-checks with د٠٠٠١/ن٠٠٠١ errors while still parsing fine.
+    #[test]
+    fn test_math_module_analyzes_cleanly() {
+        let path = project_root()
+            .join("stdlib_trq")
+            .join("رياضيات")
+            .join("اساسي.ترقيم");
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e));
+
+        let mut parser = tarqeem::parser::Parser::new(&source);
+        let ast = parser
+            .parse()
+            .unwrap_or_else(|d| panic!("رياضيات/اساسي.ترقيم must parse: {}", d.message));
+
+        let mut analyzer = tarqeem::semantic::Analyzer::new();
+        analyzer.add_search_path(project_root().join("stdlib_trq"));
+
+        let errors: Vec<String> = match analyzer.analyze(&ast) {
+            Ok(()) => Vec::new(),
+            Err(diagnostics) => diagnostics.iter().map(|d| d.message.clone()).collect(),
+        };
+
+        assert!(
+            errors.is_empty(),
+            "رياضيات/اساسي.ترقيم must analyze cleanly, got {} error(s):\n{}",
+            errors.len(),
+            errors.join("\n")
+        );
+    }
+
     #[test]
     fn test_every_stdlib_file_parses() {
         use tarqeem::parser::Parser;

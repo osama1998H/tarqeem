@@ -78,7 +78,20 @@ impl Parser {
             }
             self.parse_import_statement()?
         } else if self.check(&TokenKind::Export) {
-            self.parse_export_statement(doc_comment)?
+            // `صدّر <إعلان>` threads the doc into the inner declaration, but a
+            // re-export (`صدّر *` / `صدّر { … }`) has nowhere to put it, so it
+            // is demoted here for the same reason as `استورد` above — otherwise
+            // `fmt -w` deletes the line from the user's file.
+            if self.export_is_reexport() {
+                if inherited_wins {
+                    demoted_inherited = inherited_for_demotion;
+                } else {
+                    trivia.demote_doc();
+                }
+                self.parse_export_statement(None)?
+            } else {
+                self.parse_export_statement(doc_comment)?
+            }
         } else {
             if inherited_wins {
                 demoted_inherited = inherited_for_demotion;
@@ -510,10 +523,14 @@ impl Parser {
             if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
                 break;
             }
-            // Skip any line comments before the method
-            self.collect_line_comments();
+            // MethodSignature has no field for a leading comment, so the run's
+            // line comments are discarded here exactly as they were before the
+            // loop — but the run is consumed in one pass, so a `//` after a
+            // `///` no longer hard-errors inside a ميثاق while the same shape
+            // checks clean inside a صنف (issue #203).
+            let trivia = self.collect_leading_trivia();
             let _ = self.take_pending_comments();
-            let method_doc = self.consume_doc_comment();
+            let method_doc = trivia.doc;
 
             self.expect(&TokenKind::Function, "متوقع 'دالة'")?;
             let method_name = self.expect_declaration_name("متوقع اسم الدالة")?;
@@ -575,10 +592,12 @@ impl Parser {
             if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
                 break;
             }
-            // Skip any line comments before the variant
-            self.collect_line_comments();
+            // Same as the interface-method loop: EnumVariant has no comment
+            // field, so line comments are discarded as before, but the whole run
+            // is consumed so the order inside it no longer matters.
+            let trivia = self.collect_leading_trivia();
             let _ = self.take_pending_comments();
-            let variant = self.parse_enum_variant()?;
+            let variant = self.parse_enum_variant_with_doc(trivia.doc)?;
             variants.push(variant);
 
             let _ =
@@ -602,10 +621,16 @@ impl Parser {
     }
 
     /// Parse an enum variant.
-    pub(crate) fn parse_enum_variant(&mut self) -> Result<EnumVariant, Diagnostic> {
+    /// Parse an enum variant, carrying the doc comment its caller already took
+    /// off the trivia run in front of it.
+    pub(crate) fn parse_enum_variant_with_doc(
+        &mut self,
+        inherited_doc: Option<String>,
+    ) -> Result<EnumVariant, Diagnostic> {
         let start = self.current_span();
 
-        let variant_doc = self.consume_doc_comment();
+        // A doc found here still wins for a caller that consumed none.
+        let variant_doc = inherited_doc.or_else(|| self.consume_doc_comment());
 
         let name = self.expect_variant_name("متوقع اسم الحالة")?;
 
@@ -694,14 +719,14 @@ impl Parser {
 
         let items = if self.match_token(&TokenKind::Star) {
             self.expect(&TokenKind::As, "متوقع 'كـ'")?;
-            let alias = self.expect_identifier("متوقع اسم مستعار")?;
+            let alias = self.expect_declaration_name("متوقع اسم مستعار")?;
             ImportItems::Wildcard(alias)
         } else if self.match_token(&TokenKind::LeftBrace) {
             let mut items = Vec::new();
             loop {
-                let name = self.expect_identifier("متوقع اسم")?;
+                let name = self.expect_declaration_name("متوقع اسم")?;
                 let alias = if self.match_token(&TokenKind::As) {
-                    Some(self.expect_identifier("متوقع اسم مستعار")?)
+                    Some(self.expect_declaration_name("متوقع اسم مستعار")?)
                 } else {
                     None
                 };
@@ -757,7 +782,7 @@ impl Parser {
             // صدّر { name1، name2 } [من "module"]
             let mut items = Vec::new();
             loop {
-                let name = self.expect_identifier("متوقع اسم التصدير")?;
+                let name = self.expect_declaration_name("متوقع اسم التصدير")?;
                 let alias = if self.match_token(&TokenKind::As) {
                     Some(self.expect_identifier("متوقع الاسم المستعار")?)
                 } else {

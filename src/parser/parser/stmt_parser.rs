@@ -112,7 +112,10 @@ impl Parser {
         let start = self.current_span();
         self.advance(); // consume 'for'
 
-        if self.check_identifier() {
+        // Must match expect_declaration_name below, or a loop variable named
+        // after a type (`لكل عدد في أرقام`) falls through to the C-style branch
+        // and reports متوقع '(' — an error naming the wrong problem (#202).
+        if self.check_declaration_name() {
             let var_name = self.expect_declaration_name("متوقع اسم المتغير")?;
             if self.check(&TokenKind::In) {
                 self.advance();
@@ -134,6 +137,12 @@ impl Parser {
         }
 
         self.expect(&TokenKind::LeftParen, "متوقع '('")?;
+        // The three clauses live inside an unclosed `(`, so the header may be
+        // wrapped like any other bracketed construct (issue #255). Without this
+        // the newline rule would apply to `إذا`/`طالما`/`تطابق` conditions but
+        // not to this one.
+        self.bracket_depth += 1;
+        self.skip_newlines();
 
         let init = if self.check(&TokenKind::Semicolon) || self.check(&TokenKind::ArabicSemicolon) {
             None
@@ -151,6 +160,7 @@ impl Parser {
         if init.is_none() {
             self.consume_semicolon()?;
         }
+        self.skip_newlines();
 
         let condition =
             if self.check(&TokenKind::Semicolon) || self.check(&TokenKind::ArabicSemicolon) {
@@ -159,6 +169,7 @@ impl Parser {
                 Some(self.parse_expression()?)
             };
         self.consume_semicolon()?;
+        self.skip_newlines();
 
         let update = if self.check(&TokenKind::RightParen) {
             None
@@ -166,6 +177,8 @@ impl Parser {
             Some(self.parse_expression()?)
         };
 
+        self.skip_newlines();
+        self.bracket_depth -= 1;
         self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         let body = self.parse_block()?;
@@ -428,6 +441,14 @@ impl Parser {
         let start = self.current_span();
         self.expect(&TokenKind::LeftBrace, "متوقع '{'")?;
 
+        // A `{ }` body holds statements, so newlines terminate them again even
+        // when the block itself sits inside brackets — a block-bodied lambda
+        // passed as a call argument would otherwise inherit the argument list's
+        // depth and fuse its statements into one expression (issue #255).
+        // Restored below rather than with `within_brackets`, since this lowers
+        // the depth instead of raising it.
+        let outer_bracket_depth = std::mem::take(&mut self.bracket_depth);
+
         // Skip newlines after opening brace
         self.skip_newlines();
 
@@ -449,6 +470,7 @@ impl Parser {
             self.skip_newlines();
         }
 
+        self.bracket_depth = outer_bracket_depth;
         self.expect(&TokenKind::RightBrace, "متوقع '}'")?;
 
         let span = start.merge(&self.previous_span());
