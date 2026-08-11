@@ -666,3 +666,98 @@ fn test_inherited_auto_property_runs_end_to_end() {
         &["1", "3", "2"],
     );
 }
+
+/// Reading a `عيّن`-only property, and assigning to an `احصل`-only one, must say
+/// which accessor is missing — not that the member does not exist.
+///
+/// Both are documented forms (README: «خاصية للقراءة فقط»), and semantic analysis
+/// accepts them, so the IR builder is where they land. Before #249 they silently
+/// read slot 0: `لا_شيء` interpreted, whatever occupied that slot natively. The
+/// hard error introduced with the parent-chain resolvers is the right outcome,
+/// but a property with explicit accessors has no backing field and registers in
+/// only one accessor table, so the generic "missing from the layout" message
+/// claimed the member did not exist. This pins the wording apart.
+/// Uses `run`, not `check`: `check` stops after semantic analysis, which accepts
+/// both directions today (it reports "No errors found"), so the diagnostic only
+/// appears once the IR builder runs. That gap is the reason the message has to
+/// carry its own weight — there is no span-carrying ص diagnostic in front of it.
+fn assert_compile_error_mentions(body: &str, needles: &[&str], forbidden: &str) {
+    let dir = TempDir::new().expect("تعذّر إنشاء مجلد مؤقت");
+    let main = write_main(dir.path(), body);
+    let output = tarqeem(
+        &["run", main.to_str().expect("مسار صالح")],
+        main.parent().expect("للملف الرئيسي مجلد"),
+    );
+
+    let combined = format!("{}{}", output.stdout, output.stderr);
+    assert!(
+        !output.succeeded(),
+        "توقّعنا فشل الترجمة / expected compilation to fail\n{}",
+        output.report()
+    );
+    for needle in needles {
+        assert!(
+            combined.contains(needle),
+            "الرسالة لا تذكر «{needle}» / message does not mention it\n{}",
+            output.report()
+        );
+    }
+    assert!(
+        !combined.contains(forbidden),
+        "الرسالة تدّعي «{forbidden}» والعضو موجود فعلاً / message claims the member is absent, but it exists\n{}",
+        output.report()
+    );
+}
+
+#[test]
+fn test_reading_a_write_only_property_names_the_missing_getter() {
+    assert_compile_error_mentions(
+        r#"
+صنف أ {
+    خاص _س: عدد
+
+    منشئ() {
+        هذا._س = 0
+    }
+
+    خاصية س: عدد {
+        عيّن(قيمة) {
+            هذا._س = قيمة
+        }
+    }
+}
+
+متغير كائن = جديد أ()
+كائن.س = 5
+اطبع(كائن.س)
+"#,
+        &["احصل", "س"],
+        "غير موجود في تخطيط الصنف",
+    );
+}
+
+#[test]
+fn test_assigning_to_a_read_only_property_names_the_missing_setter() {
+    assert_compile_error_mentions(
+        r#"
+صنف أ {
+    خاص _ص: عدد
+
+    منشئ() {
+        هذا._ص = 1
+    }
+
+    خاصية ص: عدد {
+        احصل {
+            أرجع هذا._ص
+        }
+    }
+}
+
+متغير كائن = جديد أ()
+كائن.ص = 9
+"#,
+        &["عيّن", "ص"],
+        "غير موجود في تخطيط الصنف",
+    );
+}

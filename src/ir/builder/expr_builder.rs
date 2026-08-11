@@ -39,6 +39,27 @@ fn unknown_member_error(class: &str, member: &str) -> IrError {
     ))
 }
 
+/// A `خاصية` that exists but does not declare the accessor this access needs:
+/// reading one that has only `عيّن`, or assigning to one that has only `احصل`.
+///
+/// Unlike `unknown_member_error` this *is* user-reachable — semantic analysis
+/// does not yet reject either direction — so it must name what actually went
+/// wrong rather than claim the member is missing from the layout. It stays an
+/// `IrError` without a ص code because that check belongs in the analyzer, where
+/// a span is still available; this is the backstop that keeps the builder from
+/// silently reading slot 0 (or, before it errored at all, corrupting it).
+fn missing_accessor_error(class: &str, member: &str, reading: bool) -> IrError {
+    let (accessor, ar_action, en_action) = if reading {
+        ("احصل", "قراءة", "read")
+    } else {
+        ("عيّن", "التعيين إلى", "assign to")
+    };
+    IrError::new(format!(
+        "لا يمكن {ar_action} الخاصية '{member}' في الصنف '{class}': لا تملك مُلحق '{accessor}' \
+         / cannot {en_action} property '{member}' on class '{class}': it declares no '{accessor}' accessor"
+    ))
+}
+
 impl IrBuilder {
     /// Build IR for an expression.
     pub(crate) fn build_expr(&mut self, expr: &Expr) -> Result<VarId> {
@@ -955,6 +976,9 @@ impl IrBuilder {
         let (field_ty, field_index, class_id) = if let Some(class_id) = class_id_opt {
             match self.resolve_instance_field(&class_id.0, property) {
                 Some((defining_class, idx, ty)) => (ty, idx, ClassId(defining_class)),
+                None if self.declares_instance_property(&class_id.0, property) => {
+                    return Err(missing_accessor_error(&class_id.0, property, true));
+                }
                 None if self.has_field_layout(&class_id.0) => {
                     return Err(unknown_member_error(&class_id.0, property));
                 }
@@ -1142,6 +1166,9 @@ impl IrBuilder {
         let (class_id, field_index) = if let Some(class_id) = class_id_opt {
             match self.resolve_instance_field(&class_id.0, property) {
                 Some((defining_class, index, _)) => (ClassId(defining_class), index),
+                None if self.declares_instance_property(&class_id.0, property) => {
+                    return Err(missing_accessor_error(&class_id.0, property, false));
+                }
                 None if self.has_field_layout(&class_id.0) => {
                     return Err(unknown_member_error(&class_id.0, property));
                 }
