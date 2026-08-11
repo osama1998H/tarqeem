@@ -3303,16 +3303,16 @@ fn test_parse_exported_declaration_keeps_doc_comment() {
     assert_eq!(class_doc, Some("وثيقة الصنف المصدر".to_string()));
 }
 
-/// Threading the outer doc comment down must not change what happens when a
-/// `صدّر` and its declaration are separated by a doc comment on its own line
-/// (`صدّر\n/// وثيقة\nدالة س() {}`). That is a pre-existing hard parse error of
-/// the #203 class — the token sits where a declaration keyword is expected — and
-/// `parse_declaration_with_doc` cannot affect it, because `inherited_doc` is
-/// `None` on that path and `or_else` therefore reduces to the original
-/// unconditional `consume_doc_comment()` call. Pinned here so a future change
-/// cannot quietly turn the loud error into a silently dropped doc comment.
+/// `صدّر\n/// وثيقة\nدالة س() {}` used to be a hard parse error of the #203
+/// class: the one-shot `consume_doc_comment()` ran before the newline after
+/// `صدّر` was skipped, so the doc token still sat where a declaration keyword
+/// was expected. `collect_leading_trivia` skips blank lines *before* looking for
+/// comments, so the form now parses and the doc attaches. The predecessor of
+/// this test pinned the error and said "if it ever attaches, update this test";
+/// this is that update. Its real intent is unchanged and still asserted: the
+/// doc comment must never be lost *silently*.
 #[test]
-fn test_parse_doc_comment_between_export_and_declaration_is_not_silently_dropped() {
+fn test_parse_doc_comment_between_export_and_declaration_now_attaches() {
     let source = r#"
         صدّر
         /// وثيقة الدالة
@@ -3321,24 +3321,21 @@ fn test_parse_doc_comment_between_export_and_declaration_is_not_silently_dropped
     let mut parser = parser_with_markers(source);
     let result = parser.parse();
 
-    let attached_doc = result.as_ref().ok().and_then(|ast| {
-        ast.statements.iter().find_map(|s| match &s.kind {
-            StmtKind::Export(ExportItems::Declaration(inner)) => match &inner.kind {
-                StmtKind::FuncDecl { doc_comment, .. } => doc_comment.clone(),
-                _ => None,
-            },
+    let ast = result.expect("صدّر followed by a doc comment on its own line must parse");
+    assert!(
+        parser.get_errors().is_empty(),
+        "the form is supported now, so nothing should be reported"
+    );
+
+    let attached_doc = ast.statements.iter().find_map(|s| match &s.kind {
+        StmtKind::Export(ExportItems::Declaration(inner)) => match &inner.kind {
+            StmtKind::FuncDecl { doc_comment, .. } => doc_comment.clone(),
             _ => None,
-        })
+        },
+        _ => None,
     });
 
-    assert!(
-        attached_doc.is_none(),
-        "this form is not supported; if it ever attaches, update this test"
-    );
-    assert!(
-        result.is_err() || !parser.get_errors().is_empty(),
-        "an unsupported doc-comment position must be reported, not swallowed"
-    );
+    assert_eq!(attached_doc, Some("وثيقة الدالة".to_string()));
 }
 
 // ─── Group 9: a trailing /** */ must not be stolen as the next member's doc ───
@@ -3443,5 +3440,305 @@ fn test_orphaned_doc_comment_is_demoted_to_leading_comment() {
             .any(|c| c.contains("ملاحظة مهمة")),
         "orphaned doc comment must be preserved, got {:?}",
         stmt.leading_comments
+    );
+}
+
+// ─── Group 11: a comment run before a declaration, in any order (#203) ───
+
+/// The minimal #203 repro: `collect_line_comments()` ran before the doc block
+/// was consumed, so a `//` written after it was never collected and fell through
+/// the declaration dispatch as ب٠٠٠١.
+#[test]
+fn test_line_comment_after_doc_block_before_declaration_parses() {
+    let source = r#"
+        /// وثيقة
+        // ملاحظة
+        دالة س() {}
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("a // after a /// must parse");
+
+    let stmt = &ast.statements[0];
+    match &stmt.kind {
+        StmtKind::FuncDecl { doc_comment, .. } => {
+            assert_eq!(doc_comment.as_deref(), Some("وثيقة"));
+        }
+        other => panic!("Expected FuncDecl, got {other:?}"),
+    }
+    assert_eq!(stmt.leading_comments, vec![" ملاحظة".to_string()]);
+}
+
+/// The exact shape of `stdlib_trq/رياضيات/اساسي.ترقيم:1-19`, which is how 20 of
+/// the 33 unparseable stdlib files opened: file doc, `//` banner, real doc, code.
+#[test]
+fn test_banner_between_module_doc_and_declaration_parses() {
+    let source = r#"
+        /// وحدة الرياضيات
+
+        // ═══════
+        // القيمة المطلقة
+        // ═══════
+
+        /// القيمة المطلقة لعدد
+        صدّر دالة مطلق(س: عدد) -> عدد {
+            أرجع س
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("the stdlib banner shape must parse");
+
+    assert_eq!(ast.module_doc.as_deref(), Some("وحدة الرياضيات"));
+
+    let stmt = &ast.statements[0];
+    assert_eq!(
+        stmt.leading_comments,
+        vec![
+            " ═══════".to_string(),
+            " القيمة المطلقة".to_string(),
+            " ═══════".to_string(),
+        ],
+        "banner lines must stay above the declaration, in source order"
+    );
+    match &stmt.kind {
+        StmtKind::Export(ExportItems::Declaration(inner)) => match &inner.kind {
+            StmtKind::FuncDecl { doc_comment, .. } => {
+                assert_eq!(doc_comment.as_deref(), Some("القيمة المطلقة لعدد"));
+            }
+            other => panic!("Expected FuncDecl, got {other:?}"),
+        },
+        other => panic!("Expected Export, got {other:?}"),
+    }
+}
+
+/// The `stdlib_trq/نص.ترقيم` shape: two doc blocks split by a blank line, which
+/// the lexer refuses to merge, so the second one used to hit ب٠٠٠١.
+#[test]
+fn test_two_doc_blocks_before_declaration_hoist_first_to_module_doc() {
+    let source = r#"
+        /// وحدة النصوص
+
+        /// تحقق إذا كان النص فارغاً
+        صدّر دالة فارغ(س: نص) -> منطقي {
+            أرجع صحيح
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("two doc blocks must parse");
+
+    assert_eq!(ast.module_doc.as_deref(), Some("وحدة النصوص"));
+    match &ast.statements[0].kind {
+        StmtKind::Export(ExportItems::Declaration(inner)) => match &inner.kind {
+            StmtKind::FuncDecl { doc_comment, .. } => {
+                assert_eq!(doc_comment.as_deref(), Some("تحقق إذا كان النص فارغاً"));
+            }
+            other => panic!("Expected FuncDecl, got {other:?}"),
+        },
+        other => panic!("Expected Export, got {other:?}"),
+    }
+}
+
+/// Pins the 20 corpus files whose header is followed directly by a declaration:
+/// there is no signal that such a doc describes the file rather than the
+/// declaration, so it must keep attaching exactly as it did before #203.
+#[test]
+fn test_module_doc_not_taken_when_declaration_follows_directly() {
+    let source = r#"
+        /// صنف القائمة الديناميكية
+
+        صدّر صنف قائمة {
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    assert!(
+        ast.module_doc.is_none(),
+        "a doc with a declaration right after it documents that declaration"
+    );
+    match &ast.statements[0].kind {
+        StmtKind::Export(ExportItems::Declaration(inner)) => match &inner.kind {
+            StmtKind::ClassDecl { doc_comment, .. } => {
+                assert_eq!(doc_comment.as_deref(), Some("صنف القائمة الديناميكية"));
+            }
+            other => panic!("Expected ClassDecl, got {other:?}"),
+        },
+        other => panic!("Expected Export, got {other:?}"),
+    }
+}
+
+/// Without the `الحمد_لله`/`Eof` clause in `doc_comment_is_module_header`, a file
+/// doc with nothing after it survives one `fmt` pass and is discarded by the
+/// second — data loss that only shows up on the second run.
+#[test]
+fn test_module_doc_taken_when_no_declaration_follows() {
+    let source = r#"
+        /// وثيقة الملف
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser
+        .parse()
+        .expect("a file with only a doc comment must parse");
+
+    assert_eq!(ast.module_doc.as_deref(), Some("وثيقة الملف"));
+    assert!(ast.statements.is_empty());
+}
+
+/// Several doc blocks and line-comment runs interleaved: the block nearest the
+/// declaration documents it and everything else keeps its source position.
+#[test]
+fn test_interleaved_comment_runs_keep_source_order() {
+    let source = r#"
+        // أ
+        /// وثيقة١
+        // ب
+        /// وثيقة٢
+        دالة س() {}
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    let stmt = &ast.statements[0];
+    match &stmt.kind {
+        StmtKind::FuncDecl { doc_comment, .. } => {
+            assert_eq!(doc_comment.as_deref(), Some("وثيقة٢"));
+        }
+        other => panic!("Expected FuncDecl, got {other:?}"),
+    }
+    assert_eq!(
+        stmt.leading_comments,
+        vec![" أ".to_string(), "وثيقة١".to_string(), " ب".to_string()],
+        "the demoted doc must sit where it was written, between أ and ب"
+    );
+}
+
+/// `استورد` has no `doc_comment` field, so a doc above the file's first import
+/// used to be demoted and re-emitted as `//` — `fmt -w` silently downgraded the
+/// module header of `stdlib_trq/ملفات/مجلد.ترقيم` and `مجموعات/فهرس.ترقيم` that
+/// way. It is now recognised as the file's doc and keeps its marker.
+#[test]
+fn test_doc_block_before_leading_import_becomes_module_doc() {
+    let source = r#"
+        /// وحدة المجموعات
+        استورد { س } من "وحدة"
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    assert_eq!(ast.module_doc.as_deref(), Some("وحدة المجموعات"));
+    let stmt = &ast.statements[0];
+    assert!(matches!(stmt.kind, StmtKind::Import { .. }));
+    assert!(stmt.leading_comments.is_empty());
+}
+
+/// The same shape for a re-export, which used to drop the doc outright rather
+/// than demote it (`stdlib_trq/اختبار.ترقيم` lost all five of its `///` lines to
+/// `fmt -w`).
+#[test]
+fn test_doc_block_before_leading_reexport_becomes_module_doc() {
+    let source = r#"
+        /// وحدة الاختبارات
+        صدّر * من "اختبار/فهرس"
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    assert_eq!(ast.module_doc.as_deref(), Some("وحدة الاختبارات"));
+}
+
+/// Only the *file's* doc is hoisted. An import further down the file has no
+/// header role, so a doc above it keeps demoting into a leading comment — text
+/// preserved, marker downgraded, exactly as before.
+#[test]
+fn test_doc_block_before_later_import_is_still_demoted() {
+    let source = r#"
+        دالة س() {}
+
+        /// وثيقة الاستيراد
+        استورد { ص } من "وحدة"
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    assert!(ast.module_doc.is_none());
+    let import = ast
+        .statements
+        .iter()
+        .find(|s| matches!(s.kind, StmtKind::Import { .. }))
+        .expect("Expected an import statement");
+    assert_eq!(import.leading_comments, vec!["وثيقة الاستيراد".to_string()]);
+}
+
+/// The `parse_class_member` adoption: the same one-shot pair guarded class
+/// members, so this shape was a hard error inside a `صنف` too.
+#[test]
+fn test_class_member_line_comment_after_doc_block_parses() {
+    let source = r#"
+        صنف ش {
+            /// وثيقة الدالة
+            // ملاحظة
+            عام دالة م() {}
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser
+        .parse()
+        .expect("a // after a /// in a class must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => match &members[0] {
+            ClassMember::Method {
+                doc_comment,
+                leading_comments,
+                ..
+            } => {
+                assert_eq!(doc_comment.as_deref(), Some("وثيقة الدالة"));
+                assert_eq!(leading_comments, &vec![" ملاحظة".to_string()]);
+            }
+            other => panic!("Expected Method, got {other:?}"),
+        },
+        other => panic!("Expected ClassDecl, got {other:?}"),
+    }
+}
+
+/// `MethodSignature` and `EnumVariant` have no comment field, so the trivia loop
+/// is deliberately NOT adopted in those two loops: demoting there would replace
+/// today's loud error with a silent drop that `fmt -w` makes permanent. Pinned so
+/// a later tidy-up cannot "finish the job" and lose user text instead.
+#[test]
+fn test_doc_comment_before_interface_method_still_errors_loudly() {
+    let source = r#"
+        ميثاق م {
+            /// وثيقة
+            // ملاحظة
+            دالة س()
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    assert!(
+        result.is_err() || !parser.get_errors().is_empty(),
+        "an unattachable comment in an interface body must be reported, not swallowed"
+    );
+}
+
+#[test]
+fn test_doc_comment_before_property_accessor_still_errors_loudly() {
+    let source = r#"
+        صنف ش {
+            خاصية س: عدد {
+                /// وثيقة
+                احصل {
+                    أرجع 1
+                }
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    assert!(
+        result.is_err() || !parser.get_errors().is_empty(),
+        "an unattachable comment before an accessor must be reported, not swallowed"
     );
 }

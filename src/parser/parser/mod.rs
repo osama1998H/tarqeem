@@ -36,6 +36,41 @@ pub struct Parser {
 /// are distinct identifiers, as they would be if they weren't keywords) — the
 /// lexer NFC-normalizes the whole source up front, so the lexeme is already
 /// normalized exactly like an Identifier's name.
+/// One run of comments and blank lines in front of a declaration.
+#[derive(Default)]
+pub(crate) struct LeadingTrivia {
+    /// Every comment in the run except `doc`, in source order. A doc block that
+    /// is not the last in the run lands here and is rendered `//`.
+    pub(crate) comments: Vec<String>,
+    /// The doc block written closest to the declaration — the one documenting it.
+    pub(crate) doc: Option<String>,
+    /// Index in `comments` where `doc` was written. A demoted doc is re-inserted
+    /// there rather than appended, so `fmt` cannot reorder a run it did not
+    /// write: appending would move a demoted `/// وثيقة` below a `//` that came
+    /// after it in the source.
+    doc_position: usize,
+}
+
+impl LeadingTrivia {
+    /// A later doc block is nearer the declaration, so it takes over as its
+    /// documentation and the previous one is demoted back into its own slot.
+    fn push_doc(&mut self, doc: String) {
+        if let Some(previous) = self.doc.replace(doc) {
+            self.comments.insert(self.doc_position, previous);
+        }
+        self.doc_position = self.comments.len();
+    }
+
+    /// Gives up on attaching `doc` and puts it back where it was written. Used
+    /// when what follows the run owns no `doc_comment` field, so the text would
+    /// otherwise be dropped — and erased from the user's file by `fmt -w`.
+    pub(crate) fn demote_doc(&mut self) {
+        if let Some(doc) = self.doc.take() {
+            self.comments.insert(self.doc_position, doc);
+        }
+    }
+}
+
 pub(crate) fn identifier_like_name(token: &Token) -> Option<&str> {
     match &token.kind {
         TokenKind::Identifier(name) => Some(name),
@@ -295,6 +330,142 @@ impl Parser {
             )
     }
 
+    /// True when the doc comment at the current position documents the *file*
+    /// rather than whatever follows it — the only place a `///` can be kept with
+    /// its marker when nothing below it can hold a doc comment.
+    ///
+    /// It is the file's doc when any of these holds:
+    ///
+    /// 1. **A nearer doc block follows.** That one documents the declaration, so
+    ///    this one cannot. Covers the 22 stdlib files whose header is followed by
+    ///    a `//` banner and then the real doc.
+    /// 2. **Nothing follows** (`الحمد_لله`/`Eof`). Required, not theoretical:
+    ///    without it a header with no declaration after it survives one `fmt`
+    ///    pass and is discarded by the *second*, because
+    ///    `match_terminator_after_trivia` drops trailing trivia — silent loss
+    ///    that only appears on a second run.
+    /// 3. **What follows owns no `doc_comment` field** — `استورد`, a bare
+    ///    `صدّر *`/`صدّر { … }`, or anything routed through `parse_statement`.
+    ///    There the doc would be demoted into `leading_comments` and re-emitted
+    ///    as `//`. `stdlib_trq/اختبار/توكيدات.ترقيم` is exactly this: header,
+    ///    `//` note, `استورد` — its seven `///` lines depend on this clause.
+    ///
+    /// Otherwise the declaration below owns the doc and keeps it, which is what
+    /// the 20 corpus files whose header sits directly above a declaration have
+    /// always done.
+    fn doc_comment_is_module_header(&self) -> bool {
+        match &self.peek().kind {
+            TokenKind::DocComment(_) => {}
+            TokenKind::BlockDocComment(_) if self.at_line_start() => {}
+            _ => return false,
+        }
+
+        let mut idx = self.current + 1;
+        let mut nearer_doc = false;
+        while idx < self.tokens.len() {
+            match &self.tokens[idx].kind {
+                TokenKind::Newline | TokenKind::LineComment(_) => idx += 1,
+                TokenKind::DocComment(_) | TokenKind::BlockDocComment(_) => {
+                    nearer_doc = true;
+                    idx += 1;
+                }
+                _ => break,
+            }
+        }
+
+        if idx >= self.tokens.len() || nearer_doc {
+            return true;
+        }
+
+        match self.tokens[idx].kind {
+            TokenKind::Alhamdulillah | TokenKind::Eof => true,
+            // Every declaration that carries a `doc_comment` field.
+            TokenKind::Let
+            | TokenKind::Const
+            | TokenKind::Function
+            | TokenKind::Async
+            | TokenKind::Class
+            | TokenKind::Interface
+            | TokenKind::Enum => false,
+            // `صدّر <decl>` threads the doc into the inner declaration; a
+            // wildcard or named export list has nowhere to put it.
+            // A declaration that carries no documentation of its own: a doc
+            // above it can only be describing the file. Hoisting is what keeps
+            // the text at all — `استورد` demotes it to `//`, and a re-export
+            // drops it outright (both were silent losses before this).
+            TokenKind::Import => true,
+            TokenKind::Export => self.export_has_no_doc_field(idx),
+            // Executable code in script mode. A doc directly above it reads as
+            // documenting that statement, so it keeps demoting into a leading
+            // comment as before; once a comment run separates the two there is
+            // nothing left for it to be adjacent to.
+            _ => self.tokens[self.current + 1..idx]
+                .iter()
+                .any(|token| token.kind.is_comment()),
+        }
+    }
+
+    /// True when the `صدّر` at `idx` is a re-export rather than an exported
+    /// declaration, i.e. `صدّر *` or `صدّر { … }`.
+    fn export_has_no_doc_field(&self, idx: usize) -> bool {
+        let mut next = idx + 1;
+        while next < self.tokens.len() {
+            match &self.tokens[next].kind {
+                TokenKind::Newline => next += 1,
+                kind if kind.is_comment() => next += 1,
+                _ => break,
+            }
+        }
+
+        next < self.tokens.len()
+            && matches!(
+                self.tokens[next].kind,
+                TokenKind::Star | TokenKind::LeftBrace
+            )
+    }
+
+    /// Consumes the *whole* run of blank lines and comments in front of a
+    /// declaration.
+    ///
+    /// Replaces a `collect_line_comments()` + `consume_doc_comment()` pair, each
+    /// of which ran exactly once: a `///` block stopped the line-comment loop
+    /// before it began, so any comment written *after* that block was left in
+    /// the stream and fell through the declaration dispatch into
+    /// `parse_statement`, where it became `ب٠٠٠١ رمز غير متوقع` (issue #203).
+    pub(crate) fn collect_leading_trivia(&mut self) -> LeadingTrivia {
+        let mut trivia = LeadingTrivia::default();
+
+        loop {
+            self.skip_newlines();
+
+            // Every arm but the last consumes exactly one token, so `current`
+            // strictly increases until the loop exits.
+            match &self.peek().kind {
+                TokenKind::LineComment(comment) => {
+                    let comment = comment.clone();
+                    self.advance();
+                    trivia.comments.push(comment);
+                }
+                TokenKind::DocComment(comment) => {
+                    let comment = comment.clone();
+                    self.advance();
+                    trivia.push_doc(comment);
+                }
+                // A `/** */` trailing code on the same line annotates that line,
+                // so it is left for capture_trailing_comment — the #201 rule
+                // that consume_doc_comment encodes with the same guard.
+                TokenKind::BlockDocComment(comment) if self.at_line_start() => {
+                    let comment = comment.clone();
+                    self.advance();
+                    trivia.push_doc(comment);
+                }
+                _ => break,
+            }
+        }
+
+        trivia
+    }
+
     /// Collect any line comments before a statement.
     pub(crate) fn collect_line_comments(&mut self) {
         while let TokenKind::LineComment(comment) = &self.peek().kind {
@@ -342,6 +513,15 @@ impl Parser {
 
         // Skip newlines after بسم_الله
         self.skip_newlines();
+
+        // Peel a file-level doc comment before the declaration loop can claim
+        // it: 42 of the 43 stdlib files open with one, and it documents the
+        // module, not whatever declaration happens to follow.
+        let module_doc = if self.doc_comment_is_module_header() {
+            self.consume_doc_comment()
+        } else {
+            None
+        };
 
         let mut statements = Vec::new();
 
@@ -404,11 +584,9 @@ impl Parser {
             ));
         }
 
-        Ok(Ast::with_markers(
-            statements,
-            bismillah_span,
-            alhamdulillah_span,
-        ))
+        let mut ast = Ast::with_markers(statements, bismillah_span, alhamdulillah_span);
+        ast.module_doc = module_doc;
+        Ok(ast)
     }
 
     // Token helper methods

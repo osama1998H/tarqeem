@@ -32,24 +32,29 @@ impl Parser {
         &mut self,
         inherited_doc: Option<String>,
     ) -> Result<Stmt, Diagnostic> {
-        // Collect any line comments before the declaration
-        self.collect_line_comments();
-        let mut leading_comments = self.take_pending_comments();
+        // Consume the whole trivia run in one pass. Doing it as two one-shot
+        // calls left every comment after the first doc block in the stream,
+        // where it became ب٠٠٠١ (issue #203).
+        // Consume the whole trivia run in one pass; the doc it holds is only
+        // moved into `trivia.comments` if nothing below can carry it, so a
+        // demotion lands back on the line the user wrote it on.
+        let mut trivia = self.collect_leading_trivia();
+        let pending_comments = self.take_pending_comments();
 
-        // Always consume a doc comment sitting here, even when the caller already
-        // supplied one: short-circuiting left the token in the stream, where it
-        // fell through to the expression parser and turned `صدّر /// ملاحظة` into
-        // a hard parse error on source that used to compile.
-        let own_doc = self.consume_doc_comment();
         // A doc comment written before the outer keyword documents the
-        // declaration, so it wins over one found after it.
-        let (doc_comment, mut orphaned_doc) = match inherited_doc {
-            Some(outer) => (Some(outer), own_doc),
-            None => (own_doc, None),
+        // declaration, so it wins over one found after it — and the loser is
+        // demoted rather than dropped, since `fmt -w` would otherwise erase it.
+        let inherited_wins = inherited_doc.is_some();
+        let inherited_for_demotion = inherited_doc.clone();
+        let doc_comment = if inherited_wins {
+            trivia.demote_doc();
+            inherited_doc
+        } else {
+            trivia.doc.clone()
         };
-
-        // Skip newlines after doc comment before the actual declaration
-        self.skip_newlines();
+        // An inherited doc was written *above* this run, so it cannot simply be
+        // appended to it — its provenance is what places it.
+        let mut demoted_inherited: Option<String> = None;
 
         let mut stmt = if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
             self.parse_var_declaration(doc_comment)?
@@ -69,21 +74,32 @@ impl Parser {
             // dropped — and since the doc token is consumed now, `fmt -w` would
             // erase it from the user's file rather than failing loudly. Demote it
             // to a leading comment so the formatter still writes it out.
-            orphaned_doc = orphaned_doc.or(doc_comment);
+            if inherited_wins {
+                demoted_inherited = inherited_for_demotion;
+            } else {
+                trivia.demote_doc();
+            }
             self.parse_import_statement()?
         } else if self.check(&TokenKind::Export) {
             self.parse_export_statement(doc_comment)?
         } else {
-            orphaned_doc = orphaned_doc.or(doc_comment);
+            if inherited_wins {
+                demoted_inherited = inherited_for_demotion;
+            } else {
+                trivia.demote_doc();
+            }
             self.parse_statement()?
         };
 
         // Capture trailing comment (on same line after statement)
         stmt.trailing_comment = self.capture_trailing_comment();
 
-        // Attach leading comments to the statement. An orphaned doc comment goes
-        // last because it was written after any line comments above it.
-        leading_comments.extend(orphaned_doc);
+        // Source order: comments collected before this call, then a doc written
+        // above the outer keyword, then this run — whose own demoted doc is
+        // already back in its slot.
+        let mut leading_comments = pending_comments;
+        leading_comments.extend(demoted_inherited);
+        leading_comments.extend(trivia.comments);
         stmt.leading_comments = leading_comments;
         Ok(stmt)
     }
@@ -287,12 +303,13 @@ impl Parser {
 
     /// Parse a single class member.
     pub(crate) fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
-        self.collect_line_comments();
+        let trivia = self.collect_leading_trivia();
         // Captured before the body is parsed so nothing downstream (e.g. the
         // method's own parse_block) can steal it — pending_comments is a
         // single shared buffer, not scoped to this member.
-        let leading_comments = self.take_pending_comments();
-        let member_doc = self.consume_doc_comment();
+        let mut leading_comments = self.take_pending_comments();
+        leading_comments.extend(trivia.comments);
+        let member_doc = trivia.doc;
 
         let visibility = self.parse_visibility();
         let is_static = self.match_token(&TokenKind::Static);

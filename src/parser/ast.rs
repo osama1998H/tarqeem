@@ -8,6 +8,11 @@ pub struct Ast {
     pub statements: Vec<Stmt>,
     pub bismillah_span: Option<Span>,
     pub alhamdulillah_span: Option<Span>,
+    /// A `///` block right after `بسم_الله` that documents the *file* rather
+    /// than the declaration below it. Held here so it keeps its `///` marker:
+    /// demoting it to a `Stmt::leading_comments` entry would make `fmt -w`
+    /// rewrite it as `//` and blank the module description in `tarqeem doc`.
+    pub module_doc: Option<String>,
 }
 
 impl Ast {
@@ -16,6 +21,7 @@ impl Ast {
             statements,
             bismillah_span: None,
             alhamdulillah_span: None,
+            module_doc: None,
         }
     }
 
@@ -28,6 +34,7 @@ impl Ast {
             statements,
             bismillah_span: Some(bismillah_span),
             alhamdulillah_span: Some(alhamdulillah_span),
+            module_doc: None,
         }
     }
 

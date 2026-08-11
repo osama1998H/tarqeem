@@ -160,6 +160,10 @@ pub fn link_program(
         statements: merged,
         bismillah_span: main.bismillah_span,
         alhamdulillah_span: main.alhamdulillah_span,
+        // Main's file doc describes the linked program; an imported module's
+        // describes that module, which no longer exists as a unit after the
+        // merge — so those drop, exactly like their markers' spans.
+        module_doc: main.module_doc.clone(),
     })
 }
 
