@@ -3927,3 +3927,125 @@ fn test_generic_type_in_enum_variant_payload_still_parses_as_a_type() {
         .parse()
         .expect("a generic type in a variant payload must still be read as a type");
 }
+
+// ─── Group 13: newlines are trivia inside an unclosed bracket (#255) ───
+
+#[test]
+fn test_parse_multiline_call_arguments() {
+    let source = r#"
+        دالة ف(أ: عدد، ب: عدد) -> عدد {
+            أرجع أ + ب
+        }
+        متغير س = ف(
+            1،
+            2
+        )
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser.parse().expect("a wrapped call must parse");
+}
+
+#[test]
+fn test_parse_multiline_parameter_list() {
+    let source = r#"
+        دالة ف(
+            أ: عدد،
+            ب: عدد
+        ) -> عدد {
+            أرجع أ + ب
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("a wrapped signature must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { params, .. } => assert_eq!(params.len(), 2),
+        other => panic!("Expected FuncDecl, got {other:?}"),
+    }
+}
+
+/// An operand may sit on the line after its operator while a bracket is open,
+/// which is what makes wrapping a long condition in parentheses work.
+#[test]
+fn test_parse_wrapped_operand_inside_parentheses() {
+    let source = r#"
+        متغير أ = 1
+        متغير س = (أ == 1 &&
+                   أ < 10)
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser
+        .parse()
+        .expect("an operand after a wrapped operator must parse inside parens");
+}
+
+#[test]
+fn test_parse_wrapped_condition_in_control_flow() {
+    let source = r#"
+        متغير أ = 5
+        إذا (أ > 1 &&
+             أ < 10) {
+            اطبع("نعم")
+        }
+        طالما (أ > 10 ||
+               أ < 0) {
+            اطبع("لا")
+        }
+        تطابق (أ) {
+            غير_ذلك => اطبع("أخرى")
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser
+        .parse()
+        .expect("إذا/طالما/تطابق conditions must accept a wrapped expression");
+}
+
+/// The boundary the language deliberately keeps: a newline still terminates a
+/// statement, so an expression cannot be continued at bracket depth 0.
+#[test]
+fn test_operator_continuation_at_statement_level_is_still_an_error() {
+    let source = r#"
+        متغير س = 1 +
+        2
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    assert!(
+        result.is_err() || !parser.get_errors().is_empty(),
+        "a newline must still end a statement outside brackets"
+    );
+}
+
+/// The depth counter must come back down on the error path too, or one malformed
+/// argument list would join every following statement to the next line.
+#[test]
+fn test_unbalanced_parenthesis_still_reports_an_error() {
+    let source = r#"
+        اطبع(1
+        متغير س = 2
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    assert!(
+        result.is_err() || !parser.get_errors().is_empty(),
+        "an unclosed call must be reported"
+    );
+}
+
+/// مصفوفة/قاموس/أي were missing from expression position, so a parameter named
+/// after one of them was declarable but unreadable in its own body.
+#[test]
+fn test_parse_parameter_named_array_keyword_is_readable() {
+    let source = r#"
+        دالة ف(مصفوفة: مصفوفة<أي>) -> عدد {
+            أرجع طول(مصفوفة)
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser
+        .parse()
+        .expect("a parameter named مصفوفة must be usable in the body");
+}

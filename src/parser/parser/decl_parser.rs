@@ -11,7 +11,7 @@ use crate::error::Diagnostic;
 use crate::lexer::TokenKind;
 
 use super::super::ast::*;
-use super::Parser;
+use super::{within_brackets, Parser};
 
 impl Parser {
     /// Parse a declaration (variable, function, class, etc.).
@@ -882,10 +882,18 @@ impl Parser {
 
     /// Parse function parameters.
     pub(crate) fn parse_parameters(&mut self) -> Result<Vec<Param>, Diagnostic> {
+        // Newlines are trivia between the parentheses, so a long signature can be
+        // wrapped (issue #255), matching parse_arguments at the call side.
+        within_brackets(self, |parser| parser.parse_parameter_list())
+    }
+
+    fn parse_parameter_list(&mut self) -> Result<Vec<Param>, Diagnostic> {
         let mut params = Vec::new();
 
+        self.skip_newlines();
         if !self.check(&TokenKind::RightParen) {
             loop {
+                self.skip_newlines();
                 let start = self.current_span();
                 let name = self.expect_declaration_name("متوقع اسم المعامل")?;
 
@@ -908,6 +916,7 @@ impl Parser {
                     span: start.merge(&self.previous_span()),
                 });
 
+                self.skip_newlines();
                 if !self.match_token(&TokenKind::Comma)
                     && !self.match_token(&TokenKind::ArabicComma)
                 {
@@ -916,6 +925,7 @@ impl Parser {
             }
         }
 
+        self.skip_newlines();
         Ok(params)
     }
 }

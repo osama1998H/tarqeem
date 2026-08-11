@@ -9,7 +9,7 @@ use crate::lexer::TokenKind;
 
 use super::super::ast::*;
 use super::super::precedence::Precedence;
-use super::{declaration_name, identifier_like_name, Parser};
+use super::{declaration_name, identifier_like_name, within_brackets, Parser};
 
 impl Parser {
     /// Parse an expression.
@@ -19,9 +19,23 @@ impl Parser {
 
     /// Parse an expression with the given minimum precedence.
     pub(crate) fn parse_precedence(&mut self, precedence: Precedence) -> Result<Expr, Diagnostic> {
+        // Inside an unclosed `(` or `[` a newline cannot be ending a statement,
+        // so an operand may sit on the line after its operator (issue #255).
+        // Needed on both sides of the loop: here for the right-hand operand
+        // parse_infix recurses into, below for the operator itself. At depth 0
+        // the newline still terminates the statement, which is what keeps
+        // `متغير س = 1 +⏎ 2` an error.
+        if self.bracket_depth > 0 {
+            self.skip_newlines();
+        }
+
         let mut left = self.parse_prefix()?;
 
         while !self.is_at_end() {
+            if self.bracket_depth > 0 {
+                self.skip_newlines();
+            }
+
             let op_prec = Precedence::of(&self.peek().kind);
             if precedence > op_prec {
                 break;
@@ -103,6 +117,13 @@ impl Parser {
             )),
             TokenKind::TypeString => Ok(Expr::new(ExprKind::Identifier("نص".to_string()), span)),
             TokenKind::TypeBool => Ok(Expr::new(ExprKind::Identifier("منطقي".to_string()), span)),
+            // مصفوفة/قاموس/أي complete the set: عدد and friends were already here
+            // because they double as builtin conversion functions, but a
+            // parameter named مصفوفة (stdlib_trq/اختبار/توكيدات.ترقيم:391) was
+            // declarable and then unreadable in its own body.
+            TokenKind::TypeArray | TokenKind::TypeMap | TokenKind::TypeAny => {
+                Ok(Expr::new(ExprKind::Identifier(token.lexeme.clone()), span))
+            }
 
             TokenKind::This => Ok(Expr::new(ExprKind::This, span)),
             TokenKind::Super => Ok(Expr::new(ExprKind::Super, span)),
@@ -111,7 +132,12 @@ impl Parser {
                 if let Some(lambda) = self.try_parse_arrow_function(span)? {
                     return Ok(lambda);
                 }
-                let expr = self.parse_expression()?;
+                let expr = within_brackets(self, |parser| {
+                    parser.skip_newlines();
+                    let expr = parser.parse_expression()?;
+                    parser.skip_newlines();
+                    Ok::<_, Diagnostic>(expr)
+                })?;
                 self.expect(&TokenKind::RightParen, "متوقع ')'")?;
                 let end_span = self.previous_span();
                 Ok(Expr::new(
@@ -121,21 +147,24 @@ impl Parser {
             }
 
             TokenKind::LeftBracket => {
-                let mut elements = Vec::new();
-                self.skip_newlines();
-                if !self.check(&TokenKind::RightBracket) {
-                    loop {
-                        self.skip_newlines();
-                        elements.push(self.parse_expression()?);
-                        self.skip_newlines();
-                        if !self.match_token(&TokenKind::Comma)
-                            && !self.match_token(&TokenKind::ArabicComma)
-                        {
-                            break;
+                let elements = within_brackets(self, |parser| {
+                    let mut elements = Vec::new();
+                    parser.skip_newlines();
+                    if !parser.check(&TokenKind::RightBracket) {
+                        loop {
+                            parser.skip_newlines();
+                            elements.push(parser.parse_expression()?);
+                            parser.skip_newlines();
+                            if !parser.match_token(&TokenKind::Comma)
+                                && !parser.match_token(&TokenKind::ArabicComma)
+                            {
+                                break;
+                            }
                         }
                     }
-                }
-                self.skip_newlines();
+                    parser.skip_newlines();
+                    Ok::<_, Diagnostic>(elements)
+                })?;
                 self.expect(&TokenKind::RightBracket, "متوقع ']'")?;
                 let end_span = self.previous_span();
                 Ok(Expr::new(ExprKind::Array(elements), span.merge(&end_span)))
@@ -453,19 +482,30 @@ impl Parser {
     }
 
     /// Parse function call arguments.
+    ///
+    /// Newlines are trivia inside the parentheses, so a call can be wrapped over
+    /// several lines (issue #255). Statements are still newline-terminated —
+    /// only an unclosed bracket suspends that, the same way the array-literal
+    /// loop in `parse_prefix` already did.
     pub(crate) fn parse_arguments(&mut self) -> Result<Vec<Expr>, Diagnostic> {
-        let mut args = Vec::new();
-        if !self.check(&TokenKind::RightParen) {
-            loop {
-                args.push(self.parse_expression()?);
-                if !self.match_token(&TokenKind::Comma)
-                    && !self.match_token(&TokenKind::ArabicComma)
-                {
-                    break;
+        within_brackets(self, |parser| {
+            let mut args = Vec::new();
+            parser.skip_newlines();
+            if !parser.check(&TokenKind::RightParen) {
+                loop {
+                    parser.skip_newlines();
+                    args.push(parser.parse_expression()?);
+                    parser.skip_newlines();
+                    if !parser.match_token(&TokenKind::Comma)
+                        && !parser.match_token(&TokenKind::ArabicComma)
+                    {
+                        break;
+                    }
                 }
             }
-        }
-        Ok(args)
+            parser.skip_newlines();
+            Ok(args)
+        })
     }
 
     /// Try to parse type arguments for generic enum variants: `اختياري<عدد>::بعض`

@@ -7,7 +7,7 @@ use crate::error::Diagnostic;
 use crate::lexer::TokenKind;
 
 use super::super::ast::*;
-use super::{identifier_like_name, Parser};
+use super::{identifier_like_name, within_brackets, Parser};
 
 impl Parser {
     /// Parse a statement (not a declaration).
@@ -46,7 +46,7 @@ impl Parser {
         self.advance(); // consume 'if'
 
         self.expect(&TokenKind::LeftParen, "متوقع '('")?;
-        let condition = self.parse_expression()?;
+        let condition = within_brackets(self, |parser| parser.parse_expression())?;
         self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         let then_branch = self.parse_block()?;
@@ -79,7 +79,7 @@ impl Parser {
         self.advance(); // consume 'while'
 
         self.expect(&TokenKind::LeftParen, "متوقع '('")?;
-        let condition = self.parse_expression()?;
+        let condition = within_brackets(self, |parser| parser.parse_expression())?;
         self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         let body = self.parse_block()?;
@@ -97,7 +97,7 @@ impl Parser {
 
         self.expect(&TokenKind::While, "متوقع 'طالما'")?;
         self.expect(&TokenKind::LeftParen, "متوقع '('")?;
-        let condition = self.parse_expression()?;
+        let condition = within_brackets(self, |parser| parser.parse_expression())?;
         self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         let _ = self.match_token(&TokenKind::Semicolon)
@@ -188,7 +188,7 @@ impl Parser {
         self.advance(); // consume 'match'
 
         self.expect(&TokenKind::LeftParen, "متوقع '('")?;
-        let expr = self.parse_expression()?;
+        let expr = within_brackets(self, |parser| parser.parse_expression())?;
         self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         self.expect(&TokenKind::LeftBrace, "متوقع '{'")?;

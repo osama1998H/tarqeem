@@ -27,15 +27,22 @@ pub struct Parser {
     panic_mode: bool,
     /// Line comments pending to be attached to the next statement
     pub(crate) pending_comments: Vec<String>,
+    /// How many `(`/`[` are open around the expression being parsed. Inside one,
+    /// a newline is trivia rather than a statement terminator (issue #255).
+    pub(crate) bracket_depth: usize,
 }
 
-/// Contextual keywords: احصل/عيّن/حالة are reserved only inside خاصية accessor
-/// blocks and تطابق arms; elsewhere they act as ordinary identifiers
-/// (same pattern as expect_type_name's type-keyword mapping). Returns the
-/// token's own text so the spelling the user wrote is preserved (عين and عيّن
-/// are distinct identifiers, as they would be if they weren't keywords) — the
-/// lexer NFC-normalizes the whole source up front, so the lexeme is already
-/// normalized exactly like an Identifier's name.
+/// Runs `body` with the bracket-nesting depth raised, so newlines inside the
+/// brackets are trivia. Restores the depth even when `body` returns an error, or
+/// a malformed argument list would leave every following statement joined to the
+/// next line.
+pub(crate) fn within_brackets<T>(parser: &mut Parser, body: impl FnOnce(&mut Parser) -> T) -> T {
+    parser.bracket_depth += 1;
+    let result = body(parser);
+    parser.bracket_depth -= 1;
+    result
+}
+
 /// One run of comments and blank lines in front of a declaration.
 #[derive(Default)]
 pub(crate) struct LeadingTrivia {
@@ -71,6 +78,13 @@ impl LeadingTrivia {
     }
 }
 
+/// Contextual keywords: احصل/عيّن/حالة are reserved only inside خاصية accessor
+/// blocks and تطابق arms; elsewhere they act as ordinary identifiers
+/// (same pattern as expect_type_name's type-keyword mapping). Returns the
+/// token's own text so the spelling the user wrote is preserved (عين and عيّن
+/// are distinct identifiers, as they would be if they weren't keywords) — the
+/// lexer NFC-normalizes the whole source up front, so the lexeme is already
+/// normalized exactly like an Identifier's name.
 pub(crate) fn identifier_like_name(token: &Token) -> Option<&str> {
     match &token.kind {
         TokenKind::Identifier(name) => Some(name),
@@ -131,6 +145,7 @@ impl Parser {
             errors: Vec::new(),
             panic_mode: false,
             pending_comments: Vec::new(),
+            bracket_depth: 0,
         }
     }
 
@@ -142,6 +157,7 @@ impl Parser {
             errors: Vec::new(),
             panic_mode: false,
             pending_comments: Vec::new(),
+            bracket_depth: 0,
         }
     }
 
