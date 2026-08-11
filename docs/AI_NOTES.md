@@ -2,6 +2,117 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-11 — Issues #249 and #250: inherited members resolved to nothing
+
+### The issue's diagnosis was inverted, and the empirical check was cheap
+
+#249 reported that "the subclass's LLVM struct type contains only its *own* fields"
+and concluded the struct had to be flattened. The opposite is true, and one grep
+settles it:
+
+```
+$ tarqeem compile ب.ترقيم --emit-llvm -o ب.ll && grep '= type' ب.ll
+%class.أصل = type { i64 }
+%class.فرع = type { i64, i64 }        # flattened correctly
+```
+
+`emit_class_definition` → `collect_class_fields` already recurses through
+`Class.parent` (populated at `stmt_builder.rs:347-354`), and `NewObject` already
+sizes `trq_alloc` from the flattened list — so the allocation-size hypothesis is
+disproven too. **Codegen was correct throughout; nothing in `src/codegen/` changed.**
+
+Worth keeping as a technique: `%class.فرع` having *zero* fields and having *one*
+field produce the **identical** `invalid getelementptr indices` from clang, so the
+reported symptom could not discriminate between "struct too short" and "index too
+large". Reading the emitted struct is what does.
+
+### Root cause: a missing walk behind three silent fallbacks
+
+`FieldId`/`MethodId` mean *(defining class, index own-relative to that class)* —
+the convention `stmt_builder.rs:516-521` documents and codegen's
+`inherited_field_count[field.class] + field.index` implements. But nothing walked
+the parent chain: `get_field_info` searches one class's own fields, and the
+property accessor lookups keyed flat maps on the *receiver's* class, unlike their
+`مشترك` twins `resolve_static_property{,_setter}`. On a miss, `build_member` /
+`store_to_member` substituted `index: 0`, type `Ptr(Void)`, and the receiver as
+owning class. Three wrong values in one instruction, visible directly in the IR:
+
+```
+setfield %0, %class.فرع.قيمة, %1        # قيمة is declared on أصل
+%4: *void = getfield %3, %class.فرع.قيمة  # and it is an عدد
+```
+
+Hence two unrelated-looking symptoms from one defect:
+
+- **`invalid getelementptr indices`** when the subclass declares no fields of its
+  own — `inherited_count[فرع] (1) + 0` against a one-slot struct.
+- **SIGSEGV** when it does — both ctor writes computed slot 1 and aliased, which is
+  in-range so clang accepted it; the *lost type* is what crashed, because `Print`
+  dispatches on `Ptr(_)` to `trq_print(ptr %x)` (`codegen.rs:1650-1656`) and
+  dereferenced the integer `6`.
+
+This is the second bug from this fallback pattern after #239, whose own fix
+recorded the rule being applied here: *a missing backing field is an error, not a
+fallback to 0 — falling back is the bug.* The fallbacks are now
+`unknown_member_error`.
+
+### #250 was the same bug, seen from the read side
+
+#250 ("`الأصل(...)` loses a parent-constructor write to an auto-property") is fixed
+by this change, with no `الأصل`-specific code involved — and its title is a
+mis-diagnosis. The write was never lost: objects are `Rc<RefCell<TrqObject>>` and
+argument passing clones the `Rc`, so no aliasing bug is possible. What happened is
+a **name** mismatch. Inside `أصل::منشئ`, `هذا` is typed `أصل`, so the write routed
+through the setter and stored the backing field `_قيمة` correctly; the read through
+a `فرع`-typed reference missed the accessor lookup and degraded to a raw `GetField`
+named `قيمة` — a name no slot carries — so the interpreter returned `Null`.
+
+That also explains the issue's whole isolation table, including why two of its four
+rows "work": a child writing the inherited auto-property itself degrades on *both*
+sides to the same wrong name, so interpreted it cancels out. It was never right,
+only symmetrically wrong — and natively it still addressed the wrong slot.
+
+### Strictness boundary: "known class" ≠ "has a layout"
+
+Making resolution failure a hard error looked safe and was not. Object literals are
+typed `Struct(ClassId("__anonymous__"))`, a class `collect_class` never registers
+because codegen resolves its fields by name — so the receiver *looks* known while
+the lookup necessarily fails. Gating on `class_fields.contains_key` rather than
+`class_id_opt.is_some()` is what keeps `سجل.اسم` compiling; `أي`-typed and
+unresolved receivers (imported symbols degrade to `أي`, #229) keep the lenient path
+for the same reason. `test_object_literal_member_read_stays_lenient` guards it and
+passes with *and* without the fix — it is a boundary guard, not a bug test.
+
+### Why 1,373 tests and a full CI examples matrix missed it
+
+`tests/oop_execution_tests.rs` covers inheritance well but is in-process with **no
+native leg**, and native codegen is the only backend that honours `field.index`.
+`compare-backends` (added for #239) would have caught it, but *no example program
+read an inherited member through a subclass-typed reference* — `examples/صنف.ترقيم`
+has the child assign only its own fields, with inherited reads happening inside the
+parent's own methods where `هذا` is typed as the parent. The gap was in the corpus,
+not the harness. `examples/وراثة.ترقيم` closes it, and
+`tests/inheritance_execution_tests.rs` adds 8 three-backend fixtures (7 of which
+fail without the fix). `property_execution_tests.rs::test_accessor_indices_are_own_class_relative`
+noted it *had* to assert IR indices because this bug blocked running the program;
+it now has an executing sibling.
+
+### Discovered while testing, filed separately
+
+- **#253** — inherited **method** calls have the identical defect and are *not*
+  fixed here: `build_method_call` names the receiver in `MethodId.class`, so native
+  emits a call to `@{subclass}::{method}`, which is never defined, and the missed
+  `method_return_types` lookup leaves the result `Ptr(Void)`. Kept out to keep this
+  change reviewable; `examples/وراثة.ترقيم` deliberately avoids the shape and says
+  so. Any realistic inheritance program hits it, so it is the natural next fix.
+- Object literals still lose their **second** member natively (`سجل.عمر` after
+  `سجل.اسم`). Verified pre-existing against a stashed build; belongs with #185.
+- `compare-backends` is still missing from the `summary` job's `needs:`
+  (`.github/workflows/examples.yml`), so the aggregate summary does not reflect it.
+- `رؤية_بسيط` was in `examples/` but in none of the three hand-maintained CI
+  matrices — added alongside `وراثة`. The glob-based `compare-backends` job is the
+  one that actually keeps up.
+
 ## 2026-08-11 — Issue #239: auto-property accessors all addressed field slot 0
 
 ### The issue's own diagnosis was wrong twice over

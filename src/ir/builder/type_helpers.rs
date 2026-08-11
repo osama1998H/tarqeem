@@ -268,6 +268,13 @@ impl IrBuilder {
                 }
                 let obj_ty = self.infer_expr_type(object);
                 if let IrType::Struct(class_id) = obj_ty {
+                    // A property is read through its accessor, and its backing
+                    // field is named `_{prop}` — so the field lookup below
+                    // cannot see it under the name the source used.
+                    if let Some((_, _, ty)) = self.resolve_instance_property(&class_id.0, property)
+                    {
+                        return ty;
+                    }
                     self.get_field_type(&class_id.0, property)
                 } else {
                     IrType::Ptr(Box::new(IrType::Void))
@@ -394,16 +401,15 @@ impl IrBuilder {
         IrType::Ptr(Box::new(IrType::Void))
     }
 
-    /// Get the type of a field in a class.
+    /// Get the type of a field in a class, or of any field it inherits.
+    ///
+    /// Walks the parent chain: an inherited field that resolved to `Ptr(Void)`
+    /// here is how `اطبع(كائن.حقل_موروث)` ended up emitting `trq_print(ptr %x)`
+    /// against an integer (issue #249).
     pub(crate) fn get_field_type(&self, class_name: &str, field_name: &str) -> IrType {
-        if let Some(fields) = self.class_fields.get(class_name) {
-            for (name, ty) in fields {
-                if name == field_name {
-                    return ty.clone();
-                }
-            }
-        }
-        IrType::Ptr(Box::new(IrType::Void))
+        self.resolve_instance_field(class_name, field_name)
+            .map(|(_, _, ty)| ty)
+            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)))
     }
 
     /// Get field information (index and type) for a class field.
@@ -441,6 +447,32 @@ impl IrBuilder {
         self.class_names.contains(name).then(|| name.clone())
     }
 
+    /// Walk `class` and then its `class_parents` chain, returning the first
+    /// `Some` that `probe` yields for a class on it.
+    ///
+    /// Every member resolver below is this same walk over a different table, so
+    /// the traversal — including the `visited` guard that keeps a cyclic
+    /// `يرث` chain (rejected by semantic analysis, but never assume) from
+    /// hanging the builder — lives in one place.
+    fn resolve_up_chain<T>(
+        &self,
+        class: &str,
+        mut probe: impl FnMut(&Self, &str) -> Option<T>,
+    ) -> Option<T> {
+        let mut current = Some(class.to_string());
+        let mut visited = std::collections::HashSet::new();
+        while let Some(c) = current {
+            if !visited.insert(c.clone()) {
+                break;
+            }
+            if let Some(found) = probe(self, &c) {
+                return Some(found);
+            }
+            current = self.class_parents.get(&c).cloned();
+        }
+        None
+    }
+
     /// Walk `class` up through `class_parents` looking for a `مشترك` field
     /// or static-property backing field, returning the *defining* class's
     /// global key so every subclass shares one storage slot.
@@ -449,37 +481,19 @@ impl IrBuilder {
         class: &str,
         member: &str,
     ) -> Option<(String, IrType)> {
-        let mut current = Some(class.to_string());
-        let mut visited = std::collections::HashSet::new();
-        while let Some(c) = current {
-            if !visited.insert(c.clone()) {
-                break; // cyclic inheritance is rejected by semantic analysis; don't hang here
-            }
+        self.resolve_up_chain(class, |b, c| {
             let key = format!("{}::{}", c, member);
-            if let Some(ty) = self.static_field_types.get(&key) {
-                return Some((key, ty.clone()));
-            }
-            current = self.class_parents.get(&c).cloned();
-        }
-        None
+            b.static_field_types.get(&key).map(|ty| (key, ty.clone()))
+        })
     }
 
     /// Walk `class` up through `class_parents` looking for a `مشترك` method,
     /// returning the defining class's mangled function name.
     pub(crate) fn resolve_static_method(&self, class: &str, member: &str) -> Option<String> {
-        let mut current = Some(class.to_string());
-        let mut visited = std::collections::HashSet::new();
-        while let Some(c) = current {
-            if !visited.insert(c.clone()) {
-                break;
-            }
+        self.resolve_up_chain(class, |b, c| {
             let key = format!("{}::{}", c, member);
-            if self.static_methods.contains(&key) {
-                return Some(key);
-            }
-            current = self.class_parents.get(&c).cloned();
-        }
-        None
+            b.static_methods.contains(&key).then_some(key)
+        })
     }
 
     /// Walk `class` up through `class_parents` looking for a `مشترك خاصية`,
@@ -489,21 +503,13 @@ impl IrBuilder {
         class: &str,
         member: &str,
     ) -> Option<(String, IrType)> {
-        let mut current = Some(class.to_string());
-        let mut visited = std::collections::HashSet::new();
-        while let Some(c) = current {
-            if !visited.insert(c.clone()) {
-                break;
-            }
+        self.resolve_up_chain(class, |b, c| {
             let key = format!("{}::{}", c, member);
-            if self.static_properties.contains(&key) {
-                if let Some((getter_name, ty)) = self.property_getters.get(&key) {
-                    return Some((getter_name.clone(), ty.clone()));
-                }
-            }
-            current = self.class_parents.get(&c).cloned();
-        }
-        None
+            b.static_properties.contains(&key).then_some(())?;
+            b.property_getters
+                .get(&key)
+                .map(|(getter_name, ty)| (getter_name.clone(), ty.clone()))
+        })
     }
 
     /// Same as `resolve_static_property`, but for the setter side of an
@@ -513,20 +519,127 @@ impl IrBuilder {
         class: &str,
         member: &str,
     ) -> Option<String> {
-        let mut current = Some(class.to_string());
-        let mut visited = std::collections::HashSet::new();
-        while let Some(c) = current {
-            if !visited.insert(c.clone()) {
-                break;
-            }
+        self.resolve_up_chain(class, |b, c| {
             let key = format!("{}::{}", c, member);
-            if self.static_properties.contains(&key) {
-                if let Some(setter_name) = self.property_setters.get(&key) {
-                    return Some(setter_name.clone());
-                }
-            }
-            current = self.class_parents.get(&c).cloned();
-        }
-        None
+            b.static_properties.contains(&key).then_some(())?;
+            b.property_setters.get(&key).cloned()
+        })
     }
+
+    /// Walk `class` up through `class_parents` looking for an instance field —
+    /// a plain `عام`/`خاص`/`محمي` field, or an auto-property's `_`-prefixed
+    /// backing field — and return the *defining* class alongside the slot's
+    /// index **within that class**.
+    ///
+    /// `get_field_info` searches one class's own fields only, and
+    /// `collect_class` never merges the parent chain into `class_fields`, so an
+    /// inherited member misses there. Callers used to read that miss as "index
+    /// 0, type `ptr`, owned by the receiver" — three wrong values at once, which
+    /// codegen faithfully turned into an out-of-bounds GEP or a `trq_print(ptr)`
+    /// on an integer (issue #249). Naming the definer is what keeps codegen's
+    /// `inherited_field_count[definer] + index` correct: with single
+    /// inheritance the flattened layout is `[ancestors…, own…]`, so a field
+    /// declared in `D` at own-index `i` sits at that same offset in *every*
+    /// subclass of `D`.
+    pub(crate) fn resolve_instance_field(
+        &self,
+        class: &str,
+        member: &str,
+    ) -> Option<(String, u32, IrType)> {
+        self.resolve_up_chain(class, |b, c| {
+            b.get_field_info(c, member)
+                .map(|(index, ty)| (c.to_string(), index, ty))
+        })
+    }
+
+    /// Walk `class` up through `class_parents` looking for a non-`مشترك`
+    /// `خاصية`, returning the defining class, its getter's bare method name,
+    /// and the property's type.
+    ///
+    /// The class is returned separately because `MethodId` carries it, and it
+    /// must be the *definer*: both backends mint the callee symbol from
+    /// `MethodId.class` — natively in `CallMethod`'s static bind, interpreted in
+    /// `resolve_virtual_method`'s fallback — and `{subclass}::__احصل_{prop}` is
+    /// never synthesized. `property_getters` holds static and instance
+    /// properties alike, so `static_properties` is what separates them; the
+    /// static side has its own resolver above and reaches storage through
+    /// globals rather than a receiver.
+    pub(crate) fn resolve_instance_property(
+        &self,
+        class: &str,
+        member: &str,
+    ) -> Option<(ClassId, String, IrType)> {
+        self.resolve_up_chain(class, |b, c| {
+            let key = format!("{}::{}", c, member);
+            if b.static_properties.contains(&key) {
+                return None;
+            }
+            b.property_getters.get(&key).map(|(getter_name, ty)| {
+                (
+                    ClassId(c.to_string()),
+                    bare_method_name(getter_name),
+                    ty.clone(),
+                )
+            })
+        })
+    }
+
+    /// Same as `resolve_instance_property`, but for the setter side of an
+    /// assignment target.
+    pub(crate) fn resolve_instance_property_setter(
+        &self,
+        class: &str,
+        member: &str,
+    ) -> Option<(ClassId, String)> {
+        self.resolve_up_chain(class, |b, c| {
+            let key = format!("{}::{}", c, member);
+            if b.static_properties.contains(&key) {
+                return None;
+            }
+            b.property_setters
+                .get(&key)
+                .map(|setter_name| (ClassId(c.to_string()), bare_method_name(setter_name)))
+        })
+    }
+
+    /// Does the IR builder know a field layout for `class`? False for `أي`-typed
+    /// and unresolved receivers, and for `__anonymous__` object literals, whose
+    /// fields codegen resolves by name and which `collect_class` therefore never
+    /// registers. Field resolution stays lenient for those; a *declared* class
+    /// missing one of its own members is an internal invariant violation.
+    pub(crate) fn has_field_layout(&self, class: &str) -> bool {
+        self.class_fields.contains_key(class)
+    }
+
+    /// Is `member` declared as a non-`مشترك` `خاصية` anywhere on `class`'s
+    /// ancestor chain, whichever accessors it happens to declare?
+    ///
+    /// A `خاصية` with only `عيّن` (or only `احصل`) registers in one accessor
+    /// table and not the other, so the resolver for the *other* side misses it
+    /// — and, since a property with explicit accessors has no backing field
+    /// either, the field lookup misses it too. Without this distinction such a
+    /// program lands in `unknown_member_error`, which would tell the user the
+    /// member does not exist when in truth it is only write-only (or
+    /// read-only).
+    pub(crate) fn declares_instance_property(&self, class: &str, member: &str) -> bool {
+        self.resolve_up_chain(class, |b, c| {
+            let key = format!("{}::{}", c, member);
+            if b.static_properties.contains(&key) {
+                return None;
+            }
+            (b.property_getters.contains_key(&key) || b.property_setters.contains_key(&key))
+                .then_some(())
+        })
+        .is_some()
+    }
+}
+
+/// Accessors are registered as `{Class}::{method}` but `MethodId` names the
+/// method alone, with the class travelling in `MethodId.class`.
+fn bare_method_name(qualified: &str) -> String {
+    qualified
+        .rsplit("::")
+        .next()
+        .unwrap_or(qualified)
+        .to_string()
 }

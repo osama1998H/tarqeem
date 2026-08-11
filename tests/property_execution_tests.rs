@@ -570,13 +570,11 @@ fn test_accessors_address_their_own_backing_field_slot() {
 /// `inherited_field_count` itself, so a subclass's first auto-property is slot
 /// 0 of that subclass, not slot 1 of the flattened layout.
 ///
-/// Asserted on the IR rather than by running the program: accessing an
-/// inherited instance field natively is separately broken (issue #249) — the
-/// subclass's LLVM struct type omits its parent's fields, so
-/// `inherited_count + index` GEPs out of bounds (`invalid getelementptr
-/// indices`, or a segfault). That reproduces with plain fields and no
-/// properties at all, so it is not this issue. A super-constructor call that
-/// writes an auto-property loses the write too (issue #250).
+/// Asserted on the IR because that is the level the invariant lives at — the
+/// index is the thing under test, and the interpreter discards it. The
+/// end-to-end sibling is `test_inherited_auto_property_runs_end_to_end` below;
+/// it was impossible when this test was written, because reading an inherited
+/// member was broken in the IR builder (issue #249, and #250 with it).
 ///
 /// The parent deliberately carries two properties: the subclass's own property
 /// is slot 0 own-relative but would be slot 2 under a flattened scheme, so this
@@ -627,4 +625,139 @@ fn test_accessor_indices_are_own_class_relative() {
             indices
         );
     }
+}
+
+/// The running counterpart of `test_accessor_indices_are_own_class_relative`:
+/// the same layout, executed, so the own-relative indices are shown to compose
+/// with the `inherited_field_count` codegen adds rather than merely being the
+/// numbers this file expects.
+///
+/// Unblocked by the #249 fix. Interleaving the subclass's own property between
+/// reads of the parent's two is what makes a flattened-vs-own-relative mismatch
+/// show up as a swap rather than as a plausible-looking value.
+#[test]
+fn test_inherited_auto_property_runs_end_to_end() {
+    assert_prints(
+        r#"
+صنف أصل {
+    خاصية قيمة: عدد = 0
+    خاصية ثانية: عدد = 0
+
+    منشئ() {
+        هذا.قيمة = 1
+        هذا.ثانية = 2
+    }
+}
+
+صنف فرع يرث أصل {
+    خاصية إضافة: عدد = 0
+
+    منشئ() {
+        الأصل()
+        هذا.إضافة = 3
+    }
+}
+
+متغير كائن = جديد فرع()
+اطبع(كائن.قيمة)
+اطبع(كائن.إضافة)
+اطبع(كائن.ثانية)
+"#,
+        &["1", "3", "2"],
+    );
+}
+
+/// Reading a `عيّن`-only property, and assigning to an `احصل`-only one, must say
+/// which accessor is missing — not that the member does not exist.
+///
+/// Both are documented forms (README: «خاصية للقراءة فقط»), and semantic analysis
+/// accepts them, so the IR builder is where they land. Before #249 they silently
+/// read slot 0: `لا_شيء` interpreted, whatever occupied that slot natively. The
+/// hard error introduced with the parent-chain resolvers is the right outcome,
+/// but a property with explicit accessors has no backing field and registers in
+/// only one accessor table, so the generic "missing from the layout" message
+/// claimed the member did not exist. This pins the wording apart.
+/// Uses `run`, not `check`: `check` stops after semantic analysis, which accepts
+/// both directions today (it reports "No errors found"), so the diagnostic only
+/// appears once the IR builder runs. That gap is the reason the message has to
+/// carry its own weight — there is no span-carrying ص diagnostic in front of it.
+fn assert_compile_error_mentions(body: &str, needles: &[&str], forbidden: &str) {
+    let dir = TempDir::new().expect("تعذّر إنشاء مجلد مؤقت");
+    let main = write_main(dir.path(), body);
+    let output = tarqeem(
+        &["run", main.to_str().expect("مسار صالح")],
+        main.parent().expect("للملف الرئيسي مجلد"),
+    );
+
+    let combined = format!("{}{}", output.stdout, output.stderr);
+    assert!(
+        !output.succeeded(),
+        "توقّعنا فشل الترجمة / expected compilation to fail\n{}",
+        output.report()
+    );
+    for needle in needles {
+        assert!(
+            combined.contains(needle),
+            "الرسالة لا تذكر «{needle}» / message does not mention it\n{}",
+            output.report()
+        );
+    }
+    assert!(
+        !combined.contains(forbidden),
+        "الرسالة تدّعي «{forbidden}» والعضو موجود فعلاً / message claims the member is absent, but it exists\n{}",
+        output.report()
+    );
+}
+
+#[test]
+fn test_reading_a_write_only_property_names_the_missing_getter() {
+    assert_compile_error_mentions(
+        r#"
+صنف أ {
+    خاص _س: عدد
+
+    منشئ() {
+        هذا._س = 0
+    }
+
+    خاصية س: عدد {
+        عيّن(قيمة) {
+            هذا._س = قيمة
+        }
+    }
+}
+
+متغير كائن = جديد أ()
+كائن.س = 5
+اطبع(كائن.س)
+"#,
+        &["احصل", "س"],
+        "غير موجود في تخطيط الصنف",
+    );
+}
+
+#[test]
+fn test_assigning_to_a_read_only_property_names_the_missing_setter() {
+    assert_compile_error_mentions(
+        r#"
+صنف أ {
+    خاص _ص: عدد
+
+    منشئ() {
+        هذا._ص = 1
+    }
+
+    خاصية ص: عدد {
+        احصل {
+            أرجع هذا._ص
+        }
+    }
+}
+
+متغير كائن = جديد أ()
+كائن.ص = 9
+"#,
+        &["عيّن", "ص"],
+        "غير موجود في تخطيط الصنف",
+    );
 }
