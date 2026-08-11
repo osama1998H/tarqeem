@@ -1035,89 +1035,7 @@ impl IrBuilder {
                 }
             }
             ExprKind::Member { object, property } => {
-                if let Some(class) = self.class_name_receiver(object) {
-                    if let Some((key, _)) = self.resolve_static_field(&class, property) {
-                        self.emit(Instruction::GlobalStore {
-                            name: key,
-                            value: value_var,
-                        });
-                        return Ok(value_var);
-                    }
-                    if let Some(setter) = self.resolve_static_property_setter(&class, property) {
-                        self.emit(Instruction::Call {
-                            dest: None,
-                            func: FuncId(setter),
-                            args: vec![value_var],
-                            ret_ty: IrType::Void,
-                        });
-                        return Ok(value_var);
-                    }
-                    return Err(IrError::new(format!(
-                        "العضو '{}' ليس عضواً مشتركاً في الصنف '{}'",
-                        property, class
-                    )));
-                }
-
-                let obj_type = self.infer_expr_type(object);
-                let obj_var = self.build_expr(object)?;
-
-                let class_id_opt = match &obj_type {
-                    IrType::Struct(class_id) => Some(class_id.clone()),
-                    IrType::Ptr(inner) => {
-                        if let IrType::Struct(class_id) = inner.as_ref() {
-                            Some(class_id.clone())
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
-
-                // Check if this is a property with a setter
-                if let Some(ref class_id) = class_id_opt {
-                    let prop_key = format!("{}::{}", class_id.0, property);
-                    if let Some(setter_name) = self.property_setters.get(&prop_key).cloned() {
-                        // Extract just the method name part (e.g., "__عيّن_اسم" from "شخص::__عيّن_اسم")
-                        let method_name_only = setter_name
-                            .split("::")
-                            .last()
-                            .unwrap_or(&setter_name)
-                            .to_string();
-                        // Emit a method call to the setter instead of SetField
-                        self.emit(Instruction::CallMethod {
-                            dest: None,
-                            object: obj_var,
-                            method: MethodId {
-                                class: class_id.clone(),
-                                name: method_name_only,
-                            },
-                            args: vec![value_var],
-                            ret_ty: IrType::Void,
-                            virtual_dispatch: !is_super_receiver(object),
-                        });
-                        return Ok(value_var);
-                    }
-                }
-
-                let (class_id, field_index) = if let Some(class_id) = class_id_opt {
-                    let index = self
-                        .get_field_info(&class_id.0, property)
-                        .map(|(idx, _)| idx)
-                        .unwrap_or(0);
-                    (class_id, index)
-                } else {
-                    (ClassId("".to_string()), 0)
-                };
-
-                self.emit(Instruction::SetField {
-                    object: obj_var,
-                    field: FieldId {
-                        class: class_id,
-                        name: property.clone(),
-                        index: field_index,
-                    },
-                    value: value_var,
-                });
+                self.store_to_member(object, property, value_var)?;
             }
             ExprKind::Index { object, index } => {
                 let obj_var = self.build_expr(object)?;
@@ -1134,6 +1052,100 @@ impl IrBuilder {
         }
 
         Ok(value_var)
+    }
+
+    /// Stores `value` into `object.property`, routing through a property setter
+    /// when the property has one and resolving a plain field's slot by name.
+    ///
+    /// Shared by plain and compound assignment. The compound path used to
+    /// duplicate this with a bare `SetField` carrying an empty class, the
+    /// property's own name rather than its `_`-prefixed backing field, and a
+    /// hardcoded `index: 0` — so `ن.ص += 1` dropped the write silently in the
+    /// interpreter (it stored a by-name field no getter reads) and corrupted
+    /// slot 0 natively. That is the #239 defect one layer up, which is why the
+    /// two paths are now one.
+    fn store_to_member(&mut self, object: &Expr, property: &str, value: VarId) -> Result<()> {
+        if let Some(class) = self.class_name_receiver(object) {
+            if let Some((key, _)) = self.resolve_static_field(&class, property) {
+                self.emit(Instruction::GlobalStore { name: key, value });
+                return Ok(());
+            }
+            if let Some(setter) = self.resolve_static_property_setter(&class, property) {
+                self.emit(Instruction::Call {
+                    dest: None,
+                    func: FuncId(setter),
+                    args: vec![value],
+                    ret_ty: IrType::Void,
+                });
+                return Ok(());
+            }
+            return Err(IrError::new(format!(
+                "العضو '{}' ليس عضواً مشتركاً في الصنف '{}'",
+                property, class
+            )));
+        }
+
+        let obj_type = self.infer_expr_type(object);
+        let obj_var = self.build_expr(object)?;
+
+        let class_id_opt = match &obj_type {
+            IrType::Struct(class_id) => Some(class_id.clone()),
+            IrType::Ptr(inner) => {
+                if let IrType::Struct(class_id) = inner.as_ref() {
+                    Some(class_id.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        if let Some(ref class_id) = class_id_opt {
+            let prop_key = format!("{}::{}", class_id.0, property);
+            if let Some(setter_name) = self.property_setters.get(&prop_key).cloned() {
+                // "شخص::__عيّن_اسم" -> "__عيّن_اسم"; CallMethod names the method
+                // alone, the class travels in MethodId.
+                let method_name_only = setter_name
+                    .split("::")
+                    .last()
+                    .unwrap_or(&setter_name)
+                    .to_string();
+                self.emit(Instruction::CallMethod {
+                    dest: None,
+                    object: obj_var,
+                    method: MethodId {
+                        class: class_id.clone(),
+                        name: method_name_only,
+                    },
+                    args: vec![value],
+                    ret_ty: IrType::Void,
+                    virtual_dispatch: !is_super_receiver(object),
+                });
+                return Ok(());
+            }
+        }
+
+        let (class_id, field_index) = if let Some(class_id) = class_id_opt {
+            let index = self
+                .get_field_info(&class_id.0, property)
+                .map(|(idx, _)| idx)
+                .unwrap_or(0);
+            (class_id, index)
+        } else {
+            (ClassId("".to_string()), 0)
+        };
+
+        self.emit(Instruction::SetField {
+            object: obj_var,
+            field: FieldId {
+                class: class_id,
+                name: property.to_string(),
+                index: field_index,
+            },
+            value,
+        });
+
+        Ok(())
     }
 
     /// Build IR for a compound assignment (+=, -=, etc.).
@@ -1186,39 +1198,7 @@ impl IrBuilder {
                 }
             }
             ExprKind::Member { object, property } => {
-                if let Some(class) = self.class_name_receiver(object) {
-                    if let Some((key, _)) = self.resolve_static_field(&class, property) {
-                        self.emit(Instruction::GlobalStore {
-                            name: key,
-                            value: result,
-                        });
-                        return Ok(result);
-                    }
-                    if let Some(setter) = self.resolve_static_property_setter(&class, property) {
-                        self.emit(Instruction::Call {
-                            dest: None,
-                            func: FuncId(setter),
-                            args: vec![result],
-                            ret_ty: IrType::Void,
-                        });
-                        return Ok(result);
-                    }
-                    return Err(IrError::new(format!(
-                        "العضو '{}' ليس عضواً مشتركاً في الصنف '{}'",
-                        property, class
-                    )));
-                }
-
-                let obj_var = self.build_expr(object)?;
-                self.emit(Instruction::SetField {
-                    object: obj_var,
-                    field: FieldId {
-                        class: ClassId("".to_string()),
-                        name: property.clone(),
-                        index: 0,
-                    },
-                    value: result,
-                });
+                self.store_to_member(object, property, result)?;
             }
             ExprKind::Index { object, index } => {
                 let obj_var = self.build_expr(object)?;

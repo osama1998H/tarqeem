@@ -336,6 +336,15 @@ impl IrBuilder {
         _implements: &[String],
         members: &[ClassMember],
     ) -> Result<()> {
+        // A class declared inside a function or block never reaches the
+        // collection pass, which walks top-level statements only
+        // (`IrBuilder::build`). Collect it on demand so its field layout — and
+        // its entry in `module.classes` — exist before any member is lowered.
+        // Without this, `backing_field_index` has no layout to consult.
+        if !self.class_fields.contains_key(name) {
+            self.collect_class(name, extends, members)?;
+        }
+
         if let Some(parent) = extends {
             for class in &mut self.module.classes {
                 if class.name == name {
@@ -499,6 +508,36 @@ impl IrBuilder {
         Ok(())
     }
 
+    /// Slot of an auto-property's backing field inside its declaring class.
+    ///
+    /// `collect_class` pushes `_{prop}` into `class_fields` in declaration
+    /// order and never merges parent fields, so the index this returns is
+    /// own-class-relative — the convention codegen expects before it adds
+    /// `inherited_field_count`.
+    ///
+    /// Both accessor sites used to hardcode `0` (issue #239). Because the
+    /// interpreter resolves `GetField`/`SetField` by name and drops the index,
+    /// only natively compiled code noticed: every auto-property on a class
+    /// shared slot 0, so they aliased each other *and* a write through one
+    /// overwrote whatever real field occupied that slot. A missing backing
+    /// field is an error rather than a fallback to 0 — falling back is the bug.
+    ///
+    /// Reaching the error means `collect_class` and this synthesis disagree
+    /// about the class's layout, which no source program should be able to
+    /// cause: it is an internal invariant, not a user diagnostic, so it carries
+    /// no ت/د error code — but it is still bilingual, since a contributor
+    /// reading it is exactly who it is for.
+    fn backing_field_index(&self, class_name: &str, backing_field: &str) -> Result<u32> {
+        self.get_field_info(class_name, backing_field)
+            .map(|(index, _)| index)
+            .ok_or_else(|| {
+                IrError::new(format!(
+                    "الحقل الداعم '{backing_field}' للخاصية غير موجود في تخطيط الصنف '{class_name}' \
+                     / property backing field '{backing_field}' is missing from the layout of class '{class_name}'"
+                ))
+            })
+    }
+
     /// Build IR for a property getter.
     fn build_property_getter(
         &mut self,
@@ -559,13 +598,14 @@ impl IrBuilder {
             } else {
                 let this_var = VarId(0);
                 let backing_field = format!("_{}", prop_name);
+                let index = self.backing_field_index(class_name, &backing_field)?;
                 self.emit(Instruction::GetField {
                     dest: result,
                     object: this_var,
                     field: FieldId {
                         class: ClassId(class_name.to_string()),
                         name: backing_field,
-                        index: 0,
+                        index,
                     },
                     ty: prop_type.clone(),
                 });
@@ -643,12 +683,13 @@ impl IrBuilder {
                 let this_var = VarId(0);
                 let value_var = VarId(1);
                 let backing_field = format!("_{}", prop_name);
+                let index = self.backing_field_index(class_name, &backing_field)?;
                 self.emit(Instruction::SetField {
                     object: this_var,
                     field: FieldId {
                         class: ClassId(class_name.to_string()),
                         name: backing_field,
-                        index: 0,
+                        index,
                     },
                     value: value_var,
                 });
