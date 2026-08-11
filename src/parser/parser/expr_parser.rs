@@ -9,7 +9,7 @@ use crate::lexer::TokenKind;
 
 use super::super::ast::*;
 use super::super::precedence::Precedence;
-use super::{identifier_like_name, Parser};
+use super::{declaration_name, identifier_like_name, within_brackets, Parser};
 
 impl Parser {
     /// Parse an expression.
@@ -19,6 +19,19 @@ impl Parser {
 
     /// Parse an expression with the given minimum precedence.
     pub(crate) fn parse_precedence(&mut self, precedence: Precedence) -> Result<Expr, Diagnostic> {
+        // Inside an unclosed `(` or `[` a newline cannot be ending a statement,
+        // so an operand may sit on the line after its operator (issue #255).
+        //
+        // Only the *operand* side skips: a newline before the operator stays a
+        // boundary. Skipping there too would let a missing separator fuse two
+        // list elements — `[⏎ ١، ⏎ ٢ ⏎ -٣ ⏎]` parsed as `[١, ٢ - ٣]` and
+        // silently produced a two-element array, where the same typo used to be
+        // a parse error at the expected `]`. At depth 0 nothing is skipped at
+        // all, which is what keeps `متغير س = 1 +⏎ 2` an error.
+        if self.bracket_depth > 0 {
+            self.skip_newlines();
+        }
+
         let mut left = self.parse_prefix()?;
 
         while !self.is_at_end() {
@@ -56,7 +69,7 @@ impl Parser {
             // Check for enum variant access: Identifier::Variant or Identifier<T>::Variant
             if self.check(&TokenKind::ColonColon) {
                 self.advance(); // consume '::'
-                let variant_name = self.expect_identifier("متوقع اسم الحالة بعد '::'")?;
+                let variant_name = self.expect_variant_name("متوقع اسم الحالة بعد '::'")?;
 
                 // Check for variant arguments: Variant(args)
                 let args = if self.match_token(&TokenKind::LeftParen) {
@@ -103,6 +116,13 @@ impl Parser {
             )),
             TokenKind::TypeString => Ok(Expr::new(ExprKind::Identifier("نص".to_string()), span)),
             TokenKind::TypeBool => Ok(Expr::new(ExprKind::Identifier("منطقي".to_string()), span)),
+            // مصفوفة/قاموس/أي complete the set: عدد and friends were already here
+            // because they double as builtin conversion functions, but a
+            // parameter named مصفوفة (stdlib_trq/اختبار/توكيدات.ترقيم:391) was
+            // declarable and then unreadable in its own body.
+            TokenKind::TypeArray | TokenKind::TypeMap | TokenKind::TypeAny => {
+                Ok(Expr::new(ExprKind::Identifier(token.lexeme.clone()), span))
+            }
 
             TokenKind::This => Ok(Expr::new(ExprKind::This, span)),
             TokenKind::Super => Ok(Expr::new(ExprKind::Super, span)),
@@ -111,7 +131,12 @@ impl Parser {
                 if let Some(lambda) = self.try_parse_arrow_function(span)? {
                     return Ok(lambda);
                 }
-                let expr = self.parse_expression()?;
+                let expr = within_brackets(self, |parser| {
+                    parser.skip_newlines();
+                    let expr = parser.parse_expression()?;
+                    parser.skip_newlines();
+                    Ok::<_, Diagnostic>(expr)
+                })?;
                 self.expect(&TokenKind::RightParen, "متوقع ')'")?;
                 let end_span = self.previous_span();
                 Ok(Expr::new(
@@ -121,21 +146,24 @@ impl Parser {
             }
 
             TokenKind::LeftBracket => {
-                let mut elements = Vec::new();
-                self.skip_newlines();
-                if !self.check(&TokenKind::RightBracket) {
-                    loop {
-                        self.skip_newlines();
-                        elements.push(self.parse_expression()?);
-                        self.skip_newlines();
-                        if !self.match_token(&TokenKind::Comma)
-                            && !self.match_token(&TokenKind::ArabicComma)
-                        {
-                            break;
+                let elements = within_brackets(self, |parser| {
+                    let mut elements = Vec::new();
+                    parser.skip_newlines();
+                    if !parser.check(&TokenKind::RightBracket) {
+                        loop {
+                            parser.skip_newlines();
+                            elements.push(parser.parse_expression()?);
+                            parser.skip_newlines();
+                            if !parser.match_token(&TokenKind::Comma)
+                                && !parser.match_token(&TokenKind::ArabicComma)
+                            {
+                                break;
+                            }
                         }
                     }
-                }
-                self.skip_newlines();
+                    parser.skip_newlines();
+                    Ok::<_, Diagnostic>(elements)
+                })?;
                 self.expect(&TokenKind::RightBracket, "متوقع ']'")?;
                 let end_span = self.previous_span();
                 Ok(Expr::new(ExprKind::Array(elements), span.merge(&end_span)))
@@ -351,7 +379,16 @@ impl Parser {
 
             TokenKind::LeftBracket => {
                 self.advance();
-                let index = self.parse_expression()?;
+                // A subscript is an unclosed bracket like any other, so it may
+                // be wrapped — otherwise the newline rule would hold or not
+                // depending on whether a call happened to raise the depth
+                // around it.
+                let index = within_brackets(self, |parser| {
+                    parser.skip_newlines();
+                    let index = parser.parse_expression()?;
+                    parser.skip_newlines();
+                    Ok::<_, Diagnostic>(index)
+                })?;
                 self.expect(&TokenKind::RightBracket, "متوقع ']'")?;
                 let span = left.span.merge(&self.previous_span());
                 Ok(Expr::new(
@@ -365,7 +402,7 @@ impl Parser {
 
             TokenKind::Dot => {
                 self.advance();
-                let property = self.expect_identifier("متوقع اسم الخاصية")?;
+                let property = self.expect_declaration_name("متوقع اسم الخاصية")?;
                 let span = left.span.merge(&self.previous_span());
                 Ok(Expr::new(
                     ExprKind::Member {
@@ -453,19 +490,30 @@ impl Parser {
     }
 
     /// Parse function call arguments.
+    ///
+    /// Newlines are trivia inside the parentheses, so a call can be wrapped over
+    /// several lines (issue #255). Statements are still newline-terminated —
+    /// only an unclosed bracket suspends that, the same way the array-literal
+    /// loop in `parse_prefix` already did.
     pub(crate) fn parse_arguments(&mut self) -> Result<Vec<Expr>, Diagnostic> {
-        let mut args = Vec::new();
-        if !self.check(&TokenKind::RightParen) {
-            loop {
-                args.push(self.parse_expression()?);
-                if !self.match_token(&TokenKind::Comma)
-                    && !self.match_token(&TokenKind::ArabicComma)
-                {
-                    break;
+        within_brackets(self, |parser| {
+            let mut args = Vec::new();
+            parser.skip_newlines();
+            if !parser.check(&TokenKind::RightParen) {
+                loop {
+                    parser.skip_newlines();
+                    args.push(parser.parse_expression()?);
+                    parser.skip_newlines();
+                    if !parser.match_token(&TokenKind::Comma)
+                        && !parser.match_token(&TokenKind::ArabicComma)
+                    {
+                        break;
+                    }
                 }
             }
-        }
-        Ok(args)
+            parser.skip_newlines();
+            Ok(args)
+        })
     }
 
     /// Try to parse type arguments for generic enum variants: `اختياري<عدد>::بعض`
@@ -587,7 +635,7 @@ impl Parser {
         loop {
             let param_start = self.current_span();
 
-            let name = match identifier_like_name(self.peek()).map(str::to_string) {
+            let name = match declaration_name(self.peek()).map(str::to_string) {
                 Some(name) => {
                     self.advance();
                     name

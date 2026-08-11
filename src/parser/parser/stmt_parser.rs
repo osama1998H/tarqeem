@@ -7,7 +7,7 @@ use crate::error::Diagnostic;
 use crate::lexer::TokenKind;
 
 use super::super::ast::*;
-use super::{identifier_like_name, Parser};
+use super::{identifier_like_name, within_brackets, Parser};
 
 impl Parser {
     /// Parse a statement (not a declaration).
@@ -46,7 +46,7 @@ impl Parser {
         self.advance(); // consume 'if'
 
         self.expect(&TokenKind::LeftParen, "متوقع '('")?;
-        let condition = self.parse_expression()?;
+        let condition = within_brackets(self, |parser| parser.parse_expression())?;
         self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         let then_branch = self.parse_block()?;
@@ -79,7 +79,7 @@ impl Parser {
         self.advance(); // consume 'while'
 
         self.expect(&TokenKind::LeftParen, "متوقع '('")?;
-        let condition = self.parse_expression()?;
+        let condition = within_brackets(self, |parser| parser.parse_expression())?;
         self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         let body = self.parse_block()?;
@@ -97,7 +97,7 @@ impl Parser {
 
         self.expect(&TokenKind::While, "متوقع 'طالما'")?;
         self.expect(&TokenKind::LeftParen, "متوقع '('")?;
-        let condition = self.parse_expression()?;
+        let condition = within_brackets(self, |parser| parser.parse_expression())?;
         self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         let _ = self.match_token(&TokenKind::Semicolon)
@@ -112,8 +112,11 @@ impl Parser {
         let start = self.current_span();
         self.advance(); // consume 'for'
 
-        if self.check_identifier() {
-            let var_name = self.expect_identifier("متوقع اسم المتغير")?;
+        // Must match expect_declaration_name below, or a loop variable named
+        // after a type (`لكل عدد في أرقام`) falls through to the C-style branch
+        // and reports متوقع '(' — an error naming the wrong problem (#202).
+        if self.check_declaration_name() {
+            let var_name = self.expect_declaration_name("متوقع اسم المتغير")?;
             if self.check(&TokenKind::In) {
                 self.advance();
                 let iterable = self.parse_expression()?;
@@ -134,6 +137,12 @@ impl Parser {
         }
 
         self.expect(&TokenKind::LeftParen, "متوقع '('")?;
+        // The three clauses live inside an unclosed `(`, so the header may be
+        // wrapped like any other bracketed construct (issue #255). Without this
+        // the newline rule would apply to `إذا`/`طالما`/`تطابق` conditions but
+        // not to this one.
+        self.bracket_depth += 1;
+        self.skip_newlines();
 
         let init = if self.check(&TokenKind::Semicolon) || self.check(&TokenKind::ArabicSemicolon) {
             None
@@ -151,6 +160,7 @@ impl Parser {
         if init.is_none() {
             self.consume_semicolon()?;
         }
+        self.skip_newlines();
 
         let condition =
             if self.check(&TokenKind::Semicolon) || self.check(&TokenKind::ArabicSemicolon) {
@@ -159,6 +169,7 @@ impl Parser {
                 Some(self.parse_expression()?)
             };
         self.consume_semicolon()?;
+        self.skip_newlines();
 
         let update = if self.check(&TokenKind::RightParen) {
             None
@@ -166,6 +177,8 @@ impl Parser {
             Some(self.parse_expression()?)
         };
 
+        self.skip_newlines();
+        self.bracket_depth -= 1;
         self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         let body = self.parse_block()?;
@@ -188,7 +201,7 @@ impl Parser {
         self.advance(); // consume 'match'
 
         self.expect(&TokenKind::LeftParen, "متوقع '('")?;
-        let expr = self.parse_expression()?;
+        let expr = within_brackets(self, |parser| parser.parse_expression())?;
         self.expect(&TokenKind::RightParen, "متوقع ')'")?;
 
         self.expect(&TokenKind::LeftBrace, "متوقع '{'")?;
@@ -285,7 +298,7 @@ impl Parser {
                 self.advance(); // consume ::
 
                 // Get variant name
-                let variant_name = self.expect_identifier("متوقع اسم الحالة بعد '::'")?;
+                let variant_name = self.expect_variant_name("متوقع اسم الحالة بعد '::'")?;
 
                 // Check for bindings
                 let bindings = if self.match_token(&TokenKind::LeftParen) {
@@ -428,6 +441,14 @@ impl Parser {
         let start = self.current_span();
         self.expect(&TokenKind::LeftBrace, "متوقع '{'")?;
 
+        // A `{ }` body holds statements, so newlines terminate them again even
+        // when the block itself sits inside brackets — a block-bodied lambda
+        // passed as a call argument would otherwise inherit the argument list's
+        // depth and fuse its statements into one expression (issue #255).
+        // Restored below rather than with `within_brackets`, since this lowers
+        // the depth instead of raising it.
+        let outer_bracket_depth = std::mem::take(&mut self.bracket_depth);
+
         // Skip newlines after opening brace
         self.skip_newlines();
 
@@ -449,6 +470,7 @@ impl Parser {
             self.skip_newlines();
         }
 
+        self.bracket_depth = outer_bracket_depth;
         self.expect(&TokenKind::RightBrace, "متوقع '}'")?;
 
         let span = start.merge(&self.previous_span());

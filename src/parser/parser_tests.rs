@@ -3303,16 +3303,16 @@ fn test_parse_exported_declaration_keeps_doc_comment() {
     assert_eq!(class_doc, Some("وثيقة الصنف المصدر".to_string()));
 }
 
-/// Threading the outer doc comment down must not change what happens when a
-/// `صدّر` and its declaration are separated by a doc comment on its own line
-/// (`صدّر\n/// وثيقة\nدالة س() {}`). That is a pre-existing hard parse error of
-/// the #203 class — the token sits where a declaration keyword is expected — and
-/// `parse_declaration_with_doc` cannot affect it, because `inherited_doc` is
-/// `None` on that path and `or_else` therefore reduces to the original
-/// unconditional `consume_doc_comment()` call. Pinned here so a future change
-/// cannot quietly turn the loud error into a silently dropped doc comment.
+/// `صدّر\n/// وثيقة\nدالة س() {}` used to be a hard parse error of the #203
+/// class: the one-shot `consume_doc_comment()` ran before the newline after
+/// `صدّر` was skipped, so the doc token still sat where a declaration keyword
+/// was expected. `collect_leading_trivia` skips blank lines *before* looking for
+/// comments, so the form now parses and the doc attaches. The predecessor of
+/// this test pinned the error and said "if it ever attaches, update this test";
+/// this is that update. Its real intent is unchanged and still asserted: the
+/// doc comment must never be lost *silently*.
 #[test]
-fn test_parse_doc_comment_between_export_and_declaration_is_not_silently_dropped() {
+fn test_parse_doc_comment_between_export_and_declaration_now_attaches() {
     let source = r#"
         صدّر
         /// وثيقة الدالة
@@ -3321,24 +3321,21 @@ fn test_parse_doc_comment_between_export_and_declaration_is_not_silently_dropped
     let mut parser = parser_with_markers(source);
     let result = parser.parse();
 
-    let attached_doc = result.as_ref().ok().and_then(|ast| {
-        ast.statements.iter().find_map(|s| match &s.kind {
-            StmtKind::Export(ExportItems::Declaration(inner)) => match &inner.kind {
-                StmtKind::FuncDecl { doc_comment, .. } => doc_comment.clone(),
-                _ => None,
-            },
+    let ast = result.expect("صدّر followed by a doc comment on its own line must parse");
+    assert!(
+        parser.get_errors().is_empty(),
+        "the form is supported now, so nothing should be reported"
+    );
+
+    let attached_doc = ast.statements.iter().find_map(|s| match &s.kind {
+        StmtKind::Export(ExportItems::Declaration(inner)) => match &inner.kind {
+            StmtKind::FuncDecl { doc_comment, .. } => doc_comment.clone(),
             _ => None,
-        })
+        },
+        _ => None,
     });
 
-    assert!(
-        attached_doc.is_none(),
-        "this form is not supported; if it ever attaches, update this test"
-    );
-    assert!(
-        result.is_err() || !parser.get_errors().is_empty(),
-        "an unsupported doc-comment position must be reported, not swallowed"
-    );
+    assert_eq!(attached_doc, Some("وثيقة الدالة".to_string()));
 }
 
 // ─── Group 9: a trailing /** */ must not be stolen as the next member's doc ───
@@ -3443,5 +3440,781 @@ fn test_orphaned_doc_comment_is_demoted_to_leading_comment() {
             .any(|c| c.contains("ملاحظة مهمة")),
         "orphaned doc comment must be preserved, got {:?}",
         stmt.leading_comments
+    );
+}
+
+// ─── Group 11: a comment run before a declaration, in any order (#203) ───
+
+/// The minimal #203 repro: `collect_line_comments()` ran before the doc block
+/// was consumed, so a `//` written after it was never collected and fell through
+/// the declaration dispatch as ب٠٠٠١.
+#[test]
+fn test_line_comment_after_doc_block_before_declaration_parses() {
+    let source = r#"
+        /// وثيقة
+        // ملاحظة
+        دالة س() {}
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("a // after a /// must parse");
+
+    let stmt = &ast.statements[0];
+    match &stmt.kind {
+        StmtKind::FuncDecl { doc_comment, .. } => {
+            assert_eq!(doc_comment.as_deref(), Some("وثيقة"));
+        }
+        other => panic!("Expected FuncDecl, got {other:?}"),
+    }
+    assert_eq!(stmt.leading_comments, vec![" ملاحظة".to_string()]);
+}
+
+/// The exact shape of `stdlib_trq/رياضيات/اساسي.ترقيم:1-19`, which is how 20 of
+/// the 33 unparseable stdlib files opened: file doc, `//` banner, real doc, code.
+#[test]
+fn test_banner_between_module_doc_and_declaration_parses() {
+    let source = r#"
+        /// وحدة الرياضيات
+
+        // ═══════
+        // القيمة المطلقة
+        // ═══════
+
+        /// القيمة المطلقة لعدد
+        صدّر دالة مطلق(س: عدد) -> عدد {
+            أرجع س
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("the stdlib banner shape must parse");
+
+    assert_eq!(ast.module_doc.as_deref(), Some("وحدة الرياضيات"));
+
+    let stmt = &ast.statements[0];
+    assert_eq!(
+        stmt.leading_comments,
+        vec![
+            " ═══════".to_string(),
+            " القيمة المطلقة".to_string(),
+            " ═══════".to_string(),
+        ],
+        "banner lines must stay above the declaration, in source order"
+    );
+    match &stmt.kind {
+        StmtKind::Export(ExportItems::Declaration(inner)) => match &inner.kind {
+            StmtKind::FuncDecl { doc_comment, .. } => {
+                assert_eq!(doc_comment.as_deref(), Some("القيمة المطلقة لعدد"));
+            }
+            other => panic!("Expected FuncDecl, got {other:?}"),
+        },
+        other => panic!("Expected Export, got {other:?}"),
+    }
+}
+
+/// The `stdlib_trq/نص.ترقيم` shape: two doc blocks split by a blank line, which
+/// the lexer refuses to merge, so the second one used to hit ب٠٠٠١.
+#[test]
+fn test_two_doc_blocks_before_declaration_hoist_first_to_module_doc() {
+    let source = r#"
+        /// وحدة النصوص
+
+        /// تحقق إذا كان النص فارغاً
+        صدّر دالة فارغ(س: نص) -> منطقي {
+            أرجع صحيح
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("two doc blocks must parse");
+
+    assert_eq!(ast.module_doc.as_deref(), Some("وحدة النصوص"));
+    match &ast.statements[0].kind {
+        StmtKind::Export(ExportItems::Declaration(inner)) => match &inner.kind {
+            StmtKind::FuncDecl { doc_comment, .. } => {
+                assert_eq!(doc_comment.as_deref(), Some("تحقق إذا كان النص فارغاً"));
+            }
+            other => panic!("Expected FuncDecl, got {other:?}"),
+        },
+        other => panic!("Expected Export, got {other:?}"),
+    }
+}
+
+/// Pins the 20 corpus files whose header is followed directly by a declaration:
+/// there is no signal that such a doc describes the file rather than the
+/// declaration, so it must keep attaching exactly as it did before #203.
+#[test]
+fn test_module_doc_not_taken_when_declaration_follows_directly() {
+    let source = r#"
+        /// صنف القائمة الديناميكية
+
+        صدّر صنف قائمة {
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    assert!(
+        ast.module_doc.is_none(),
+        "a doc with a declaration right after it documents that declaration"
+    );
+    match &ast.statements[0].kind {
+        StmtKind::Export(ExportItems::Declaration(inner)) => match &inner.kind {
+            StmtKind::ClassDecl { doc_comment, .. } => {
+                assert_eq!(doc_comment.as_deref(), Some("صنف القائمة الديناميكية"));
+            }
+            other => panic!("Expected ClassDecl, got {other:?}"),
+        },
+        other => panic!("Expected Export, got {other:?}"),
+    }
+}
+
+/// Without the `الحمد_لله`/`Eof` clause in `doc_comment_is_module_header`, a file
+/// doc with nothing after it survives one `fmt` pass and is discarded by the
+/// second — data loss that only shows up on the second run.
+#[test]
+fn test_module_doc_taken_when_no_declaration_follows() {
+    let source = r#"
+        /// وثيقة الملف
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser
+        .parse()
+        .expect("a file with only a doc comment must parse");
+
+    assert_eq!(ast.module_doc.as_deref(), Some("وثيقة الملف"));
+    assert!(ast.statements.is_empty());
+}
+
+/// Several doc blocks and line-comment runs interleaved: the block nearest the
+/// declaration documents it and everything else keeps its source position.
+#[test]
+fn test_interleaved_comment_runs_keep_source_order() {
+    let source = r#"
+        // أ
+        /// وثيقة١
+        // ب
+        /// وثيقة٢
+        دالة س() {}
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    let stmt = &ast.statements[0];
+    match &stmt.kind {
+        StmtKind::FuncDecl { doc_comment, .. } => {
+            assert_eq!(doc_comment.as_deref(), Some("وثيقة٢"));
+        }
+        other => panic!("Expected FuncDecl, got {other:?}"),
+    }
+    assert_eq!(
+        stmt.leading_comments,
+        vec![" أ".to_string(), "وثيقة١".to_string(), " ب".to_string()],
+        "the demoted doc must sit where it was written, between أ and ب"
+    );
+}
+
+/// `استورد` has no `doc_comment` field, so a doc above the file's first import
+/// used to be demoted and re-emitted as `//` — `fmt -w` silently downgraded the
+/// module header of `stdlib_trq/ملفات/مجلد.ترقيم` and `مجموعات/فهرس.ترقيم` that
+/// way. It is now recognised as the file's doc and keeps its marker.
+#[test]
+fn test_doc_block_before_leading_import_becomes_module_doc() {
+    let source = r#"
+        /// وحدة المجموعات
+        استورد { س } من "وحدة"
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    assert_eq!(ast.module_doc.as_deref(), Some("وحدة المجموعات"));
+    let stmt = &ast.statements[0];
+    assert!(matches!(stmt.kind, StmtKind::Import { .. }));
+    assert!(stmt.leading_comments.is_empty());
+}
+
+/// The same shape for a re-export, which used to drop the doc outright rather
+/// than demote it (`stdlib_trq/اختبار.ترقيم` lost all five of its `///` lines to
+/// `fmt -w`).
+#[test]
+fn test_doc_block_before_leading_reexport_becomes_module_doc() {
+    let source = r#"
+        /// وحدة الاختبارات
+        صدّر * من "اختبار/فهرس"
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    assert_eq!(ast.module_doc.as_deref(), Some("وحدة الاختبارات"));
+}
+
+/// Only the *file's* doc is hoisted. An import further down the file has no
+/// header role, so a doc above it keeps demoting into a leading comment — text
+/// preserved, marker downgraded, exactly as before.
+#[test]
+fn test_doc_block_before_later_import_is_still_demoted() {
+    let source = r#"
+        دالة س() {}
+
+        /// وثيقة الاستيراد
+        استورد { ص } من "وحدة"
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    assert!(ast.module_doc.is_none());
+    let import = ast
+        .statements
+        .iter()
+        .find(|s| matches!(s.kind, StmtKind::Import { .. }))
+        .expect("Expected an import statement");
+    assert_eq!(import.leading_comments, vec!["وثيقة الاستيراد".to_string()]);
+}
+
+/// The `parse_class_member` adoption: the same one-shot pair guarded class
+/// members, so this shape was a hard error inside a `صنف` too.
+#[test]
+fn test_class_member_line_comment_after_doc_block_parses() {
+    let source = r#"
+        صنف ش {
+            /// وثيقة الدالة
+            // ملاحظة
+            عام دالة م() {}
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser
+        .parse()
+        .expect("a // after a /// in a class must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => match &members[0] {
+            ClassMember::Method {
+                doc_comment,
+                leading_comments,
+                ..
+            } => {
+                assert_eq!(doc_comment.as_deref(), Some("وثيقة الدالة"));
+                assert_eq!(leading_comments, &vec![" ملاحظة".to_string()]);
+            }
+            other => panic!("Expected Method, got {other:?}"),
+        },
+        other => panic!("Expected ClassDecl, got {other:?}"),
+    }
+}
+
+/// A comment run before an interface method or an enum variant is consumed in
+/// one pass like everywhere else, so a `//` after a `///` no longer hard-errors
+/// inside a `ميثاق`/`تعداد` while the identical shape checks clean inside a
+/// `صنف`. `MethodSignature`/`EnumVariant` have no comment field, so the run's
+/// line comments are discarded — exactly as they already were for a `//`-only
+/// run, which is why this is not a new loss.
+#[test]
+fn test_comment_run_before_interface_method_and_enum_variant_parses() {
+    let source = r#"
+        ميثاق م {
+            /// وثيقة الدالة
+            // ملاحظة
+            دالة س()
+        }
+        تعداد ح {
+            /// وثيقة الحالة
+            // ملاحظة
+            أول
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser
+        .parse()
+        .expect("a // after a /// must parse in ميثاق and تعداد too");
+
+    match &ast.statements[0].kind {
+        StmtKind::InterfaceDecl { methods, .. } => {
+            assert_eq!(methods[0].doc_comment.as_deref(), Some("وثيقة الدالة"));
+        }
+        other => panic!("Expected InterfaceDecl, got {other:?}"),
+    }
+    match &ast.statements[1].kind {
+        StmtKind::EnumDecl { variants, .. } => {
+            assert_eq!(variants[0].doc_comment.as_deref(), Some("وثيقة الحالة"));
+        }
+        other => panic!("Expected EnumDecl, got {other:?}"),
+    }
+}
+
+/// A property's accessor list is the one place left that reports a stray doc
+/// comment: `PropertyAccessor` has no doc field and the documentation belongs on
+/// the `خاصية` itself, so erroring is better than consuming and dropping it.
+#[test]
+fn test_doc_comment_before_property_accessor_still_errors_loudly() {
+    let source = r#"
+        صنف ش {
+            خاصية س: عدد {
+                /// وثيقة
+                احصل {
+                    أرجع 1
+                }
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    assert!(
+        result.is_err() || !parser.get_errors().is_empty(),
+        "an unattachable comment before an accessor must be reported, not swallowed"
+    );
+}
+
+// ─── Group 12: keywords in name positions (#202, #196) ───
+
+/// `عدد` is `TokenKind::TypeInt`, so a method named after a type was rejected
+/// even though nothing else can appear after `دالة`. Mirrors
+/// `stdlib_trq/اختبار/مشغل.ترقيم:61` and `stdlib_trq/رياضيات/عشوائي.ترقيم:18`.
+#[test]
+fn test_parse_method_named_with_type_keyword() {
+    let source = r#"
+        صنف س {
+            عام دالة عدد() -> عدد {
+                أرجع 1
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("a method named عدد must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => match &members[0] {
+            ClassMember::Method { name, .. } => assert_eq!(name, "عدد"),
+            other => panic!("Expected Method, got {other:?}"),
+        },
+        other => panic!("Expected ClassDecl, got {other:?}"),
+    }
+}
+
+/// Declaring such a method is useless unless it can be called: member access
+/// after `.` demanded a plain identifier too, so `هذا.عدد()` failed separately
+/// with متوقع اسم الخاصية.
+#[test]
+fn test_parse_member_access_with_type_keyword_name() {
+    let source = r#"
+        دالة س(كائن: أي) {
+            اطبع(كائن.عدد())
+            اطبع(كائن.نص)
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser
+        .parse()
+        .expect("member access on a type-keyword name must parse");
+}
+
+/// `صدّر دالة اطبع(نص: نص)` — a parameter named after a type. This is the shape
+/// that blocks 7 stdlib files (طرفية/*, نص/*, وقت/تاريخ).
+#[test]
+fn test_parse_parameter_named_with_type_keyword() {
+    let source = r#"
+        دالة اطبع_نص(نص: نص) {
+            اطبع(نص)
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("a parameter named نص must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { params, .. } => assert_eq!(params[0].name, "نص"),
+        other => panic!("Expected FuncDecl, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_field_and_variable_named_with_type_keyword() {
+    let source = r#"
+        صنف س {
+            خاص نص: نص
+        }
+        دالة ص() {
+            متغير نص = "قيمة"
+            اطبع(نص)
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser
+        .parse()
+        .expect("a field/variable named نص must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::ClassDecl { members, .. } => match &members[0] {
+            ClassMember::Field { name, .. } => assert_eq!(name, "نص"),
+            other => panic!("Expected Field, got {other:?}"),
+        },
+        other => panic!("Expected ClassDecl, got {other:?}"),
+    }
+}
+
+/// A type keyword in name position must keep the spelling the user wrote, like
+/// عين/عيّن do — `expect_type_name` canonicalizes `اي` to `أي`, but that is a
+/// *type* reference, and renaming an identifier would let `fmt -w` rewrite the
+/// user's source (the #183 review decision).
+#[test]
+fn test_type_keyword_name_keeps_its_spelling() {
+    let source = r#"
+        دالة اي() {
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { name, .. } => assert_eq!(name, "اي", "must not become أي"),
+        other => panic!("Expected FuncDecl, got {other:?}"),
+    }
+}
+
+/// `خطأ` lexes as the boolean-false literal, so the variant in
+/// `stdlib_trq/اختبار/نتائج.ترقيم:27` could not be declared.
+#[test]
+fn test_parse_enum_variant_named_false_keyword() {
+    let source = r#"
+        تعداد حالة_الاختبار {
+            نجح،
+            خطأ
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("a variant named خطأ must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::EnumDecl { variants, .. } => {
+            assert_eq!(variants[0].name, "نجح");
+            assert_eq!(variants[1].name, "خطأ");
+        }
+        other => panic!("Expected EnumDecl, got {other:?}"),
+    }
+}
+
+/// The variant is only reachable through `::`, which is what makes allowing the
+/// literal keyword there safe — so both reference sites must accept it too, or
+/// the variant is declarable but unusable.
+#[test]
+fn test_enum_variant_named_false_keyword_is_referenceable() {
+    let source = r#"
+        تعداد ح {
+            خطأ
+        }
+        دالة س() {
+            متغير قيمة = ح::خطأ
+            تطابق (قيمة) {
+                حالة ح::خطأ => اطبع("حالة")
+                غير_ذلك => اطبع("أخرى")
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser
+        .parse()
+        .expect("ح::خطأ must parse in both expression and pattern position");
+}
+
+/// The non-regression that makes #196 safe: outside variant position `خطأ` is
+/// still the boolean literal, not an identifier.
+#[test]
+fn test_bare_false_keyword_is_still_a_boolean_literal() {
+    let source = r#"
+        متغير س = خطأ
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::VarDecl { init: Some(e), .. } => match &e.kind {
+            ExprKind::Literal(Literal::Bool(value)) => assert!(!value),
+            other => panic!("Expected a boolean literal, got {other:?}"),
+        },
+        other => panic!("Expected VarDecl, got {other:?}"),
+    }
+}
+
+/// Type keywords must stay *out* of `identifier_like_name`, which also backs the
+/// name-or-type disambiguator for enum-variant payloads. Widening it there would
+/// consume `مصفوفة` as a field name and strand the `<عدد>`.
+#[test]
+fn test_generic_type_in_enum_variant_payload_still_parses_as_a_type() {
+    let source = r#"
+        تعداد ح {
+            قيمة(مصفوفة<عدد>)
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser
+        .parse()
+        .expect("a generic type in a variant payload must still be read as a type");
+}
+
+// ─── Group 13: newlines are trivia inside an unclosed bracket (#255) ───
+
+#[test]
+fn test_parse_multiline_call_arguments() {
+    let source = r#"
+        دالة ف(أ: عدد، ب: عدد) -> عدد {
+            أرجع أ + ب
+        }
+        متغير س = ف(
+            1،
+            2
+        )
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser.parse().expect("a wrapped call must parse");
+}
+
+#[test]
+fn test_parse_multiline_parameter_list() {
+    let source = r#"
+        دالة ف(
+            أ: عدد،
+            ب: عدد
+        ) -> عدد {
+            أرجع أ + ب
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("a wrapped signature must parse");
+
+    match &ast.statements[0].kind {
+        StmtKind::FuncDecl { params, .. } => assert_eq!(params.len(), 2),
+        other => panic!("Expected FuncDecl, got {other:?}"),
+    }
+}
+
+/// An operand may sit on the line after its operator while a bracket is open,
+/// which is what makes wrapping a long condition in parentheses work.
+#[test]
+fn test_parse_wrapped_operand_inside_parentheses() {
+    let source = r#"
+        متغير أ = 1
+        متغير س = (أ == 1 &&
+                   أ < 10)
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser
+        .parse()
+        .expect("an operand after a wrapped operator must parse inside parens");
+}
+
+#[test]
+fn test_parse_wrapped_condition_in_control_flow() {
+    let source = r#"
+        متغير أ = 5
+        إذا (أ > 1 &&
+             أ < 10) {
+            اطبع("نعم")
+        }
+        طالما (أ > 10 ||
+               أ < 0) {
+            اطبع("لا")
+        }
+        تطابق (أ) {
+            غير_ذلك => اطبع("أخرى")
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser
+        .parse()
+        .expect("إذا/طالما/تطابق conditions must accept a wrapped expression");
+}
+
+/// The boundary the language deliberately keeps: a newline still terminates a
+/// statement, so an expression cannot be continued at bracket depth 0.
+#[test]
+fn test_operator_continuation_at_statement_level_is_still_an_error() {
+    let source = r#"
+        متغير س = 1 +
+        2
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    assert!(
+        result.is_err() || !parser.get_errors().is_empty(),
+        "a newline must still end a statement outside brackets"
+    );
+}
+
+/// The depth counter must come back down on the error path too, or one malformed
+/// argument list would join every following statement to the next line.
+#[test]
+fn test_unbalanced_parenthesis_still_reports_an_error() {
+    let source = r#"
+        اطبع(1
+        متغير س = 2
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    assert!(
+        result.is_err() || !parser.get_errors().is_empty(),
+        "an unclosed call must be reported"
+    );
+}
+
+/// مصفوفة/قاموس/أي were missing from expression position, so a parameter named
+/// after one of them was declarable but unreadable in its own body.
+#[test]
+fn test_parse_parameter_named_array_keyword_is_readable() {
+    let source = r#"
+        دالة ف(مصفوفة: مصفوفة<أي>) -> عدد {
+            أرجع طول(مصفوفة)
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser
+        .parse()
+        .expect("a parameter named مصفوفة must be usable in the body");
+}
+
+// ─── Group 14: the bracket newline rule must not leak or hide typos ───
+
+/// A `{ }` body holds statements, so a block-bodied lambda passed as a call
+/// argument must not inherit the argument list's bracket depth. It did, and the
+/// newline before a `-` was treated as trivia, fusing two statements: the body
+/// `متغير أ = س` / `-١` / `أرجع أ` returned `س - ١`.
+#[test]
+fn test_block_body_inside_brackets_keeps_statement_boundaries() {
+    let source = r#"
+        دالة طبق(ف: (عدد) -> عدد، ق: عدد) -> عدد {
+            أرجع ف(ق)
+        }
+        دالة رئيسية() {
+            اطبع(طبق((س) => {
+                متغير أ = س
+                -١
+                أرجع أ
+            }، ٣))
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    // The lambda body must still hold three statements, not two.
+    fn count_lambda_body_statements(expr: &Expr) -> Option<usize> {
+        match &expr.kind {
+            ExprKind::Lambda { body, .. } => match body {
+                LambdaBody::Block(block) => Some(block.statements.len()),
+                LambdaBody::Expr(_) => None,
+            },
+            ExprKind::Call { args, callee } => args
+                .iter()
+                .chain(std::iter::once(callee.as_ref()))
+                .find_map(count_lambda_body_statements),
+            _ => None,
+        }
+    }
+
+    let found = ast.statements.iter().find_map(|stmt| match &stmt.kind {
+        StmtKind::FuncDecl { body, .. } => body.statements.iter().find_map(|s| match &s.kind {
+            StmtKind::Expr(e) => count_lambda_body_statements(e),
+            _ => None,
+        }),
+        _ => None,
+    });
+    assert_eq!(
+        found,
+        Some(3),
+        "the lambda body's statements must not fuse into one expression"
+    );
+}
+
+/// The newline skip is on the operand side only. Skipping before the operator
+/// too let a missing separator fuse two list elements, so `[⏎ ١، ⏎ ٢ ⏎ -٣ ⏎]`
+/// silently became a two-element array instead of the parse error it had been.
+#[test]
+fn test_missing_comma_in_multiline_array_is_still_an_error() {
+    let source = r#"
+        ثابت إزاحات = [
+            ١،
+            ٢
+            -٣
+        ]
+    "#;
+    let mut parser = parser_with_markers(source);
+    let result = parser.parse();
+
+    assert!(
+        result.is_err() || !parser.get_errors().is_empty(),
+        "a missing separator must not be absorbed as a binary operand"
+    );
+}
+
+/// A subscript is an unclosed bracket like any other; before this it parsed only
+/// when some enclosing call happened to raise the depth.
+#[test]
+fn test_parse_multiline_index_subscript() {
+    let source = r#"
+        ثابت أرقام = [١٠، ٢٠]
+        متغير س = أرقام[
+            ١
+        ]
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser.parse().expect("a wrapped subscript must parse");
+}
+
+/// The C-style `لكل` header is three clauses inside an unclosed `(`, so it wraps
+/// like the `إذا`/`طالما`/`تطابق` conditions already did.
+#[test]
+fn test_parse_multiline_c_style_for_header() {
+    let source = r#"
+        دالة رئيسية() {
+            لكل (متغير ع = ٠؛
+                 ع < ٣؛
+                 ع++) {
+                اطبع(ع)
+            }
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    parser.parse().expect("a wrapped لكل header must parse");
+}
+
+/// The for-in dispatch guard must accept the same names `expect_declaration_name`
+/// does, or a loop variable named after a type falls through to the C-style
+/// branch and reports متوقع '(' — an error naming the wrong problem.
+#[test]
+fn test_parse_for_in_with_type_keyword_variable() {
+    let source = r#"
+        ثابت أرقام = [١، ٢]
+        لكل عدد في أرقام {
+            اطبع(عدد)
+        }
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("لكل عدد في … must parse");
+
+    assert!(ast
+        .statements
+        .iter()
+        .any(|s| matches!(&s.kind, StmtKind::ForIn { variable, .. } if variable == "عدد")));
+}
+
+/// A re-export carries no documentation, so a doc comment above one is demoted
+/// like the `استورد` case instead of being handed to `parse_export_statement`,
+/// which dropped it — and `fmt -w` then deleted the line from the user's file.
+#[test]
+fn test_doc_comment_above_reexport_is_demoted_not_dropped() {
+    let source = r#"
+        صدّر دالة أولى() {}
+
+        /// وثيقة إعادة التصدير
+        صدّر * من "./آخر"
+    "#;
+    let mut parser = parser_with_markers(source);
+    let ast = parser.parse().expect("must parse");
+
+    let reexport = ast
+        .statements
+        .iter()
+        .find(|s| matches!(&s.kind, StmtKind::Export(ExportItems::Wildcard { .. })))
+        .expect("Expected a wildcard re-export");
+    assert_eq!(
+        reexport.leading_comments,
+        vec!["وثيقة إعادة التصدير".to_string()]
     );
 }

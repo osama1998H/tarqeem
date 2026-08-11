@@ -2,6 +2,114 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-11 — Issue #228: 33 of 43 stdlib files did not parse
+
+### The issue listed three causes; there were nine
+
+#228's "observed causes" section named banner comments, `استورد *` and `صنف خطأ`.
+A per-file static scan that reproduces **exactly** the 33 failures found nine, and
+the parser reports only the first error per file (#206), so six were invisible
+behind the comment error. Two of the nine had no issue at all and are now #255
+(a call argument list cannot span lines) and #256 (`2.5e10` does not lex).
+
+Technique worth reusing: to see past the first-error mask **without** changing the
+compiler, copy the tree, strip every comment-only line and rewrite the barrels
+textually, then re-parse. That forecast 25/43 and named the four hidden categories
+before a line of Rust changed; the real fix landed on 25/43 at the same point.
+
+### `Ast.module_doc`: sized by measurement, not by symmetry
+
+The naive #203 fix — loop the trivia collection, keep the last doc, demote the
+rest — would have rewritten 22 stdlib module headers from `///` to `//` on
+`fmt -w`, because `format_leading_trivia` renders `leading_comments` with
+`write_comment_lines`. The measurement that decided the design: **all 22 orphan
+doc blocks in the corpus sit on line 3**, immediately after `بسم_الله`; zero
+mid-file. So one additive `Ast` field, not the eight-node trivia refactor
+`AI_NOTES` already rejected once (see the #205 entry).
+
+`doc_comment_is_module_header` hoists a leading doc when a *nearer doc* follows,
+when nothing follows, or when what follows owns no `doc_comment` field. That third
+clause repaired three pre-existing silent losses nobody had filed: a doc above the
+first `استورد` was demoted to `//` (ملفات/مجلد، مجموعات/فهرس) and a doc above a
+bare `صدّر *` was dropped outright (اختبار.ترقيم lost all five `///` lines).
+
+**Do not widen it to "any nearer comment".** That reading made `/// وثيقة` +
+`// ملاحظة` + `دالة` hoist the doc away from the function it documents. The
+distinction that works: a *declaration* with no doc field means the doc is the
+file's; executable code means it belongs to that statement and keeps demoting.
+
+A demoted doc is re-inserted at `doc_position`, not appended. Appending moved a
+demoted `/// وثيقة` below a `//` written after it — `fmt` reordering a run the
+user wrote.
+
+### Keyword-in-name: a separate helper, and why widening the old one breaks
+
+`identifier_like_name` also backs `check_identifier`, which is the *name-or-type
+disambiguator* for enum-variant payloads (`decl_parser.rs:646`) and
+`looks_like_type` (`expr_parser.rs:488`). Adding the type keywords there makes
+`مصفوفة<عدد>` parse as a field named `مصفوفة` with a stranded `<عدد>`. Hence
+`declaration_name`/`variant_name` as siblings. Pinned by
+`test_generic_type_in_enum_variant_payload_still_parses_as_a_type`.
+
+The `::` fence is what makes `خطأ` safe as an enum variant and unsafe as a class
+name: a variant is only ever reached through `::`, while `جديد خطأ()` parses its
+callee as a primary expression and yields `Literal(Bool(false))`. That is the
+reason #243 must rename, not relax.
+
+Declaring the name is half the job: without the `.`-position site
+(`expr_parser.rs:368`) a method named `عدد` parses and stays uncallable. And
+مصفوفة/قاموس/أي were missing from `parse_prefix`, so a parameter named `مصفوفة`
+was declarable and unreadable in its own body.
+
+### Newline-as-trivia needs the *operand* side too
+
+`bracket_depth` + `within_brackets`, consulted in `parse_precedence`. The
+non-obvious part: skipping newlines only before the *operator* is not enough —
+`parse_infix` recurses into `parse_precedence` for the right operand, which lands
+on the newline and calls `parse_prefix` on it. Both sides of the loop, or wrapped
+`&&` chains still fail. Depth is restored on the error path, or one malformed
+argument list joins every following statement to the next line.
+
+`إذا`/`طالما`/`افعل-طالما`/`تطابق` consume their own `(`, so they need
+`within_brackets` explicitly; the array-literal loop was the existing pattern all
+of this copies.
+
+### Two float bugs the fmt corpus guard caught, not review
+
+Assembling a float as `mantissa * 10^exp` overflows to infinity for f64::MAX
+(`1.7976931348623157e308`, رياضيات/ثوابت.ترقيم) and loses precision per digit.
+`scan_number` now rebuilds the literal with ASCII digits — which is also what
+makes Arabic-Indic floats (`٢٥.٥`) work — and defers to `str::parse::<f64>`.
+Then the formatter printed floats with `Display`, expanding f64::MAX to 309
+digits that re-parsed as an out-of-range *integer*; `{:?}` is the shortest
+round-tripping form.
+
+Both only surfaced because `test_format_repo_corpus_is_reparsable_and_idempotent`
+skips unparseable files, so the moment ثوابت.ترقيم parsed it entered the corpus.
+Its floor is now 66 parseable files (was 33) — without raising it, the guard
+stays vacuously green for everything this work unblocked.
+
+### Renaming Latin stdlib identifiers is not mechanical
+
+رياضيات/اساسي.ترقيم called the runtime by `pow`/`sqrt`/…, and for **six** of the
+fourteen the wrapper's own name *is* the runtime's Arabic name — so the "rename to
+Arabic" instruction produces `دالة جذر { أرجع جذر(س) }`, infinite recursion, a
+silent hang. Those six pass-throughs are removed (documented in the module header);
+`قوة` calls the typed `قوة_عدد`; and قاسم_مشترك/مضاعف_مشترك/عاملي are implemented
+in Tarqeem, which keeps the API and drops a runtime dependency.
+
+Verifying those three exposed #257: a user function named after a runtime builtin
+collides at the LLVM symbol level (`قاسم_مشترك` → `trq_gcd`), so it runs in the
+interpreter and JIT and fails to link natively. Pre-existing on `develop`.
+
+### What a newly-parsing file does next
+
+`tarqeem check` on a stdlib module *in isolation* now reports its own runtime calls
+as د٠٠٠١ معرّف غير معروف, because builtins are registered per importing module
+(`Scope::get_stdlib_builtin`) and a direct check has no import. Not a regression —
+نص/اساسي.ترقيم, untouched here, behaves the same — and not something #228 can fix;
+it is the same ground as #229.
+
 ## 2026-08-11 — Issues #249 and #250: inherited members resolved to nothing
 
 ### The issue's diagnosis was inverted, and the empirical check was cheap

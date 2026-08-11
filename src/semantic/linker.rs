@@ -160,6 +160,10 @@ pub fn link_program(
         statements: merged,
         bismillah_span: main.bismillah_span,
         alhamdulillah_span: main.alhamdulillah_span,
+        // Main's file doc describes the linked program; an imported module's
+        // describes that module, which no longer exists as a unit after the
+        // merge — so those drop, exactly like their markers' spans.
+        module_doc: main.module_doc.clone(),
     })
 }
 
@@ -591,5 +595,22 @@ mod tests {
         assert_eq!(linked.alhamdulillah_span, main.alhamdulillah_span);
         assert_eq!(linked.statements.len(), main.statements.len());
         assert!(warnings.is_empty());
+    }
+
+    /// The linked program is one program, so it keeps *main's* file doc comment.
+    /// An imported module's header describes a unit that no longer exists after
+    /// the merge, and is dropped like its markers' spans.
+    #[test]
+    fn test_main_module_doc_survives_linking() {
+        let loader = ModuleLoader::new();
+        let main = Parser::new("بسم_الله\n/// وثيقة الملف\n\n// ملاحظة\nاطبع(\"مرحبا\")\nالحمد_لله")
+            .parse()
+            .expect("main must parse");
+        assert_eq!(main.module_doc.as_deref(), Some("وثيقة الملف"));
+
+        let mut warnings = Vec::new();
+        let linked = link_program(&main, &loader, None, &mut warnings).unwrap();
+
+        assert_eq!(linked.module_doc, main.module_doc);
     }
 }

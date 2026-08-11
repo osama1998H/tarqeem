@@ -235,6 +235,12 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// The ASCII form of a digit, so an Arabic-Indic literal (`٢٥.٥`) can be
+    /// handed to Rust's float parser like any other.
+    fn ascii_digit(&self, c: char) -> char {
+        char::from(b'0' + self.digit_value(c))
+    }
+
     fn is_identifier_start(&self, c: char) -> bool {
         c == '_' || self.is_arabic_letter(c)
     }
@@ -476,10 +482,18 @@ impl<'a> Lexer<'a> {
     fn scan_number(&mut self, first: char) -> Token {
         let mut value: i64 = self.digit_value(first) as i64;
         let mut overflowed = false;
+        // The literal rebuilt with ASCII digits. A float is handed to Rust's own
+        // parser rather than assembled arithmetically: `mantissa * 10^exp`
+        // overflows to infinity for `1.7976931348623157e308` (f64::MAX, in
+        // stdlib_trq/رياضيات/ثوابت.ترقيم) and loses precision digit by digit in
+        // the fraction loop, while `str::parse` is correctly rounded.
+        let mut literal = String::new();
+        literal.push(self.ascii_digit(first));
 
         while !self.is_at_end() && self.is_digit(self.peek()) {
             let c = self.advance();
             let digit = self.digit_value(c) as i64;
+            literal.push(self.ascii_digit(c));
 
             match value.checked_mul(10).and_then(|v| v.checked_add(digit)) {
                 Some(v) => value = v,
@@ -489,40 +503,63 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        // A fractional part does not end the literal: an exponent may follow it.
+        // Returning here is why `2.5e10` never lexed, even though LANGUAGE_SPEC
+        // §4.4 documents it and the integer form `2e10` worked (issue #256).
+        let mut is_float = false;
         if self.peek() == '.' && self.is_digit(self.peek_next()) {
             self.advance(); // consume '.'
-
-            let mut fraction = 0.0;
-            let mut divisor = 10.0;
+            literal.push('.');
+            is_float = true;
 
             while !self.is_at_end() && self.is_digit(self.peek()) {
                 let c = self.advance();
-                fraction += self.digit_value(c) as f64 / divisor;
-                divisor *= 10.0;
+                literal.push(self.ascii_digit(c));
             }
-
-            return self.make_token(TokenKind::FloatLiteral(value as f64 + fraction));
         }
 
         if self.peek() == 'e' || self.peek() == 'E' {
             self.advance();
+            literal.push('e');
+            is_float = true;
 
-            let mut exp_sign = 1i32;
-            if self.peek() == '+' {
-                self.advance();
-            } else if self.peek() == '-' {
-                exp_sign = -1;
-                self.advance();
+            if self.peek() == '+' || self.peek() == '-' {
+                literal.push(self.advance());
             }
 
-            let mut exp: i32 = 0;
+            let mut saw_exponent_digit = false;
             while !self.is_at_end() && self.is_digit(self.peek()) {
                 let c = self.advance();
-                exp = exp * 10 + self.digit_value(c) as i32;
+                saw_exponent_digit = true;
+                literal.push(self.ascii_digit(c));
             }
 
-            let float_val = value as f64 * 10f64.powi(exp_sign * exp);
-            return self.make_token(TokenKind::FloatLiteral(float_val));
+            // `2.5e` consumed the marker and silently produced 2.5 before, since
+            // an empty exponent computed 10^0.
+            if !saw_exponent_digit {
+                return self.make_error_with_code(
+                    "Exponent has no digits / الأس بلا أرقام",
+                    &ERR_INVALID_NUMBER_FORMAT,
+                );
+            }
+        }
+
+        if is_float {
+            return match literal.parse::<f64>() {
+                // A literal outside the float range parses to infinity, which no
+                // longer round-trips: the formatter would print `inf`, and the
+                // Arabic-only lexer rejects that as a Latin identifier — so
+                // `fmt` refused to format a file the compiler had accepted.
+                Ok(float_value) if !float_value.is_finite() => self.make_error_with_code(
+                    "Float literal out of range / قيمة عشرية خارج المدى",
+                    &ERR_INVALID_NUMBER_FORMAT,
+                ),
+                Ok(float_value) => self.make_token(TokenKind::FloatLiteral(float_value)),
+                Err(_) => self.make_error_with_code(
+                    "Invalid float literal / قيمة عشرية غير صالحة",
+                    &ERR_INVALID_NUMBER_FORMAT,
+                ),
+            };
         }
 
         if overflowed {
@@ -813,6 +850,60 @@ mod tests {
         assert_eq!(tokens[0].kind, TokenKind::IntLiteral(42));
         assert!(matches!(tokens[1].kind, TokenKind::FloatLiteral(f) if (f - 3.14).abs() < 0.001));
         assert!(matches!(tokens[2].kind, TokenKind::FloatLiteral(_)));
+    }
+
+    /// LANGUAGE_SPEC §4.4 documents `2.5e10` and `1.0E-5`, but the fractional
+    /// branch returned before the exponent was read, so only the integer form
+    /// `2e10` ever worked — and `stdlib_trq/رياضيات/ثوابت.ترقيم` defines machine
+    /// epsilon as `2.220446049250313e-16` (issue #256).
+    #[test]
+    fn test_float_with_exponent() {
+        let mut lexer = Lexer::new("2.5e10 1.0E-5 2e3 2.220446049250313e-16");
+        let tokens: Vec<_> = lexer.tokenize();
+
+        let value = |token: &Token| match token.kind {
+            TokenKind::FloatLiteral(f) => f,
+            ref other => panic!("Expected a float literal, got {other:?}"),
+        };
+
+        assert!((value(&tokens[0]) - 2.5e10).abs() < 1.0);
+        assert!((value(&tokens[1]) - 1.0e-5).abs() < 1e-12);
+        assert!((value(&tokens[2]) - 2000.0).abs() < 0.001);
+        assert!((value(&tokens[3]) - 2.220446049250313e-16).abs() < 1e-20);
+    }
+
+    /// An empty exponent used to consume the `e` and compute 10^0, silently
+    /// yielding `2.5` for what the user wrote as `2.5e`.
+    #[test]
+    fn test_float_with_empty_exponent_is_an_error() {
+        let mut lexer = Lexer::new("2.5e");
+        let tokens: Vec<_> = lexer.tokenize();
+
+        assert!(
+            matches!(&tokens[0].kind, TokenKind::Error(message) if message.contains("الأس")),
+            "expected a bilingual exponent error, got {:?}",
+            tokens[0].kind
+        );
+    }
+
+    /// A literal beyond the float range must be refused, not silently turned into
+    /// infinity: `fmt` prints a non-finite float as `inf`, which the Arabic-only
+    /// lexer then rejects as a Latin identifier, so the formatter could not format
+    /// a file `check` had accepted. Also covers the overflow itself — the exponent
+    /// used to be accumulated in an i32, which panics in a debug build.
+    #[test]
+    fn test_float_literal_out_of_range_is_an_error() {
+        for source in ["1e999999999999", "1e400", "-1e400"] {
+            let mut lexer = Lexer::new(source);
+            let tokens: Vec<_> = lexer.tokenize();
+            assert!(
+                tokens
+                    .iter()
+                    .any(|t| matches!(&t.kind, TokenKind::Error(m) if m.contains("المدى"))),
+                "{source} must be refused as out of range, got {:?}",
+                tokens.iter().map(|t| &t.kind).collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]

@@ -36,14 +36,19 @@
 متغير اليوم = تاريخ.اليوم()
 اطبع(اليوم.اسم_اليوم())
 
-// معالجة الأخطاء
+// معالجة الأخطاء — غير متاحة بعد، انظر الملاحظة أدناه
 استورد { نتيجة، نجاح، فشل } من "أخطاء"
-متغير نتيجة = نجاح<عدد، خطأ>(42)
+متغير النتيجة = نجاح<عدد، استثناء>(42)
 
 // الشبكة
-استورد { احصل، طلب_http } من "شبكة"
+استورد { احصل، طلب } من "شبكة"
 متغير استجابة = احصل("https://example.com")
 ```
+
+> **ملاحظة**: وحدة `أخطاء` غير قابلة للاستخدام بعد — ملفها
+> `أخطاء/فهرس.ترقيم` يعرّف `صنف خطأ`، و`خطأ` هي القيمة المنطقية لا اسم صنف؛
+> صنف الاستثناء الأساسي اسمه `استثناء`. يتابع ذلك
+> [#243](https://github.com/osama1998H/tarqeem/issues/243).
 
 </div>
 
@@ -83,14 +88,22 @@ numbers.أضف(5)
 
 // Error Handling
 استورد { نتيجة، نجاح، فشل } من "أخطاء"
-متغير result = نجاح<عدد، خطأ>(42)
+متغير result = نجاح<عدد، استثناء>(42)
 
 // Networking
-استورد { احصل، طلب_http } من "شبكة"
+استورد { احصل، طلب } من "شبكة"
 متغير response = احصل("https://example.com")
 ```
 
+> **Note**: the `أخطاء` module is not usable yet — its `أخطاء/فهرس.ترقيم`
+> declares `صنف خطأ`, and `خطأ` is the boolean literal, not a class name; the
+> base exception class is `استثناء`. Tracked by
+> [#243](https://github.com/osama1998H/tarqeem/issues/243).
+
 ### Module Structure
+
+Each package's `فهرس.ترقيم` is a barrel: it re-exports its submodules with
+`صدّر * من "./اساسي"`, so importing the package name reaches every symbol.
 
 ```
 stdlib_trq/
@@ -105,7 +118,8 @@ stdlib_trq/
 │
 ├── رياضيات/                   # Math
 │   ├── فهرس.ترقيم
-│   ├── اساسي.ترقيم            # Basic math functions
+│   ├── اساسي.ترقيم            # Basic math functions (جذر/سقف/قرّب and
+│   │                          # friends come straight from the runtime)
 │   ├── مثلثات.ترقيم           # Trigonometry
 │   ├── عشوائي.ترقيم           # Random numbers
 │   └── ثوابت.ترقيم            # Mathematical constants

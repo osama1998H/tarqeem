@@ -206,7 +206,8 @@ pub enum TokenKind {
 
 ### Scanner Algorithm
 
-1. Skip whitespace (preserving newlines for statement termination)
+1. Skip whitespace (preserving newlines for statement termination — the parser
+   ignores them while a `(`/`[` is still open, see `Parser::bracket_depth`)
 2. Identify token start character
 3. Dispatch to appropriate handler (number, string, identifier, operator)
 4. Return token with span information

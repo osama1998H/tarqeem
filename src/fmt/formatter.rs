@@ -31,6 +31,15 @@ impl Formatter {
             p.newline();
         }
 
+        // The blank line after a file doc comment is required, not cosmetic:
+        // scan_doc_comment merges a contiguous `///` run into one token, so
+        // without it the file doc and the first declaration's doc fuse into a
+        // single comment when the formatted output is read back.
+        if let Some(doc) = &ast.module_doc {
+            self.format_doc_comment(doc, p);
+            p.blank_lines(1);
+        }
+
         let mut prev_was_import = false;
         let mut first = true;
 
@@ -800,7 +809,11 @@ impl Formatter {
     fn format_literal(&self, lit: &Literal, p: &mut Printer) {
         match lit {
             Literal::Int(n) => p.write(&n.to_string()),
-            Literal::Float(f) => p.write(&f.to_string()),
+            // `{:?}` rather than `to_string()`: Display expands a large float to
+            // its full decimal form, so `1.7976931348623157e308` came back as 309
+            // digits that re-parse as an out-of-range *integer*. Debug keeps the
+            // shortest round-tripping form, which is also what the author wrote.
+            Literal::Float(f) => p.write(&format!("{f:?}")),
             Literal::String(s) => {
                 p.write_char('"');
                 for c in s.chars() {
@@ -2004,14 +2017,79 @@ mod tests {
             failures.join("\n")
         );
 
-        // Measured on this corpus at the time of the #201 fix. A parser
-        // regression that made files unparseable would otherwise silently skip
-        // them and leave this test vacuously green.
+        // Re-measured after #228 took stdlib_trq/ from 10 parseable files to 42.
+        // A parser regression that made files unparseable would otherwise
+        // silently skip them and leave this test vacuously green.
         assert!(
-            parseable >= 33,
-            "corpus coverage shrank: only {parseable} of {} files parse (expected >= 33) \
+            parseable >= 66,
+            "corpus coverage shrank: only {parseable} of {} files parse (expected >= 66) \
              — a parser regression is hiding behind the skip branch",
             files.len()
         );
+    }
+
+    /// A file's own doc comment must keep its `///` marker. Routing it through
+    /// `leading_comments` instead would re-emit it as `//`, which is how
+    /// `fmt -w` silently downgraded 22 stdlib module headers.
+    #[test]
+    fn test_format_module_doc_keeps_marker_and_blank_line() {
+        let once = format("/// وحدة الرياضيات\n\n// ═══\n\n/// وثيقة الدالة\nدالة س() {}");
+
+        assert!(
+            once.contains("/// وحدة الرياضيات"),
+            "the file doc must stay a doc comment: {once}"
+        );
+        assert!(
+            !once.lines().any(|line| line.trim() == "// وحدة الرياضيات"),
+            "…and must not be demoted to a line comment: {once}"
+        );
+        assert!(
+            once.contains("/// وحدة الرياضيات\n\n"),
+            "a blank line must follow it, or the lexer merges it into the next \
+             doc block on re-parse: {once}"
+        );
+    }
+
+    /// `scan_doc_comment` merges a contiguous `///` run into a single token, so
+    /// without the blank line after the file doc it fuses with the following
+    /// declaration's doc — text mangling that only shows up on a re-parse.
+    #[test]
+    fn test_format_module_doc_output_reparses_with_doc_still_separate() {
+        let once = format("/// وحدة الرياضيات\n\n// ═══\n\n/// وثيقة الدالة\nدالة س() {}");
+        let ast = crate::parser::Parser::new(&once)
+            .parse()
+            .expect("formatted output must re-parse");
+
+        assert_eq!(ast.module_doc.as_deref(), Some("وحدة الرياضيات"));
+        match &ast.statements[0].kind {
+            StmtKind::FuncDecl { doc_comment, .. } => {
+                assert_eq!(doc_comment.as_deref(), Some("وثيقة الدالة"));
+            }
+            other => panic!("Expected FuncDecl, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_format_module_doc_is_idempotent() {
+        let once = format("/// وحدة الرياضيات\n\n// ═══\n\n/// وثيقة الدالة\nدالة س() {}");
+        let twice = format_raw(&once);
+        assert_eq!(once, twice);
+    }
+
+    /// f64::MAX printed via Display is 309 digits with no decimal point in the
+    /// mantissa, so the formatted file came back as an out-of-range *integer*
+    /// literal. stdlib_trq/رياضيات/ثوابت.ترقيم defines exactly that constant.
+    #[test]
+    fn test_format_extreme_float_round_trips() {
+        let once = format("ثابت اقصى: عدد_عشري = 1.7976931348623157e308");
+
+        assert!(
+            once.contains("1.7976931348623157e308"),
+            "the shortest round-tripping form must survive: {once}"
+        );
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("formatted output must re-parse");
+        assert_eq!(format_raw(&once), once);
     }
 }

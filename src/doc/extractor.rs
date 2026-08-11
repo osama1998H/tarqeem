@@ -26,6 +26,13 @@ impl DocExtractor {
     pub fn extract(&self, ast: &Ast) -> Documentation {
         let mut doc = Documentation::new(self.module_name.clone(), self.source_path.clone());
 
+        // `description` is rendered by every generator but had no source until
+        // the parser started keeping a file's own doc comment (Ast::module_doc).
+        doc.description = ast
+            .module_doc
+            .as_deref()
+            .and_then(|comment| DocCommentParser::parse(comment).description);
+
         for stmt in &ast.statements {
             if let Some(item) = self.extract_stmt(stmt, false) {
                 doc.items.push(item);
@@ -522,6 +529,40 @@ mod tests {
         assert_eq!(doc.items.len(), 1);
         if let DocItem::Function(func) = &doc.items[0] {
             assert!(func.is_exported);
+        } else {
+            panic!("Expected Function");
+        }
+    }
+
+    /// `Documentation.description` is rendered by the markdown and HTML
+    /// generators but had no source at all until the parser started keeping a
+    /// file's own doc comment, so every generated page had an empty summary.
+    #[test]
+    fn test_module_doc_becomes_documentation_description() {
+        let source = r#"
+            /// وحدة الرياضيات
+            ///
+            /// @منذ ١.٠.٠
+
+            // ═══
+
+            /// القيمة المطلقة
+            صدّر دالة مطلق(س: عدد) -> عدد {
+                أرجع س
+            }
+        "#;
+
+        let wrapped = wrap_with_markers(source);
+        let mut parser = Parser::new(&wrapped);
+        let ast = parser.parse().unwrap();
+        let extractor = DocExtractor::new("رياضيات".to_string(), "رياضيات.ترقيم".to_string());
+        let doc = extractor.extract(&ast);
+
+        assert_eq!(doc.description.as_deref(), Some("وحدة الرياضيات"));
+        // The file's doc must not have been stolen from the function.
+        assert_eq!(doc.items.len(), 1);
+        if let DocItem::Function(func) = &doc.items[0] {
+            assert_eq!(func.description.as_deref(), Some("القيمة المطلقة"));
         } else {
             panic!("Expected Function");
         }
