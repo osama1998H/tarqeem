@@ -73,6 +73,44 @@ Consequence for test design: the inherited-auto-property case cannot be asserted
 end to end today, so the own-class-relative index convention is asserted against
 the built IR instead of through a running program.
 
+### Code review caught two defects the fix itself created or left behind
+
+An xhigh review of the PR found 10 findings; the two that mattered:
+
+**1. Fixing the accessors was not enough — compound assignment bypassed them.**
+`build_compound_assignment`'s member arm duplicated the plain-assignment store
+with a bare `SetField` carrying an empty class, the property's *own* name instead
+of its `_`-prefixed backing field, and its own hardcoded `index: 0`. So `ن.ص += 1`
+still produced two different wrong answers: the interpreter stored a by-name
+field no getter reads (the `+=` vanished), while native wrote slot 0 and
+corrupted the *other* property. The lesson generalises — the same defect can sit
+in a second copy of the same logic, so the fix was to extract one
+`store_to_member` both paths call, not to patch the constant twice.
+
+**2. The new hard error broke working programs.** `collect_class` runs over
+top-level statements only, so a class declared inside a function or block has no
+entry in `class_fields` — and `backing_field_index` turned that into a build
+failure for a program that previously ran, while `tarqeem check` still reported it
+clean. Fixed at the cause: `build_class_decl` now collects the layout on demand,
+which also registers the class in `module.classes` so nested classes work
+natively rather than merely not crashing. (Instantiating one is still rejected by
+the analyzer with د٠٠٠٣ — a separate, pre-existing limitation.)
+
+Guarding against reintroduction cost two more things worth keeping:
+
+- `assert_prints` compares raw stdout byte for byte across backends *in addition*
+  to the trimmed line-based expectation. `lines()` normalises whitespace, so on
+  its own it cannot see a backend that prints `"3 "`, adds a blank line, or drops
+  the trailing newline — the same silent-divergence class.
+- The `compare-backends` job asserts each run's **exit status**, diffs the **JIT**
+  as well as native, and keys `KNOWN_DIVERGENT` per `example:backend`. Discarding
+  exit codes meant two backends broken enough to print nothing produced two empty
+  files and "agreed"; a per-example allowlist would have excused a future JIT
+  regression in `ضغط`, whose bug (#185) is native-only. A separate
+  `NATIVE_UNSUPPORTED` list covers examples native codegen *documents* refusing
+  (`ارمِ` → ت٠٣٠٣), which `KNOWN_DIVERGENT` cannot: it is only consulted once a
+  binary exists.
+
 ## 2026-08-10 — Issue #181: the exception system, from unusable to usable
 
 `ارمِ` could not be used in **any** program. `Analyzer::is_error_type` accepts

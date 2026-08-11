@@ -336,6 +336,15 @@ impl IrBuilder {
         _implements: &[String],
         members: &[ClassMember],
     ) -> Result<()> {
+        // A class declared inside a function or block never reaches the
+        // collection pass, which walks top-level statements only
+        // (`IrBuilder::build`). Collect it on demand so its field layout — and
+        // its entry in `module.classes` — exist before any member is lowered.
+        // Without this, `backing_field_index` has no layout to consult.
+        if !self.class_fields.contains_key(name) {
+            self.collect_class(name, extends, members)?;
+        }
+
         if let Some(parent) = extends {
             for class in &mut self.module.classes {
                 if class.name == name {
@@ -512,13 +521,19 @@ impl IrBuilder {
     /// shared slot 0, so they aliased each other *and* a write through one
     /// overwrote whatever real field occupied that slot. A missing backing
     /// field is an error rather than a fallback to 0 — falling back is the bug.
+    ///
+    /// Reaching the error means `collect_class` and this synthesis disagree
+    /// about the class's layout, which no source program should be able to
+    /// cause: it is an internal invariant, not a user diagnostic, so it carries
+    /// no ت/د error code — but it is still bilingual, since a contributor
+    /// reading it is exactly who it is for.
     fn backing_field_index(&self, class_name: &str, backing_field: &str) -> Result<u32> {
         self.get_field_info(class_name, backing_field)
             .map(|(index, _)| index)
             .ok_or_else(|| {
                 IrError::new(format!(
-                    "الحقل الداعم '{}' للخاصية غير موجود في الصنف '{}'",
-                    backing_field, class_name
+                    "الحقل الداعم '{backing_field}' للخاصية غير موجود في تخطيط الصنف '{class_name}' \
+                     / property backing field '{backing_field}' is missing from the layout of class '{class_name}'"
                 ))
             })
     }

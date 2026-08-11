@@ -60,13 +60,30 @@ fn runtime_library_present() -> bool {
         return true;
     }
 
-    ["release", "debug"].iter().any(|profile| {
-        project_root()
-            .join("target")
-            .join(profile)
-            .join(RUNTIME_LIB)
-            .exists()
-    })
+    runtime_archive().exists()
+}
+
+/// The profile this test binary was built with — the only one whose runtime
+/// matches the compiler under test.
+fn test_profile() -> &'static str {
+    if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    }
+}
+
+/// Deliberately the test binary's own profile only, unlike
+/// `module_execution_tests.rs`, which accepts `target/release/libtrq.a` even
+/// under a debug `cargo test`. A months-old release archive satisfying that
+/// check would link the native leg against a runtime that does not correspond
+/// to this checkout — hiding a runtime regression, or failing the link with an
+/// `undefined reference` that reads like a compiler bug.
+fn runtime_archive() -> PathBuf {
+    project_root()
+        .join("target")
+        .join(test_profile())
+        .join(RUNTIME_LIB)
 }
 
 fn build_runtime_library() -> Result<(), String> {
@@ -74,15 +91,7 @@ fn build_runtime_library() -> Result<(), String> {
         return Ok(());
     }
 
-    let profile = if cfg!(debug_assertions) {
-        "debug"
-    } else {
-        "release"
-    };
-    let expected = project_root()
-        .join("target")
-        .join(profile)
-        .join(RUNTIME_LIB);
+    let expected = runtime_archive();
 
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let mut command = Command::new(&cargo);
@@ -94,18 +103,39 @@ fn build_runtime_library() -> Result<(), String> {
     }
 
     match command.output() {
-        Err(error) => Err(format!("تعذّر تشغيل «{cargo}»: {error}")),
-        Ok(output) if !output.status.success() => Err(format!(
-            "فشل بناء tarqeem-runtime (الحالة/status {:?})\n--- stderr ---\n{}",
+        Err(error) => Err(runtime_failure(&format!("تعذّر تشغيل «{cargo}»: {error}"))),
+        Ok(output) if !output.status.success() => Err(runtime_failure(&format!(
+            "فشل بناء tarqeem-runtime (الحالة/status {:?})\n--- stdout ---\n{}\n--- stderr ---\n{}",
             output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr),
-        )),
-        Ok(_) if !expected.exists() => Err(format!(
-            "نجح البناء لكن {} غير موجودة / build succeeded but the artifact is missing",
+        ))),
+        // A build that succeeds without producing the artifact sent it somewhere
+        // the linker will not look — `CARGO_TARGET_DIR`, `--target-dir` or a
+        // cross `--target` being the usual causes. Linking would fail next, with
+        // a far less obvious message.
+        Ok(_) if !expected.exists() => Err(runtime_failure(&format!(
+            "نجح البناء لكن {} غير موجودة / build succeeded but the artifact is missing (CARGO_TARGET_DIR؟)",
             expected.display()
-        )),
+        ))),
         Ok(_) => Ok(()),
     }
+}
+
+/// Wraps a runtime-preparation failure with the command to run by hand, so the
+/// panic reads as a missing prerequisite rather than as a broken test file.
+fn runtime_failure(detail: &str) -> String {
+    format!(
+        "تعذّر تجهيز مكتبة وقت التشغيل {RUNTIME_LIB} اللازمة للربط الأصلي.\n\
+         Could not prepare the runtime library required to link native binaries.\n\
+         {detail}\n\
+         نفّذها يدوياً / run it by hand: cargo build -p tarqeem-runtime{}",
+        if cfg!(debug_assertions) {
+            ""
+        } else {
+            " --release"
+        }
+    )
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -210,12 +240,20 @@ fn execute(backend: Backend, main: &Path, tag: &str) -> Output {
 
 /// Asserts `body` prints exactly `expected` under every backend.
 ///
-/// Comparing the three against each other is not enough: the interpreter is
-/// the reference here, and asserting a literal expectation is what makes a
-/// test fail when *all* backends drift together.
+/// Two assertions per backend, deliberately:
+///
+/// * `lines()` against a literal expectation. Comparing backends only against
+///   each other would stay green if they all drifted together, so the
+///   interpreter is not the reference — the literal is.
+/// * raw stdout, byte for byte, against the first backend's. `lines()` trims
+///   the whole stream and every line, so on its own it cannot see a backend
+///   that prints `"3 "`, adds a blank line, or omits the trailing newline —
+///   which is the very silent-divergence class this file exists to catch.
 fn assert_prints(body: &str, expected: &[&str]) {
     let dir = TempDir::new().expect("تعذّر إنشاء مجلد مؤقت");
     let main = write_main(dir.path(), body);
+
+    let mut reference: Option<(Backend, String)> = None;
 
     for backend in Backend::ALL {
         let output = execute(backend, &main, &format!("{backend:?}"));
@@ -235,6 +273,18 @@ fn assert_prints(body: &str, expected: &[&str]) {
             expected,
             output.report()
         );
+
+        match &reference {
+            None => reference = Some((backend, output.stdout.clone())),
+            Some((first, first_stdout)) => assert_eq!(
+                &output.stdout,
+                first_stdout,
+                "خرج غير متطابق حرفياً بين {:?} و{:?} / raw stdout differs byte for byte\n{}",
+                first,
+                backend,
+                output.report()
+            ),
+        }
     }
 }
 
@@ -363,16 +413,94 @@ fn test_full_accessor_properties_are_unaffected() {
     );
 }
 
+/// Compound assignment used to bypass the property setter entirely and emit a
+/// bare `SetField` with the property's own name and `index: 0`. Two different
+/// wrong answers resulted: the interpreter stored a by-name field no getter
+/// reads (so `+=` vanished), while native wrote slot 0 and corrupted the *other*
+/// property. Both paths now share `store_to_member`.
+#[test]
+fn test_compound_assignment_to_an_auto_property() {
+    assert_prints(
+        r#"
+صنف نقطة {
+    خاصية س: عدد = 0
+    خاصية ص: عدد = 0
+
+    منشئ(س: عدد، ص: عدد) {
+        هذا.س = س
+        هذا.ص = ص
+    }
+}
+
+متغير ن = جديد نقطة(3، 4)
+ن.ص += 10
+ن.س -= 1
+اطبع(ن.س)
+اطبع(ن.ص)
+"#,
+        &["2", "14"],
+    );
+}
+
+/// A class declared inside a function never reaches the top-level collection
+/// pass, so its field layout does not exist when its accessors are synthesized
+/// — which made `backing_field_index` abort the whole build for a program that
+/// had run fine, and that `tarqeem check` still called clean. The layout is now
+/// collected on demand.
+///
+/// The body only *declares* the class: `جديد محلي()` is rejected by the analyzer
+/// with د٠٠٠٣ `صنف غير معروف`, a separate pre-existing limitation on
+/// function-local classes. Declaring one must still not break the build.
+#[test]
+fn test_auto_properties_on_a_class_declared_inside_a_function() {
+    assert_prints(
+        r#"
+دالة رئيسية() {
+    صنف محلي {
+        خاصية أ: عدد = 0
+        خاصية ب: عدد = 0
+    }
+    اطبع("تم")
+}
+"#,
+        &["تم"],
+    );
+}
+
 /// Every backing-field index an auto-property accessor emits, keyed by
 /// `Class::__accessor_prop`. Reads the IR directly, which is where the defect
 /// lived — an execution test can only observe it through a backend that
 /// honours the index, and only one of the three does.
+///
+/// Runs the analyzer before the IR builder, as every other test in `tests/`
+/// does. Skipping it would let a fixture that does not type-check still assert
+/// indices — describing a program the compiler rejects — and would break the
+/// day `IrBuilder` requires analyzer-linked input for classes, as it already
+/// does for the injected `استثناء` prelude.
 fn accessor_field_indices(body: &str) -> Vec<(String, u32)> {
     use tarqeem::ir::{Instruction, IrBuilder};
     use tarqeem::parser::Parser;
+    use tarqeem::semantic::Analyzer;
 
     let source = format!("بسم_الله\n{}\nالحمد_لله", body.trim());
     let ast = Parser::new(&source).parse().expect("تعذّر تحليل البرنامج");
+
+    let mut analyzer = Analyzer::new();
+    let stdlib_path = project_root().join("stdlib_trq");
+    if stdlib_path.exists() {
+        analyzer.add_search_path(stdlib_path);
+    }
+    if let Err(diagnostics) = analyzer.analyze(&ast) {
+        panic!(
+            "فشل التحليل الدلالي / semantic analysis failed: {}",
+            diagnostics
+                .iter()
+                .map(|d| d.message.clone())
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+
     let module = IrBuilder::new("test".to_string())
         .build(&ast)
         .expect("تعذّر بناء التمثيل الوسيط");
