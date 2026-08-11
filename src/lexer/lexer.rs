@@ -235,6 +235,12 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// The ASCII form of a digit, so an Arabic-Indic literal (`٢٥.٥`) can be
+    /// handed to Rust's float parser like any other.
+    fn ascii_digit(&self, c: char) -> char {
+        char::from(b'0' + self.digit_value(c))
+    }
+
     fn is_identifier_start(&self, c: char) -> bool {
         c == '_' || self.is_arabic_letter(c)
     }
@@ -476,10 +482,18 @@ impl<'a> Lexer<'a> {
     fn scan_number(&mut self, first: char) -> Token {
         let mut value: i64 = self.digit_value(first) as i64;
         let mut overflowed = false;
+        // The literal rebuilt with ASCII digits. A float is handed to Rust's own
+        // parser rather than assembled arithmetically: `mantissa * 10^exp`
+        // overflows to infinity for `1.7976931348623157e308` (f64::MAX, in
+        // stdlib_trq/رياضيات/ثوابت.ترقيم) and loses precision digit by digit in
+        // the fraction loop, while `str::parse` is correctly rounded.
+        let mut literal = String::new();
+        literal.push(self.ascii_digit(first));
 
         while !self.is_at_end() && self.is_digit(self.peek()) {
             let c = self.advance();
             let digit = self.digit_value(c) as i64;
+            literal.push(self.ascii_digit(c));
 
             match value.checked_mul(10).and_then(|v| v.checked_add(digit)) {
                 Some(v) => value = v,
@@ -492,43 +506,32 @@ impl<'a> Lexer<'a> {
         // A fractional part does not end the literal: an exponent may follow it.
         // Returning here is why `2.5e10` never lexed, even though LANGUAGE_SPEC
         // §4.4 documents it and the integer form `2e10` worked (issue #256).
-        let mut mantissa: Option<f64> = None;
+        let mut is_float = false;
         if self.peek() == '.' && self.is_digit(self.peek_next()) {
             self.advance(); // consume '.'
-
-            let mut fraction = 0.0;
-            let mut divisor = 10.0;
+            literal.push('.');
+            is_float = true;
 
             while !self.is_at_end() && self.is_digit(self.peek()) {
                 let c = self.advance();
-                fraction += self.digit_value(c) as f64 / divisor;
-                divisor *= 10.0;
+                literal.push(self.ascii_digit(c));
             }
-
-            mantissa = Some(value as f64 + fraction);
         }
 
         if self.peek() == 'e' || self.peek() == 'E' {
             self.advance();
+            literal.push('e');
+            is_float = true;
 
-            let mut exp_sign = 1i32;
-            if self.peek() == '+' {
-                self.advance();
-            } else if self.peek() == '-' {
-                exp_sign = -1;
-                self.advance();
+            if self.peek() == '+' || self.peek() == '-' {
+                literal.push(self.advance());
             }
 
-            let mut exp: i32 = 0;
             let mut saw_exponent_digit = false;
             while !self.is_at_end() && self.is_digit(self.peek()) {
                 let c = self.advance();
                 saw_exponent_digit = true;
-                // Saturate rather than wrap: an absurd exponent must still yield
-                // a token, and i32 overflow panics in a debug build.
-                exp = exp
-                    .saturating_mul(10)
-                    .saturating_add(self.digit_value(c) as i32);
+                literal.push(self.ascii_digit(c));
             }
 
             // `2.5e` consumed the marker and silently produced 2.5 before, since
@@ -539,13 +542,16 @@ impl<'a> Lexer<'a> {
                     &ERR_INVALID_NUMBER_FORMAT,
                 );
             }
-
-            let base = mantissa.unwrap_or(value as f64);
-            return self.make_token(TokenKind::FloatLiteral(base * 10f64.powi(exp_sign * exp)));
         }
 
-        if let Some(float_value) = mantissa {
-            return self.make_token(TokenKind::FloatLiteral(float_value));
+        if is_float {
+            return match literal.parse::<f64>() {
+                Ok(float_value) => self.make_token(TokenKind::FloatLiteral(float_value)),
+                Err(_) => self.make_error_with_code(
+                    "Invalid float literal / قيمة عشرية غير صالحة",
+                    &ERR_INVALID_NUMBER_FORMAT,
+                ),
+            };
         }
 
         if overflowed {

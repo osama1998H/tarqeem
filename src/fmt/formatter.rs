@@ -809,7 +809,11 @@ impl Formatter {
     fn format_literal(&self, lit: &Literal, p: &mut Printer) {
         match lit {
             Literal::Int(n) => p.write(&n.to_string()),
-            Literal::Float(f) => p.write(&f.to_string()),
+            // `{:?}` rather than `to_string()`: Display expands a large float to
+            // its full decimal form, so `1.7976931348623157e308` came back as 309
+            // digits that re-parse as an out-of-range *integer*. Debug keeps the
+            // shortest round-tripping form, which is also what the author wrote.
+            Literal::Float(f) => p.write(&format!("{f:?}")),
             Literal::String(s) => {
                 p.write_char('"');
                 for c in s.chars() {
@@ -2013,12 +2017,12 @@ mod tests {
             failures.join("\n")
         );
 
-        // Measured on this corpus at the time of the #201 fix. A parser
-        // regression that made files unparseable would otherwise silently skip
-        // them and leave this test vacuously green.
+        // Re-measured after #228 took stdlib_trq/ from 10 parseable files to 42.
+        // A parser regression that made files unparseable would otherwise
+        // silently skip them and leave this test vacuously green.
         assert!(
-            parseable >= 33,
-            "corpus coverage shrank: only {parseable} of {} files parse (expected >= 33) \
+            parseable >= 66,
+            "corpus coverage shrank: only {parseable} of {} files parse (expected >= 66) \
              — a parser regression is hiding behind the skip branch",
             files.len()
         );
@@ -2070,5 +2074,22 @@ mod tests {
         let once = format("/// وحدة الرياضيات\n\n// ═══\n\n/// وثيقة الدالة\nدالة س() {}");
         let twice = format_raw(&once);
         assert_eq!(once, twice);
+    }
+
+    /// f64::MAX printed via Display is 309 digits with no decimal point in the
+    /// mantissa, so the formatted file came back as an out-of-range *integer*
+    /// literal. stdlib_trq/رياضيات/ثوابت.ترقيم defines exactly that constant.
+    #[test]
+    fn test_format_extreme_float_round_trips() {
+        let once = format("ثابت اقصى: عدد_عشري = 1.7976931348623157e308");
+
+        assert!(
+            once.contains("1.7976931348623157e308"),
+            "the shortest round-tripping form must survive: {once}"
+        );
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("formatted output must re-parse");
+        assert_eq!(format_raw(&once), once);
     }
 }
