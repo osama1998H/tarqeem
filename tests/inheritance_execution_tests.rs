@@ -26,7 +26,7 @@
 //!
 //! So every fixture here runs under **all three backends** against exact stdout,
 //! and reads inherited members through the *subclass* — the shape that
-//! `examples/صنف.ترقيم` avoids by accident.
+//! `examples/أصناف.ترقيم` avoids by accident.
 //!
 //! Two deliberate exclusions, so a failure here never means something else:
 //!

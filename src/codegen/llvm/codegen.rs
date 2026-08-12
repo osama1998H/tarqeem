@@ -1317,7 +1317,7 @@ impl LlvmCodegen {
                 // A coarser guard — reject any call where *some* descendant
                 // overrides the method, regardless of whether this call site
                 // is reachable through an upcast — was tried and reverted:
-                // it false-positived on `examples/صنف.ترقيم` (شخص١.اطبع_معلومات()
+                // it false-positived on `examples/أصناف.ترقيم` (شخص١.اطبع_معلومات()
                 // where شخص١'s declared and runtime type are both `شخص`, no
                 // upcast involved, so native's static bind is already
                 // correct there). Telling "this call is monomorphic" from

@@ -288,7 +288,7 @@ fn assert_prints(body: &str, expected: &[&str]) {
     }
 }
 
-/// `examples/خواص.ترقيم` in miniature: the reported symptom, where reading
+/// `examples/أصناف.ترقيم` in miniature: the reported symptom, where reading
 /// `س` returned `ص`'s value because both accessors addressed slot 0.
 #[test]
 fn test_two_auto_properties_keep_distinct_slots() {
