@@ -40,11 +40,11 @@ install: build
 	@echo "Installing Tarqeem to $(PREFIX)..."
 	@mkdir -p $(PREFIX)/bin
 	@mkdir -p $(PREFIX)/lib
-	@mkdir -p $(PREFIX)/stdlib_trq
+	@mkdir -p $(PREFIX)/stdlib
 	@cp target/release/tarqeem $(PREFIX)/bin/
 	@chmod +x $(PREFIX)/bin/tarqeem
 	@cp target/release/libtrq.a $(PREFIX)/lib/
-	@cp -r stdlib_trq/* $(PREFIX)/stdlib_trq/
+	@cp -r stdlib/* $(PREFIX)/stdlib/
 	@grep -m1 'version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/' > $(PREFIX)/VERSION
 	@echo ""
 	@echo "Installation complete!"

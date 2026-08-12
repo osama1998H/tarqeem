@@ -485,7 +485,7 @@ impl<'a> Lexer<'a> {
         // The literal rebuilt with ASCII digits. A float is handed to Rust's own
         // parser rather than assembled arithmetically: `mantissa * 10^exp`
         // overflows to infinity for `1.7976931348623157e308` (f64::MAX, in
-        // stdlib_trq/رياضيات/ثوابت.ترقيم) and loses precision digit by digit in
+        // stdlib/رياضيات/ثوابت.ترقيم) and loses precision digit by digit in
         // the fraction loop, while `str::parse` is correctly rounded.
         let mut literal = String::new();
         literal.push(self.ascii_digit(first));
@@ -854,7 +854,7 @@ mod tests {
 
     /// LANGUAGE_SPEC §4.4 documents `2.5e10` and `1.0E-5`, but the fractional
     /// branch returned before the exponent was read, so only the integer form
-    /// `2e10` ever worked — and `stdlib_trq/رياضيات/ثوابت.ترقيم` defines machine
+    /// `2e10` ever worked — and `stdlib/رياضيات/ثوابت.ترقيم` defines machine
     /// epsilon as `2.220446049250313e-16` (issue #256).
     #[test]
     fn test_float_with_exponent() {

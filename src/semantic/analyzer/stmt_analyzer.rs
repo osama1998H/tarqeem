@@ -1116,7 +1116,7 @@ impl Analyzer {
     ///
     /// The wildcard arm deliberately stays `أي` instead of `Type::Module`: with
     /// no exports to check against, every member access through the alias would
-    /// become an error. Most of `stdlib_trq/` does not parse yet, so tightening
+    /// become an error. Most of `stdlib/` does not parse yet, so tightening
     /// this would turn silent degradation into a wall of diagnostics.
     fn register_imports_as_any(&mut self, items: &ImportItems, span: Span) {
         match items {

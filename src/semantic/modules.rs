@@ -293,7 +293,7 @@ impl ModuleLoader {
 
         for (from, span) in imports {
             // Stdlib names are short-circuited to a builtin table by the
-            // analyzer and never read from disk; most files under stdlib_trq/
+            // analyzer and never read from disk; most files under stdlib/
             // do not parse yet, so following them here would drag unrelated
             // parse errors into every program that imports رياضيات.
             if Scope::get_stdlib_modules().contains(&from.as_str()) {

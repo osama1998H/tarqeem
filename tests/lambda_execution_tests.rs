@@ -44,7 +44,7 @@ fn interpret_stdout(source: &str) -> Result<Vec<String>, String> {
     let ast = parser.parse().map_err(|e| e.message)?;
 
     let mut analyzer = Analyzer::new();
-    let stdlib_path = project_root().join("stdlib_trq");
+    let stdlib_path = project_root().join("stdlib");
     if stdlib_path.exists() {
         analyzer.add_search_path(stdlib_path);
     }
@@ -86,7 +86,7 @@ fn jit_stdout(source: &str) -> Result<Vec<String>, String> {
     let ast = parser.parse().map_err(|e| e.message)?;
 
     let mut analyzer = Analyzer::new();
-    let stdlib_path = project_root().join("stdlib_trq");
+    let stdlib_path = project_root().join("stdlib");
     if stdlib_path.exists() {
         analyzer.add_search_path(stdlib_path);
     }
@@ -136,7 +136,7 @@ fn analyze_diagnostics(source: &str) -> Result<(), Vec<(Option<String>, String)>
         .map_err(|e| vec![(None, e.message.clone())])?;
 
     let mut analyzer = Analyzer::new();
-    let stdlib_path = project_root().join("stdlib_trq");
+    let stdlib_path = project_root().join("stdlib");
     if stdlib_path.exists() {
         analyzer.add_search_path(stdlib_path);
     }

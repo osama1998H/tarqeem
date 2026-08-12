@@ -149,41 +149,41 @@ fn find_stdlib_path() -> Option<PathBuf> {
 
     // 1. TARQEEM_HOME environment variable (highest priority)
     if let Ok(tarqeem_home) = std::env::var("TARQEEM_HOME") {
-        search_paths.push(PathBuf::from(&tarqeem_home).join("stdlib_trq"));
+        search_paths.push(PathBuf::from(&tarqeem_home).join("stdlib"));
     }
 
     // 2. Relative to executable
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            search_paths.push(parent.join("stdlib_trq"));
+            search_paths.push(parent.join("stdlib"));
             if let Some(grandparent) = parent.parent() {
-                search_paths.push(grandparent.join("stdlib_trq"));
+                search_paths.push(grandparent.join("stdlib"));
             }
         }
     }
 
     // 3. Relative to current directory
-    search_paths.push(PathBuf::from("stdlib_trq"));
+    search_paths.push(PathBuf::from("stdlib"));
 
     // 4. User-local path
     if let Some(home) = dirs::home_dir() {
-        search_paths.push(home.join(".tarqeem/stdlib_trq"));
+        search_paths.push(home.join(".tarqeem/stdlib"));
     }
 
     // 5. System paths (Unix)
     #[cfg(unix)]
     {
-        search_paths.push(PathBuf::from("/usr/local/lib/tarqeem/stdlib_trq"));
-        search_paths.push(PathBuf::from("/usr/lib/tarqeem/stdlib_trq"));
+        search_paths.push(PathBuf::from("/usr/local/lib/tarqeem/stdlib"));
+        search_paths.push(PathBuf::from("/usr/lib/tarqeem/stdlib"));
     }
 
     // 5. System paths (Windows)
     #[cfg(windows)]
     {
         if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-            search_paths.push(PathBuf::from(&local_app_data).join("Tarqeem/stdlib_trq"));
+            search_paths.push(PathBuf::from(&local_app_data).join("Tarqeem/stdlib"));
         }
-        search_paths.push(PathBuf::from("C:/Program Files/Tarqeem/stdlib_trq"));
+        search_paths.push(PathBuf::from("C:/Program Files/Tarqeem/stdlib"));
     }
 
     search_paths

@@ -118,7 +118,7 @@ impl Parser {
             TokenKind::TypeBool => Ok(Expr::new(ExprKind::Identifier("منطقي".to_string()), span)),
             // مصفوفة/قاموس/أي complete the set: عدد and friends were already here
             // because they double as builtin conversion functions, but a
-            // parameter named مصفوفة (stdlib_trq/اختبار/توكيدات.ترقيم:391) was
+            // parameter named مصفوفة (stdlib/اختبار/توكيدات.ترقيم:391) was
             // declarable and then unreadable in its own body.
             TokenKind::TypeArray | TokenKind::TypeMap | TokenKind::TypeAny => {
                 Ok(Expr::new(ExprKind::Identifier(token.lexeme.clone()), span))

@@ -2115,7 +2115,7 @@ fn test_error_recovery_get_errors_returns_all() {
 
 #[test]
 fn test_parse_method_named_get_and_set() {
-    // Mirrors stdlib_trq/مجموعات/قائمة.ترقيم methods
+    // Mirrors stdlib/مجموعات/قائمة.ترقيم methods
     let source = r#"
         صنف قائمة {
             عام دالة احصل(فهرس: عدد) -> عدد {
@@ -2148,7 +2148,7 @@ fn test_parse_method_named_get_and_set() {
 
 #[test]
 fn test_parse_field_named_case() {
-    // Mirrors stdlib_trq/اختبار/نتائج.ترقيم field
+    // Mirrors stdlib/اختبار/نتائج.ترقيم field
     let source = r#"
         صنف نتيجة {
             عام حالة: عدد;
@@ -2280,7 +2280,7 @@ fn test_synchronize_to_arm_skips_midline_case_identifier() {
 
 #[test]
 fn test_parse_top_level_function_named_get() {
-    // Mirrors stdlib_trq/شبكة/http.ترقيم: صدّر دالة احصل
+    // Mirrors stdlib/شبكة/http.ترقيم: صدّر دالة احصل
     let source = r#"
         دالة احصل(رابط: نص) -> نص {
             أرجع رابط;
@@ -3468,7 +3468,7 @@ fn test_line_comment_after_doc_block_before_declaration_parses() {
     assert_eq!(stmt.leading_comments, vec![" ملاحظة".to_string()]);
 }
 
-/// The exact shape of `stdlib_trq/رياضيات/اساسي.ترقيم:1-19`, which is how 20 of
+/// The exact shape of `stdlib/رياضيات/اساسي.ترقيم:1-19`, which is how 20 of
 /// the 33 unparseable stdlib files opened: file doc, `//` banner, real doc, code.
 #[test]
 fn test_banner_between_module_doc_and_declaration_parses() {
@@ -3510,7 +3510,7 @@ fn test_banner_between_module_doc_and_declaration_parses() {
     }
 }
 
-/// The `stdlib_trq/نص.ترقيم` shape: two doc blocks split by a blank line, which
+/// The `stdlib/نص.ترقيم` shape: two doc blocks split by a blank line, which
 /// the lexer refuses to merge, so the second one used to hit ب٠٠٠١.
 #[test]
 fn test_two_doc_blocks_before_declaration_hoist_first_to_module_doc() {
@@ -3613,7 +3613,7 @@ fn test_interleaved_comment_runs_keep_source_order() {
 
 /// `استورد` has no `doc_comment` field, so a doc above the file's first import
 /// used to be demoted and re-emitted as `//` — `fmt -w` silently downgraded the
-/// module header of `stdlib_trq/ملفات/مجلد.ترقيم` and `مجموعات/فهرس.ترقيم` that
+/// module header of `stdlib/ملفات/مجلد.ترقيم` and `مجموعات/فهرس.ترقيم` that
 /// way. It is now recognised as the file's doc and keeps its marker.
 #[test]
 fn test_doc_block_before_leading_import_becomes_module_doc() {
@@ -3631,7 +3631,7 @@ fn test_doc_block_before_leading_import_becomes_module_doc() {
 }
 
 /// The same shape for a re-export, which used to drop the doc outright rather
-/// than demote it (`stdlib_trq/اختبار.ترقيم` lost all five of its `///` lines to
+/// than demote it (`stdlib/اختبار.ترقيم` lost all five of its `///` lines to
 /// `fmt -w`).
 #[test]
 fn test_doc_block_before_leading_reexport_becomes_module_doc() {
@@ -3767,7 +3767,7 @@ fn test_doc_comment_before_property_accessor_still_errors_loudly() {
 
 /// `عدد` is `TokenKind::TypeInt`, so a method named after a type was rejected
 /// even though nothing else can appear after `دالة`. Mirrors
-/// `stdlib_trq/اختبار/مشغل.ترقيم:61` and `stdlib_trq/رياضيات/عشوائي.ترقيم:18`.
+/// `stdlib/اختبار/مشغل.ترقيم:61` and `stdlib/رياضيات/عشوائي.ترقيم:18`.
 #[test]
 fn test_parse_method_named_with_type_keyword() {
     let source = r#"
@@ -3869,7 +3869,7 @@ fn test_type_keyword_name_keeps_its_spelling() {
 }
 
 /// `خطأ` lexes as the boolean-false literal, so the variant in
-/// `stdlib_trq/اختبار/نتائج.ترقيم:27` could not be declared.
+/// `stdlib/اختبار/نتائج.ترقيم:27` could not be declared.
 #[test]
 fn test_parse_enum_variant_named_false_keyword() {
     let source = r#"

@@ -486,7 +486,7 @@ fn accessor_field_indices(body: &str) -> Vec<(String, u32)> {
     let ast = Parser::new(&source).parse().expect("تعذّر تحليل البرنامج");
 
     let mut analyzer = Analyzer::new();
-    let stdlib_path = project_root().join("stdlib_trq");
+    let stdlib_path = project_root().join("stdlib");
     if stdlib_path.exists() {
         analyzer.add_search_path(stdlib_path);
     }

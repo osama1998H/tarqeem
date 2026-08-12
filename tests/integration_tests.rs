@@ -29,7 +29,7 @@ fn interpret_source(source: &str) -> Result<String, String> {
     let ast = parser.parse().map_err(|e| e.message)?;
 
     let mut analyzer = Analyzer::new();
-    let stdlib_path = project_root().join("stdlib_trq");
+    let stdlib_path = project_root().join("stdlib");
     if stdlib_path.exists() {
         analyzer.add_search_path(stdlib_path);
     }
@@ -76,7 +76,7 @@ fn analyzes_ok(source: &str) -> bool {
     };
 
     let mut analyzer = Analyzer::new();
-    let stdlib_path = project_root().join("stdlib_trq");
+    let stdlib_path = project_root().join("stdlib");
     if stdlib_path.exists() {
         analyzer.add_search_path(stdlib_path);
     }
@@ -545,7 +545,7 @@ mod contextual_keywords_183 {
 
         for file in ["مجموعات/قائمة.ترقيم", "مجموعات/قاموس.ترقيم"]
         {
-            let path = project_root().join("stdlib_trq").join(file);
+            let path = project_root().join("stdlib").join(file);
             let source = fs::read_to_string(&path)
                 .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e));
             let mut parser = Parser::new(&source);
@@ -580,7 +580,7 @@ mod contextual_keywords_183 {
         let ast = parser.parse().expect("import program should parse");
 
         let mut analyzer = Analyzer::new();
-        analyzer.add_search_path(project_root().join("stdlib_trq"));
+        analyzer.add_search_path(project_root().join("stdlib"));
 
         let diagnostics = match analyzer.analyze(&ast) {
             Ok(()) => Vec::new(),
@@ -633,7 +633,7 @@ mod contextual_keywords_183 {
     }
 }
 
-/// Regression gate for issue #228: 33 of the 43 files in `stdlib_trq/` did not
+/// Regression gate for issue #228: 33 of the 43 files in `stdlib/` did not
 /// parse, and nothing noticed. The only stdlib parse coverage was two hard-coded
 /// collection files, and the fmt corpus guard skips whatever fails to parse — so
 /// the standard library could ship syntax its own compiler rejects.
@@ -672,7 +672,7 @@ mod stdlib_parses_228 {
     #[test]
     fn test_math_module_analyzes_cleanly() {
         let path = project_root()
-            .join("stdlib_trq")
+            .join("stdlib")
             .join("رياضيات")
             .join("اساسي.ترقيم");
         let source = fs::read_to_string(&path)
@@ -684,7 +684,7 @@ mod stdlib_parses_228 {
             .unwrap_or_else(|d| panic!("رياضيات/اساسي.ترقيم must parse: {}", d.message));
 
         let mut analyzer = tarqeem::semantic::Analyzer::new();
-        analyzer.add_search_path(project_root().join("stdlib_trq"));
+        analyzer.add_search_path(project_root().join("stdlib"));
 
         let errors: Vec<String> = match analyzer.analyze(&ast) {
             Ok(()) => Vec::new(),
@@ -703,7 +703,7 @@ mod stdlib_parses_228 {
     fn test_every_stdlib_file_parses() {
         use tarqeem::parser::Parser;
 
-        let root = project_root().join("stdlib_trq");
+        let root = project_root().join("stdlib");
         let mut files = Vec::new();
         collect(&root, &mut files);
         files.sort();

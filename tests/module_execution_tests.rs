@@ -162,8 +162,8 @@ enum Stdlib {
     /// Local-file fixtures: no ambient `TARQEEM_HOME` at all.
     NotNeeded,
     /// Pins `TARQEEM_HOME` at this checkout. Without it the CLI falls back to
-    /// `stdlib_trq` relative to the CWD (wrong for the temp-dir variant) and
-    /// then to `~/.tarqeem/stdlib_trq` — a stale copy on developer machines,
+    /// `stdlib` relative to the CWD (wrong for the temp-dir variant) and
+    /// then to `~/.tarqeem/stdlib` — a stale copy on developer machines,
     /// and absent in CI.
     PinnedToRepo,
 }
@@ -231,7 +231,7 @@ fn tarqeem(args: &[&str], cwd: &Path, stdlib: Stdlib) -> Output {
     command.args(args).current_dir(cwd);
 
     match stdlib {
-        // A stale `TARQEEM_HOME` silently shadows this checkout's `stdlib_trq`.
+        // A stale `TARQEEM_HOME` silently shadows this checkout's `stdlib`.
         Stdlib::NotNeeded => command.env_remove("TARQEEM_HOME"),
         Stdlib::PinnedToRepo => command.env("TARQEEM_HOME", project_root()),
     };

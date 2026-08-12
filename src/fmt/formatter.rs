@@ -1624,7 +1624,7 @@ mod tests {
         // into that member's body (or past it).
         let source = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/stdlib_trq/مجموعات/مكدس.ترقيم"
+            "/stdlib/مجموعات/مكدس.ترقيم"
         ));
         let result = format_raw(source);
 
@@ -1972,7 +1972,7 @@ mod tests {
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut files = Vec::new();
-        collect(&root.join("stdlib_trq"), &mut files);
+        collect(&root.join("stdlib"), &mut files);
         collect(&root.join("examples"), &mut files);
         files.sort();
 
@@ -2017,7 +2017,7 @@ mod tests {
             failures.join("\n")
         );
 
-        // Re-measured after #228 took stdlib_trq/ from 10 parseable files to 42.
+        // Re-measured after #228 took stdlib/ from 10 parseable files to 42.
         // A parser regression that made files unparseable would otherwise
         // silently skip them and leave this test vacuously green.
         assert!(
@@ -2078,7 +2078,7 @@ mod tests {
 
     /// f64::MAX printed via Display is 309 digits with no decimal point in the
     /// mantissa, so the formatted file came back as an out-of-range *integer*
-    /// literal. stdlib_trq/رياضيات/ثوابت.ترقيم defines exactly that constant.
+    /// literal. stdlib/رياضيات/ثوابت.ترقيم defines exactly that constant.
     #[test]
     fn test_format_extreme_float_round_trips() {
         let once = format("ثابت اقصى: عدد_عشري = 1.7976931348623157e308");

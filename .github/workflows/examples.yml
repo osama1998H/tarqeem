@@ -130,7 +130,7 @@ jobs:
       # only shrink.
       - name: Parse every stdlib file
         run: |
-          ALLOWED="stdlib_trq/أخطاء/فهرس.ترقيم"   # #243
+          ALLOWED="stdlib/أخطاء/فهرس.ترقيم"   # #243
           PASS=0
           FAIL=0
 
@@ -148,7 +148,7 @@ jobs:
               ./bin/tarqeem parse "$file" 2>&1 | head -12
               FAIL=$((FAIL + 1))
             fi
-          done < <(find stdlib_trq -name '*.ترقيم' | sort)
+          done < <(find stdlib -name '*.ترقيم' | sort)
 
           echo "**Parsed:** $PASS | **Failed:** $FAIL"
 
@@ -427,7 +427,7 @@ jobs:
           # it: no target/ directory, no CARGO_MANIFEST_DIR, no ~/.tarqeem.
           export TARQEEM_RUNTIME_PATH="$PWD/runtime/libtrq.a"
           # TARQEEM_HOME is deliberately left unset (not set to ""), so the
-          # stdlib search falls through to this checkout's own stdlib_trq.
+          # stdlib search falls through to this checkout's own stdlib.
           unset TARQEEM_HOME
           mkdir -p ./compare
           status=0

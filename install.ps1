@@ -53,7 +53,7 @@ Write-Host ""
 # Create installation directory structure
 New-Item -ItemType Directory -Force -Path "$InstallDir\bin" | Out-Null
 New-Item -ItemType Directory -Force -Path "$InstallDir\lib" | Out-Null
-New-Item -ItemType Directory -Force -Path "$InstallDir\stdlib_trq" | Out-Null
+New-Item -ItemType Directory -Force -Path "$InstallDir\stdlib" | Out-Null
 
 # Copy binary
 Write-Host "  ✓ Installing tarqeem.exe" -ForegroundColor Green
@@ -65,7 +65,7 @@ Copy-Item "$ScriptDir\target\release\libtrq.a" "$InstallDir\lib\" -Force
 
 # Copy standard library
 Write-Host "  ✓ Installing standard library" -ForegroundColor Green
-Copy-Item "$ScriptDir\stdlib_trq\*" "$InstallDir\stdlib_trq\" -Recurse -Force
+Copy-Item "$ScriptDir\stdlib\*" "$InstallDir\stdlib\" -Recurse -Force
 
 # Get version from Cargo.toml
 $CargoContent = Get-Content "$ScriptDir\Cargo.toml" -Raw

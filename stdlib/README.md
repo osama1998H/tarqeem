@@ -1,4 +1,4 @@
-# Standard Library (stdlib_trq)
+# Standard Library (stdlib)
 
 <div dir="rtl" align="right">
 
@@ -106,7 +106,7 @@ Each package's `فهرس.ترقيم` is a barrel: it re-exports its submodules w
 `صدّر * من "./اساسي"`, so importing the package name reaches every symbol.
 
 ```
-stdlib_trq/
+stdlib/
 ├── مجموعات/                   # Collections
 │   ├── فهرس.ترقيم            # Module re-exports
 │   ├── قائمة.ترقيم            # List<T>

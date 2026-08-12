@@ -118,7 +118,7 @@ pub(crate) fn declaration_name(token: &Token) -> Option<&str> {
 }
 
 /// A name in enum-variant position, which additionally allows the boolean
-/// literals: `خطأ` is `TokenKind::False`, and `stdlib_trq/اختبار/نتائج.ترقيم`
+/// literals: `خطأ` is `TokenKind::False`, and `stdlib/اختبار/نتائج.ترقيم`
 /// declares a variant with exactly that name (issue #196).
 ///
 /// Unambiguous because a variant is only ever *referenced* through `::`. A bare
@@ -405,7 +405,7 @@ impl Parser {
     /// 3. **What follows owns no `doc_comment` field** — `استورد`, a bare
     ///    `صدّر *`/`صدّر { … }`, or anything routed through `parse_statement`.
     ///    There the doc would be demoted into `leading_comments` and re-emitted
-    ///    as `//`. `stdlib_trq/اختبار/توكيدات.ترقيم` is exactly this: header,
+    ///    as `//`. `stdlib/اختبار/توكيدات.ترقيم` is exactly this: header,
     ///    `//` note, `استورد` — its seven `///` lines depend on this clause.
     ///
     /// Otherwise the declaration below owns the doc and keeps it, which is what

@@ -116,7 +116,7 @@ src/
 └── utils/               # String interning, extensions
 
 runtime-rs/              # Rust runtime library (memory, string, array, I/O, crypto, network)
-stdlib_trq/              # Standard library (Tarqeem source)
+stdlib/              # Standard library (Tarqeem source)
 tests/                   # Integration tests
 benches/                 # Criterion benchmarks
 examples/                # 17 example programs
@@ -411,7 +411,7 @@ This project uses **Gitflow** as the branching strategy. Claude must follow thes
 1. Implement in Rust in `runtime-rs/src/` (for native functions)
 2. Export with `#[no_mangle] extern "C"` for C ABI compatibility
 3. Re-export from `runtime-rs/src/lib.rs`
-4. Create Tarqeem wrapper in `stdlib_trq/`
+4. Create Tarqeem wrapper in `stdlib/`
 5. Register in `src/semantic/scope.rs` for type checking
 6. Add codegen mapping if needed
 7. Add documentation

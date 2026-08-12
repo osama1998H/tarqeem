@@ -3,7 +3,7 @@
 //! Today that is the base exception class `استثناء` (LANGUAGE_SPEC §11.1).
 //! `ارمِ` accepts only `استثناء` or a subclass — `Analyzer::is_error_type` —
 //! so until this existed *nothing* was throwable and the whole of §11 was dead
-//! code (issue #181). It could not simply be added to `stdlib_trq/أخطاء`: that
+//! code (issue #181). It could not simply be added to `stdlib/أخطاء`: that
 //! file declares the hierarchy under the name `خطأ`, which is the boolean-false
 //! keyword and cannot be parsed as a class name.
 //!
@@ -16,7 +16,7 @@
 //! `link_program` merges the declaration into the program AST — so the
 //! interpreter, the JIT and native codegen all get it from one insertion.
 //!
-//! The source is embedded rather than read from `stdlib_trq/`: the LSP and DAP
+//! The source is embedded rather than read from `stdlib/`: the LSP and DAP
 //! have no stdlib search path (issue #230), and a prelude that can go missing
 //! at run time would take `ارمِ` down with it.
 

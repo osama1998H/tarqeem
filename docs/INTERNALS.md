@@ -622,7 +622,7 @@ Large modules are split into submodules:
 2. Declare in `src/codegen/llvm/runtime.rs`
 3. Register type in `src/semantic/scope.rs`
 4. Add interpreter implementation in `src/interpreter/builtins.rs`
-5. Create Tarqeem wrapper in `stdlib_trq/`
+5. Create Tarqeem wrapper in `stdlib/`
 6. Add documentation and tests
 
 ### Adding an Optimization Pass

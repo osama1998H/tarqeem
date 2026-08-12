@@ -337,7 +337,7 @@ Guarding against reintroduction cost two more things worth keeping:
 `Type::Class("استثناء")` — both correct, both **inert**, because no `استثناء`
 class was ever registered and there was no mechanism anywhere to predeclare one.
 The stdlib declared the hierarchy under the name `خطأ`
-(`stdlib_trq/أخطاء/فهرس.ترقيم:21`), which is `TokenKind::False` and cannot parse
+(`stdlib/أخطاء/فهرس.ترقيم:21`), which is `TokenKind::False` and cannot parse
 as a class name — so there was no reachable way to make anything throwable.
 
 Four independent root causes, one per layer:
@@ -357,7 +357,7 @@ interpreter, the JIT and native codegen. Both of those consumers iterate
 `loader.modules_in_load_order()`, the raw cache, not the import graph, which is
 why a module nothing imports is still picked up.
 
-Embedded rather than read from `stdlib_trq/`: the LSP and DAP have no stdlib
+Embedded rather than read from `stdlib/`: the LSP and DAP have no stdlib
 search path (#230), and a prelude that can go missing at run time takes `ارمِ`
 with it.
 
@@ -1205,7 +1205,7 @@ measuring rather than guessing.
 One agent proposed extending `leading_comments`/`trailing_comments: Vec<String>`
 across ~8 AST types (`Block`, `ClassDecl`, `InterfaceDecl`, `EnumDecl`, `Match`,
 `ClassMember`, `MethodSignature`, `EnumVariant`, `PropertyAccessor`, `Ast`).
-A scan of all 65 real `.ترقيم` files in `stdlib_trq/`+`examples/` found the
+A scan of all 65 real `.ترقيم` files in `stdlib/`+`examples/` found the
 speculative patterns (comment before a class/interface/enum/match/accessor
 body's closing `}`, or before `الحمد_لله`) occur **0 times** — but surfaced a
 **worse, previously unreported** bug with hard evidence: 92 real lines across 7
@@ -1302,7 +1302,7 @@ documentation of the invariant, not as a load-bearing fix.
 Used `git stash` to rebuild the pre-fix binary and ran the same stdlib parse
 sweep before trusting a subagent-reported "34 files fail" baseline — it was
 correct, and the post-fix count (33, one file newly parseable:
-`stdlib_trq/ملفات/مجلد.ترقيم`) was confirmed a strict subset via `comm`, zero
+`stdlib/ملفات/مجلد.ترقيم`) was confirmed a strict subset via `comm`, zero
 regressions. Also ran a `tarqeem fmt` diff sweep (pre- vs post-fix output,
 byte-identical across all 31 previously-parseable files) and an idempotence
 check (`fmt(fmt(x)) == fmt(x)`) — 11 files failed idempotence, but `git stash`
@@ -1371,7 +1371,7 @@ still failing have independent causes:
 - Importing قائمة still can't `جديد قائمة()` (د٠٠٠٣): imported classes are
   registered as scope Symbols only, never into `class_resolver` — that is
   issue #182's import machinery, not the keyword collision.
-- `TARQEEM_HOME` (set on this machine) shadows the repo `stdlib_trq` in
+- `TARQEEM_HOME` (set on this machine) shadows the repo `stdlib` in
   `find_stdlib_path`; unset it when verifying stdlib changes with the CLI.
 
 ## 2026-08-07 — Issue #186 part 2: hoist top-level functions and enums
