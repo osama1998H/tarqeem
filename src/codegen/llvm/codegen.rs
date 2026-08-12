@@ -580,7 +580,7 @@ impl LlvmCodegen {
 
         emit!(self, "declare ptr @trq_int_to_string(i64)");
         emit!(self, "declare ptr @trq_float_to_string(double)");
-        emit!(self, "declare ptr @trq_bool_to_string(i1)");
+        emit!(self, "declare ptr @trq_bool_to_string(i1 zeroext)");
         emit!(self, "declare i64 @trq_string_to_int(ptr)");
         emit!(self, "declare double @trq_string_to_float(ptr)");
 
@@ -594,7 +594,7 @@ impl LlvmCodegen {
         emit!(self, "declare void @trq_print(ptr)");
         emit!(self, "declare void @trq_print_int(i64)");
         emit!(self, "declare void @trq_print_float(double)");
-        emit!(self, "declare void @trq_print_bool(i1)");
+        emit!(self, "declare void @trq_print_bool(i1 zeroext)");
         emit!(self, "declare void @trq_print_array(ptr)");
         emit!(self, "declare void @trq_print_newline()");
         emit!(self, "declare void @trq_print_error(ptr)");
@@ -960,9 +960,12 @@ impl LlvmCodegen {
                         .unwrap();
                     }
                     Some(IrType::Bool) => {
+                        // Same `zeroext` requirement as @trq_print_bool: the
+                        // Rust side is `extern "C" fn(bool)`, which admits only
+                        // 0 or 1.
                         writeln!(
                             self.output,
-                            "  {} = call ptr @trq_bool_to_string(i1 {})",
+                            "  {} = call ptr @trq_bool_to_string(i1 zeroext {})",
                             dest_name, src_name
                         )
                         .unwrap();
@@ -1658,7 +1661,12 @@ impl LlvmCodegen {
                         emit!(self, "  call void @trq_print_float(double {})", val_name);
                     }
                     Some(IrType::Bool) => {
-                        emit!(self, "  call void @trq_print_bool(i1 {})", val_name);
+                        // `zeroext` is load-bearing, not decoration: an `i1` whose
+                        // upper byte bits are don't-care (any NOT, lowered to
+                        // `xorb $-1`) otherwise reaches Rust's `bool` as 254 or
+                        // 255 — an invalid bit pattern whose branch arithmetic
+                        // walks off into .rodata (#266 follow-up).
+                        emit!(self, "  call void @trq_print_bool(i1 zeroext {})", val_name);
                     }
                     Some(IrType::Array(_, _)) => {
                         emit!(self, "  call void @trq_print_array(ptr {})", val_name);

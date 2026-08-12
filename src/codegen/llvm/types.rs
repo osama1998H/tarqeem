@@ -46,11 +46,21 @@ impl TypeMapper {
         }
     }
 
+    /// Parameter position spelling of a type, for both `define` signatures and
+    /// call argument lists — the same mapper feeds both, so they cannot disagree.
+    ///
+    /// `Bool` carries `zeroext` because an `i1`'s upper byte bits are don't-care
+    /// to LLVM: `ليس س` lowers to `xorb $-1, %al` on x86-64, so `false` arrives
+    /// as 254. Our own callees only read bit 0 and survive that, but Rust's
+    /// `extern "C" fn(bool)` admits 0 and 1 only, and its branch arithmetic on an
+    /// invalid pattern walks into `.rodata` — `اطبع(ليس س)` printed DWARF strings.
+    /// `zeroext` makes LLVM emit the `andl $1` normalization at every call.
     pub fn map_param_type(&self, ty: &IrType) -> String {
         match ty {
             IrType::String => "ptr".to_string(),
             IrType::Struct(_) => "ptr".to_string(),
             IrType::Array(_, _) => "ptr".to_string(),
+            IrType::Bool => "i1 zeroext".to_string(),
             _ => self.map_type(ty),
         }
     }

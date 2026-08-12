@@ -2359,3 +2359,74 @@ fn test_wasm_array_operations() {
 
     assert!(result.contains("call ptr @trq_array_new"));
 }
+
+// ─── Bool at the Rust FFI boundary must be zero-extended (#266 follow-up) ───
+
+/// An `i1`'s upper byte bits are don't-care to LLVM, so `ليس س` lowers to
+/// `xorb $-1, %al` on x86-64 and `false` reaches the runtime as 254. Rust's
+/// `extern "C" fn(bool)` admits 0 and 1 only, and its branch arithmetic on an
+/// invalid pattern walked into `.rodata`: `اطبع(ليس س)` printed DWARF strings
+/// instead of `خطأ`, natively, on x86-64 only — aarch64 happened to produce 0/1.
+///
+/// `zeroext` is what makes LLVM emit the `andl $1` normalization, and it has to
+/// be on the **call site**: that is where the ABI is taken from, so a declaration
+/// carrying it alone would not fix the call.
+#[test]
+fn test_print_bool_passes_zeroext() {
+    let mut codegen = create_codegen();
+    let mut module = create_test_module("test");
+
+    let mut func = create_test_function("main", vec![], IrType::Void);
+    func.blocks[0].instructions.push(Instruction::Const {
+        dest: VarId(0),
+        value: Constant::Bool(false),
+        ty: IrType::Bool,
+    });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Print { value: VarId(0) });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
+    module.functions.push(func);
+
+    let result = codegen.generate(&module).unwrap();
+
+    assert!(
+        result.contains("declare void @trq_print_bool(i1 zeroext)"),
+        "the runtime declaration must carry zeroext"
+    );
+    assert!(
+        result.contains("call void @trq_print_bool(i1 zeroext"),
+        "the call site must carry zeroext — LLVM takes the ABI from the call, not the declaration"
+    );
+}
+
+/// `منطقي_لنص` reaches the runtime through the generic call path, which types its
+/// arguments with `map_param_type` rather than the hand-written string above. The
+/// same mapper spells `define` parameters, which is what keeps a signature and its
+/// call sites from disagreeing — so a bool parameter must read `i1 zeroext` too.
+#[test]
+fn test_bool_parameter_signature_is_zeroext() {
+    let mut codegen = create_codegen();
+    let mut module = create_test_module("test");
+
+    let func = create_test_function(
+        "خذ_منطقي",
+        vec![Parameter {
+            id: VarId(0),
+            name: "ق".to_string(),
+            ty: IrType::Bool,
+        }],
+        IrType::Void,
+    );
+    module.functions.push(func);
+
+    let result = codegen.generate(&module).unwrap();
+
+    assert!(
+        result.contains("i1 zeroext %arg.0"),
+        "a bool parameter must be zero-extended, or a computed i1 argument \
+         arrives with garbage in its upper bits"
+    );
+}

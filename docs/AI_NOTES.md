@@ -2,6 +2,157 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-12 — A bool crossing into Rust was never zero-extended
+
+### Found by adding four lines to an example
+
+The #266 branch added `اطبع(ليس نشط)` and friends to `examples/أساسيات.ترقيم` —
+no example had ever used `ليس`/`!` as an *operator*. `compare-backends` went red
+immediately: native printed `صحيح`, then dumped `DW_OP_gt`, `ELR_mode`,
+`deadlock`, `capacity`, `01234567` — DWARF strings and `.rodata` out of the
+binary's own image — where `خطأ` belonged. 703 bytes became 2227.
+
+Only on x86-64. A full macOS aarch64 run of both backends was byte-identical, so
+the local check that "proved" the example was fine proved nothing. Two lessons
+worth more than the fix: **a slice is not a diff** (the first check compared a
+`sed`-filtered range, not the whole stream), and **byte-identical on one
+architecture says nothing about another**.
+
+### The mechanism
+
+An `i1`'s upper byte bits are don't-care to LLVM, so `xor i1 %v, true` legalizes
+to a byte-wide flip:
+
+    movb   (%rax), %al      ; 0 or 1
+    xorb   $-1, %al         ; 0xFF or 0xFE
+    movzbl %al, %edi        ; 255 or 254
+    callq  trq_print_bool@PLT
+
+Rust's `extern "C" fn(value: bool)` is `zeroext noundef range(i8 0, 2)`. 254 is
+not a `bool`, and the callee's branch arithmetic indexes outside either string
+literal — hence a pointer into `.rodata` and a length to match. `true` survived
+as 255 because it is merely nonzero, which is why the *first* negation printed
+correctly and the second dumped memory: an accident, not a partial success.
+
+This is also why printing a bool **variable** always worked: `load i1` compiles to
+`movzbl` of a real 0/1 byte. Only a *computed* bool was affected, and `setne`
+(from `!=`) happens to produce a clean 0/1 too — so of the four new lines, only
+the two `ليس`/`!` ones broke. `zeroext` was absent from the entire codegen: the
+grep count was zero.
+
+### Where the fix belongs
+
+On `map_param_type` (`src/codegen/llvm/types.rs`), not on the two call sites that
+showed the symptom. That one mapper spells both `define` parameter lists and
+generic call arguments, so fixing it there is what keeps a signature and its call
+sites from disagreeing — and it covers `منطقي_لنص`, which reaches
+`@trq_bool_to_string` through the generic path rather than the hand-written
+string. The two hardcoded runtime calls were fixed as well since they bypass the
+mapper. Attributes are legal in every one of the five parameter positions the
+mapper feeds; none reconstructs a bare function *type*, where `zeroext` would be
+invalid IR.
+
+Returned `i1` needs nothing: Rust guarantees 0/1 outbound, and our own callees
+read only bit 0.
+
+### The guard cannot be an execution test
+
+Nothing local executes x86-64, so the regression test asserts the attribute in
+the emitted IR — on the **call site**, because that is where LLVM takes the ABI
+from; a declaration carrying it alone would not fix the call. Verified red on the
+pre-fix codegen and green after, via `git stash` of the two source files.
+
+### CI was telling us as little as it could
+
+`diff -u` collapses to "Binary files differ" the moment either stream contains a
+NUL, so the only evidence in the log was that *something* differed somewhere. The
+step now prints `cmp -l` and `od -c` for both streams and keeps `compare/` as an
+artifact on failure — which is how the DWARF strings were identified, and how the
+first byte offset (379) pointed straight at the second negation.
+
+## 2026-08-12 — Issue #266: the Pratt loop's non-advancing fallback, fixed
+
+### The fix is one deleted line; the reasoning is which line
+
+`Precedence::of` scored `TokenKind::Bang` as `Precedence::Unary`, an **infix**
+binding power for a token that has no `parse_infix` arm. Two directions were open —
+score it `None`, or give it an arm — and scoring it `None` is the one that removes
+the anomaly instead of documenting it: `Bang` was the *only* one of the 27
+precedence-bearing token kinds without an advancing arm, so the table now holds a
+real invariant ("everything scored here is consumed by `parse_infix`") rather than
+one exception plus a comment.
+
+Nothing derives prefix binding from `of()`. `parse_prefix`'s `Bang` arm passes the
+`Precedence::Unary` **literal** (`expr_parser.rs:207`), which is why `ليس صحيح`,
+`!خطأ`, `٥ != ٣` and `ليس أ و ب` are untouched — verified byte-identical between
+`run` and `compile`.
+
+`parse_infix`'s catch-all changed from `_ => Ok(left)` to an `ERR_UNEXPECTED_TOKEN`
+error as well. That arm is unreachable once the table is consistent, and that is
+the point: it was reachable *silently*, and the next token to gain a precedence
+without an arm would have hung exactly the same way. An error there costs nothing
+and converts the whole class from hang to diagnostic. No new error code was needed,
+so the `docs/رموز_الأخطاء/` SOP did not apply.
+
+### The blast radius was three times what the issue recorded
+
+The issue named `parse`, `check`, `run` and the LSP. Measured with a `SIGALRM`
+watchdog, **eight of the nine CLI commands hung** — add `fmt`, `doc`, `compile`,
+`repl` and `debug`. Only `lex` survived, because it never constructs a `Parser`.
+There is exactly one Pratt loop in the repo, so every mode failed through one call
+site. Post-fix all eight exit 1 in ~0s with `ب٠١٠١ متوقع '؛'` — the same
+diagnostic `س في`, `س كـ`, `س ->` and `س من` already produced, which is the
+consistency the `None` score buys. Inside a call it is `ب٠٠٠٢ متوقع ')'`.
+
+Also corrected, since the issue's file map implies otherwise: `src/cli/commands/`
+has no `parse.rs`/`check.rs`/`run.rs`/`fmt.rs` — those are functions in `mod.rs`.
+And `ليس` is not a separate keyword token: `keywords.rs:76` maps it to
+`TokenKind::Bang`, so `ليس` and `!` were never two defects.
+
+### The LSP failure mode is a wedge, not a slow request
+
+Worth recording because it outlives this fix. tower-lsp 0.20 `join!`s its
+read/process/write halves onto one task, so a handler future that never returns
+from poll stops the server reading stdin **at all** — no hover, no diagnostics for
+any file, not even `shutdown`. `src/lsp/analysis/document.rs:144` parses
+synchronously with no debounce, cancellation, timeout or `catch_unwind`, and 12 of
+the 13 handlers reach it (`textDocument/formatting` is line-based and immune). This
+change removes the only known trigger, not the fragility; filed separately.
+
+### Testing a hang without hanging the suite
+
+The repo had no timeout pattern at all — no `mpsc`, `recv_timeout` or
+`catch_unwind` anywhere, and the CLI harnesses' `Command::output()` blocks forever.
+So the guard is std-only, needing no new dependency: one worker thread **per
+input** plus `recv_timeout(10s)`. Per-input matters — a single thread running all
+seven cases times out without naming which one regressed, and naming it is the
+whole point. Verified red before the fix (failed in 10s naming `س ليس`) and green
+after (0.00s).
+
+The behavioural test asserts `س ليس` and `س في` produce the *same* code rather
+than hardcoding `ب٠١٠١`, so the two cannot drift apart.
+
+No `.ترقيم` fixture was committed. `examples/` and `stdlib/` are each walked by
+four unbounded guards, so a hanging fixture on disk turns all four into hangs —
+which is precisely how this bug was found (#265).
+
+### CI could not have told us
+
+No workflow sets `timeout-minutes`, and the two *corpus* steps were the only loops
+in `examples.yml` not wrapped in `timeout` — the run steps all were, because
+runtime hangs were anticipated and parse hangs were not. A single bad corpus file
+would have hung six jobs (`check-examples`, `check-stdlib`, `test-modules (fmt)`,
+`test-modules (parser)`, `integration-tests`, `test-full`) for six hours each, with
+`fail-fast: false` preventing early cancellation. Both steps now use `timeout 30s`;
+both jobs are `ubuntu-latest`, so GNU `timeout` is present — it is *not* on macOS,
+which is why the local repro needed a `perl` `alarm` wrapper.
+
+### Noticed, not fixed
+
+`tarqeem fmt` prints a raw `Diagnostic { … }` debug dump on a parse error instead
+of the rendered bilingual diagnostic every other command emits. Pre-existing and
+unrelated to this change.
+
 ## 2026-08-12 — examples/ consolidated 21 → 10, and the CI matrices stopped being hand-written
 
 ### The corpus was mostly duplication

@@ -4218,3 +4218,92 @@ fn test_doc_comment_above_reexport_is_demoted_not_dropped() {
         vec!["وثيقة إعادة التصدير".to_string()]
     );
 }
+
+// ─── Group 15: NOT in infix position must error, not spin (#266) ───
+
+/// `ليس` and `!` lex to the same token, and `Precedence::of` scored it `Unary` —
+/// an infix precedence with no `parse_infix` arm. The Pratt loop therefore did
+/// not break on it and called `parse_infix`, whose catch-all returned `left`
+/// without consuming: same token, same precedence, forever. Eight of the nine
+/// CLI commands hung on this, as did every LSP handler that parses.
+///
+/// Each input is bounded on its own worker thread so a regression *fails* this
+/// test naming the input, instead of hanging the suite the way it hung
+/// `cargo test` past 600s when it was found (#265).
+#[test]
+fn test_not_in_infix_position_terminates() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    const BUDGET: Duration = Duration::from_secs(10);
+
+    // The operand *before* the NOT is the trigger. A missing operand after it
+    // never was: `س ليس ص` supplies one and hung just the same.
+    let cases = [
+        "س ليس",
+        "س !",
+        "س ليس ص",
+        "اطبع(س ليس)",
+        "إذا (ص !",
+        "١ + س ليس",
+        "!س ليس",
+    ];
+
+    for case in cases {
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut parser = parser_with_markers(case);
+            let _ = sender.send(parser.parse().is_err());
+        });
+
+        match receiver.recv_timeout(BUDGET) {
+            Ok(is_err) => assert!(is_err, "«{case}» must be a parse error, not a parse"),
+            Err(_) => panic!("«{case}» did not terminate within {BUDGET:?} — the Pratt loop is spinning again (#266)"),
+        }
+    }
+}
+
+/// The point of scoring `Bang` `None` rather than giving it an infix arm: a NOT
+/// in infix position is now diagnosed exactly like every other prefix-only token
+/// there, instead of being a case of its own. Asserted as sameness rather than a
+/// literal code, so the two cannot drift apart.
+#[test]
+fn test_not_in_infix_position_reports_like_other_prefix_only_tokens() {
+    use crate::error::codes::ERR_EXPECTED_SEMICOLON;
+
+    let not_error = parser_with_markers("س ليس")
+        .parse()
+        .expect_err("«س ليس» must be a parse error");
+    let in_error = parser_with_markers("س في")
+        .parse()
+        .expect_err("«س في» must be a parse error");
+
+    assert_eq!(
+        not_error.code, in_error.code,
+        "a misplaced NOT must be diagnosed like any other prefix-only keyword"
+    );
+    assert_eq!(
+        not_error.code.as_deref(),
+        Some(ERR_EXPECTED_SEMICOLON.to_string().as_str())
+    );
+}
+
+/// Dropping `Bang` from `Precedence::of` must not disturb NOT where it belongs:
+/// prefix binding passes the `Precedence::Unary` literal rather than consulting
+/// `of()`, and `!=` is its own token.
+#[test]
+fn test_not_in_prefix_position_still_parses() {
+    let cases = [
+        "متغير أ = ليس صحيح",
+        "متغير ب = !صحيح",
+        "متغير ج = ٥ != ٣",
+        "متغير د = صحيح و ليس خطأ",
+    ];
+
+    for case in cases {
+        let mut parser = parser_with_markers(case);
+        let _ = parser
+            .parse()
+            .unwrap_or_else(|e| panic!("«{case}» must parse, got: {}", e.message));
+    }
+}
