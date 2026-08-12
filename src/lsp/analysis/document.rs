@@ -272,7 +272,13 @@ impl DocumentState {
 
     fn collect_symbols(&self, ast: &Ast, symbols: &mut HashMap<String, SymbolInfo>) {
         for stmt in &ast.statements {
-            match &stmt.kind {
+            // `صدّر صنف س` defines `س` exactly as `صنف س` does. While this
+            // matched the raw statement, every exported declaration was absent
+            // from the symbol table — so hover, go-to-definition and member
+            // lookup went silent on precisely the declarations a library
+            // publishes (issue #259). `definition_span` stays `stmt.span`, which
+            // spans the whole `صدّر …` declaration.
+            match &Self::unwrap_exported_decl(stmt).kind {
                 StmtKind::VarDecl {
                     name,
                     mutable,
@@ -625,6 +631,56 @@ mod tests {
 
         let analysis = doc.get_analysis(Language::Arabic);
         assert!(analysis.symbols.contains_key("جمع"));
+    }
+
+    /// `صدّر` must not hide a declaration from the symbol table (issue #259).
+    ///
+    /// `collect_symbols` matched the raw statement, so an exported class, its
+    /// members, and an exported enum's variants were all missing — no hover, no
+    /// go-to-definition, no member lookup on exactly the declarations a library
+    /// publishes. Every existing fixture here declares un-exported symbols, so
+    /// nothing noticed.
+    #[test]
+    fn test_exported_declarations_reach_the_symbol_table() {
+        let content = wrap_with_markers(
+            r#"
+صدّر صنف نقطة {
+    عام س: عدد
+    منشئ(س: عدد) {
+        هذا.س = س
+    }
+    عام دالة اقرأ() -> عدد {
+        أرجع هذا.س
+    }
+}
+
+صدّر تعداد لون {
+    أحمر،
+    أزرق
+}
+
+صدّر دالة جمع(أ: عدد، ب: عدد) -> عدد {
+    أرجع أ + ب
+}
+"#,
+        );
+        let mut doc = DocumentState::new(test_uri(), 1, content);
+
+        let analysis = doc.get_analysis(Language::Arabic);
+        let symbols = &analysis.symbols;
+
+        assert!(symbols.contains_key("نقطة"), "الصنف المصدَّر مفقود");
+        assert!(symbols.contains_key("نقطة.س"), "حقل الصنف المصدَّر مفقود");
+        assert!(
+            symbols.contains_key("نقطة.اقرأ"),
+            "دالة الصنف المصدَّر مفقودة"
+        );
+        assert!(symbols.contains_key("لون"), "التعداد المصدَّر مفقود");
+        assert!(
+            symbols.contains_key("لون::أحمر"),
+            "حالة التعداد المصدَّر مفقودة"
+        );
+        assert!(symbols.contains_key("جمع"), "الدالة المصدَّرة مفقودة");
     }
 
     #[test]

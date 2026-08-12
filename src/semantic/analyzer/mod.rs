@@ -474,8 +474,18 @@ impl Analyzer {
     }
 
     /// Add members to registered types in the second pass.
+    ///
+    /// Unwraps `صدّر` for the same reason `register_types` does: the two passes
+    /// must agree on what counts as a declaration. While this one matched the
+    /// raw statement, `صدّر صنف س` was registered as a class with an *empty*
+    /// member table — so `جديد س` reported "ليس له منشئ" and every field and
+    /// method access reported ص٠٣٠١, including inside the class's own methods.
+    /// An exported `ميثاق` lost its methods the same way, which left
+    /// `validate` nothing to require and silently suppressed ص٠٢٠١ (issue
+    /// #259). The module-side twin `add_module_type_members` already unwrapped,
+    /// which is why only classes declared in the main file were affected.
     fn add_type_members(&mut self, stmt: &Stmt) {
-        match &stmt.kind {
+        match &unwrap_exported_decl(stmt).kind {
             StmtKind::ClassDecl { name, members, .. } => {
                 self.class_resolver
                     .add_class_members(name, members, resolve_type_annotation);

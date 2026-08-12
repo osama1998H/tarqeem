@@ -2,6 +2,88 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-12 — Issue #259: `صدّر` hid a declaration's members from two passes
+
+### One of five analyzer passes did not unwrap `صدّر`
+
+`Analyzer::analyze` walks the top-level statements five times. Four unwrapped
+`صدّر` — `register_types`, `hoist_enum_decl`, `hoist_func_decl` and the third
+pass via `analyze_export` — and `add_type_members` did not. So an exported class
+was registered with an **empty member table**: `جديد` reported
+`الصنف 'س' ليس له منشئ`, every field and method reported ص٠٣٠١ (including from
+inside the class's own method bodies), and the emptiness propagated into
+subclasses' vtables, so an *un-exported* child of an exported parent failed too.
+
+The module-side twin `add_module_type_members` had unwrapped since #182, which is
+why the bug was invisible from the consumer side: importing an exported class
+worked, and only the file that *declared* it was broken. That asymmetry is worth
+remembering — a pass duplicated for "main" and "modules" can drift, and here the
+main copy was the stale one. `git log -L` shows `add_type_members` never
+unwrapped; `register_types` gained its unwrap during #181 and the sibling was
+missed.
+
+### The unsound symptom was the interface one
+
+Every other consequence was a spurious error on correct code. But
+`add_type_members` also feeds `add_interface_methods`, so `صدّر ميثاق` registered
+**zero methods** — leaving `ClassResolver::validate` nothing to require and
+silently suppressing ص٠٢٠١. A class that ignored an exported contract compiled
+clean. Its regression test is therefore the one that had to be watched failing in
+the *opposite* direction: analysis succeeded where it must fail.
+
+### Nothing downstream needed a change
+
+`Export` reaches the IR builder intact for main's statements —
+`link_program` carries them verbatim (`linker.rs:145-153`) and only `disposition`
+strips the wrapper, and only for modules. What compensates is
+`as_top_level_decl` (`ir/builder/mod.rs:159`), used by every top-level scan, plus
+`build_stmt`'s recursion through `ExportItems::Declaration`. Verified rather than
+assumed: `--dump-ir` output for a class with and without `صدّر` is **byte-identical**,
+and the interpreter/JIT/codegen consume `ir::Module`, in which `Export` does not
+exist. So the defect was confined to the analyzer, and the fix is one line.
+
+### The same defect, independently, in the LSP
+
+`collect_symbols` (`lsp/analysis/document.rs`) matched the raw statement too, so
+every exported declaration was missing from the symbol table — no hover, no
+go-to-definition, no member or enum-variant entries, on exactly the declarations
+a library publishes. That file already had its own `unwrap_exported_decl` for the
+entry-point check; only `collect_symbols` was not using it. Three copies of this
+one-line helper now exist (linker, IR builder, LSP), each deliberate for layering
+reasons — which is precisely why they drift. `lsp/handlers/{completion,folding,inlay_hints}.rs`
+still do not unwrap; filed separately.
+
+### Why 1,300+ tests missed it
+
+Every exported-class fixture was in a safe bucket: parse-only
+(`phase3_criteria_tests.rs::test_export_class`), `{}` with no members to lose
+(`ir/builder`'s fixtures), or module-side, i.e. the path that already worked
+(`module_execution_tests.rs::test_imported_class_constructs_and_reads_field`).
+The one main-file fixture with real members asserts ص٠٦٠٢, which fires in pass 1
+before members matter. Systemically: CI's `check-stdlib` job runs `tarqeem parse`,
+never `check`, and no example uses `صدّر صنف` — so 20 stdlib files could not be
+`check`ed and nothing reported it.
+
+### Measured effect on the stdlib
+
+`check` errors across all 43 stdlib files: **1270 → 764**.
+`مجموعات/قائمة.ترقيم` goes 62 → 0; طابور، مكدس، مجموعة، متكرر and
+اختبار/نتائج each drop to 1; وقت/وقت 169 → 71.
+
+One file *rises*: `اختبار/توكيدات.ترقيم` 68 → 159. Not a regression — analysis now
+gets far enough to surface the consequences of #243. `stdlib/أخطاء/فهرس.ترقيم`
+does not parse (`صدّر صنف خطأ` names a class with a reserved token), so
+`خطأ_تأكيد` cannot be imported, so `خطأ_توكيد_مفصل يرث خطأ_تأكيد` has no parent
+and is not an `استثناء` subclass — hence 25 fresh ص٠٦٠١ on its `ارمِ` statements.
+A file that did not compile still does not compile; the error count is not the
+metric there.
+
+Left alone deliberately: #231 (static member access on *imported* classes, still
+ص٠٥٠٢ after this fix — re-verified), and the generic-substitution gap that makes
+a `ن`-typed constructor argument fail as `ن٠٠٠١ متوقع ن، وُجد عدد` with or without
+`صدّر`. The generic regression test takes an `عدد` parameter to avoid masking
+itself on that.
+
 ## 2026-08-11 — Issue #228: 33 of 43 stdlib files did not parse
 
 ### The issue listed three causes; there were nine

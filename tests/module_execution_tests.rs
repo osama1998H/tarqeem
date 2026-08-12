@@ -665,3 +665,32 @@ fn test_program_without_imports_still_executes() {
     // with nothing to merge must be left exactly as it was.
     assert_prints(&main, dir, &["5"], Stdlib::NotNeeded, &Backend::ALL);
 }
+
+/// The native counterpart of `test_imported_class_constructs_and_reads_field`:
+/// the exported class is declared in the **main file** rather than imported
+/// (issue #259).
+///
+/// That axis was the blind spot. `add_module_type_members` unwrapped `صدّر`, so
+/// the imported case above always worked, while `add_type_members` did not — so
+/// a library file could not be compiled or `check`ed on its own even though
+/// consumers of it were fine.
+///
+/// Lives here rather than in `tests/oop_execution_tests.rs` because that suite
+/// is in-process (interpreter plus a JIT leg that never promotes past Tier-0 for
+/// bodies this short) and has no native leg. `صدّر` reaches the IR builder
+/// intact for main's statements — `link_program` carries them verbatim and only
+/// `as_top_level_decl` sees through the wrapper — so the native path deserves
+/// its own assertion.
+#[test]
+fn test_exported_class_declared_in_main_constructs_and_reads_field() {
+    let temp = TempDir::new().unwrap();
+    let dir = temp.path();
+
+    let main = write_module(
+        dir,
+        "رئيسي.ترقيم",
+        "صدّر صنف نقطة {\n    عام س: عدد\n    منشئ(س: عدد) {\n        هذا.س = س\n    }\n}\nمتغير ن = جديد نقطة(7)\nاطبع(ن.س)",
+    );
+
+    assert_prints(&main, dir, &["7"], Stdlib::NotNeeded, &Backend::ALL);
+}
