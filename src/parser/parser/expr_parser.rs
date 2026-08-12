@@ -3,7 +3,7 @@
 //! This module handles parsing of expressions using Pratt parsing
 //! for operator precedence.
 
-use crate::error::codes::ERR_UNEXPECTED_EXPRESSION;
+use crate::error::codes::{ERR_UNEXPECTED_EXPRESSION, ERR_UNEXPECTED_TOKEN};
 use crate::error::{Diagnostic, Span};
 use crate::lexer::TokenKind;
 
@@ -452,7 +452,15 @@ impl Parser {
                 ))
             }
 
-            _ => Ok(left),
+            // Unreachable while `Precedence::of` and the arms above agree: the
+            // Pratt loop only dispatches here for a token scored above `None`.
+            // It must not return `Ok(left)` — doing so consumed nothing, so the
+            // loop re-dispatched the same token forever (#266). Erroring turns
+            // the next such mismatch into a diagnostic instead of a hang.
+            _ => Err(
+                Diagnostic::error(format!("رمز غير متوقع: {:?}", token.kind), token.span)
+                    .with_code(ERR_UNEXPECTED_TOKEN.to_string()),
+            ),
         }
     }
 
