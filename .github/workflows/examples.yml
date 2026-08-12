@@ -480,12 +480,31 @@ jobs:
               else
                 echo "::error file=$file::$name يطبع خرجاً مختلفاً بين المفسّر و$backend / output differs from the interpreter"
                 cat "./compare/${name}.${backend}.diff"
+                # A NUL byte anywhere reduces `diff -u` to "Binary files
+                # differ", which names neither the offset nor the byte. Print
+                # both so the log identifies the divergence on its own.
+                echo "--- أول بايت مختلف / first differing bytes ---"
+                cmp -l "$reference" "$actual" | head -20 || true
+                echo "--- المفسّر / interpreter ---"
+                od -c "$reference" | head -40
+                echo "--- $backend ---"
+                od -c "$actual" | head -40
                 status=1
               fi
             done
           done
 
           exit $status
+
+      # Every backend's stdout, plus the diffs, so a divergence can be examined
+      # byte-for-byte instead of re-run with added logging.
+      - name: Upload backend outputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compare-backends-output
+          path: ./compare/
+          retention-days: 7
 
   # ============================================
   # Run Standard Library Tests
