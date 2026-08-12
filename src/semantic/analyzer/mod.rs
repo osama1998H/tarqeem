@@ -474,9 +474,32 @@ impl Analyzer {
     }
 
     /// Add members to registered types in the second pass.
+    ///
+    /// Unwraps `صدّر` for the same reason `register_types` does: the two passes
+    /// must agree on what counts as a declaration. While this one matched the
+    /// raw statement, `صدّر صنف س` was registered as a class with an *empty*
+    /// member table — so `جديد س` reported "ليس له منشئ" and every field and
+    /// method access reported ص٠٣٠١, including inside the class's own methods.
+    /// An exported `ميثاق` lost its methods the same way, which left
+    /// `validate` nothing to require and silently suppressed ص٠٢٠١ (issue
+    /// #259). The module-side twin `add_module_type_members` already unwrapped,
+    /// which is why only classes declared in the main file were affected.
     fn add_type_members(&mut self, stmt: &Stmt) {
-        match &stmt.kind {
+        match &unwrap_exported_decl(stmt).kind {
             StmtKind::ClassDecl { name, members, .. } => {
+                // `register_types` refuses a redefinition of the prelude's
+                // `استثناء` and returns without registering it, so the entry
+                // under that name is still the prelude's. Registering the
+                // user's members over it replaces `رسالة` and the
+                // single-string constructor wholesale, which turned the one
+                // correct ص٠٦٠٢ refusal into three errors — two of them
+                // pointing at correct `ارمِ`/`خ.رسالة` code. The prelude's own
+                // members arrive through `add_module_type_members`, so skipping
+                // here costs nothing.
+                if normalize_name(name) == normalize_name(prelude::EXCEPTION_CLASS) {
+                    return;
+                }
+
                 self.class_resolver
                     .add_class_members(name, members, resolve_type_annotation);
             }

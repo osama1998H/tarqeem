@@ -757,3 +757,311 @@ mod upcasting {
         assert_stdout_both_modes(source, &["25", "0"]);
     }
 }
+
+/// `صدّر` on a declaration must change nothing but its visibility to other
+/// modules (issue #259).
+///
+/// The analyzer registered an exported class's *name* but never its members,
+/// so the compiler rejected correct code: `جديد` reported
+/// `الصنف 'س' ليس له منشئ` and every field/method access reported ص٠٣٠١ —
+/// even from inside the class's own method bodies.
+///
+/// Invisible until now because no test ever used the members of an exported
+/// class declared in the **main file**. The fixtures that come closest each
+/// miss it: `tests/phase3_criteria_tests.rs::test_export_class` stops at
+/// `parses_ok`; `src/ir/builder`'s exported-class fixtures declare `{}` with no
+/// members to lose; and `tests/module_execution_tests.rs::
+/// test_imported_class_constructs_and_reads_field` exercises the *module* path,
+/// which was already correct because `add_module_type_members` unwrapped `صدّر`
+/// and `add_type_members` did not.
+///
+/// The invariant under test is that `صدّر صنف س` behaves exactly like `صنف س`.
+/// `test_unexported_class_constructs_and_reads_member` is the explicit control
+/// for that pairing; the remaining cases assert only the exported form, relying
+/// on the `dispatch`, `statics` and `upcasting` modules above for un-exported
+/// coverage of the same shapes.
+mod exported_declarations {
+    use super::*;
+
+    #[test]
+    fn test_exported_class_constructs_and_reads_member() {
+        let source = r#"
+            صدّر صنف نقطة {
+                خاص س: عدد
+                منشئ(س: عدد) { هذا.س = س }
+                عام دالة اقرأ() -> عدد { أرجع هذا.س }
+            }
+            دالة رئيسية() {
+                متغير ن = جديد نقطة(5)
+                اطبع(ن.اقرأ())
+            }
+        "#;
+        assert_stdout_both_modes(source, &["5"]);
+    }
+
+    #[test]
+    fn test_unexported_class_constructs_and_reads_member() {
+        // The control: identical but for `صدّر`. Passed throughout, which is
+        // what made the exported form's failure a pure export-path defect.
+        let source = r#"
+            صنف نقطة {
+                خاص س: عدد
+                منشئ(س: عدد) { هذا.س = س }
+                عام دالة اقرأ() -> عدد { أرجع هذا.س }
+            }
+            دالة رئيسية() {
+                متغير ن = جديد نقطة(5)
+                اطبع(ن.اقرأ())
+            }
+        "#;
+        assert_stdout_both_modes(source, &["5"]);
+    }
+
+    #[test]
+    fn test_exported_class_static_factory_constructs_own_class() {
+        // The literal #259 repro, and the pattern `stdlib/` is built on:
+        // وقت.الآن()، خادم_نقل.بعنوان(...)، طلب.برابط(...). The factory
+        // constructs the very class that declares it, so it fails on both
+        // counts — `جديد` and the following member call.
+        let source = r#"
+            صدّر صنف نقطة {
+                خاص س: عدد
+                منشئ(س: عدد) { هذا.س = س }
+                مشترك دالة بقيمة(س: عدد) -> نقطة { أرجع جديد نقطة(س) }
+                عام دالة اقرأ() -> عدد { أرجع هذا.س }
+            }
+            دالة رئيسية() {
+                اطبع(نقطة.بقيمة(5).اقرأ())
+            }
+        "#;
+        assert_stdout_both_modes(source, &["5"]);
+    }
+
+    #[test]
+    fn test_exported_class_static_field_is_registered() {
+        let source = r#"
+            صدّر صنف عدادات {
+                عام مشترك المجموع: عدد = 7
+            }
+            دالة رئيسية() {
+                اطبع(عدادات.المجموع)
+            }
+        "#;
+        assert_stdout_both_modes(source, &["7"]);
+    }
+
+    #[test]
+    fn test_inherited_method_reaches_exported_parent() {
+        // An exported parent contaminated its *un-exported* children: the
+        // empty member table propagated into the subclass's vtable, so a
+        // subclass that never mentions `صدّر` still failed.
+        let source = r#"
+            صدّر صنف أصل {
+                عام قيمة: عدد
+                منشئ(ق: عدد) { هذا.قيمة = ق }
+                عام دالة اعرض() -> عدد { أرجع هذا.قيمة }
+            }
+            صنف فرع يرث أصل {
+                منشئ(ق: عدد) { الأصل(ق) }
+            }
+            دالة رئيسية() {
+                متغير كائن = جديد فرع(7)
+                اطبع(كائن.اعرض())
+            }
+        "#;
+        assert_stdout_both_modes(source, &["7"]);
+    }
+
+    #[test]
+    fn test_exported_generic_class_constructs_and_reads() {
+        // `type_params` were registered by pass 1 all along; only the members
+        // went missing, so a generic exported class failed for the same reason
+        // a plain one did.
+        //
+        // The constructor deliberately takes `عدد` rather than `ن`: a
+        // type-parameter-typed constructor argument is rejected as
+        // `ن٠٠٠١ متوقع ن، وُجد عدد` whether or not the class is exported — a
+        // separate generic-substitution gap that would mask this case.
+        let source = r#"
+            صدّر صنف حاوية<ن> {
+                خاص العدد: عدد
+                منشئ(ع: عدد) { هذا.العدد = ع }
+                عام دالة اجلب() -> عدد { أرجع هذا.العدد }
+            }
+            دالة رئيسية() {
+                متغير ح = جديد حاوية<عدد>(9)
+                اطبع(ح.اجلب())
+            }
+        "#;
+        assert_stdout_both_modes(source, &["9"]);
+    }
+
+    #[test]
+    fn test_exported_interface_implemented_completely_runs() {
+        // `add_type_members` also feeds `add_interface_methods`, so an
+        // exported ميثاق lost its methods too — and a class that *did*
+        // implement it was reported ص٠٢٠١ anyway once the pairing was the
+        // other way round (plain ميثاق + exported class).
+        let source = r#"
+            صدّر ميثاق شكل {
+                دالة مساحة() -> عدد
+            }
+            صدّر صنف مربع يلتزم شكل {
+                خاص ض: عدد
+                منشئ(ض: عدد) { هذا.ض = ض }
+                عام دالة مساحة() -> عدد { أرجع هذا.ض * هذا.ض }
+            }
+            دالة رئيسية() {
+                متغير م = جديد مربع(5)
+                اطبع(م.مساحة())
+            }
+        "#;
+        assert_stdout_both_modes(source, &["25"]);
+    }
+
+    #[test]
+    fn test_exported_generic_interface_accepts_concrete_implementation() {
+        // Registering an exported ميثاق's methods activates the contract check,
+        // which compared types by name. `ميثاق حاوية<ن>` resolves `ن` to
+        // `Type::Class("ن")` — a name no implementation can match — so every
+        // implementor of a generic contract was rejected with ص٠٢٠١. An
+        // unsubstituted type parameter must impose no requirement.
+        let source = r#"
+            صدّر ميثاق حاوية<ن> {
+                دالة ضع(عنصر: ن)
+                دالة اجلب() -> ن
+            }
+            صنف صندوق يلتزم حاوية<عدد> {
+                خاص ق: عدد
+                منشئ() { هذا.ق = 0 }
+                عام دالة ضع(عنصر: عدد) { هذا.ق = عنصر }
+                عام دالة اجلب() -> عدد { أرجع هذا.ق }
+            }
+            دالة رئيسية() {
+                متغير ص = جديد صندوق()
+                ص.ضع(5)
+                اطبع(ص.اجلب())
+            }
+        "#;
+        assert_stdout_both_modes(source, &["5"]);
+    }
+
+    #[test]
+    fn test_exported_interface_with_أي_parameter_accepts_concrete_type() {
+        // LANGUAGE_SPEC §9.7's own `قابل_للمقارنة` example: `أي` is specified as
+        // "يقبل أي نمط" (§5.5), so a contract parameter typed `أي` is satisfied
+        // by any concrete type. Comparing by name rejected it.
+        let source = r#"
+            صدّر ميثاق قابل_للمقارنة {
+                دالة قارن(آخر: أي) -> عدد
+            }
+            صنف مربع يلتزم قابل_للمقارنة {
+                منشئ() {}
+                عام دالة قارن(آخر: مربع) -> عدد { أرجع 0 }
+            }
+            دالة رئيسية() {
+                متغير م = جديد مربع()
+                اطبع(م.قارن(م))
+            }
+        "#;
+        assert_stdout_both_modes(source, &["0"]);
+    }
+
+    #[test]
+    fn test_override_of_exported_generic_parent_is_accepted() {
+        // The same unsubstituted-type-parameter defect reached
+        // `check_method_overrides` through an exported generic *parent*, so a
+        // subclass narrowing `ن` to a concrete type was rejected — blocking the
+        // very pattern the export fix unblocks.
+        //
+        // The override deliberately does not call `الأصل.أضف(عنصر)`: passing an
+        // argument to a method whose parameter is a type parameter still fails
+        // as `ن٠٠٠١ متوقع ن، وُجد عدد`, a separate call-site substitution gap
+        // that has nothing to do with overriding and would mask this case.
+        let source = r#"
+            صدّر صنف مجموعة_عامة<ن> {
+                خاص العدد: عدد
+                منشئ() { هذا.العدد = 0 }
+                عام دالة أضف(عنصر: ن) { هذا.العدد = هذا.العدد + 1 }
+                عام دالة الحجم() -> عدد { أرجع هذا.العدد }
+            }
+            صنف أرقام يرث مجموعة_عامة {
+                منشئ() { الأصل() }
+                عام دالة أضف(عنصر: عدد) { اطبع(عنصر) }
+            }
+            دالة رئيسية() {
+                متغير أ = جديد أرقام()
+                أ.أضف(7)
+                اطبع(أ.الحجم())
+            }
+        "#;
+        assert_stdout_both_modes(source, &["7", "0"]);
+    }
+
+    #[test]
+    fn test_refused_exception_redefinition_reports_only_its_own_error() {
+        // `register_types` refuses a redefinition of the prelude's `استثناء`
+        // and returns without registering it, so the entry under that name is
+        // still the prelude's. `add_type_members` then wrote the user's members
+        // over it, destroying `رسالة` and the single-string constructor — so the
+        // one correct refusal came with two bogus errors on correct code.
+        let source = r#"
+            صدّر صنف استثناء {
+                عام كود: عدد
+                منشئ(كود: عدد) { هذا.كود = كود }
+            }
+            دالة رئيسية() {
+                حاول {
+                    ارمِ جديد استثناء("فشل")
+                } التقط (خ) {
+                    اطبع(خ.رسالة)
+                }
+            }
+        "#;
+        match analyze_diagnostics(source) {
+            Ok(()) => panic!("توقعنا رفض إعادة تعريف 'استثناء'"),
+            Err(diags) => {
+                let errors: Vec<_> = diags
+                    .iter()
+                    .filter(|(code, _)| code.as_deref() != Some("ح٠٠٠١"))
+                    .collect();
+                assert!(
+                    errors
+                        .iter()
+                        .any(|(code, _)| code.as_deref() == Some("ص٠٦٠٢")),
+                    "لم يظهر رمز الرفض ص٠٦٠٢ في: {:?}",
+                    diags
+                );
+                assert!(
+                    !errors
+                        .iter()
+                        .any(|(code, _)| code.as_deref() == Some("ص٠٣٠١")),
+                    "ظهر خطأ ص٠٣٠١ على كود صحيح — أعضاء 'استثناء' من البادئة أُتلفت: {:?}",
+                    diags
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_exported_interface_missing_method_is_rejected() {
+        // The one *unsound* symptom: an exported ميثاق registered zero
+        // methods, so `ClassResolver::validate` had nothing to require and a
+        // class that ignored the contract compiled clean. This test therefore
+        // failed in the opposite direction from the others — analysis
+        // succeeded where it had to fail.
+        let source = r#"
+            صدّر ميثاق شكل {
+                دالة مساحة() -> عدد
+            }
+            صنف مربع يلتزم شكل {
+                منشئ() {}
+            }
+            دالة رئيسية() {
+                متغير م = جديد مربع()
+                اطبع(1)
+            }
+        "#;
+        assert_analyze_error_code(source, "ص٠٢٠١");
+    }
+}
