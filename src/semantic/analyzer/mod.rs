@@ -487,6 +487,19 @@ impl Analyzer {
     fn add_type_members(&mut self, stmt: &Stmt) {
         match &unwrap_exported_decl(stmt).kind {
             StmtKind::ClassDecl { name, members, .. } => {
+                // `register_types` refuses a redefinition of the prelude's
+                // `استثناء` and returns without registering it, so the entry
+                // under that name is still the prelude's. Registering the
+                // user's members over it replaces `رسالة` and the
+                // single-string constructor wholesale, which turned the one
+                // correct ص٠٦٠٢ refusal into three errors — two of them
+                // pointing at correct `ارمِ`/`خ.رسالة` code. The prelude's own
+                // members arrive through `add_module_type_members`, so skipping
+                // here costs nothing.
+                if normalize_name(name) == normalize_name(prelude::EXCEPTION_CLASS) {
+                    return;
+                }
+
                 self.class_resolver
                     .add_class_members(name, members, resolve_type_annotation);
             }

@@ -345,16 +345,24 @@ impl DocumentState {
                             .map(|t| self.resolve_type_annotation(t))
                             .unwrap_or(Type::Unknown);
 
-                        symbols.insert(
-                            param.name.clone(),
-                            SymbolInfo {
+                        // `or_insert`, not `insert`: this map is flat and
+                        // unscoped, so an unconditional write let a parameter
+                        // displace a same-named top-level declaration. Harmless
+                        // while exported declarations were skipped entirely;
+                        // once they are collected, every function in an
+                        // all-exported module (i.e. every stdlib module)
+                        // contributes its parameters, and hover/go-to-definition
+                        // would answer with a parameter where a global was
+                        // asked for. A real top-level symbol always wins.
+                        symbols
+                            .entry(param.name.clone())
+                            .or_insert_with(|| SymbolInfo {
                                 ty: param_type,
                                 definition_span: param.span,
                                 kind: SymbolKind::Parameter,
                                 mutable: true,
                                 doc: None,
-                            },
-                        );
+                            });
                     }
                 }
 

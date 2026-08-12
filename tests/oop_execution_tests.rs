@@ -775,8 +775,11 @@ mod upcasting {
 /// which was already correct because `add_module_type_members` unwrapped `صدّر`
 /// and `add_type_members` did not.
 ///
-/// Every case here is paired with the identical un-exported source, since the
-/// invariant under test is that the two behave the same.
+/// The invariant under test is that `صدّر صنف س` behaves exactly like `صنف س`.
+/// `test_unexported_class_constructs_and_reads_member` is the explicit control
+/// for that pairing; the remaining cases assert only the exported form, relying
+/// on the `dispatch`, `statics` and `upcasting` modules above for un-exported
+/// coverage of the same shapes.
 mod exported_declarations {
     use super::*;
 
@@ -914,6 +917,130 @@ mod exported_declarations {
             }
         "#;
         assert_stdout_both_modes(source, &["25"]);
+    }
+
+    #[test]
+    fn test_exported_generic_interface_accepts_concrete_implementation() {
+        // Registering an exported ميثاق's methods activates the contract check,
+        // which compared types by name. `ميثاق حاوية<ن>` resolves `ن` to
+        // `Type::Class("ن")` — a name no implementation can match — so every
+        // implementor of a generic contract was rejected with ص٠٢٠١. An
+        // unsubstituted type parameter must impose no requirement.
+        let source = r#"
+            صدّر ميثاق حاوية<ن> {
+                دالة ضع(عنصر: ن)
+                دالة اجلب() -> ن
+            }
+            صنف صندوق يلتزم حاوية<عدد> {
+                خاص ق: عدد
+                منشئ() { هذا.ق = 0 }
+                عام دالة ضع(عنصر: عدد) { هذا.ق = عنصر }
+                عام دالة اجلب() -> عدد { أرجع هذا.ق }
+            }
+            دالة رئيسية() {
+                متغير ص = جديد صندوق()
+                ص.ضع(5)
+                اطبع(ص.اجلب())
+            }
+        "#;
+        assert_stdout_both_modes(source, &["5"]);
+    }
+
+    #[test]
+    fn test_exported_interface_with_أي_parameter_accepts_concrete_type() {
+        // LANGUAGE_SPEC §9.7's own `قابل_للمقارنة` example: `أي` is specified as
+        // "يقبل أي نمط" (§5.5), so a contract parameter typed `أي` is satisfied
+        // by any concrete type. Comparing by name rejected it.
+        let source = r#"
+            صدّر ميثاق قابل_للمقارنة {
+                دالة قارن(آخر: أي) -> عدد
+            }
+            صنف مربع يلتزم قابل_للمقارنة {
+                منشئ() {}
+                عام دالة قارن(آخر: مربع) -> عدد { أرجع 0 }
+            }
+            دالة رئيسية() {
+                متغير م = جديد مربع()
+                اطبع(م.قارن(م))
+            }
+        "#;
+        assert_stdout_both_modes(source, &["0"]);
+    }
+
+    #[test]
+    fn test_override_of_exported_generic_parent_is_accepted() {
+        // The same unsubstituted-type-parameter defect reached
+        // `check_method_overrides` through an exported generic *parent*, so a
+        // subclass narrowing `ن` to a concrete type was rejected — blocking the
+        // very pattern the export fix unblocks.
+        //
+        // The override deliberately does not call `الأصل.أضف(عنصر)`: passing an
+        // argument to a method whose parameter is a type parameter still fails
+        // as `ن٠٠٠١ متوقع ن، وُجد عدد`, a separate call-site substitution gap
+        // that has nothing to do with overriding and would mask this case.
+        let source = r#"
+            صدّر صنف مجموعة_عامة<ن> {
+                خاص العدد: عدد
+                منشئ() { هذا.العدد = 0 }
+                عام دالة أضف(عنصر: ن) { هذا.العدد = هذا.العدد + 1 }
+                عام دالة الحجم() -> عدد { أرجع هذا.العدد }
+            }
+            صنف أرقام يرث مجموعة_عامة {
+                منشئ() { الأصل() }
+                عام دالة أضف(عنصر: عدد) { اطبع(عنصر) }
+            }
+            دالة رئيسية() {
+                متغير أ = جديد أرقام()
+                أ.أضف(7)
+                اطبع(أ.الحجم())
+            }
+        "#;
+        assert_stdout_both_modes(source, &["7", "0"]);
+    }
+
+    #[test]
+    fn test_refused_exception_redefinition_reports_only_its_own_error() {
+        // `register_types` refuses a redefinition of the prelude's `استثناء`
+        // and returns without registering it, so the entry under that name is
+        // still the prelude's. `add_type_members` then wrote the user's members
+        // over it, destroying `رسالة` and the single-string constructor — so the
+        // one correct refusal came with two bogus errors on correct code.
+        let source = r#"
+            صدّر صنف استثناء {
+                عام كود: عدد
+                منشئ(كود: عدد) { هذا.كود = كود }
+            }
+            دالة رئيسية() {
+                حاول {
+                    ارمِ جديد استثناء("فشل")
+                } التقط (خ) {
+                    اطبع(خ.رسالة)
+                }
+            }
+        "#;
+        match analyze_diagnostics(source) {
+            Ok(()) => panic!("توقعنا رفض إعادة تعريف 'استثناء'"),
+            Err(diags) => {
+                let errors: Vec<_> = diags
+                    .iter()
+                    .filter(|(code, _)| code.as_deref() != Some("ح٠٠٠١"))
+                    .collect();
+                assert!(
+                    errors
+                        .iter()
+                        .any(|(code, _)| code.as_deref() == Some("ص٠٦٠٢")),
+                    "لم يظهر رمز الرفض ص٠٦٠٢ في: {:?}",
+                    diags
+                );
+                assert!(
+                    !errors
+                        .iter()
+                        .any(|(code, _)| code.as_deref() == Some("ص٠٣٠١")),
+                    "ظهر خطأ ص٠٣٠١ على كود صحيح — أعضاء 'استثناء' من البادئة أُتلفت: {:?}",
+                    diags
+                );
+            }
+        }
     }
 
     #[test]

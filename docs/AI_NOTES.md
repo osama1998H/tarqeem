@@ -84,6 +84,82 @@ a `ن`-typed constructor argument fail as `ن٠٠٠١ متوقع ن، وُجد �
 `صدّر`. The generic regression test takes an `عدد` parameter to avoid masking
 itself on that.
 
+## 2026-08-12 — Review round on #259: turning a check on revealed that the check was wrong
+
+A high-effort review of the #259 fix produced 10 findings. The important lesson:
+**enabling a dormant check is not the same as enforcing a correct one.** The first
+write-up of #259 claimed the newly reachable ص٠٢٠١ would "surface pre-existing
+bugs". It surfaced pre-existing *false positives* instead.
+
+### `check_interface_implementations` compared types by name
+
+`صدّر ميثاق` had registered zero methods, so contract conformance was never
+checked from the export side. Registering the methods activated
+`ClassResolver::check_interface_implementations`, which compares
+`expected_ty != actual_ty` exactly. Two shapes the language explicitly allows
+cannot survive that:
+
+- **`أي`.** Specified as "يقبل أي نمط" (LANGUAGE_SPEC §5.5). The spec's own §9.7
+  example, `ميثاق قابل_للمقارنة { دالة قارن(آخر: أي) -> عدد }`, was rejected for
+  every concrete implementor.
+- **An unsubstituted type parameter.** `ميثاق حاوية<ن>` resolves `ن` through
+  `parse_type_name`, which yields `Type::Class("ن")` — not `Type::Generic` — and
+  `InterfaceInfo` has no `type_params` field at all, so the resolver cannot even
+  tell `ن` is a variable. Every implementor of a generic contract was rejected.
+
+`check_method_overrides` had the same defect via exported generic *parents*.
+
+Fix: `ClassResolver::is_unconstrained` — a declared type that cannot be enforced
+by name (`أي`, `Type::Generic`, or a `Type::Class` naming neither a registered
+class nor a registered interface, recursing through containers) imposes no
+requirement. The "unknown `Class` name is a type variable" heuristic avoids
+plumbing `type_params` into `InterfaceInfo`; a genuinely misspelled type is still
+reported as د٠٠٠٣ where the name is used.
+
+Note this repaired the **un-exported** case too — `ميثاق حاوية<ن>` without `صدّر`
+was equally broken on develop, and `stdlib/مجموعات/متكرر.ترقيم` (which declares
+`صدّر ميثاق متكرر<ن>`) went from 1 error to 0.
+
+### The prelude guard has to be in both passes, not just one
+
+`register_types` refuses a redefinition of `استثناء` and returns *without
+registering*, so the entry under that name stays the prelude's. Once
+`add_type_members` unwrapped `صدّر`, it called `add_class_members("استثناء", …)`
+on that surviving prelude entry and replaced `fields`/`constructor` wholesale —
+so the one correct ص٠٦٠٢ refusal arrived with two bogus errors pointing at
+correct `ارمِ`/`خ.رسالة` code. The fix's own comment said the two passes "must
+agree on what counts as a declaration"; they agreed on unwrapping and disagreed
+on the guard. The prelude's own members arrive via `add_module_type_members`, so
+skipping in `add_type_members` costs nothing.
+
+### A flat symbol map only stayed honest while it was half-empty
+
+`collect_symbols` inserts each function's parameters into
+`HashMap<String, SymbolInfo>` unconditionally. Harmless while exported
+declarations were skipped; once they are collected, every function in an
+all-exported module — i.e. every stdlib module — contributes parameters, and a
+parameter named `س` displaces a top-level `صدّر ثابت س`. That converts silence
+into a confidently wrong hover. Changed to `or_insert_with`, so a real top-level
+symbol always wins.
+
+### Left open deliberately
+
+- A constructor-less exported class now passes `check` and crashes at run time on
+  `عداد::منشئ` (#211). Pre-existing; the un-exported form crashes identically.
+  This fix removed the bogus compile-time gate that hid it, and synthesizing a
+  default constructor is an IR-side change.
+- A `خاصية` cannot satisfy a `ميثاق`'s `دالة` contract, because
+  `add_class_members` registers a property as `__احصل_<name>` and never under the
+  declared name. Same behaviour for un-exported interfaces on develop; whether a
+  property *should* satisfy a method contract is a language question, not a bug
+  to patch mid-fix.
+- Exported enum variants land under `::`-joined keys, which the outline's
+  `'.'`-only nesting filter renders flat. Cosmetic, pre-existing for un-exported
+  enums.
+- `صدّر صدّر صنف س` parses into nested `Export(Export(…))`, and all four unwrap
+  helpers are single-level, so the class becomes invisible and is reported as the
+  misleading `د٠٠٠٣ صنف غير معروف`. The parser should reject a repeated `صدّر`.
+
 ## 2026-08-11 — Issue #228: 33 of 43 stdlib files did not parse
 
 ### The issue listed three causes; there were nine
