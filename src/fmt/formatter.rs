@@ -1976,26 +1976,43 @@ mod tests {
         collect(&root.join("examples"), &mut files);
         files.sort();
 
+        // Files that do not parse as *input* are a separate concern
+        // (#197/#202/#203) and are skipped, not asserted on — but the skip set is
+        // pinned rather than counted. This guard used to assert a bare
+        // `parseable >= 66`, which says nothing about *which* files parse and
+        // needs re-baselining whenever the corpus legitimately changes size:
+        // deleting four example files is what last broke it, long after the
+        // number stopped describing anything. An exact set still catches the
+        // case that matters — a parser regression hiding behind the skip branch.
+        //
+        // Mirrors KNOWN_UNPARSEABLE in tests/integration_tests.rs and the
+        // allowlist in .github/workflows/examples.yml. All three may only shrink.
+        const KNOWN_UNPARSEABLE: &[&str] = &[
+            // #243 — declares `صنف خطأ`; needs the استثناء redesign.
+            "stdlib/أخطاء/فهرس.ترقيم",
+        ];
+
         let config = FormatConfig::default();
         let mut parseable = 0;
+        let mut unparseable = Vec::new();
         let mut failures = Vec::new();
 
         for path in &files {
             let Ok(source) = std::fs::read_to_string(path) else {
                 continue;
             };
-            // Files that do not parse as *input* are a separate concern
-            // (#197/#202/#203) and are skipped, not asserted on.
-            if crate::parser::Parser::new(&source).parse().is_err() {
-                continue;
-            }
-            parseable += 1;
-
             let rel = path
                 .strip_prefix(root)
                 .unwrap_or(path)
                 .display()
-                .to_string();
+                .to_string()
+                .replace('\\', "/");
+            if crate::parser::Parser::new(&source).parse().is_err() {
+                unparseable.push(rel);
+                continue;
+            }
+            parseable += 1;
+
             let once = match crate::fmt::format_source(&source, &config) {
                 Ok(once) => once,
                 Err(e) => {
@@ -2017,13 +2034,16 @@ mod tests {
             failures.join("\n")
         );
 
-        // Re-measured after #228 took stdlib/ from 10 parseable files to 42.
-        // A parser regression that made files unparseable would otherwise
-        // silently skip them and leave this test vacuously green.
-        assert!(
-            parseable >= 66,
-            "corpus coverage shrank: only {parseable} of {} files parse (expected >= 66) \
-             — a parser regression is hiding behind the skip branch",
+        unparseable.sort();
+        assert_eq!(
+            unparseable,
+            KNOWN_UNPARSEABLE,
+            "the set of corpus files that fail to parse changed ({} of {} files parse). \
+             An unexpected entry is a parser regression hiding behind the skip branch — \
+             fix it rather than listing it here. A missing entry parses now: drop it from \
+             KNOWN_UNPARSEABLE here, in tests/integration_tests.rs, and in \
+             .github/workflows/examples.yml",
+            parseable,
             files.len()
         );
     }
