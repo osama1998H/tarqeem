@@ -2,6 +2,89 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-12 — Issue #266: the Pratt loop's non-advancing fallback, fixed
+
+### The fix is one deleted line; the reasoning is which line
+
+`Precedence::of` scored `TokenKind::Bang` as `Precedence::Unary`, an **infix**
+binding power for a token that has no `parse_infix` arm. Two directions were open —
+score it `None`, or give it an arm — and scoring it `None` is the one that removes
+the anomaly instead of documenting it: `Bang` was the *only* one of the 27
+precedence-bearing token kinds without an advancing arm, so the table now holds a
+real invariant ("everything scored here is consumed by `parse_infix`") rather than
+one exception plus a comment.
+
+Nothing derives prefix binding from `of()`. `parse_prefix`'s `Bang` arm passes the
+`Precedence::Unary` **literal** (`expr_parser.rs:207`), which is why `ليس صحيح`,
+`!خطأ`, `٥ != ٣` and `ليس أ و ب` are untouched — verified byte-identical between
+`run` and `compile`.
+
+`parse_infix`'s catch-all changed from `_ => Ok(left)` to an `ERR_UNEXPECTED_TOKEN`
+error as well. That arm is unreachable once the table is consistent, and that is
+the point: it was reachable *silently*, and the next token to gain a precedence
+without an arm would have hung exactly the same way. An error there costs nothing
+and converts the whole class from hang to diagnostic. No new error code was needed,
+so the `docs/رموز_الأخطاء/` SOP did not apply.
+
+### The blast radius was three times what the issue recorded
+
+The issue named `parse`, `check`, `run` and the LSP. Measured with a `SIGALRM`
+watchdog, **eight of the nine CLI commands hung** — add `fmt`, `doc`, `compile`,
+`repl` and `debug`. Only `lex` survived, because it never constructs a `Parser`.
+There is exactly one Pratt loop in the repo, so every mode failed through one call
+site. Post-fix all eight exit 1 in ~0s with `ب٠١٠١ متوقع '؛'` — the same
+diagnostic `س في`, `س كـ`, `س ->` and `س من` already produced, which is the
+consistency the `None` score buys. Inside a call it is `ب٠٠٠٢ متوقع ')'`.
+
+Also corrected, since the issue's file map implies otherwise: `src/cli/commands/`
+has no `parse.rs`/`check.rs`/`run.rs`/`fmt.rs` — those are functions in `mod.rs`.
+And `ليس` is not a separate keyword token: `keywords.rs:76` maps it to
+`TokenKind::Bang`, so `ليس` and `!` were never two defects.
+
+### The LSP failure mode is a wedge, not a slow request
+
+Worth recording because it outlives this fix. tower-lsp 0.20 `join!`s its
+read/process/write halves onto one task, so a handler future that never returns
+from poll stops the server reading stdin **at all** — no hover, no diagnostics for
+any file, not even `shutdown`. `src/lsp/analysis/document.rs:144` parses
+synchronously with no debounce, cancellation, timeout or `catch_unwind`, and 12 of
+the 13 handlers reach it (`textDocument/formatting` is line-based and immune). This
+change removes the only known trigger, not the fragility; filed separately.
+
+### Testing a hang without hanging the suite
+
+The repo had no timeout pattern at all — no `mpsc`, `recv_timeout` or
+`catch_unwind` anywhere, and the CLI harnesses' `Command::output()` blocks forever.
+So the guard is std-only, needing no new dependency: one worker thread **per
+input** plus `recv_timeout(10s)`. Per-input matters — a single thread running all
+seven cases times out without naming which one regressed, and naming it is the
+whole point. Verified red before the fix (failed in 10s naming `س ليس`) and green
+after (0.00s).
+
+The behavioural test asserts `س ليس` and `س في` produce the *same* code rather
+than hardcoding `ب٠١٠١`, so the two cannot drift apart.
+
+No `.ترقيم` fixture was committed. `examples/` and `stdlib/` are each walked by
+four unbounded guards, so a hanging fixture on disk turns all four into hangs —
+which is precisely how this bug was found (#265).
+
+### CI could not have told us
+
+No workflow sets `timeout-minutes`, and the two *corpus* steps were the only loops
+in `examples.yml` not wrapped in `timeout` — the run steps all were, because
+runtime hangs were anticipated and parse hangs were not. A single bad corpus file
+would have hung six jobs (`check-examples`, `check-stdlib`, `test-modules (fmt)`,
+`test-modules (parser)`, `integration-tests`, `test-full`) for six hours each, with
+`fail-fast: false` preventing early cancellation. Both steps now use `timeout 30s`;
+both jobs are `ubuntu-latest`, so GNU `timeout` is present — it is *not* on macOS,
+which is why the local repro needed a `perl` `alarm` wrapper.
+
+### Noticed, not fixed
+
+`tarqeem fmt` prints a raw `Diagnostic { … }` debug dump on a parse error instead
+of the rendered bilingual diagnostic every other command emits. Pre-existing and
+unrelated to this change.
+
 ## 2026-08-12 — examples/ consolidated 21 → 10, and the CI matrices stopped being hand-written
 
 ### The corpus was mostly duplication
