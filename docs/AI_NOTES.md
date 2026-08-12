@@ -54,8 +54,10 @@ file behind the allowlist, so SHA-256's native output is no longer diffed.
 Taken knowingly. The alternative — dropping the `طول()` prints so the merged file
 agrees — deletes the only CI witness for an open bug, which the allowlist's own
 comment forbids: entries are removed when the issue is *fixed*, not when the
-evidence is removed. Verified the divergence is confined to the three `طول`
-lines; the digests and the gzip round-trip agree on all three backends.
+evidence is removed. Verified the divergence is exactly four lines: the two
+`طول` prints over the Arabic text (448 vs 784) and the `نسبة` line computed from
+them (17% vs 9%). `طول` over the compressed bytes agrees, and so do the digests
+and the gzip round-trip.
 
 ### The matrices were the real maintenance cost
 
@@ -86,6 +88,37 @@ vacuous the same way one level up.
 
 `src/fmt/formatter.rs` needed no change: its corpus guard became a set
 (`KNOWN_UNPARSEABLE`) in `fd8636a`, so deleting eleven files no longer trips it.
+
+### The house style for examples, and why it is not cosmetic
+
+Consolidating exposed that the corpus had no single style: semicolons in some
+files and not others (the spec makes them optional, and README/LANGUAGE_SPEC
+snippets omit them), comment-banner widths of 35/39/43/59/63, Arabic-Indic digits
+in one half of a merged file and Latin in the other, and `//` headers where the
+rest used `///`. A learner reading two files in a row has no way to tell which
+differences are meaningful, so every one of them teaches something false.
+
+The convention all ten now follow:
+
+- `بسم_الله`, blank line, then a `///` file doc: one-line summary, blank `///`,
+  a two-or-three-line description, blank `///`, `@منذ`.
+- Section banners are `// ` + exactly 43 `═`. Files short enough to have no
+  sections (`مرحبا`, `حاسبة`) have none.
+- No ASCII `;`. The Arabic `؛` stays — it is the `لكل` separator, not a
+  terminator.
+- Latin digits throughout. `صياغة` keeps one short labelled block proving
+  `٤٢ == 42`, so the corpus still witnesses Arabic-Indic literals somewhere.
+- `///` on declarations, `//` for inline explanation. Function docs are
+  imperative per `.claude/rules/arabic-philosophy.md` ("أنشئ شبكة" not
+  "دالة لإنشاء شبكة"); type and enum docs stay noun phrases.
+
+**The file doc needs the first declaration to carry its own `///`.** Otherwise it
+attaches to that declaration and `tarqeem doc` emits a module page with no
+description — which is what five of the ten did at first, `مرحبا` included. It is
+not enough for *some* later declaration to be documented. `مرحبا` additionally
+had its first item be an executable statement, so its `دالة تحية` was moved above
+the print statements (output order unchanged) to give the file doc something
+documented to sit in front of. Verified by generating markdown for all ten.
 
 ### Verification
 

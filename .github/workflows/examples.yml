@@ -382,9 +382,11 @@ jobs:
           # regression.
           #
           #   تشفير_وضغط:native — #185: native طول counts UTF-8 bytes where the
-          #                interpreter counts characters, so every length differs.
-          #                Only the three طول lines differ; the SHA-256 digests
-          #                and the gzip round-trip agree on all three backends.
+          #                interpreter counts characters, so Arabic lengths differ.
+          #                Exactly four lines diverge: the two طول lines over the
+          #                Arabic text (448 vs 784) and the نسبة line derived from
+          #                them (17% vs 9%). طول over the compressed bytes agrees,
+          #                and so do the SHA-256 digests and the gzip round-trip.
           KNOWN_DIVERGENT: "تشفير_وضغط:native"
           # Examples native codegen is *documented* to refuse, so a refusal here
           # is the expected outcome rather than a build break. KNOWN_DIVERGENT
@@ -564,3 +566,14 @@ jobs:
         with:
           name: examples-summary
           path: summary.md
+
+      # `if: always()` above makes this job green even when a job it aggregates
+      # went red, so anything using "Examples Summary" as the single required
+      # check would read a failed compare-backends as a pass. Skipped and
+      # cancelled deps are not failures, so they are matched explicitly rather
+      # than by `!= success`.
+      - name: Fail if any aggregated job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::أحد أعمال الأمثلة فشل / one of the aggregated example jobs failed"
+          exit 1
