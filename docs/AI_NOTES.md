@@ -2,6 +2,133 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-12 — examples/ consolidated 21 → 10, and the CI matrices stopped being hand-written
+
+### The corpus was mostly duplication
+
+`جمع`/`طرح`/`ضرب`/`قسمة`/`مضروب`/`فيبوناتشي` were each redefined in four or five
+files. `اختبار_بسيط` was a strict subset of `حاسبة`; `لعبة_الحياة_بسيط` a stub of
+`لعبة_الحياة` whose neighbour count was a fake (it counted edges, not neighbours);
+`ضغط` already imported `تشفير` and re-demonstrated all of `بصمة`. Each file cost
+three CI matrix runs, so the duplication was paid for on every push.
+
+The new rule is **one example per language area**: `مرحبا`, `أساسيات`, `دوال`,
+`أصناف`, `تعداد`, `صياغة`, `حاسبة`, `لعبة_الحياة`, `تشفير_وضغط`,
+`اختبار_اطار_العمل`. A new feature adds a section to an existing file; only a
+genuinely new area adds a file.
+
+Renames, for anyone following an old link: `دوال_سهمية` → `دوال`,
+`صنف`/`وراثة`/`خواص`/`رؤية_بسيط` → `أصناف`,
+`متغيرات`/`تحكم`/`اختبار_مجموعات` → `أساسيات`,
+`وضع_البرنامج`/`أسطر_متعددة` → `صياغة`, `بصمة`/`ضغط` → `تشفير_وضغط`.
+
+### What was preserved deliberately, not incidentally
+
+Three of the deleted files were regression witnesses, not demos, and their exact
+shapes had to survive the merge:
+
+- **`وراثة`** exists because `صنف` avoids the #249 bug *by accident* — its
+  subclass assigns only its own fields, so inherited reads happen inside parent
+  methods where `هذا` is already the parent type. Its three-level hierarchy, its
+  reads through the derived class, and its deliberately-absent `م.مساحة()` call
+  (#253) are now a marked section at the end of `أصناف`, not folded into the
+  surrounding style.
+- **`خواص`** is the #239 witness — two auto-properties that must keep distinct
+  slots. `نقطة(3، 4)` still prints `3` then `4`.
+- **`دوال_سهمية`** claimed every form in it works in all three backends, and
+  `LANGUAGE_SPEC.md` states that as an invariant. The merged `دوال` keeps every
+  lambda form, its inline expected-value comments, and the ت٠٣٠١/د٠٣٠٦ limits
+  footer; the named-function half was renamed `اجمع` to avoid colliding with the
+  existing `جمع` lambda.
+
+Dropped on purpose: the stray `صنف محمود` that sat at the end of the old `دوال`,
+unrelated to functions and never instantiated.
+
+### The one accepted coverage loss
+
+`compare-backends` carried `KNOWN_DIVERGENT: "ضغط:native"` for #185 — native
+`طول` counts UTF-8 bytes where the interpreter counts characters. `بصمة` had no
+divergence and was fully output-diffed natively; merging the two puts the whole
+file behind the allowlist, so SHA-256's native output is no longer diffed.
+
+Taken knowingly. The alternative — dropping the `طول()` prints so the merged file
+agrees — deletes the only CI witness for an open bug, which the allowlist's own
+comment forbids: entries are removed when the issue is *fixed*, not when the
+evidence is removed. Verified the divergence is exactly four lines: the two
+`طول` prints over the Arabic text (448 vs 784) and the `نسبة` line computed from
+them (17% vs 9%). `طول` over the compressed bytes agrees, and so do the digests
+and the gzip round-trip.
+
+### The matrices were the real maintenance cost
+
+`examples.yml` ran three hand-maintained 21-entry matrices. That is the same
+class of hazard as the `assert!(parseable >= 66)` floor below: a hand-kept number
+standing in for a fact the tool could compute. It had already failed —
+`رؤية_بسيط` sat in `examples/` while being in none of the three matrices, so it
+was never run at all.
+
+Replaced with a `list-examples` job that emits the names from the same glob
+`check-examples` uses, consumed via `fromJSON`. Adding an example no longer
+touches the workflow. The job errors on an empty glob, because a `[]` matrix
+spawns zero jobs and reports success — indistinguishable from every example
+passing.
+
+Two adjacent fixes in the same file: `compare-backends` was missing from the
+`summary` job's `needs:`, so the aggregate summary omitted the only job that
+validates output; and `fail-fast: false` was preserved on all three matrices.
+
+### `mod examples` was three-quarters vacuous
+
+`tests/integration_tests.rs` named four example files, each wrapped in
+`if path.exists()`. Two of the four were on the delete list — and the guard means
+deletion produces a *passing* test, not a failing one. The other seventeen
+examples were never covered there. Replaced with a directory walk that asserts
+every `examples/*.ترقيم` parses, plus a non-empty assertion so the walk cannot go
+vacuous the same way one level up.
+
+`src/fmt/formatter.rs` needed no change: its corpus guard became a set
+(`KNOWN_UNPARSEABLE`) in `fd8636a`, so deleting eleven files no longer trips it.
+
+### The house style for examples, and why it is not cosmetic
+
+Consolidating exposed that the corpus had no single style: semicolons in some
+files and not others (the spec makes them optional, and README/LANGUAGE_SPEC
+snippets omit them), comment-banner widths of 35/39/43/59/63, Arabic-Indic digits
+in one half of a merged file and Latin in the other, and `//` headers where the
+rest used `///`. A learner reading two files in a row has no way to tell which
+differences are meaningful, so every one of them teaches something false.
+
+The convention all ten now follow:
+
+- `بسم_الله`, blank line, then a `///` file doc: one-line summary, blank `///`,
+  a two-or-three-line description, blank `///`, `@منذ`.
+- Section banners are `// ` + exactly 43 `═`. Files short enough to have no
+  sections (`مرحبا`, `حاسبة`) have none.
+- No ASCII `;`. The Arabic `؛` stays — it is the `لكل` separator, not a
+  terminator.
+- Latin digits throughout. `صياغة` keeps one short labelled block proving
+  `٤٢ == 42`, so the corpus still witnesses Arabic-Indic literals somewhere.
+- `///` on declarations, `//` for inline explanation. Function docs are
+  imperative per `.claude/rules/arabic-philosophy.md` ("أنشئ شبكة" not
+  "دالة لإنشاء شبكة"); type and enum docs stay noun phrases.
+
+**The file doc needs the first declaration to carry its own `///`.** Otherwise it
+attaches to that declaration and `tarqeem doc` emits a module page with no
+description — which is what five of the ten did at first, `مرحبا` included. It is
+not enough for *some* later declaration to be documented. `مرحبا` additionally
+had its first item be an executable statement, so its `دالة تحية` was moved above
+the print statements (output order unchanged) to give the file doc something
+documented to sit in front of. Verified by generating markdown for all ten.
+
+### Verification
+
+All 10 examples were run under interpreter, JIT and native with
+`env -u TARQEEM_HOME` (the variable silently shadows this checkout's `stdlib`),
+and each backend's stdout diffed against the interpreter's. Exactly one
+divergence: `تشفير_وضغط:native`. Merged outputs were also diffed against the
+concatenated pre-merge baselines — `مرحبا` is byte-identical to old
+`مرحبا` + `أهلا`.
+
 ## 2026-08-12 — Deleting four examples broke CI through a magic number, not the matrix
 
 ### The failure was not where the deletion was

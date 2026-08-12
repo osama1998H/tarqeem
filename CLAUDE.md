@@ -119,7 +119,7 @@ runtime-rs/              # Rust runtime library (memory, string, array, I/O, cry
 stdlib/              # Standard library (Tarqeem source)
 tests/                   # Integration tests
 benches/                 # Criterion benchmarks
-examples/                # 17 example programs
+examples/                # 10 example programs (one per language area)
 docs/                    # Project documentation
 ```
 

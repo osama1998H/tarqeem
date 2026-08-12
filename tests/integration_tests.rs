@@ -331,55 +331,58 @@ mod builtins {
     }
 }
 
+/// Every example must parse, and the corpus is walked rather than listed.
+///
+/// This replaced four hand-listed tests that each named one file and wrapped it
+/// in `if path.exists()`. That guard made deletion invisible: renaming or
+/// removing an example turned its test into a silent no-op instead of a failure,
+/// and the other seventeen examples were never covered here at all. Walking the
+/// directory means a new example is covered the moment it lands, and a rename
+/// cannot quietly reduce coverage.
 mod examples {
     use super::*;
 
     #[test]
-    fn test_example_hello_world() {
-        let path = project_root().join("examples/مرحبا.ترقيم");
-        if path.exists() {
-            let source = fs::read_to_string(&path).expect("Failed to read example file");
-            assert!(
-                parses_ok_with_markers(&source),
-                "Example file مرحبا.ترقيم failed to parse"
-            );
-        }
-    }
+    fn test_every_example_parses() {
+        let dir = project_root().join("examples");
+        let mut files: Vec<std::path::PathBuf> = fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("failed to read {}: {}", dir.display(), e))
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("ترقيم"))
+            .collect();
+        files.sort();
 
-    #[test]
-    fn test_example_basic_test() {
-        let path = project_root().join("examples/اختبار_بسيط.ترقيم");
-        if path.exists() {
-            let source = fs::read_to_string(&path).expect("Failed to read example file");
-            assert!(
-                parses_ok_with_markers(&source),
-                "Example file اختبار_بسيط.ترقيم failed to parse"
-            );
-        }
-    }
+        // Without this the walk could go vacuous the same way the old
+        // `if path.exists()` guards did, just one level up.
+        assert!(
+            !files.is_empty(),
+            "no .ترقيم files found in {} — the walk would assert nothing",
+            dir.display()
+        );
 
-    #[test]
-    fn test_example_variables() {
-        let path = project_root().join("examples/متغيرات.ترقيم");
-        if path.exists() {
-            let source = fs::read_to_string(&path).expect("Failed to read example file");
-            assert!(
-                parses_ok_with_markers(&source),
-                "Example file متغيرات.ترقيم failed to parse"
-            );
-        }
-    }
+        let failures: Vec<String> = files
+            .iter()
+            .filter(|path| {
+                let source = fs::read_to_string(path)
+                    .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e));
+                !parses_ok_with_markers(&source)
+            })
+            .map(|path| {
+                path.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into()
+            })
+            .collect();
 
-    #[test]
-    fn test_example_collections() {
-        let path = project_root().join("examples/اختبار_مجموعات.ترقيم");
-        if path.exists() {
-            let source = fs::read_to_string(&path).expect("Failed to read example file");
-            assert!(
-                parses_ok_with_markers(&source),
-                "Example file اختبار_مجموعات.ترقيم failed to parse"
-            );
-        }
+        assert!(
+            failures.is_empty(),
+            "{} of {} examples failed to parse: {}",
+            failures.len(),
+            files.len(),
+            failures.join("، ")
+        );
     }
 }
 
