@@ -2,6 +2,74 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-12 — A bool crossing into Rust was never zero-extended
+
+### Found by adding four lines to an example
+
+The #266 branch added `اطبع(ليس نشط)` and friends to `examples/أساسيات.ترقيم` —
+no example had ever used `ليس`/`!` as an *operator*. `compare-backends` went red
+immediately: native printed `صحيح`, then dumped `DW_OP_gt`, `ELR_mode`,
+`deadlock`, `capacity`, `01234567` — DWARF strings and `.rodata` out of the
+binary's own image — where `خطأ` belonged. 703 bytes became 2227.
+
+Only on x86-64. A full macOS aarch64 run of both backends was byte-identical, so
+the local check that "proved" the example was fine proved nothing. Two lessons
+worth more than the fix: **a slice is not a diff** (the first check compared a
+`sed`-filtered range, not the whole stream), and **byte-identical on one
+architecture says nothing about another**.
+
+### The mechanism
+
+An `i1`'s upper byte bits are don't-care to LLVM, so `xor i1 %v, true` legalizes
+to a byte-wide flip:
+
+    movb   (%rax), %al      ; 0 or 1
+    xorb   $-1, %al         ; 0xFF or 0xFE
+    movzbl %al, %edi        ; 255 or 254
+    callq  trq_print_bool@PLT
+
+Rust's `extern "C" fn(value: bool)` is `zeroext noundef range(i8 0, 2)`. 254 is
+not a `bool`, and the callee's branch arithmetic indexes outside either string
+literal — hence a pointer into `.rodata` and a length to match. `true` survived
+as 255 because it is merely nonzero, which is why the *first* negation printed
+correctly and the second dumped memory: an accident, not a partial success.
+
+This is also why printing a bool **variable** always worked: `load i1` compiles to
+`movzbl` of a real 0/1 byte. Only a *computed* bool was affected, and `setne`
+(from `!=`) happens to produce a clean 0/1 too — so of the four new lines, only
+the two `ليس`/`!` ones broke. `zeroext` was absent from the entire codegen: the
+grep count was zero.
+
+### Where the fix belongs
+
+On `map_param_type` (`src/codegen/llvm/types.rs`), not on the two call sites that
+showed the symptom. That one mapper spells both `define` parameter lists and
+generic call arguments, so fixing it there is what keeps a signature and its call
+sites from disagreeing — and it covers `منطقي_لنص`, which reaches
+`@trq_bool_to_string` through the generic path rather than the hand-written
+string. The two hardcoded runtime calls were fixed as well since they bypass the
+mapper. Attributes are legal in every one of the five parameter positions the
+mapper feeds; none reconstructs a bare function *type*, where `zeroext` would be
+invalid IR.
+
+Returned `i1` needs nothing: Rust guarantees 0/1 outbound, and our own callees
+read only bit 0.
+
+### The guard cannot be an execution test
+
+Nothing local executes x86-64, so the regression test asserts the attribute in
+the emitted IR — on the **call site**, because that is where LLVM takes the ABI
+from; a declaration carrying it alone would not fix the call. Verified red on the
+pre-fix codegen and green after, via `git stash` of the two source files.
+
+### CI was telling us as little as it could
+
+`diff -u` collapses to "Binary files differ" the moment either stream contains a
+NUL, so the only evidence in the log was that *something* differed somewhere. The
+step now prints `cmp -l` and `od -c` for both streams and keeps `compare/` as an
+artifact on failure — which is how the DWARF strings were identified, and how the
+first byte offset (379) pointed straight at the second negation.
+
 ## 2026-08-12 — Issue #266: the Pratt loop's non-advancing fallback, fixed
 
 ### The fix is one deleted line; the reasoning is which line
