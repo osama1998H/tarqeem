@@ -2,6 +2,89 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-12 — Deleting four examples broke CI through a magic number, not the matrix
+
+### The failure was not where the deletion was
+
+`0fd3d83` removed `examples/planned/`, `examples/wasm/` and the `examples/حاسبة/`
+package, four of which were `.ترقيم` files. The obvious suspect was
+`.github/workflows/examples.yml`, which names examples one per matrix entry — but
+the Examples workflow **passed**. Its `أهلا` and `حاسبة` entries resolve to
+`examples/أهلا.ترقيم` and `examples/حاسبة.ترقيم`, top-level files that still
+exist; only the same-named *directory* went away. Diffing the matrix against
+`examples/*.ترقيم` confirms 21/21 with nothing stale on either side, so nothing
+needed removing from CI at all.
+
+What failed was `Full Test Suite` / `Test fmt`, on one line of
+`src/fmt/formatter.rs`: `assert!(parseable >= 66)`. The corpus walk had gone from
+67 parseable files to 63.
+
+### The guard was measuring the wrong thing
+
+That floor exists to stop a parser regression hiding behind the test's skip
+branch: files that fail to parse are skipped rather than asserted on, so a
+regression that made files unparseable would silently shrink coverage and leave
+the test vacuously green. A bare count does detect that — but it cannot tell it
+apart from a corpus that legitimately shrank, and it needs a human to re-baseline
+the number every time either happens. Four deleted examples and a real parser
+regression are the same event to it.
+
+Verified it was the former before touching the number: all four deleted files
+still parse under today's parser (extracted from `0fd3d83^`, run through
+`tarqeem parse`), and the single non-parsing file today is
+`stdlib/أخطاء/فهرس.ترقيم` — the already-allowlisted #243 blocker. 63 + 4 = 67 ≥
+66, so nothing regressed.
+
+So the fix is not `66` → `63`. The count is now an exact **set** compared against
+a `KNOWN_UNPARSEABLE` allowlist, mirroring the two lists this repo already keeps
+(`tests/integration_tests.rs`, and the `ALLOWED` guard in `examples.yml`) and
+following their rule that the list may only shrink. An unexpected entry names the
+regressing file instead of reporting a number that drifted; a missing entry means
+#243 is fixed and says which three places to drop it from. Adding or deleting
+examples no longer touches this test.
+
+### Found in passing: `ليس`/`!` in infix position spins the Pratt loop (#266)
+
+The negative test that proves the new guard bites — drop an unparseable file into
+`examples/` and confirm the assert fires — used
+`هذا ليس كوداً صالحاً ((( ` as the bad input and **hung** `cargo test` past 600s.
+
+Two guesses died on the way to the answer, both worth recording because both were
+plausible and both were *wrong in the same way*: reasoning from syntax rather
+than from the parser's own tables.
+
+1. **"The unclosed `(((`."** From LANGUAGE_SPEC §4.6.1 — a newline inside an open
+   bracket is not a statement terminator, so an unclosed one leaves nothing to
+   resynchronise on. Disproved: unclosed `(`, `[` and `{` all exit 1 promptly.
+2. **"A dangling NOT with no operand."** Bisecting to `س ليس` made this look
+   right. Disproved by one more test: `س ليس ص` *has* an operand and still hangs.
+
+What actually matters is the operand **before** the NOT — the token is in *infix*
+position:
+
+    س ليس        hangs      ليس       exits 1
+    س !          hangs      !         exits 1
+    س ليس ص      hangs      س ⏎ !     exits 1
+    اطبع(س ليس)  hangs      س و/أو/+/-  exits 1
+
+`src/parser/precedence.rs:50` scores `Bang` as `Precedence::Unary`, so the Pratt
+loop in `parse_precedence` does not break on it and calls `parse_infix`. But
+`parse_infix` has no `Bang` arm and falls through to `_ => Ok(left)`, which
+returns **without advancing**. Same token, same precedence, forever. `Bang` is
+the only token in that state: everything else `Precedence::of` scores has an
+infix arm that advances (`PlusPlus`/`MinusMinus` are handled as postfix inc/dec),
+and prefix-only tokens scoring `None` break out.
+
+The generalisable lesson is about the catch-all, not about NOT: a Pratt `parse_infix`
+whose fallback returns without consuming turns any future precedence-without-arm
+into a hang rather than an error.
+
+Not confined to `parse` — `check` and `run` hang identically, so the LSP is
+exposed too: typing `س !` mid-expression can hang the language server on a
+keystroke. Distinct from #234 (an IR-builder terminator bug where a method ending
+in `تطابق` loops at *runtime*); this one never leaves the parser. Filed as #266,
+pre-existing and unrelated to this change — not fixed here.
+
 ## 2026-08-12 — Issue #259: `صدّر` hid a declaration's members from two passes
 
 ### One of five analyzer passes did not unwrap `صدّر`

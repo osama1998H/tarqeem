@@ -72,7 +72,9 @@ jobs:
           PASS=0
           FAIL=0
 
-          # Only check examples in the main examples/ directory (not planned/)
+          # examples/ is flat, so this glob is the whole corpus. It is not
+          # recursive on purpose: a nested example would be checked here but
+          # missed by the run-* matrices below, which resolve examples/<name>.ترقيم.
           for file in examples/*.ترقيم; do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
@@ -167,7 +169,8 @@ jobs:
       fail-fast: false
       matrix:
         example:
-          # Only include working examples (those not in planned/)
+          # Every file in examples/. Kept in sync by hand — an example added
+          # without an entry here is silently never run.
           - مرحبا
           - متغيرات
           - دوال
@@ -228,7 +231,8 @@ jobs:
       fail-fast: false
       matrix:
         example:
-          # Only include working examples (those not in planned/)
+          # Every file in examples/. Kept in sync by hand — an example added
+          # without an entry here is silently never run.
           - مرحبا
           - متغيرات
           - دوال
@@ -289,7 +293,8 @@ jobs:
       fail-fast: false
       matrix:
         example:
-          # Only include working examples (those not in planned/)
+          # Every file in examples/. Kept in sync by hand — an example added
+          # without an entry here is silently never run.
           - مرحبا
           - متغيرات
           - دوال
