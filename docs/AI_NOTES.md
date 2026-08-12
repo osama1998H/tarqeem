@@ -43,16 +43,35 @@ regressing file instead of reporting a number that drifted; a missing entry mean
 #243 is fixed and says which three places to drop it from. Adding or deleting
 examples no longer touches this test.
 
-### Found in passing: unbalanced `(` hangs the parser
+### Found in passing: a dangling `ليس`/`!` hangs the front end
 
 The negative test that proves the new guard bites — drop an unparseable file into
-`examples/` and confirm the assert fires — first used `((( ` as the bad input and
-**hung** `cargo test` past 600s. Confirmed against the CLI directly:
-`tarqeem parse` on a file containing an unclosed `(((` never returns, while a
-cleanly-invalid file (`صنف خطأ`) exits 1 immediately. Consistent with
-LANGUAGE_SPEC §4.6.1: newlines are suppressed inside an open bracket, so an
-unclosed one leaves the parser with no statement terminator to resynchronise on.
-Unrelated to this change and pre-existing — recorded here, not fixed here.
+`examples/` and confirm the assert fires — used
+`هذا ليس كوداً صالحاً ((( ` as the bad input and **hung** `cargo test` past 600s.
+
+The first guess was the unclosed `(((`, reasoning from LANGUAGE_SPEC §4.6.1 (a
+newline inside an open bracket is not a statement terminator, so an unclosed one
+leaves the parser nothing to resynchronise on). **Bisecting disproved that.**
+Unclosed `(`, `[` and `{` all exit 1 promptly. The trigger is the `ليس` in the
+prose: a **unary NOT with no operand at end of statement**.
+
+    س ليس     hangs        س و      exits 1
+    س !       hangs        س أو     exits 1
+    ١ ليس     hangs        س +      exits 1
+    ليس       exits 1      س -      exits 1
+
+So it needs a complete primary *before* the dangling NOT — `ليس` alone recovers
+fine. Both spellings of NOT hang and no other trailing operator does, which
+points at the unary branch rather than at bracket tracking. It is not confined to
+`parse`: `check` and `run` hang identically, so the whole front end is exposed —
+including the LSP, where an editor user who has typed `س !` and not yet finished
+the expression would hang the language server on a keystroke.
+
+Distinct from #234, which is an IR-builder terminator bug (a method ending in
+`تطابق` never returns at *runtime*); this one never leaves the parser. Recording
+the corrected characterisation rather than the parens guess, since the guess was
+already written down once. Pre-existing and unrelated to this change — not fixed
+here.
 
 ## 2026-08-12 — Issue #259: `صدّر` hid a declaration's members from two passes
 
