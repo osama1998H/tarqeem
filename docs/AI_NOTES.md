@@ -43,35 +43,47 @@ regressing file instead of reporting a number that drifted; a missing entry mean
 #243 is fixed and says which three places to drop it from. Adding or deleting
 examples no longer touches this test.
 
-### Found in passing: a dangling `ليس`/`!` hangs the front end
+### Found in passing: `ليس`/`!` in infix position spins the Pratt loop (#266)
 
 The negative test that proves the new guard bites — drop an unparseable file into
 `examples/` and confirm the assert fires — used
 `هذا ليس كوداً صالحاً ((( ` as the bad input and **hung** `cargo test` past 600s.
 
-The first guess was the unclosed `(((`, reasoning from LANGUAGE_SPEC §4.6.1 (a
-newline inside an open bracket is not a statement terminator, so an unclosed one
-leaves the parser nothing to resynchronise on). **Bisecting disproved that.**
-Unclosed `(`, `[` and `{` all exit 1 promptly. The trigger is the `ليس` in the
-prose: a **unary NOT with no operand at end of statement**.
+Two guesses died on the way to the answer, both worth recording because both were
+plausible and both were *wrong in the same way*: reasoning from syntax rather
+than from the parser's own tables.
 
-    س ليس     hangs        س و      exits 1
-    س !       hangs        س أو     exits 1
-    ١ ليس     hangs        س +      exits 1
-    ليس       exits 1      س -      exits 1
+1. **"The unclosed `(((`."** From LANGUAGE_SPEC §4.6.1 — a newline inside an open
+   bracket is not a statement terminator, so an unclosed one leaves nothing to
+   resynchronise on. Disproved: unclosed `(`, `[` and `{` all exit 1 promptly.
+2. **"A dangling NOT with no operand."** Bisecting to `س ليس` made this look
+   right. Disproved by one more test: `س ليس ص` *has* an operand and still hangs.
 
-So it needs a complete primary *before* the dangling NOT — `ليس` alone recovers
-fine. Both spellings of NOT hang and no other trailing operator does, which
-points at the unary branch rather than at bracket tracking. It is not confined to
-`parse`: `check` and `run` hang identically, so the whole front end is exposed —
-including the LSP, where an editor user who has typed `س !` and not yet finished
-the expression would hang the language server on a keystroke.
+What actually matters is the operand **before** the NOT — the token is in *infix*
+position:
 
-Distinct from #234, which is an IR-builder terminator bug (a method ending in
-`تطابق` never returns at *runtime*); this one never leaves the parser. Recording
-the corrected characterisation rather than the parens guess, since the guess was
-already written down once. Pre-existing and unrelated to this change — not fixed
-here.
+    س ليس        hangs      ليس       exits 1
+    س !          hangs      !         exits 1
+    س ليس ص      hangs      س ⏎ !     exits 1
+    اطبع(س ليس)  hangs      س و/أو/+/-  exits 1
+
+`src/parser/precedence.rs:50` scores `Bang` as `Precedence::Unary`, so the Pratt
+loop in `parse_precedence` does not break on it and calls `parse_infix`. But
+`parse_infix` has no `Bang` arm and falls through to `_ => Ok(left)`, which
+returns **without advancing**. Same token, same precedence, forever. `Bang` is
+the only token in that state: everything else `Precedence::of` scores has an
+infix arm that advances (`PlusPlus`/`MinusMinus` are handled as postfix inc/dec),
+and prefix-only tokens scoring `None` break out.
+
+The generalisable lesson is about the catch-all, not about NOT: a Pratt `parse_infix`
+whose fallback returns without consuming turns any future precedence-without-arm
+into a hang rather than an error.
+
+Not confined to `parse` — `check` and `run` hang identically, so the LSP is
+exposed too: typing `س !` mid-expression can hang the language server on a
+keystroke. Distinct from #234 (an IR-builder terminator bug where a method ending
+in `تطابق` loops at *runtime*); this one never leaves the parser. Filed as #266,
+pre-existing and unrelated to this change — not fixed here.
 
 ## 2026-08-12 — Issue #259: `صدّر` hid a declaration's members from two passes
 
