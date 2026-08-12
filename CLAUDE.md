@@ -2,6 +2,11 @@
 
 This document provides context and guidelines for Claude (AI assistant) when working on the Tarqeem project.
 
+
+# important notes hard line dont cross
+
+- dont leave any claude marks in github issues / PR like this "🤖 Generated with Claude Code" or mention the model name i paid for claude subscription so its my work
+
 ## Imports
 
 See @ARCHITECTURE.md for detailed technical architecture.
@@ -120,7 +125,7 @@ docs/                    # Project documentation
 
 ### Compiler Pipeline (Layer Ordering)
 
-```
+```plain
 Source → Lexer → Parser → Semantic → IR → Codegen → Binary
                     ↓
               Interpreter (for debugging/REPL)
@@ -596,8 +601,6 @@ cargo run -- run examples/مرحبا.ترقيم
 | `README.md` | User documentation and examples |
 | `GETTING_STARTED.md` | Quick start guide |
 | `docs/AI_NOTES.md` | AI implementation decisions log |
-| `docs/ROADMAP_V1.1-V1.5.md` | Quality hardening roadmap |
-| `docs/PROFILING.md` | Performance profiling guide |
 
 ---
 
