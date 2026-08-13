@@ -155,6 +155,61 @@ fn assert_analyze_error_code(source: &str, code: &str) {
     }
 }
 
+mod terminators {
+    use super::*;
+
+    #[test]
+    fn test_method_ending_in_match_returns_to_its_caller() {
+        // The #234 repro. تطابق mints its exit block before the arm blocks, so
+        // the merge block the method ends on was never blocks.last() — the
+        // implicit-Return check inspected a terminated arm, passed, and left
+        // the merge block bare. The interpreter then fell through in block
+        // order into match.arm0, whose join jump goes back to the merge block:
+        // "1" forever, and the caller never regained control.
+        //
+        // A regression here hangs rather than fails; the CI job timeout is the
+        // backstop.
+        let source = r#"
+            صنف مثال {
+                منشئ() { }
+                عام دالة افحص(ق: عدد) {
+                    تطابق (ق) {
+                        حالة 1 => اطبع(1)
+                        غير_ذلك => اطبع(0)
+                    }
+                }
+            }
+
+            دالة رئيسية() {
+                متغير م = جديد مثال()
+                م.افحص(1)
+                اطبع(99)
+            }
+        "#;
+        assert_stdout_both_modes(source, &["1", "99"]);
+    }
+
+    #[test]
+    fn test_constructor_ending_in_match_returns_to_its_caller() {
+        let source = r#"
+            صنف مثال {
+                منشئ(ق: عدد) {
+                    تطابق (ق) {
+                        حالة 1 => اطبع(1)
+                        غير_ذلك => اطبع(0)
+                    }
+                }
+            }
+
+            دالة رئيسية() {
+                متغير م = جديد مثال(1)
+                اطبع(99)
+            }
+        "#;
+        assert_stdout_both_modes(source, &["1", "99"]);
+    }
+}
+
 mod dispatch {
     use super::*;
 
