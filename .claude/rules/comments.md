@@ -1,5 +1,5 @@
 ---
-paths: src/**/*.rs
+paths: "{src,runtime-rs/src,benches}/**/*.rs"
 ---
 
 # Code Comments Philosophy

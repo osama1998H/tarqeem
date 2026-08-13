@@ -2036,3 +2036,27 @@ core OOP (inherited methods, مشترك access, upcasting); native divergences
 (طول bytes-vs-chars, نوع symbol, stdlib segfault, نص? IR); parser blockers
 (bare أرجع, forward references). Raw audit: 40 findings across 6 lenses;
 10 verified, 10/10 confirmed, 0 refuted.
+
+## Rules hardening (2026-08-13)
+
+Four rule files stated things that were not true: `error-codes.md` linked a
+path that resolves inside `.claude/`, `testing.md` prescribed English-keyword
+tests and a `tests/integration/` tree that never existed, and
+`bug-tracking.md` listed six labels none of which had been created — so every
+`gh issue create` using them failed silently. Rules that lie are worse than no
+rules; they get followed.
+
+Decisions worth keeping:
+- **`code-quality`** is the label for comment bloat and readability debt.
+  Spotted bloat gets *filed*, not fixed inline — a drive-by comment refactor
+  inflates an unrelated diff, which is the problem it would claim to solve.
+- **Beta Roadmap board** gates work selection. `Planned` empty ⇒ shortlist
+  five related issues and stop for the user, rather than picking one and
+  starting. Board IDs are discovered at runtime so the rule survives the board
+  being replaced (Beta → Alpha).
+- **Mermaid**: vendored `WH-2099/mermaid-skill` (MIT, dependency-free) at
+  project level. Diagrams are capped at 12 nodes and validated before
+  shipping. Mixed Arabic/Latin labels get reordered by the bidi algorithm
+  (`ت٠٣٠٣` renders reversed) — keep each label in one script.
+- `comments.md` / `rust-style.md` globs were `src/**/*.rs`, so neither applied
+  to `runtime-rs/` or `benches/`. Widened.
