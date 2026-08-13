@@ -1,5 +1,5 @@
 ---
-paths: src/**/*.rs
+paths: "{src,runtime-rs/src,benches}/**/*.rs"
 ---
 
 # Code Comments Philosophy
@@ -150,6 +150,60 @@ TokenKind::Const      // ثابت
 TokenKind::Function   // دالة
 ```
 
+## Comment Budget When Writing Code
+
+A comment block must not outgrow the code it documents. Concretely:
+
+| Situation | Budget |
+|-----------|--------|
+| Public API doc comment | ≤3 lines, unless it carries a grammar block (see `parse_var_decl` above) |
+| Inline comment inside a function | 1 line, explaining *why* |
+| Any comment block | Never longer than the code it precedes |
+
+Two habits that inflate a diff without adding meaning:
+
+1. **Growing comments while editing.** Touching a function is not an occasion to
+   expand its documentation. If the existing comment is still true, leave it.
+2. **Documenting the obvious in bulk.** Ten lines describing a five-line `match`
+   makes the `match` harder to find, not easier to understand.
+
+A reviewer reads the diff. Every line of comment they must read is a line of code
+they are not reading.
+
+## Spotting Bloat: File It, Don't Fix It
+
+When you notice an existing comment block that is too long, **do not fix it in the
+change you are working on**. An unrelated comment refactor inflates the diff and
+makes the PR harder to review — the exact problem this rule exists to prevent.
+
+**Trigger** — any one of:
+- A block of **≥10 comment lines that would lose nothing at ≤5**
+- A doc comment duplicated from another declaration
+- A comment that is now factually stale (describes behavior that changed)
+
+**What to do:**
+
+1. Check for a duplicate: `gh issue list --state open --search "<file name>"`
+2. If none, file one short issue:
+   ```bash
+   gh issue create --title "[CODE-QUALITY] Over-long comment block in <path>" --label "code-quality" --label "documentation" --body "..."
+   ```
+3. Report the issue number to the user and **continue the original task**.
+
+**Body format — file, line range, one sentence. Nothing more:**
+
+```
+`src/ir/builder/expr_builder.rs:120-141` — 22 comment lines restating the match arms below.
+Reducible to ~4 lines stating why SSA temps are reused, without losing meaning.
+No behavior change.
+```
+
+**Limits:**
+- Cap at ~3 such issues per session. The tracker is for signal, not inventory.
+- **Exception:** if the bloated comment sits inside lines you are already rewriting,
+  delete it as part of that work. That is not a drive-by.
+- No AI attribution in the issue — no "Generated with", no model name.
+
 ## Summary
 
 | Comment Type | Action |
@@ -163,3 +217,4 @@ TokenKind::Function   // دالة
 | Workarounds/edge cases | Keep |
 | Public API grammar | Keep |
 | Arabic keyword mappings | Keep |
+| Existing block ≥10 lines, reducible to ≤5 | File a `code-quality` issue, don't fix inline |

@@ -1,8 +1,8 @@
 ---
-paths: src/**/*.rs
+paths: "{src,runtime-rs/src,benches}/**/*.rs"
 ---
 
-# Rust Code Style (applies to src/**/*.rs)
+# Rust Code Style (applies to all Rust in the workspace)
 
 This file defines Rust coding standards for the Tarqeem compiler.
 
