@@ -182,6 +182,15 @@ See `.claude/rules/00-operating-procedure.md` for complete workflow.
 
 ---
 
+## Slash Commands (.claude/commands/)
+
+| Command | Purpose |
+|---------|---------|
+| `/roadmap` | Pick work from the board: shortlist five if `Planning` is empty, else start the most impactful planned issue |
+| `/roadmap <n>` | Skip selection and start issue `<n>` directly |
+
+---
+
 ## Skills (.claude/skills/)
 
 | Skill | Purpose |

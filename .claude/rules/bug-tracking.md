@@ -178,8 +178,15 @@ A newly filed issue is added to the board with status `Todo`.
 
 ## The Planning Gate
 
-**This applies whenever anyone asks to start working on tickets.** Read the `Planning`
-column *before* doing anything else.
+**Entry point: the `/roadmap` command** (`.claude/commands/roadmap.md`), which executes
+this gate with the `gh project` calls spelled out. Prefer it over a hand-written prompt —
+a prompt like "pick the highest-impact issue and fix it" reads as an explicit
+instruction that *overrides* this gate, and the shortlist never happens.
+
+This section remains the authority; the command executes it.
+
+**The gate applies whenever anyone asks to start working on tickets.** Read the
+`Planning` column *before* doing anything else.
 
 ### `Planning` has items → work from it
 
