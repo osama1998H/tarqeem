@@ -175,19 +175,18 @@ See `.claude/rules/00-operating-procedure.md` for complete workflow.
 | `testing.md` | Testing requirements |
 | `rust-style.md` | Rust coding standards |
 | `arabic-philosophy.md` | Arabic language philosophy, Unicode handling, and keyword design |
-| `comments.md` | Comment guidelines |
+| `comments.md` | Comment budget; when to file a `code-quality` issue instead of fixing inline |
+| `bug-tracking.md` | Issue creation and the Beta Roadmap board planning gate |
+| `error-codes.md` | Arabic error code system (ق، ب، د، ن، ص، و، ت، ح، م) |
+| `diagrams.md` | When a mermaid diagram is worth drawing, and how small |
 
 ---
 
-## Slash Commands (.claude/commands/)
+## Skills (.claude/skills/)
 
-| Command | Purpose |
-|---------|---------|
-| `/project:safe-change <task>` | Full safe change workflow |
-| `/project:explore <topic>` | Read-only codebase exploration |
-| `/project:fix-issue <issue>` | Bug fix workflow |
-| `/project:add-feature <feature>` | New feature workflow |
-| `/project:review-code <code>` | Code review checklist |
+| Skill | Purpose |
+|-------|---------|
+| `mermaid` | Mermaid syntax reference per diagram type (vendored, see `VENDORED.md`) |
 
 ---
 
