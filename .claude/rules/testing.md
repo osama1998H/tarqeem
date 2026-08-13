@@ -65,9 +65,6 @@ Test both Arabic and English keywords:
 fn test_bilingual_keywords() {
     // Arabic
     assert_tokens("متغير", &[TokenKind::Let]);
-
-    // English alias
-    assert_tokens("let", &[TokenKind::Let]);
 }
 ```
 
