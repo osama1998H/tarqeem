@@ -400,7 +400,7 @@ impl IrBuilder {
 
                     let saved = self.suspend_function_context();
 
-                    self.begin_function(mangled_name, method_params, ret_type)?;
+                    self.begin_function(mangled_name, method_params, ret_type.clone())?;
 
                     if let Some(ref mut func) = self.current_function {
                         func.is_async = *is_async;
@@ -415,13 +415,7 @@ impl IrBuilder {
                         self.build_stmt(stmt)?;
                     }
 
-                    if let Some(ref func) = self.current_function {
-                        if let Some(block) = func.blocks.last() {
-                            if !block.has_terminator() {
-                                self.emit(Instruction::Return { value: None });
-                            }
-                        }
-                    }
+                    self.emit_implicit_return(&ret_type);
 
                     self.end_function()?;
 
@@ -459,13 +453,7 @@ impl IrBuilder {
                         self.build_stmt(stmt)?;
                     }
 
-                    if let Some(ref func) = self.current_function {
-                        if let Some(block) = func.blocks.last() {
-                            if !block.has_terminator() {
-                                self.emit(Instruction::Return { value: None });
-                            }
-                        }
-                    }
+                    self.emit_implicit_return(&IrType::Void);
 
                     self.end_function()?;
 

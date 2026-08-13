@@ -891,6 +891,44 @@ impl IrBuilder {
             .unwrap_or(false)
     }
 
+    /// Close a body whose last block fell off the end, emitting the implicit
+    /// return the source omitted.
+    ///
+    /// Keyed on `current_block`, never on `blocks.last()`: a statement that
+    /// mints its exit block before its body blocks — `تطابق` always, the
+    /// loops and `إذا` whenever the body branches — leaves the merge block
+    /// buried mid-vector, so `blocks.last()` names an already-terminated arm
+    /// and the check waves the real block through unterminated (#234).
+    pub(crate) fn emit_implicit_return(&mut self, ret_ty: &IrType) {
+        if !self.current_block_needs_terminator() {
+            return;
+        }
+
+        if *ret_ty == IrType::Void {
+            self.emit(Instruction::Return { value: None });
+            return;
+        }
+
+        // Defensive default: semantic analysis is expected to guarantee every
+        // path returns whenever a non-void return type was declared, so this
+        // should be unreachable for valid programs — it exists only to avoid
+        // an ill-typed `ret void` inside a non-void function if it ever is.
+        let dest = self.new_var();
+        let zero = match ret_ty {
+            IrType::Float => Constant::Float(0.0),
+            IrType::Bool => Constant::Bool(false),
+            IrType::Int => Constant::Int(0),
+            _ => Constant::Null,
+        };
+        self.emit(Instruction::Const {
+            dest,
+            value: zero,
+            ty: ret_ty.clone(),
+        });
+        self.var_types.insert(dest.0, ret_ty.clone());
+        self.emit(Instruction::Return { value: Some(dest) });
+    }
+
     /// Generate a new unique variable ID.
     pub(crate) fn new_var(&mut self) -> VarId {
         let id = VarId(self.var_counter);
@@ -1682,6 +1720,126 @@ mod tests {
             print_count(&module, "__main__"),
             2,
             "both statements after the class must reach __main__"
+        );
+    }
+
+    /// `تطابق` mints its exit block *before* the arm blocks, so the merge
+    /// block a method ends on is never `blocks.last()`. Any body-closing check
+    /// that reads `blocks.last()` therefore inspects a terminated arm, passes,
+    /// and leaves the real block bare (#234).
+    const CLASS_WITH_MATCH_METHOD: &str = r#"
+        صنف مثال {
+            منشئ() { }
+            عام دالة افحص(ق: عدد) {
+                تطابق (ق) {
+                    حالة 1 => اطبع(1)
+                    غير_ذلك => اطبع(0)
+                }
+            }
+        }
+    "#;
+
+    fn function<'a>(module: &'a Module, name: &str) -> &'a Function {
+        module
+            .functions
+            .iter()
+            .find(|f| f.name == name)
+            .unwrap_or_else(|| panic!("module must contain {}", name))
+    }
+
+    #[test]
+    fn test_method_ending_in_match_is_terminated() {
+        // Unterminated, the merge block falls through to match.arm0 in block
+        // order, whose join jump goes back to it: the interpreter loops forever
+        // and native codegen lands on `unreachable`.
+        let module = build_ir(CLASS_WITH_MATCH_METHOD).expect("class must build");
+        let method = function(&module, "مثال::افحص");
+        assert!(
+            method.blocks.iter().all(|b| b.has_terminator()),
+            "a method ending in تطابق must not fall off the end of its merge block"
+        );
+    }
+
+    #[test]
+    fn test_constructor_ending_in_match_is_terminated() {
+        let source = r#"
+            صنف مثال {
+                منشئ(ق: عدد) {
+                    تطابق (ق) {
+                        حالة 1 => اطبع(1)
+                        غير_ذلك => اطبع(0)
+                    }
+                }
+            }
+        "#;
+        let module = build_ir(source).expect("class must build");
+        let ctor = function(&module, "مثال::منشئ");
+        assert!(
+            ctor.blocks.iter().all(|b| b.has_terminator()),
+            "a constructor ending in تطابق must not fall off the end of its merge block"
+        );
+    }
+
+    #[test]
+    fn test_non_void_method_merge_block_returns_a_value() {
+        // Every arm returns, so the merge block is dead — but it still gets
+        // emitted, and closing it with a bare `Return { value: None }` would be
+        // `ret void` inside an i64 function, which LLVM rejects.
+        let source = r#"
+            صنف مثال {
+                منشئ() { }
+                عام دالة افحص(ق: عدد) -> عدد {
+                    تطابق (ق) {
+                        حالة 1 => أرجع 1
+                        غير_ذلك => أرجع 0
+                    }
+                }
+            }
+        "#;
+        let module = build_ir(source).expect("class must build");
+        let method = function(&module, "مثال::افحص");
+        assert!(
+            method.blocks.iter().all(|b| b.has_terminator()),
+            "a non-void method ending in تطابق must still be terminated"
+        );
+        assert!(
+            method
+                .blocks
+                .iter()
+                .filter_map(|b| b.terminator())
+                .all(|t| matches!(
+                    t,
+                    Instruction::Return { value: Some(_) }
+                        | Instruction::Jump { .. }
+                        | Instruction::Branch { .. }
+                )),
+            "a non-void method must never return void: {:?}",
+            method
+                .blocks
+                .iter()
+                .filter_map(|b| b.terminator())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_lambda_body_ending_in_match_is_terminated() {
+        let source = r#"
+            دالة رئيسية() {
+                ثابت ف = (ق: عدد) => {
+                    تطابق (ق) {
+                        حالة 1 => اطبع(1)
+                        غير_ذلك => اطبع(0)
+                    }
+                }
+                ف(1)
+            }
+        "#;
+        let module = build_program(source).expect("program must build");
+        let lambda = function(&module, "__lambda_0");
+        assert!(
+            lambda.blocks.iter().all(|b| b.has_terminator()),
+            "a lambda body ending in تطابق must not fall off the end of its merge block"
         );
     }
 

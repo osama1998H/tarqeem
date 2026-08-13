@@ -1496,39 +1496,7 @@ impl IrBuilder {
                     self.patch_block_lambda_returns(&ret_ty);
                 }
 
-                let needs_terminator = self
-                    .current_function
-                    .as_ref()
-                    .and_then(|func| func.blocks.last())
-                    .map(|blk| !blk.has_terminator())
-                    .unwrap_or(false);
-
-                if needs_terminator {
-                    if ret_ty == IrType::Void {
-                        self.emit(Instruction::Return { value: None });
-                    } else {
-                        // Defensive default: semantic analysis is expected to
-                        // guarantee every path returns whenever a non-void
-                        // return type was inferred, so this should be
-                        // unreachable for valid programs — it exists only to
-                        // avoid an ill-typed `ret void` inside a non-void
-                        // function if it ever is.
-                        let dest = self.new_var();
-                        let zero = match &ret_ty {
-                            IrType::Float => Constant::Float(0.0),
-                            IrType::Bool => Constant::Bool(false),
-                            IrType::Int => Constant::Int(0),
-                            _ => Constant::Null,
-                        };
-                        self.emit(Instruction::Const {
-                            dest,
-                            value: zero,
-                            ty: ret_ty.clone(),
-                        });
-                        self.var_types.insert(dest.0, ret_ty.clone());
-                        self.emit(Instruction::Return { value: Some(dest) });
-                    }
-                }
+                self.emit_implicit_return(&ret_ty);
 
                 ret_ty
             }

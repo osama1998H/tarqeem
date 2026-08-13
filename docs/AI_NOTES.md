@@ -2,6 +2,57 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-13 — `blocks.last()` is never the current block (#234)
+
+### The asymmetry
+
+`emit()` always writes into `self.current_block`. Three body-closing checks read
+`func.blocks.last()` instead — the class method and constructor branches of
+`build_class_decl`, and the block-bodied lambda. The check inspected one block,
+the write targeted another.
+
+`build_match` mints `match.exit` **before** the arm blocks, so after a `تطابق`
+the merge block is buried mid-vector and `blocks.last()` names an
+already-terminated arm. The check saw a terminator, skipped the implicit
+`Return`, and the real merge block went out bare. The interpreter treats an
+unterminated block as fall-through *in vector order*, so `match.exit` fell into
+`match.arm0`, whose join jump goes back to `match.exit`: an infinite loop, and
+the caller never regained control. Native landed on codegen's `unreachable`.
+
+The guard and the explanation both already existed — `mod.rs`'s script-mode
+`__main__` close carries the comment verbatim, and `current_block_needs_terminator`
+was added for #181 — they were simply never propagated to the class-member and
+lambda paths. All three predate the module split; none was touched by #232.
+
+### Why the loop fixture stayed green
+
+`CLASS_WITH_BRANCHING_METHOD` ends in a straight-line `طالما`. Loops and `حاول`
+also create their exit block before the body, but with a *flat* body nothing is
+pushed after it, so `blocks.last()` accidentally **is** the exit block. The
+existing terminator test therefore could not have caught this. Any nested
+block-creating statement inside such a body breaks the coincidence — the bug was
+never `تطابق`-specific, only `تطابق`-guaranteed.
+
+### The non-void trap
+
+Swapping in `current_block_needs_terminator()` alone regresses non-void methods.
+When every `تطابق` arm returns, the merge block is dead-but-emitted; today it
+stays unterminated and codegen writes a valid `unreachable`. A bare
+`Return { value: None }` there is `ret void` inside an `i64` function, which LLVM
+rejects. Gating on void instead (as `build_func_decl` does) is worse — it leaves
+the interpreter hang alive for any non-void method with a fall-through arm.
+
+The lambda path already had the answer: void → `Return { value: None }`,
+non-void → typed-zero `Const` + `Return { value: Some(_) }`. That body moved to
+`IrBuilder::emit_implicit_return`, now shared by all three sites. `build_func_decl`
+keeps its own void gate; its non-void case is the same latent hazard and wants
+its own change.
+
+Tests assert IR shape rather than execution wherever possible: a regression here
+**hangs** instead of failing, so `all(|b| b.has_terminator())` is what fails fast.
+"All blocks terminated" alone does not catch the `ret void` regression — the
+non-void fixture asserts the terminator carries a value.
+
 ## 2026-08-12 — A bool crossing into Rust was never zero-extended
 
 ### Found by adding four lines to an example
