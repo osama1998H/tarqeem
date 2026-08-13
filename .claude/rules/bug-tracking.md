@@ -120,7 +120,7 @@ this task, is.
    ```bash
    gh issue create --title "[BUG] Test failure in lexer module" --label "bug" --label "test-failure" --body "..."
    ```
-4. Add it to the roadmap board with status `Open` (see below)
+4. Add it to the roadmap board with status `Todo` (see below)
 5. Report: "Created issue #123 for the test failure" — then resume the original task
 
 ---
@@ -130,13 +130,17 @@ this task, is.
 Issues alone do not show priority. The repository project board does. It is the
 answer to "which of these 40 open issues matters?"
 
-**Board**: `Beta Roadmap` (repository project). When the beta closes, it is replaced
-by the next one — Alpha, and so on. Never hardcode its ID; discover it.
+**Board**: `Tarqeem beta Roadmap` (owner `osama1998H`, currently project number 4).
+When the beta closes it is replaced by the next one — Alpha, and so on. Never
+hardcode the number or the field IDs; discover them.
 
-**Statuses**: `Open` → `Planned` → `In Progress` → `Closed`
+**Statuses**: `Todo` → `Planning` → `In Progress` → `Done`
 
-`Closed` is handled by repository automation when an issue closes. **Never move an
-item to `Closed` by hand.**
+`Done` is handled by repository automation when an issue closes. **Never move an item
+to `Done` by hand.**
+
+If a future board uses different names, map by position rather than guessing:
+first = backlog, second = planned, third = active, fourth = finished.
 
 ## Access
 
@@ -170,22 +174,22 @@ gh project field-list <number> --owner osama1998H --format json
 gh project item-list <number> --owner osama1998H --format json
 ```
 
-A newly filed issue is added to the board with status `Open`.
+A newly filed issue is added to the board with status `Todo`.
 
 ## The Planning Gate
 
-**This applies whenever anyone asks to start working on tickets.** Read the `Planned`
+**This applies whenever anyone asks to start working on tickets.** Read the `Planning`
 column *before* doing anything else.
 
-### `Planned` has items → work from it
+### `Planning` has items → work from it
 
 Take one, move it to `In Progress`, branch per Gitflow, one issue per PR. Do not
 re-plan; the selection was already made and agreed.
 
-### `Planned` is empty → select five, then stop
+### `Planning` is empty → select five, then stop
 
 1. Choose **5** open issues
-2. Move them `Open` → `Planned`
+2. Move them `Todo` → `Planning`
 3. Report them to the user: one line of rationale each, plus a suggested order
 4. **Stop.** Let the user pick which to start. Do not begin coding in the same turn.
 
