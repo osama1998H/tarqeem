@@ -935,10 +935,8 @@ impl Analyzer {
     fn namespace_as_value_error(&mut self, name: &str, span: Span) {
         self.error(
             &format!(
-                "'{}' اسم وحدة لا قيمة؛ لا يصلح إلا مؤهِّلاً لعضو ({}.عضو) / \
-                 '{}' names a module, not a value; it is only valid as a member \
-                 qualifier ({}.member)",
-                name, name, name, name
+                "'{}' اسم وحدة لا قيمة؛ لا يصلح إلا مؤهِّلاً لعضو ({}.عضو)",
+                name, name
             ),
             span,
         );
