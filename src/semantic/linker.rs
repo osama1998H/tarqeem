@@ -114,13 +114,8 @@ pub fn link_program(
                 format!(
                     "تم تجاهل دالة 'رئيسية' الخاصة بالوحدة '{}'؛ نقطة دخول الوحدة \
                      لا معنى لها بعد الدمج، ونقطة دخول البرنامج هي نقطة دخول الملف \
-                     الرئيسي وحده. / \
-                     Ignored module '{}'s own 'رئيسية'; a module's entry point is \
-                     meaningless once merged — the program's entry point is the \
-                     main file's alone.",
-                    module.path.display(),
-                    module.path.display()
-                ),
+                     الرئيسي وحده.",
+                    module.path.display()                ),
                 collision_span,
             ));
         }
@@ -129,11 +124,7 @@ pub fn link_program(
             warnings.push(Diagnostic::warning(
                 format!(
                     "تم تجاهل {} جملة تنفيذية في المستوى الأعلى للوحدة '{}'؛ \
-                     الوحدات المستوردة تُقرأ للتعريفات فقط ولا تُنفَّذ. / \
-                     Ignored {} top-level executable statement(s) in module '{}'; \
-                     imported modules contribute declarations only and are not executed.",
-                    dropped_executables,
-                    module.path.display(),
+                     الوحدات المستوردة تُقرأ للتعريفات فقط ولا تُنفَّذ.",
                     dropped_executables,
                     module.path.display()
                 ),
@@ -276,10 +267,8 @@ fn record_origin(
             Diagnostic::error(
                 format!(
                     "الاسم '{}' محجوز لصنف الاستثناء الأساسي المعرَّف تلقائياً؛ \
-                     اختر اسماً آخر، أو ورّثه: صنف اسمك يرث {}. / \
-                     The name '{}' is reserved for the built-in base exception \
-                     class; pick another name, or inherit from it instead.",
-                    name, name, name
+                     اختر اسماً آخر، أو ورّثه: صنف اسمك يرث {}.",
+                    name, name
                 ),
                 span,
             )
@@ -288,12 +277,7 @@ fn record_origin(
         Some(first_owner) => errors.push(
             Diagnostic::error(
                 format!(
-                    "تعريف علوي مكرر '{}' عند دمج الوحدات: معرَّف في '{}' وفي '{}'. / \
-                     Duplicate top-level definition '{}' while merging modules: \
-                     defined in '{}' and in '{}'.",
-                    name,
-                    first_owner.display(),
-                    owner.display(),
+                    "تعريف علوي مكرر '{}' عند دمج الوحدات: معرَّف في '{}' وفي '{}'.",
                     name,
                     first_owner.display(),
                     owner.display()
