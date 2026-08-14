@@ -1036,9 +1036,8 @@ impl Analyzer {
             None => {
                 self.error_with_code(
                     &format!(
-                        "الوحدة '{}' لا تحتوي على تصدير باسم '{}' / \
-                         Module '{}' has no export named '{}'",
-                        specifier, property, specifier, property
+                        "الوحدة '{}' لا تحتوي على تصدير باسم '{}'",
+                        specifier, property
                     ),
                     span,
                     &ERR_NOT_EXPORTED.to_string(),
