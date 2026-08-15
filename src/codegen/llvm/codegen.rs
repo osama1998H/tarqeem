@@ -1269,6 +1269,15 @@ impl LlvmCodegen {
                 // otherwise describes itself, which is wrong for a `عدد?`
                 // parameter given a bare `0` — that has to be boxed first (#185).
                 let declared_params = self.fn_param_types.get(&func_name).cloned();
+                // Runtime conversions take the scalar itself, so a boxed optional
+                // reaching one — as `"…" + مخزون` does inside a narrowed branch —
+                // has to be loaded first, or the pointer is printed as the value.
+                let runtime_scalar_param = match func_name.as_str() {
+                    "trq_int_to_string" => Some(IrType::Int),
+                    "trq_float_to_string" => Some(IrType::Float),
+                    "trq_bool_to_string" => Some(IrType::Bool),
+                    _ => None,
+                };
 
                 let mut args_str: Vec<String> = Vec::with_capacity(args.len());
                 for (i, a) in args.iter().enumerate() {
@@ -1283,6 +1292,11 @@ impl LlvmCodegen {
                         if Self::needs_boxing(&arg_ty, declared) {
                             name = self.emit_boxed_scalar(&name, &arg_ty);
                             arg_ty = declared.clone();
+                        }
+                    } else if let Some(scalar) = runtime_scalar_param.as_ref().filter(|_| i == 0) {
+                        if matches!(&arg_ty, IrType::Ptr(inner) if **inner == *scalar) {
+                            name = self.emit_unboxed_scalar(&name, scalar);
+                            arg_ty = scalar.clone();
                         }
                     }
 

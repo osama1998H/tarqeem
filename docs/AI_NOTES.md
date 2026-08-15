@@ -2303,3 +2303,81 @@ the new test suite did not catch any of them. Worth remembering *why*:
 - **Four backends, not three.** The debug interpreter has its own builtin
   registry, so an IR lowering that emits a new `trq_*` symbol breaks
   `tarqeem debug` while `run`, `--jit` and `compile` all pass (#223).
+
+## #185 — native divergences: طول, optionals, float display, null narrowing
+
+The issue bundled six items against `main`. Two were already fixed by the time
+the work started (`نوع` by #222, the stdlib-import segfault), and the remaining
+four sat in three different layers. Re-running every repro before planning was
+what established that; the issue text alone would have sent two agents after
+bugs that no longer existed.
+
+Four root causes, one shape: **codegen cannot see runtime types, and each fix
+had to recover a type the layer already had.**
+
+- **`طول`** is lowered with no type dispatch at all (`expr_builder.rs`, the arm
+  computes `arg_ty` and ignores it), so it becomes `ArrayLen`. Every interpreting
+  backend makes that instruction polymorphic; codegen emitted `trq_array_len`
+  unconditionally. It was *silent* rather than a crash because `TrqString` and
+  `TrqArray` are both `#[repr(C)]` with `len` first — the load succeeds and
+  returns the byte count. The linker even folds the two functions to one address,
+  so disassembly appears to show a `trq_string_len` call that codegen never made.
+- **Comparisons** dispatched on `Binary.ty`, which is the *result* type and so
+  always `Bool`. Integers worked by coincidence — that arm spells `i64`. The
+  `(Eq/Ne, Ptr(_))` arms existed but were reachable only from `build_truthiness`,
+  which passes the *operand* type as `ty`. Two booleans could not be compiled at
+  all, which no issue had recorded.
+- **`trq_print_float`** wrote whole floats as `value as i64` under a "%g style"
+  comment. No other backend followed that convention.
+- **Narrowing** was simply absent: `analyze_if` type-checked the condition and
+  then analysed both branches knowing nothing about what it proved.
+
+Decisions worth keeping:
+
+- **Every backend fix stayed in codegen, deliberately.** The alternative for
+  `طول` was to dispatch in the IR builder, which emits a new symbol and so must
+  be taught to *both* interpreter registries or `tarqeem debug` breaks (#223).
+  One file beats three, and `trq_string_len_chars` was already declared in the
+  prelude, so nothing needed restaging past the `find_runtime` trap (#285).
+- **`trq_float_to_string` was left alone on purpose.** Concatenation already
+  agreed across backends on `5`; "fixing" it to match `اطبع` would have
+  manufactured a divergence. The language is left internally inconsistent —
+  `اطبع(5.0)` is `5.0`, `اطبع("" + 5.0)` is `5` — and a test now pins that, so
+  the inconsistency is a decision rather than an accident.
+- **Boxing shipped with the icmp fix, not after it.** Optionals lower to a
+  pointer and a scalar was stored raw into that slot: valid LLVM under opaque
+  pointers, so nothing rejected it, and `عدد? = 0` compared equal to `لا_شيء`.
+  Landing the comparison fix alone would have replaced a build error with a
+  silent wrong answer — the exact trade #222's postscript warns about.
+- **Narrowing is withdrawn when the branch assigns to the variable.** Knowing
+  *where* an assignment invalidates the proof needs a flow pass the analyzer
+  does not have. Narrowing nothing is sound; narrowing a variable the branch
+  then sets to `لا_شيء` is not.
+- **`قاموس` was split out rather than bundled.** The literal `{ … }` parses and
+  type-checks as `Type::Map`, which is why `ش["اسم"]` fails at *runtime* rather
+  than compile time — but below the semantic layer there is no dictionary at
+  all: no `IrType::Map`, no `Value::Map`, no `trq_map_*`, and `قاموس<م،ق>` is
+  erased to `Ptr(Void)`. That is a feature, not this bug.
+
+Traps for whoever touches this next:
+
+- **Boxing has five coercion sites, not one.** Local store, global store, global
+  *initializer*, call argument, and return. Each was found by a failing test
+  after the previous one passed. A global initializer cannot allocate, so it
+  defers to program start the way string globals already do.
+- **The unit tests passed while the examples still diverged.** `"…" + مخزون`
+  inside a narrowed branch printed the box's address, because the runtime's
+  scalar-to-string conversions take the scalar and nothing unboxed for them.
+  Only the example corpus caught it. Cross-backend fixtures over single
+  expressions are not a substitute for running a real program.
+- **Script mode and function mode take different paths.** A `متغير` at top level
+  is a *global*; the same declaration inside `دالة رئيسية()` is an alloca. Three
+  optional tests passed by hand and failed in the suite for exactly that reason.
+- **`نص?` is `Ptr(String)`, not `String`.** A narrowed optional string has to be
+  recognised as a string operand or `طول` goes back to counting its bytes.
+- **The JIT proves less than its column suggests.** Cranelift compiles none of
+  these instruction shapes and delegates to the interpreter, so a `--jit` leg
+  agrees without compiling anything (#215).
+
+`KNOWN_DIVERGENT` in `examples.yml` is now empty: `تشفير_وضغط:native` was its
+last entry, and all ten examples agree across all three backends.

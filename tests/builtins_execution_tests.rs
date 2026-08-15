@@ -615,6 +615,20 @@ fn test_null_check_narrows_the_else_branch() {
     );
 }
 
+/// Concatenating a narrowed optional printed the box's address.
+///
+/// The runtime's scalar-to-string conversions take the scalar itself, so the
+/// pointer has to be loaded before the call. The example corpus caught this
+/// after the unit tests above had all passed — worth keeping as a fixture.
+#[test]
+fn test_narrowed_optional_concatenates_its_value_not_its_address() {
+    assert_prints(
+        "تضييق_دمج",
+        "متغير س: عدد? = 0\nإذا (س != لا_شيء) { اطبع(\"القيمة \" + س) }",
+        &["القيمة 0"],
+    );
+}
+
 /// A narrowed `نص?` is still a `TrqString*`, so it has to take the string path
 /// rather than falling back to the array one and counting bytes again.
 #[test]
