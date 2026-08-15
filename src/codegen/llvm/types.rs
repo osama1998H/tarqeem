@@ -12,6 +12,10 @@ pub struct TypeMapper {
 }
 
 impl TypeMapper {
+    pub fn pointer_size(&self) -> u64 {
+        self.pointer_bits as u64 / 8
+    }
+
     pub fn new(pointer_bits: u32) -> Self {
         Self {
             pointer_bits,
@@ -118,21 +122,38 @@ impl TypeMapper {
         }
     }
 
+    /// Emits the LLVM type for a class instance.
+    ///
+    /// `with_vtable` prepends the dispatch pointer at word 0, where
+    /// `Instruction::CallMethod`'s virtual path loads it. Declared classes get
+    /// it; `__anonymous__` object literals do not — they resolve fields by name
+    /// and are never method receivers. The slot is mirrored into `struct_fields`
+    /// so `type_size` keeps agreeing with the emitted layout.
     pub fn generate_struct_type(
         &mut self,
         class_id: &ClassId,
         fields: &[(String, IrType)],
+        with_vtable: bool,
     ) -> String {
-        let mangled_name = mangle_name(&class_id.0);
-        let field_types: Vec<String> = fields.iter().map(|(_, ty)| self.map_type(ty)).collect();
+        let vtable_slot = with_vtable.then(|| IrType::Ptr(Box::new(IrType::Void)));
+
+        let field_types: Vec<String> = vtable_slot
+            .iter()
+            .chain(fields.iter().map(|(_, ty)| ty))
+            .map(|ty| self.map_type(ty))
+            .collect();
         let type_def = format!(
             "%class.{} = type {{ {} }}",
-            mangled_name,
+            mangle_name(&class_id.0),
             field_types.join(", ")
         );
         self.struct_types
             .insert(class_id.0.clone(), type_def.clone());
-        let ir_field_types: Vec<IrType> = fields.iter().map(|(_, ty)| ty.clone()).collect();
+
+        let ir_field_types: Vec<IrType> = vtable_slot
+            .into_iter()
+            .chain(fields.iter().map(|(_, ty)| ty.clone()))
+            .collect();
         self.struct_fields
             .insert(class_id.0.clone(), ir_field_types);
         type_def

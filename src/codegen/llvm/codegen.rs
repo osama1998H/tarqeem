@@ -12,6 +12,10 @@ use crate::ir::{
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 
+/// Struct slots a declared class reserves before its first field: the dispatch
+/// pointer at word 0. Object literals (`__anonymous__`) reserve none.
+const VTABLE_SLOT: u32 = 1;
+
 macro_rules! emit {
     ($self:expr) => {
         writeln!($self.output).map_err(|e| CodegenError::with_code(
@@ -39,6 +43,12 @@ pub struct LlvmCodegen {
     name_counter: u32,
     class_defs: HashMap<String, Vec<(String, IrType)>>,
     vtable_globals: HashMap<String, String>,
+    /// Dispatch slot of each virtual member, per class: "Class" -> member ->
+    /// index. A subclass's table extends its parent's as a prefix, so the index
+    /// found under the receiver's *static* class also addresses the right entry
+    /// in the runtime class's table — that is what makes the load correct
+    /// without codegen knowing the runtime type.
+    vtable_slots: HashMap<String, HashMap<String, u32>>,
     current_return_type: IrType,
     global_vars: HashMap<String, String>,
     inherited_field_count: HashMap<String, usize>,
@@ -67,6 +77,7 @@ impl LlvmCodegen {
             name_counter: 0,
             class_defs: HashMap::new(),
             vtable_globals: HashMap::new(),
+            vtable_slots: HashMap::new(),
             current_return_type: IrType::Void,
             global_vars: HashMap::new(),
             inherited_field_count: HashMap::new(),
@@ -278,10 +289,19 @@ impl LlvmCodegen {
 
         let type_def = self
             .type_mapper
-            .generate_struct_type(&class.id, &all_fields);
+            .generate_struct_type(&class.id, &all_fields, true);
         emit!(self, "{}", type_def);
 
         if !class.vtable.is_empty() {
+            self.vtable_slots.insert(
+                class.id.0.clone(),
+                class
+                    .vtable
+                    .iter()
+                    .enumerate()
+                    .map(|(slot, method)| (method.name.clone(), slot as u32))
+                    .collect(),
+            );
             self.emit_vtable(class)?;
         }
 
@@ -432,7 +452,9 @@ impl LlvmCodegen {
 
         emit!(self, "; Anonymous class (object literals)");
         let class_id = ClassId("__anonymous__".to_string());
-        let type_def = self.type_mapper.generate_struct_type(&class_id, fields);
+        let type_def = self
+            .type_mapper
+            .generate_struct_type(&class_id, fields, false);
         emit!(self, "{}", type_def);
 
         // Register the fields in class_defs for field access
@@ -505,23 +527,51 @@ impl LlvmCodegen {
                 .get(lookup_class)
                 .copied()
                 .unwrap_or(0) as u32;
-            inherited_count + field_index
+            // +1 for the vtable pointer every declared class carries at word 0
+            // (`generate_struct_type`). Both object GEP sites — GetField and
+            // SetField — reach the index through here, so this is the only
+            // place the shift belongs.
+            VTABLE_SLOT + inherited_count + field_index
         };
 
         (struct_ty, actual_index)
+    }
+
+    /// The dispatch slot for `member`, read off the receiver's *static* class.
+    ///
+    /// Sound because a subclass's table extends its parent's as a prefix: the
+    /// index a static class assigns to a member is the index every descendant
+    /// assigns it too, so the entry loaded from the object's own table is the
+    /// implementation its runtime class provides. `None` means "no table for
+    /// this receiver" — an untyped, interface-typed or anonymous receiver — and
+    /// the caller falls back to a static bind.
+    fn receiver_vtable_slot(&self, object: u32, member: &str) -> Option<u32> {
+        let class = match self.var_types.get(&object)? {
+            IrType::Ptr(inner) => match inner.as_ref() {
+                IrType::Struct(class_id) => &class_id.0,
+                _ => return None,
+            },
+            IrType::Struct(class_id) => &class_id.0,
+            _ => return None,
+        };
+
+        self.vtable_slots.get(class)?.get(member).copied()
     }
 
     fn emit_vtable(&mut self, class: &Class) -> Result<(), CodegenError> {
         let mangled_class = mangle_class_name(&class.id.0);
         let vtable_name = format!("@vtable.{}", mangled_class);
 
+        // Must match `emit_function`'s symbol exactly: bodies are emitted as
+        // ordinary functions named `mangle_function_name("{Class}::{method}")`.
+        // Spelling these `@{class}_{method}` instead would name symbols nothing
+        // defines — invisible until a vtable was first populated.
         let vtable_entries: Vec<String> = class
             .vtable
             .iter()
             .map(|method| {
-                let mangled_method_class = mangle_class_name(&method.class.0);
-                let mangled_method_name = mangle_function_name(&method.name);
-                format!("ptr @{}_{}", mangled_method_class, mangled_method_name)
+                let symbol = mangle_function_name(&format!("{}::{}", method.class.0, method.name));
+                format!("ptr @{}", symbol)
             })
             .collect();
 
@@ -1227,11 +1277,17 @@ impl LlvmCodegen {
             Instruction::NewObject { dest, class } => {
                 let dest_name = self.get_or_create_var(*dest);
                 let fields = self.class_defs.get(&class.0).cloned().unwrap_or_default();
-                let size: u64 = fields
+                let field_bytes: u64 = fields
                     .iter()
                     .map(|(_, ty)| self.type_mapper.type_size(ty))
                     .sum();
-                let size = if size == 0 { 8 } else { size }; // Minimum 8 bytes
+                let is_anonymous = class.0 == "__anonymous__";
+                let header_bytes = if is_anonymous {
+                    0
+                } else {
+                    self.type_mapper.pointer_size()
+                };
+                let size = (header_bytes + field_bytes).max(8); // Minimum 8 bytes
 
                 writeln!(
                     self.output,
@@ -1239,6 +1295,17 @@ impl LlvmCodegen {
                     dest_name, size
                 )
                 .unwrap();
+
+                // Installed before the constructor runs, so a constructor
+                // calling a virtual method dispatches on the class being built —
+                // matching the interpreter, which stamps `class_id` at
+                // construction. A class with no virtual members emits no vtable
+                // global; word 0 then stays `trq_alloc`'s zero, and no call site
+                // can load it.
+                if let Some(vtable) = self.vtable_globals.get(&class.0).cloned() {
+                    writeln!(self.output, "  store ptr {}, ptr {}", vtable, dest_name).unwrap();
+                }
+
                 self.var_types
                     .insert(dest.0, IrType::Ptr(Box::new(IrType::Struct(class.clone()))));
             }
@@ -1313,24 +1380,42 @@ impl LlvmCodegen {
                 method,
                 args,
                 ret_ty,
-                // Native codegen always dispatches statically on `method.class`;
-                // fixing that to walk a vtable is out of scope here (tracked
-                // as a follow-up alongside issue #185's native divergences).
-                //
-                // A coarser guard — reject any call where *some* descendant
-                // overrides the method, regardless of whether this call site
-                // is reachable through an upcast — was tried and reverted:
-                // it false-positived on `examples/أصناف.ترقيم` (شخص١.اطبع_معلومات()
-                // where شخص١'s declared and runtime type are both `شخص`, no
-                // upcast involved, so native's static bind is already
-                // correct there). Telling "this call is monomorphic" from
-                // "this call could reach an override via upcast" needs
-                // value-flow analysis this fix deliberately doesn't add.
-                virtual_dispatch: _,
+                virtual_dispatch,
             } => {
                 let obj_name = self.get_var(*object)?;
-                let full_method_name = format!("{}::{}", method.class.0, method.name);
-                let method_name = mangle_function_name(&full_method_name);
+
+                // `الأصل.م()` carries `virtual_dispatch: false` and must keep it:
+                // dispatching a super call virtually would resolve back to the
+                // override that made it and recurse until the stack ends.
+                // Receivers with no class table — `أي`, `ميثاق` (#209), object
+                // literals — fall back to the definer's body as before.
+                let slot = virtual_dispatch
+                    .then(|| self.receiver_vtable_slot(object.0, &method.name))
+                    .flatten();
+
+                let callee = match slot {
+                    Some(index) => {
+                        let vtable_ptr = self.fresh_name("vtable.ptr");
+                        emit!(self, "  {} = load ptr, ptr {}", vtable_ptr, obj_name);
+
+                        let method_ptr_ptr = self.fresh_name("method.ptr.ptr");
+                        emit!(
+                            self,
+                            "  {} = getelementptr inbounds ptr, ptr {}, i32 {}",
+                            method_ptr_ptr,
+                            vtable_ptr,
+                            index
+                        );
+
+                        let method_ptr = self.fresh_name("method.ptr");
+                        emit!(self, "  {} = load ptr, ptr {}", method_ptr, method_ptr_ptr);
+                        method_ptr
+                    }
+                    None => format!(
+                        "@{}",
+                        mangle_function_name(&format!("{}::{}", method.class.0, method.name))
+                    ),
+                };
 
                 let mut all_args = vec![format!("ptr {}", obj_name)];
                 for arg in args {
@@ -1348,9 +1433,9 @@ impl LlvmCodegen {
                         // Void calls cannot have a return value assigned
                         writeln!(
                             self.output,
-                            "  call {} @{}({})",
+                            "  call {} {}({})",
                             ret_type,
-                            method_name,
+                            callee,
                             all_args.join(", ")
                         )
                         .unwrap();
@@ -1358,10 +1443,10 @@ impl LlvmCodegen {
                         let dest_name = self.get_or_create_var(*d);
                         writeln!(
                             self.output,
-                            "  {} = call {} @{}({})",
+                            "  {} = call {} {}({})",
                             dest_name,
                             ret_type,
-                            method_name,
+                            callee,
                             all_args.join(", ")
                         )
                         .unwrap();
@@ -1370,9 +1455,9 @@ impl LlvmCodegen {
                 } else {
                     writeln!(
                         self.output,
-                        "  call {} @{}({})",
+                        "  call {} {}({})",
                         ret_type,
-                        method_name,
+                        callee,
                         all_args.join(", ")
                     )
                     .unwrap();

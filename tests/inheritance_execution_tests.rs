@@ -864,6 +864,174 @@ fn test_member_read_off_an_inherited_method_result() {
     );
 }
 
+// ==========================================================================
+// Virtual dispatch through a supertype-typed receiver (#280)
+// ==========================================================================
+
+/// Issue #280's exact reproduction: the receiver's static class declares
+/// nothing, so resolution walks past it to an ancestor, while the runtime class
+/// overrides.
+///
+/// Native bound the callee statically on `MethodId.class` — the *definer* — and
+/// printed the ancestor's answer at exit 0. Before #253 the same shape failed
+/// loudly at link on `@ب::م`, a symbol nothing synthesizes, so the regression
+/// was in failure *mode*: a hard error became a silent wrong answer.
+#[test]
+fn test_upcast_to_declaring_ancestor_dispatches_to_override() {
+    assert_prints(
+        r#"
+صنف أ {
+    منشئ() { }
+    عام دالة م() -> عدد { أرجع 1 }
+}
+
+صنف ب يرث أ {
+    منشئ() { الأصل() }
+}
+
+صنف ج يرث ب {
+    منشئ() { الأصل() }
+    عام دالة م() -> عدد { أرجع 2 }
+}
+
+دالة نفذ(س: ب) {
+    اطبع(س.م())
+}
+
+نفذ(جديد ج())
+"#,
+        &["2"],
+    );
+}
+
+/// The other half of the same defect, and older than #280: here the receiver's
+/// static class *declares* the method, so the definer equals it and #253 never
+/// touched this shape — it has been silently wrong natively since upcasting
+/// began compiling (#184). Interpreter and JIT print `25`; native printed `0`.
+///
+/// A parameter, not a local, so the static type is unambiguous: `build_var_decl`
+/// takes the declared type when one is written, but a parameter can never be
+/// re-tagged from its initializer.
+#[test]
+fn test_upcast_to_overridden_ancestor_method_via_parameter() {
+    assert_prints(
+        r#"
+صنف شكل {
+    منشئ() {}
+    عام دالة مساحة() -> عدد { أرجع 0 }
+}
+
+صنف مربع يرث شكل {
+    خاص ض: عدد
+    منشئ(ض: عدد) { هذا.ض = ض }
+    عام دالة مساحة() -> عدد { أرجع هذا.ض * هذا.ض }
+}
+
+دالة اطبع_مساحة(ش: شكل) {
+    اطبع(ش.مساحة())
+}
+
+اطبع_مساحة(جديد مربع(5))
+"#,
+        &["25"],
+    );
+}
+
+/// A middle class overriding, read through the *root*-typed receiver. Guards the
+/// slot-numbering invariant specifically: a subclass's vtable must extend its
+/// parent's as a prefix, or the index looked up from the static class would name
+/// a different method in the runtime class's table.
+#[test]
+fn test_three_level_chain_dispatches_to_middle_override() {
+    assert_prints(
+        r#"
+صنف جذر {
+    منشئ() {}
+    عام دالة اسم() -> نص { أرجع "جذر" }
+    عام دالة رتبة() -> عدد { أرجع 0 }
+}
+
+صنف وسط يرث جذر {
+    منشئ() { الأصل() }
+    عام دالة اسم() -> نص { أرجع "وسط" }
+}
+
+صنف ورقة يرث وسط {
+    منشئ() { الأصل() }
+    عام دالة رتبة() -> عدد { أرجع 2 }
+}
+
+دالة اعرض(ع: جذر) {
+    اطبع(ع.اسم())
+    اطبع(ع.رتبة())
+}
+
+اعرض(جديد ورقة())
+"#,
+        &["وسط", "2"],
+    );
+}
+
+/// An overridden **property**, which lowers to `CallMethod` on the accessor
+/// (`__احصل_وصف`) exactly as a method call does — but the accessor names live in
+/// `property_getters`/`property_setters`, not in `method_return_types`. A vtable
+/// built only from the method map would leave this statically bound and silently
+/// wrong, so this fixture is what catches that omission.
+#[test]
+fn test_overridden_property_getter_dispatches_virtually() {
+    assert_prints(
+        r#"
+صنف أصل_خاصية {
+    منشئ() {}
+    خاصية وصف: نص {
+        احصل => "أصل"
+    }
+}
+
+صنف فرع_خاصية يرث أصل_خاصية {
+    منشئ() { الأصل() }
+    خاصية وصف: نص {
+        احصل => "فرع"
+    }
+}
+
+دالة اعرض_وصف(كائن: أصل_خاصية) {
+    اطبع(كائن.وصف)
+}
+
+اعرض_وصف(جديد فرع_خاصية())
+"#,
+        &["فرع"],
+    );
+}
+
+/// The invariant that keeps `الأصل.م()` static. An override calling its super
+/// must reach the parent's body; dispatching that call virtually would resolve
+/// back to the override and recurse until the stack ends.
+#[test]
+fn test_super_call_stays_statically_bound_under_an_override() {
+    assert_prints(
+        r#"
+صنف قاعدة {
+    منشئ() {}
+    عام دالة وسم() -> نص { أرجع "قاعدة" }
+}
+
+صنف مشتق يرث قاعدة {
+    منشئ() { الأصل() }
+    عام دالة وسم() -> نص { أرجع "مشتق+" + الأصل.وسم() }
+}
+
+دالة اطبع_وسم(ق: قاعدة) {
+    اطبع(ق.وسم())
+}
+
+اطبع_وسم(جديد مشتق())
+"#,
+        &["مشتق+قاعدة"],
+    );
+}
+
 /// Guards the strictness boundary of the fix rather than the fix itself.
 ///
 /// Resolution failure on a class the builder has a layout for is now a hard
