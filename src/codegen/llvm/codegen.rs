@@ -2398,6 +2398,11 @@ impl LlvmCodegen {
                         .unwrap();
                         return Ok(());
                     }
+                    // Pointer identity, which is what the interpreter gives for a
+                    // class instance too. Enum values do not reach this arm — the
+                    // IR types them as strings, so a direct `==` between them
+                    // reads a discriminant as a `TrqString` header, before this
+                    // change and after it.
                     IrType::Ptr(_)
                     | IrType::Struct(_)
                     | IrType::Enum(_)
