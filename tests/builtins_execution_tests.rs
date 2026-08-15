@@ -462,6 +462,123 @@ fn test_fractional_float_is_unchanged() {
     assert_prints("عشري_كسري", "اطبع(5.5)", &["5.5"]);
 }
 
+// ---------------------------------------------------------------------------
+// Comparison operand dispatch, and optional representation (#185)
+// ---------------------------------------------------------------------------
+//
+// These are not builtins, but they need exactly the harness above: a divergence
+// that only appears in one backend is invisible to any single-backend test, and
+// duplicating `assert_prints` into another file would be the more expensive
+// mistake. Note the JIT leg proves less here than it looks — Cranelift compiles
+// neither of these instruction shapes and delegates to the interpreter, so the
+// JIT column agrees by fallback rather than by compiling anything (#215).
+
+/// Comparison opcodes were chosen from the instruction's *result* type, which is
+/// always Bool, so every non-Int operand hit an arm that spelled `i64`. Integers
+/// were correct only by coincidence; booleans could not be compiled at all.
+#[test]
+fn test_booleans_compare_in_every_backend() {
+    assert_prints(
+        "مقارنة_منطقي",
+        "متغير أ = صحيح\nمتغير ب = صحيح\nإذا (أ == ب) { اطبع(\"متساوي\") } وإلا { اطبع(\"مختلف\") }",
+        &["متساوي"],
+    );
+}
+
+#[test]
+fn test_optional_compared_against_null_in_every_backend() {
+    for (ty, value) in [
+        ("نص", "\"أ\""),
+        ("عدد", "5"),
+        ("عدد_عشري", "2.5"),
+        ("منطقي", "صحيح"),
+    ] {
+        assert_prints(
+            &format!("اختياري_معيّن_{ty}"),
+            &format!(
+                "متغير س: {ty}? = {value}\nإذا (س != لا_شيء) {{ اطبع(\"موجود\") }} وإلا {{ اطبع(\"فارغ\") }}"
+            ),
+            &["موجود"],
+        );
+        assert_prints(
+            &format!("اختياري_فارغ_{ty}"),
+            &format!(
+                "متغير س: {ty}? = لا_شيء\nإذا (س != لا_شيء) {{ اطبع(\"موجود\") }} وإلا {{ اطبع(\"فارغ\") }}"
+            ),
+            &["فارغ"],
+        );
+    }
+}
+
+/// The falsy scalars are the whole point of boxing.
+///
+/// An optional lowers to a pointer, and a scalar stored raw into that slot is
+/// its own bit pattern — so `0`, `خطأ` and `0.0` were indistinguishable from a
+/// null pointer. Fixing the comparison without fixing the representation would
+/// have turned a build error into a silent wrong answer, which is strictly worse.
+#[test]
+fn test_falsy_scalar_optionals_are_not_null() {
+    for (ty, value) in [("عدد", "0"), ("منطقي", "خطأ"), ("عدد_عشري", "0.0")] {
+        assert_prints(
+            &format!("اختياري_صفري_{ty}"),
+            &format!(
+                "متغير س: {ty}? = {value}\nإذا (س != لا_شيء) {{ اطبع(\"موجود\") }} وإلا {{ اطبع(\"فارغ\") }}"
+            ),
+            &["موجود"],
+        );
+    }
+}
+
+/// Boxing has to happen wherever `T` is implicitly widened to `T?`, not only at
+/// a `متغير` declaration — an argument and a return value are coercion sites too.
+#[test]
+fn test_optionals_are_boxed_at_argument_and_return_positions() {
+    assert_prints(
+        "اختياري_معامل",
+        "دالة افحص(س: عدد?) {\n    إذا (س != لا_شيء) { اطبع(\"موجود\") } وإلا { اطبع(\"فارغ\") }\n}\nافحص(0)\nافحص(لا_شيء)",
+        &["موجود", "فارغ"],
+    );
+    assert_prints(
+        "اختياري_إرجاع",
+        "دالة اصنع() -> عدد? { أرجع 0 }\nمتغير س = اصنع()\nإذا (س != لا_شيء) { اطبع(\"موجود\") } وإلا { اطبع(\"فارغ\") }",
+        &["موجود"],
+    );
+}
+
+/// Printing a scalar optional segfaulted: the pointer went to `trq_print`, which
+/// reads it as a `TrqString*`.
+#[test]
+fn test_printing_a_scalar_optional_matches_the_interpreter() {
+    assert_prints("طباعة_اختياري_عدد", "متغير س: عدد? = 5\nاطبع(س)", &["5"]);
+    assert_prints(
+        "طباعة_اختياري_فارغ",
+        "متغير س: عدد? = لا_شيء\nاطبع(س)",
+        &["لا_شيء"],
+    );
+    assert_prints(
+        "طباعة_اختياري_عشري",
+        "متغير س: عدد_عشري? = 2.5\nاطبع(س)",
+        &["2.5"],
+    );
+    assert_prints(
+        "طباعة_اختياري_منطقي",
+        "متغير س: منطقي? = صحيح\nاطبع(س)",
+        &["صحيح"],
+    );
+}
+
+/// Two optional strings compare by *value*, as the interpreter does. Routing all
+/// pointer-typed operands to `icmp ptr` would have made this pointer identity —
+/// trading a build error for a wrong answer, again.
+#[test]
+fn test_optional_strings_compare_by_value_not_identity() {
+    assert_prints(
+        "اختياري_نص_بالقيمة",
+        "متغير أ: نص? = \"سلام\"\nمتغير ب: نص? = \"سلا\" + \"م\"\nإذا (أ == ب) { اطبع(\"متساوي\") } وإلا { اطبع(\"مختلف\") }",
+        &["متساوي"],
+    );
+}
+
 /// Concatenation deliberately still drops the `.0`.
 ///
 /// `"…" + 5.0` lowers through `trq_float_to_string`, where the runtime and the
