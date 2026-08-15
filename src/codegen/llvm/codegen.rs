@@ -1502,7 +1502,20 @@ impl LlvmCodegen {
                     ptr_name, struct_ty, obj_name, actual_index
                 )
                 .unwrap();
-                let val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+                let mut val_name = val_name;
+                let mut val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+
+                // A field declared `عدد?` holds a boxed scalar like any other
+                // optional, so assigning a bare scalar to it boxes here too —
+                // otherwise `هذا.رصيد = 0` stores a raw 0 and the field then
+                // compares equal to `لا_شيء` (#185).
+                if let Some(declared) = self.declared_field_type(&field.class.0, &field.name) {
+                    if Self::needs_boxing(&val_type, &declared) {
+                        val_name = self.emit_boxed_scalar(&val_name, &val_type);
+                        val_type = declared;
+                    }
+                }
+
                 let llvm_ty = self.type_mapper.map_type(&val_type);
                 writeln!(
                     self.output,
@@ -1555,10 +1568,30 @@ impl LlvmCodegen {
                     ),
                 };
 
+                // Declared parameter 0 is the receiver, which is not in `args`, so
+                // the argument at `i` is declared at `i + 1`. Without this, a
+                // method taking `س: عدد?` called as `م.افحص(0)` receives a raw
+                // scalar in a pointer slot (#185).
+                let declared_params = self
+                    .fn_param_types
+                    .get(&mangle_function_name(&format!(
+                        "{}::{}",
+                        method.class.0, method.name
+                    )))
+                    .cloned();
+
                 let mut all_args = vec![format!("ptr {}", obj_name)];
-                for arg in args {
-                    let arg_name = self.get_var(*arg)?;
-                    let arg_ty = self.var_types.get(&arg.0).cloned().unwrap_or(IrType::Int);
+                for (i, arg) in args.iter().enumerate() {
+                    let mut arg_name = self.get_var(*arg)?;
+                    let mut arg_ty = self.var_types.get(&arg.0).cloned().unwrap_or(IrType::Int);
+
+                    if let Some(declared) = declared_params.as_ref().and_then(|p| p.get(i + 1)) {
+                        if Self::needs_boxing(&arg_ty, declared) {
+                            arg_name = self.emit_boxed_scalar(&arg_name, &arg_ty);
+                            arg_ty = declared.clone();
+                        }
+                    }
+
                     let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
                     all_args.push(format!("{} {}", llvm_ty, arg_name));
                 }
@@ -2677,6 +2710,34 @@ impl LlvmCodegen {
     fn is_string_operand(ty: Option<&IrType>) -> bool {
         matches!(ty, Some(IrType::String))
             || matches!(ty, Some(IrType::Ptr(inner)) if matches!(**inner, IrType::String))
+    }
+
+    /// The declared type of `field` on `class`.
+    ///
+    /// `class_defs` holds each class's *own* fields, so an inherited field is not
+    /// under the receiver's name. The fallback searches every class, but only
+    /// accepts an unambiguous match — guessing between two same-named fields on
+    /// unrelated classes would be worse than declining to box.
+    fn declared_field_type(&self, class: &str, field: &str) -> Option<IrType> {
+        let own = |c: &str| {
+            self.class_defs.get(c).and_then(|fields| {
+                fields
+                    .iter()
+                    .find(|(name, _)| name == field)
+                    .map(|(_, ty)| ty.clone())
+            })
+        };
+
+        own(class).or_else(|| {
+            let mut found = self.class_defs.values().filter_map(|fields| {
+                fields
+                    .iter()
+                    .find(|(name, _)| name == field)
+                    .map(|(_, ty)| ty.clone())
+            });
+            let only = found.next()?;
+            found.next().is_none().then_some(only)
+        })
     }
 
     /// Load a boxed scalar back out of its cell.

@@ -545,6 +545,37 @@ fn test_optionals_are_boxed_at_argument_and_return_positions() {
     );
 }
 
+/// Fields and method parameters are coercion sites too.
+///
+/// These were found only by going looking for sites the first pass had missed —
+/// both compiled cleanly and answered `فارغ` for a present `0`, which is the
+/// silent wrong answer the boxing exists to prevent.
+#[test]
+fn test_optionals_are_boxed_in_fields_and_method_parameters() {
+    assert_prints(
+        "اختياري_حقل",
+        "صنف حساب {\n    عام رصيد: عدد?\n    منشئ() { هذا.رصيد = 0 }\n    عام دالة افحص() {\n        إذا (هذا.رصيد != لا_شيء) { اطبع(\"موجود\") } وإلا { اطبع(\"فارغ\") }\n    }\n}\nمتغير ح = جديد حساب()\nح.افحص()",
+        &["موجود"],
+    );
+    assert_prints(
+        "اختياري_معامل_دالة_عضو",
+        "صنف فاحص {\n    منشئ() { }\n    عام دالة افحص(س: عدد?) {\n        إذا (س != لا_شيء) { اطبع(\"موجود\") } وإلا { اطبع(\"فارغ\") }\n    }\n}\nمتغير ف = جديد فاحص()\nف.افحص(0)",
+        &["موجود"],
+    );
+}
+
+/// Every other fixture here is script mode, where a `متغير` is a *global* and
+/// takes the global store path. Inside a function it is an alloca instead —
+/// a different branch, and one that only manual runs had covered.
+#[test]
+fn test_falsy_scalar_optional_is_not_null_inside_a_function() {
+    assert_prints(
+        "اختياري_صفري_محلي",
+        "دالة رئيسية() {\n    متغير س: عدد? = 0\n    إذا (س != لا_شيء) { اطبع(\"موجود\") } وإلا { اطبع(\"فارغ\") }\n}",
+        &["موجود"],
+    );
+}
+
 /// Printing a scalar optional segfaulted: the pointer went to `trq_print`, which
 /// reads it as a `TrqString*`.
 #[test]
