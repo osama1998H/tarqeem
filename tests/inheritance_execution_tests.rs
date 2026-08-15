@@ -818,6 +818,52 @@ fn test_super_call_to_method_declared_on_grandparent() {
     );
 }
 
+/// Reading a member *off the result* of an inherited method call, which needs
+/// the call's return type on both paths that compute it.
+///
+/// `build_call` lowers the `CallMethod` from `resolve_instance_method`, but
+/// `infer_expr_type` — which is what `build_member` asks for the receiver's
+/// class — answered `Ptr(Void)` for every instance call. So the field was
+/// resolved against no class at all and lowered as `load ptr` on an `عدد` slot,
+/// and native then handed that integer to `trq_print(ptr)` and dereferenced it:
+/// a segfault where the interpreter and the JIT both print the number.
+#[test]
+fn test_member_read_off_an_inherited_method_result() {
+    assert_prints(
+        r#"
+صنف نقطة {
+    عام س: عدد
+
+    منشئ(ق: عدد) {
+        هذا.س = ق
+    }
+}
+
+صنف أصل {
+    عام ن: نقطة
+
+    منشئ(ق: عدد) {
+        هذا.ن = جديد نقطة(ق)
+    }
+
+    عام دالة احصل_نقطة() -> نقطة {
+        أرجع هذا.ن
+    }
+}
+
+صنف فرع يرث أصل {
+    منشئ(ق: عدد) {
+        الأصل(ق)
+    }
+}
+
+متغير كائن = جديد فرع(7)
+اطبع(كائن.احصل_نقطة().س)
+"#,
+        &["7"],
+    );
+}
+
 /// Guards the strictness boundary of the fix rather than the fix itself.
 ///
 /// Resolution failure on a class the builder has a layout for is now a hard

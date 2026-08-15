@@ -71,6 +71,31 @@ re-armed here, which puts the shape under CI's `compare-backends` job.
   invented `trq_base`/`trq_sha` while hiding `trq_base64_encode`/`trq_base64_decode`.
   A 2-for-2 swap, which is why the wrong total still looked self-consistent.
 
+### Review follow-ups
+
+- `infer_expr_type`'s `Call { callee: Member }` arm answered `Ptr(Void)` for
+  *every* instance-method call, so a member read off a call result — `ك.احصل().س`
+  — resolved its field against no class and lowered as `load ptr` on an `عدد`
+  slot, which native then handed to `trq_print(ptr)` and dereferenced. Segfault
+  natively, correct under the interpreter and the JIT. Fixed with this entry's
+  own `resolve_instance_method`, so both paths that compute a call's return type
+  now agree.
+- Naming the definer trades a loud failure for a quiet one in the upcast shape:
+  receiver statically typed as a class that declares nothing, runtime class
+  overriding. Native used to reject the undefined `@{static}::{method}` at link;
+  it now binds the ancestor's body and prints the wrong answer while the
+  interpreter and the JIT print the override's. Bisected against 3c3353b to
+  confirm the failure *mode* changed rather than the correctness, and filed as
+  **#280** — the only known case where a fix here introduced a silent
+  divergence, so it gets its own issue rather than a line inside #185.
+
+  Recorded there and worth repeating: the coarse guard the codegen comment says
+  was tried and reverted lacked one condition. Rejecting only when the definer
+  **differs from the receiver's static class** *and* some descendant overrides
+  would not have fired on `examples/أصناف.ترقيم`, where the definer *is* the
+  static class. Untried, and cheaper than vtable dispatch if #280 needs an
+  interim.
+
 ## 2026-08-13 — `blocks.last()` is never the current block (#234)
 
 ### The asymmetry

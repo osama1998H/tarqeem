@@ -302,6 +302,20 @@ impl IrBuilder {
                                 .cloned()
                                 .unwrap_or(IrType::Void);
                         }
+                        return IrType::Ptr(Box::new(IrType::Void));
+                    }
+                    // An *instance* method call also has a knowable return type,
+                    // and `build_call` already lowers one — leaving this arm at
+                    // `Ptr(Void)` made the two disagree, so `ك.احصل().س`
+                    // resolved its field against a `Ptr(Void)` receiver and
+                    // natively emitted `load ptr` on an `عدد` slot, then
+                    // `trq_print(ptr)` on it. Same resolver as the call site, so
+                    // an inherited callee is found on the definer.
+                    if let Some(class_id) = self.struct_class_of(&self.infer_expr_type(object)) {
+                        if let Some((_, ret_ty)) = self.resolve_instance_method(&class_id, property)
+                        {
+                            return ret_ty;
+                        }
                     }
                     IrType::Ptr(Box::new(IrType::Void))
                 } else {
@@ -627,6 +641,20 @@ impl IrBuilder {
                 .get(&key)
                 .map(|ty| (ClassId(c.to_string()), ty.clone()))
         })
+    }
+
+    /// The class a receiver's inferred type names, through one level of
+    /// pointer. `None` for `أي`-typed and otherwise unresolved receivers, which
+    /// name no class to resolve a member against.
+    pub(crate) fn struct_class_of(&self, ty: &IrType) -> Option<String> {
+        match ty {
+            IrType::Struct(class_id) => Some(class_id.0.clone()),
+            IrType::Ptr(inner) => match inner.as_ref() {
+                IrType::Struct(class_id) => Some(class_id.0.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     /// Does the IR builder know a field layout for `class`? False for `أي`-typed
