@@ -381,17 +381,12 @@ jobs:
           # the issue that tracks each. Entries are removed as the issues are
           # fixed — never added to silence a fresh divergence without filing one
           # first. Keyed per backend, not per example, because a bug is usually
-          # specific to one: تشفير_وضغط agrees under the JIT and differs only
-          # natively, so a per-example entry would wrongly excuse a future JIT
-          # regression.
+          # specific to one, so a per-example entry would wrongly excuse a
+          # regression in a backend that was never broken.
           #
-          #   تشفير_وضغط:native — #185: native طول counts UTF-8 bytes where the
-          #                interpreter counts characters, so Arabic lengths differ.
-          #                Exactly four lines diverge: the two طول lines over the
-          #                Arabic text (448 vs 784) and the نسبة line derived from
-          #                them (17% vs 9%). طول over the compressed bytes agrees,
-          #                and so do the SHA-256 digests and the gzip round-trip.
-          KNOWN_DIVERGENT: "تشفير_وضغط:native"
+          #   (none today — تشفير_وضغط:native was the last entry, removed with
+          #    #185 once native طول counted characters rather than UTF-8 bytes.)
+          KNOWN_DIVERGENT: ""
           # Examples native codegen is *documented* to refuse, so a refusal here
           # is the expected outcome rather than a build break. KNOWN_DIVERGENT
           # cannot cover these: it is only consulted once a binary exists.

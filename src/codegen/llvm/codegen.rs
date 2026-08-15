@@ -1586,10 +1586,23 @@ impl LlvmCodegen {
             Instruction::ArrayLen { dest, array } => {
                 let dest_name = self.get_or_create_var(*dest);
                 let array_name = self.get_var(*array)?;
+                // `ArrayLen` is polymorphic: every interpreting backend branches on
+                // the runtime value and counts characters for a string. Codegen has
+                // no runtime tag, so it must dispatch on the operand's IR type here
+                // — and getting it wrong is silent, not loud, because `TrqString`
+                // and `TrqArray` are both `#[repr(C)]` with `len` first, so reading
+                // one as the other returns the *byte* count instead of trapping
+                // (#185). An unknown operand type keeps the array symbol: that is
+                // today's behaviour, and the catch-all arm is where type-directed
+                // fixes break (#222).
+                let symbol = match self.var_types.get(&array.0) {
+                    Some(IrType::String) => "trq_string_len_chars",
+                    _ => "trq_array_len",
+                };
                 writeln!(
                     self.output,
-                    "  {} = call i64 @trq_array_len(ptr {})",
-                    dest_name, array_name
+                    "  {} = call i64 @{}(ptr {})",
+                    dest_name, symbol, array_name
                 )
                 .unwrap();
                 // ArrayLen returns i64 (Int type)
@@ -1605,8 +1618,25 @@ impl LlvmCodegen {
                 let dest_name = self.get_or_create_var(*dest);
                 let array_name = self.get_var(*array)?;
                 let index_name = self.get_var(*index)?;
-                let llvm_ty = self.type_mapper.map_type(elem_ty);
 
+                // Indexing a string yields a one-character string, exactly as the
+                // interpreter's `Value::String` arm does. Routing it through
+                // `trq_array_get` instead read the string's byte pointer as an
+                // element table and aborted with "الوصول إلى مصفوفة فارغة" — the
+                // element-access half of the same polymorphism gap as `ArrayLen`
+                // (#185). `لكل ح في نص` is the common way to reach it.
+                if matches!(self.var_types.get(&array.0), Some(IrType::String)) {
+                    writeln!(
+                        self.output,
+                        "  {} = call ptr @trq_string_char_at(ptr {}, i64 {})",
+                        dest_name, array_name, index_name
+                    )
+                    .unwrap();
+                    self.var_types.insert(dest.0, IrType::String);
+                    return Ok(());
+                }
+
+                let llvm_ty = self.type_mapper.map_type(elem_ty);
                 let elem_ptr = self.fresh_name("elem.ptr");
                 writeln!(
                     self.output,

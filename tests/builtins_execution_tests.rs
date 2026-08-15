@@ -381,6 +381,100 @@ fn test_array_len_builtin_works_in_every_backend() {
     assert_prints("طول_مصفوفة_مباشر", "اطبع(طول_مصفوفة([1، 2، 3]))", &["3"]);
 }
 
+// ---------------------------------------------------------------------------
+// طول over a string — characters, not bytes (#185)
+// ---------------------------------------------------------------------------
+
+/// `ArrayLen` is polymorphic in every interpreting backend but a single symbol
+/// in codegen, and picking the array symbol for a string is *silent*: both
+/// `TrqString` and `TrqArray` are `#[repr(C)]` with `len` first, so the load
+/// succeeds and returns the byte count. Five Arabic characters occupy ten
+/// bytes, which is why this fixture is Arabic rather than ASCII — the same
+/// assertion over "hello" would pass against the bug.
+#[test]
+fn test_string_len_counts_characters_not_bytes() {
+    assert_prints("طول_نص_عربي", "اطبع(طول(\"مرحبا\"))", &["5"]);
+}
+
+/// A literal and a parameter reach `var_types` by different routes (constant
+/// emission vs parameter registration), so covering only the literal would
+/// leave half the dispatch untested.
+#[test]
+fn test_string_len_counts_characters_through_a_parameter() {
+    assert_prints(
+        "طول_نص_معامل",
+        "دالة قِس(ن: نص) -> عدد {\n    أرجع طول(ن)\n}\nاطبع(قِس(\"مرحبا\"))",
+        &["5"],
+    );
+}
+
+/// Arrays must not regress: the same instruction serves both.
+#[test]
+fn test_array_len_still_counts_elements() {
+    assert_prints("طول_مصفوفة_لم_يتغير", "اطبع(طول([1، 2، 3]))", &["3"]);
+}
+
+/// Indexing a string yields a one-character string, as in the interpreter.
+/// Natively this reached `trq_array_get`, which read the string's byte pointer
+/// as an element table and aborted.
+#[test]
+fn test_string_index_yields_one_character() {
+    assert_prints(
+        "فهرسة_نص",
+        "متغير ن = \"مرحبا\"\nاطبع(ن[0])\nاطبع(ن[4])",
+        &["م", "ا"],
+    );
+}
+
+/// `لكل … في` shares `ArrayLen` for its trip count, so the fix changes native
+/// string iteration from bytes to characters too.
+#[test]
+fn test_string_iteration_visits_characters_not_bytes() {
+    assert_prints(
+        "تكرار_نص",
+        "متغير ع = 0\nلكل ح في \"مرحبا\" {\n    ع = ع + 1\n}\nاطبع(ع)",
+        &["5"],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Float display — native must match the interpreter (#185)
+// ---------------------------------------------------------------------------
+
+/// A whole float keeps its `.0`. The runtime printed `value as i64` under a
+/// `%g` convention no other backend followed.
+#[test]
+fn test_whole_float_prints_with_a_decimal_place() {
+    assert_prints("عشري_صحيح", "اطبع(5.0)", &["5.0"]);
+}
+
+/// The runtime's guard also carried an `abs() < 1e15` clause the interpreter
+/// never had, so the two agreed on nothing above that magnitude either.
+#[test]
+fn test_large_whole_float_prints_with_a_decimal_place() {
+    assert_prints("عشري_كبير", "اطبع(1.0e20)", &["100000000000000000000.0"]);
+}
+
+/// A fractional float was always consistent — pinned so the fix cannot regress
+/// the branch it did not touch.
+#[test]
+fn test_fractional_float_is_unchanged() {
+    assert_prints("عشري_كسري", "اطبع(5.5)", &["5.5"]);
+}
+
+/// Concatenation deliberately still drops the `.0`.
+///
+/// `"…" + 5.0` lowers through `trq_float_to_string`, where the runtime and the
+/// interpreter *already agree* on `5`. "Fixing" it to match `اطبع` would
+/// manufacture a divergence rather than remove one. The language is left
+/// internally inconsistent (`اطبع(5.0)` is `5.0`, `اطبع("" + 5.0)` is `5`);
+/// that is a design question, and this test exists so it is settled
+/// deliberately rather than by an unnoticed edit.
+#[test]
+fn test_float_concatenation_keeps_its_existing_format() {
+    assert_prints("عشري_دمج", "اطبع(\"القيمة: \" + 5.0)", &["القيمة: 5"]);
+}
+
 #[test]
 fn test_array_push_builtin_works_in_every_backend() {
     assert_prints(
@@ -460,9 +554,9 @@ fn test_every_core_builtin_agrees_across_backends() {
         // trailing newline from its absence — which is how native `اطبع_سطر`
         // printing through the newline-less `trq_print` stayed invisible.
         ("اطبع_سطر", "اطبع_سطر(\"أ\")\nاطبع_سطر(\"ب\")", &["أ", "ب"]),
-        // Deliberately an array: `طول` on a *string* counts UTF-8 bytes
-        // natively and characters in the interpreter (#185).
-        ("طول", "اطبع(طول([1، 2، 3]))", &["3"]),
+        // A *string*, deliberately: this probe used an array while native `طول`
+        // counted UTF-8 bytes and the interpreter counted characters (#185).
+        ("طول", "اطبع(طول(\"مرحبا\"))", &["5"]),
         ("نوع", "اطبع(نوع(1))", &["عدد"]),
         ("عدد", "اطبع(عدد(\"5\"))", &["5"]),
         ("عدد_عشري", "اطبع(عدد_عشري(\"5.5\"))", &["5.5"]),
