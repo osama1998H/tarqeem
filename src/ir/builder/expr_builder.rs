@@ -784,19 +784,20 @@ impl IrBuilder {
                 _ => ClassId("".to_string()),
             };
 
-            let full_method_name = format!("{}::{}", class_id.0, property);
-            let ret_ty = self
-                .method_return_types
-                .get(&full_method_name)
-                .cloned()
-                .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+            // One lookup for both, so the declaring class and the return type
+            // cannot disagree (issue #253). A miss keeps the receiver's own
+            // class: this branch also carries `أي`-typed, interface-typed and
+            // anonymous receivers, which have no entry to find.
+            let (method_class, ret_ty) = self
+                .resolve_instance_method(&class_id.0, property)
+                .unwrap_or_else(|| (class_id.clone(), IrType::Ptr(Box::new(IrType::Void))));
 
             let dest = self.new_var();
             self.emit(Instruction::CallMethod {
                 dest: Some(dest),
                 object: obj_var,
                 method: MethodId {
-                    class: class_id,
+                    class: method_class,
                     name: property.clone(),
                 },
                 args: arg_vars,
