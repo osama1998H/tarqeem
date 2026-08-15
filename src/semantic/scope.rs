@@ -141,56 +141,58 @@ impl Scope {
         Self::register_core_builtins(scope);
     }
 
-    /// Registers only the 18 core built-in functions that are available globally
-    /// without requiring an import. All other functions require explicit imports
-    /// from stdlib modules.
+    /// The core built-in functions available globally without an import, as
+    /// (name, parameter types, return type).
+    ///
+    /// This is a list rather than a run of `scope.define` calls so the set can
+    /// be enumerated by tests. Each of these must reach a real implementation in
+    /// *both* the interpreter and native codegen; six of them silently reached
+    /// neither (#222), and nothing could detect that while the names existed
+    /// only as straight-line statements.
+    fn core_builtins() -> Vec<(&'static str, Vec<Type>, Type)> {
+        vec![
+            // I/O - دوال الإدخال والإخراج
+            ("اطبع", vec![Type::Any], Type::Void),
+            ("طباعة", vec![Type::Any], Type::Void),
+            ("اطبع_سطر", vec![Type::Any], Type::Void),
+            ("اطبع_خطأ", vec![Type::Any], Type::Void),
+            ("ادخل", vec![], Type::String),
+            ("ادخل_رسالة", vec![Type::String], Type::String),
+            // Type introspection - دوال فحص الأنماط
+            ("طول", vec![Type::Any], Type::Int),
+            ("نوع", vec![Type::Any], Type::String),
+            // Type conversion - دوال تحويل الأنماط
+            ("عدد", vec![Type::Any], Type::Int),
+            ("عدد_عشري", vec![Type::Any], Type::Float),
+            ("نص", vec![Type::Any], Type::String),
+            ("منطقي", vec![Type::Any], Type::Bool),
+            // Control - دوال التحكم
+            ("تأكد", vec![Type::Bool], Type::Void),
+            ("تأكد_رسالة", vec![Type::Bool, Type::String], Type::Void),
+            ("توقف", vec![Type::String], Type::Void),
+            ("نم", vec![Type::Int], Type::Void),
+            // Arrays - دوال المصفوفات
+            ("طول_مصفوفة", vec![Type::Any], Type::Int),
+            ("الحق", vec![Type::Any, Type::Any], Type::Void),
+        ]
+    }
+
+    /// The names of the core built-ins, for tests that assert every one of them
+    /// is executable in every backend.
+    pub fn core_builtin_names() -> Vec<&'static str> {
+        Self::core_builtins()
+            .into_iter()
+            .map(|(name, _, _)| name)
+            .collect()
+    }
+
+    /// Registers the core built-in functions that are available globally without
+    /// requiring an import. All other functions require explicit imports from
+    /// stdlib modules.
     fn register_core_builtins(scope: &mut Scope) {
-        // Helper for creating builtin function symbols (no source location)
-        fn builtin(name: &str, params: Vec<Type>, return_type: Type) -> Symbol {
-            Symbol::function(name, params, return_type, Span::default())
+        for (name, params, return_type) in Self::core_builtins() {
+            scope.define(Symbol::function(name, params, return_type, Span::default()));
         }
-
-        // =======================================================================
-        // I/O Functions (6) - دوال الإدخال والإخراج
-        // =======================================================================
-        scope.define(builtin("اطبع", vec![Type::Any], Type::Void));
-        scope.define(builtin("طباعة", vec![Type::Any], Type::Void));
-        scope.define(builtin("اطبع_سطر", vec![Type::Any], Type::Void));
-        scope.define(builtin("اطبع_خطأ", vec![Type::Any], Type::Void));
-        scope.define(builtin("ادخل", vec![], Type::String));
-        scope.define(builtin("ادخل_رسالة", vec![Type::String], Type::String));
-
-        // =======================================================================
-        // Type Introspection (2) - دوال فحص الأنماط
-        // =======================================================================
-        scope.define(builtin("طول", vec![Type::Any], Type::Int));
-        scope.define(builtin("نوع", vec![Type::Any], Type::String));
-
-        // =======================================================================
-        // Type Conversion (4) - دوال تحويل الأنماط
-        // =======================================================================
-        scope.define(builtin("عدد", vec![Type::Any], Type::Int));
-        scope.define(builtin("عدد_عشري", vec![Type::Any], Type::Float));
-        scope.define(builtin("نص", vec![Type::Any], Type::String));
-        scope.define(builtin("منطقي", vec![Type::Any], Type::Bool));
-
-        // =======================================================================
-        // Control Functions (4) - دوال التحكم
-        // =======================================================================
-        scope.define(builtin("تأكد", vec![Type::Bool], Type::Void));
-        scope.define(builtin(
-            "تأكد_رسالة",
-            vec![Type::Bool, Type::String],
-            Type::Void,
-        ));
-        scope.define(builtin("توقف", vec![Type::String], Type::Void));
-        scope.define(builtin("نم", vec![Type::Int], Type::Void));
-
-        // =======================================================================
-        // Array Functions (2) - دوال المصفوفات
-        // =======================================================================
-        scope.define(builtin("طول_مصفوفة", vec![Type::Any], Type::Int));
-        scope.define(builtin("الحق", vec![Type::Any, Type::Any], Type::Void));
     }
 
     /// Returns the type signature for a stdlib builtin function.

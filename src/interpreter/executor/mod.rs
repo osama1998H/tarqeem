@@ -361,6 +361,13 @@ impl Interpreter {
                 Ok(InstructionResult::Continue)
             }
 
+            Instruction::BoolToInt { dest, src } => {
+                let val = self.get_local(*src)?;
+                let result = Value::Int(if val.is_truthy() { 1 } else { 0 });
+                self.set_local(*dest, result);
+                Ok(InstructionResult::Continue)
+            }
+
             Instruction::FloatToInt { dest, src } => {
                 let val = self.get_local(*src)?;
                 let result = match val {

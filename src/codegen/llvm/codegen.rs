@@ -633,6 +633,13 @@ impl LlvmCodegen {
         emit!(self, "declare ptr @trq_bool_to_string(i1 zeroext)");
         emit!(self, "declare i64 @trq_string_to_int(ptr)");
         emit!(self, "declare double @trq_string_to_float(ptr)");
+        // The `عدد`/`عدد_عشري` builtins reject an unparsable string instead of
+        // yielding 0, matching the interpreter (#222).
+        emit!(self, "declare i64 @trq_string_to_int_checked(ptr)");
+        emit!(self, "declare double @trq_string_to_float_checked(ptr)");
+        // `i1 zeroext` per the FFI convention below: Rust's `bool` is UB for any
+        // other bit pattern.
+        emit!(self, "declare void @trq_assert(i1 zeroext, ptr)");
 
         emit!(self, "declare ptr @trq_array_new(i64, i64)");
         emit!(self, "declare i64 @trq_array_len(ptr)");
@@ -987,6 +994,13 @@ impl LlvmCodegen {
                 let src_name = self.get_var(*src)?;
                 emit!(self, "  {} = sitofp i64 {} to double", dest_name, src_name);
                 self.var_types.insert(dest.0, IrType::Float);
+            }
+
+            Instruction::BoolToInt { dest, src } => {
+                let dest_name = self.get_or_create_var(*dest);
+                let src_name = self.get_var(*src)?;
+                emit!(self, "  {} = zext i1 {} to i64", dest_name, src_name);
+                self.var_types.insert(dest.0, IrType::Int);
             }
 
             Instruction::FloatToInt { dest, src } => {

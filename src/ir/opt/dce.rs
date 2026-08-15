@@ -161,7 +161,8 @@ impl DeadCodeEliminator {
             Instruction::Unary { operand, .. } => {
                 used.insert(*operand);
             }
-            Instruction::IntToFloat { src, .. }
+            Instruction::BoolToInt { src, .. }
+            | Instruction::IntToFloat { src, .. }
             | Instruction::FloatToInt { src, .. }
             | Instruction::ToString { src, .. } => {
                 used.insert(*src);
@@ -294,6 +295,7 @@ impl DeadCodeEliminator {
             Instruction::Const { dest, .. }
             | Instruction::Binary { dest, .. }
             | Instruction::Unary { dest, .. }
+            | Instruction::BoolToInt { dest, .. }
             | Instruction::IntToFloat { dest, .. }
             | Instruction::FloatToInt { dest, .. }
             | Instruction::ToString { dest, .. }
