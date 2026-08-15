@@ -2278,3 +2278,28 @@ builder and are invisible to any static check of `get_runtime_function_name`.
 all; three names (`ادخل`, `ادخل_رسالة`, `اطبع_خطأ`) stay uncovered because they
 block on stdin or write to stderr, and the test says so rather than implying
 coverage it does not have.
+
+### Postscript: what the review of #222 caught
+
+The first pass traded a loud link error for several quiet wrong answers, and
+the new test suite did not catch any of them. Worth remembering *why*:
+
+- **Every probe used a well-behaved argument.** The lowerings dispatch on type,
+  so the bugs all lived in the arms no probe reached — `عدد` on an array
+  (segfault), `منطقي(لا_شيء)`, `نص` on a `نص`, `الحق` into a float array. A
+  type-directed fix has to be tested on the types it does *not* expect,
+  including the builder's `Ptr(Void)` "unknown".
+- **A catch-all `_ =>` is the dangerous arm.** Both conversion builtins ended
+  theirs by handing an arbitrary pointer to a parser that casts it to
+  `TrqString`. Unmatched now means a build-time bilingual error, not a guess.
+- **`assert_fails` could not distinguish a compile failure from a runtime one** —
+  same exit code, same empty stdout. A lowering that regressed into an LLVM
+  parse error would have kept the suite green, which is the failure mode the
+  suite exists to prevent. It now demands the compile succeed first.
+- **stdout-only comparison has a blind spot**: `اطبع_خطأ` writes to stdout
+  interpreted and stderr natively (#286). No cross-backend check in the repo —
+  including `compare-backends` — can see a defect whose only symptom is the
+  stream chosen.
+- **Four backends, not three.** The debug interpreter has its own builtin
+  registry, so an IR lowering that emits a new `trq_*` symbol breaks
+  `tarqeem debug` while `run`, `--jit` and `compile` all pass (#223).
