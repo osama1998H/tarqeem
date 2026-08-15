@@ -1040,6 +1040,37 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    /// LANGUAGE_SPEC §13.4: an optional is usable at its unwrapped type once a
+    /// null check has proved it present.
+    #[test]
+    fn test_null_check_narrows_optional() {
+        let result = analyze("متغير س: عدد? = 5\nإذا (س != لا_شيء) { اطبع(س + 1) }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    /// Without the check it stays optional, and arithmetic on it is still an
+    /// error — narrowing must not become a blanket exemption.
+    #[test]
+    fn test_optional_arithmetic_without_a_null_check_is_rejected() {
+        let result = analyze("متغير س: عدد? = 5\nاطبع(س + 1)");
+        assert!(result.is_err());
+    }
+
+    /// Narrowing is withdrawn when the branch assigns to the variable: the proof
+    /// no longer holds, and this analyzer has no flow pass to say from where.
+    #[test]
+    fn test_assignment_in_the_branch_withdraws_narrowing() {
+        let result = analyze("متغير س: عدد? = 5\nإذا (س != لا_شيء) { س = لا_شيء\nاطبع(س + 1) }");
+        assert!(result.is_err());
+    }
+
+    /// Narrowing applies to the branch the test actually proves.
+    #[test]
+    fn test_equality_null_check_narrows_the_else_branch() {
+        let result = analyze("متغير س: عدد? = 5\nإذا (س == لا_شيء) { اطبع(0) } وإلا { اطبع(س + 1) }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
     #[test]
     fn test_undefined_variable() {
         let result = analyze("اطبع(س);");

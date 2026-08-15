@@ -579,6 +579,53 @@ fn test_optional_strings_compare_by_value_not_identity() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Null-check narrowing — LANGUAGE_SPEC §13.4 (#185)
+// ---------------------------------------------------------------------------
+
+/// The example from the spec: after the check, the value is usable as its
+/// unwrapped type.
+#[test]
+fn test_null_check_narrows_in_the_then_branch() {
+    assert_prints(
+        "تضييق_ثم",
+        "متغير س: عدد? = 5\nإذا (س != لا_شيء) { اطبع(س + 1) }",
+        &["6"],
+    );
+}
+
+/// `لا_شيء != س` reads as naturally in Arabic as the reverse, so both operand
+/// orders narrow.
+#[test]
+fn test_null_check_narrows_with_operands_reversed() {
+    assert_prints(
+        "تضييق_معكوس",
+        "متغير س: عدد? = 5\nإذا (لا_شيء != س) { اطبع(س + 1) }",
+        &["6"],
+    );
+}
+
+/// `==` proves the opposite branch.
+#[test]
+fn test_null_check_narrows_the_else_branch() {
+    assert_prints(
+        "تضييق_وإلا",
+        "متغير س: عدد? = 5\nإذا (س == لا_شيء) { اطبع(0) } وإلا { اطبع(س + 1) }",
+        &["6"],
+    );
+}
+
+/// A narrowed `نص?` is still a `TrqString*`, so it has to take the string path
+/// rather than falling back to the array one and counting bytes again.
+#[test]
+fn test_narrowed_optional_string_measures_characters() {
+    assert_prints(
+        "تضييق_نص",
+        "متغير س: نص? = \"مرحبا\"\nإذا (س != لا_شيء) { اطبع(طول(س)) }",
+        &["5"],
+    );
+}
+
 /// Concatenation deliberately still drops the `.0`.
 ///
 /// `"…" + 5.0` lowers through `trq_float_to_string`, where the runtime and the

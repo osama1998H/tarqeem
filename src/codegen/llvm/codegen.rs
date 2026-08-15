@@ -1712,9 +1712,10 @@ impl LlvmCodegen {
                 // (#185). An unknown operand type keeps the array symbol: that is
                 // today's behaviour, and the catch-all arm is where type-directed
                 // fixes break (#222).
-                let symbol = match self.var_types.get(&array.0) {
-                    Some(IrType::String) => "trq_string_len_chars",
-                    _ => "trq_array_len",
+                let symbol = if Self::is_string_operand(self.var_types.get(&array.0)) {
+                    "trq_string_len_chars"
+                } else {
+                    "trq_array_len"
                 };
                 writeln!(
                     self.output,
@@ -1742,7 +1743,7 @@ impl LlvmCodegen {
                 // element table and aborted with "الوصول إلى مصفوفة فارغة" — the
                 // element-access half of the same polymorphism gap as `ArrayLen`
                 // (#185). `لكل ح في نص` is the common way to reach it.
-                if matches!(self.var_types.get(&array.0), Some(IrType::String)) {
+                if Self::is_string_operand(self.var_types.get(&array.0)) {
                     writeln!(
                         self.output,
                         "  {} = call ptr @trq_string_char_at(ptr {}, i64 {})",
@@ -2201,8 +2202,35 @@ impl LlvmCodegen {
         ty: &IrType,
     ) -> Result<(), CodegenError> {
         let dest_name = self.get_or_create_var(dest);
-        let left_name = self.get_var(left)?;
-        let right_name = self.get_var(right)?;
+        let mut left_name = self.get_var(left)?;
+        let mut right_name = self.get_var(right)?;
+
+        // Once the analyzer narrows `س` after `إذا (س != لا_شيء)`, the branch may
+        // use it as a plain scalar — but it is still a boxed pointer here, so the
+        // value has to be loaded back out (#185). Unbox only against a bare
+        // scalar operand: a comparison with `لا_شيء` has `Ptr(Void)` on the other
+        // side and must stay a pointer test.
+        let left_ty_raw = self.var_types.get(&left.0).cloned();
+        let right_ty_raw = self.var_types.get(&right.0).cloned();
+        let unboxes_against = |boxed: &Option<IrType>, other: &Option<IrType>| -> Option<IrType> {
+            match (boxed, other) {
+                (Some(IrType::Ptr(pointee)), Some(other_ty))
+                    if **pointee == *other_ty
+                        && matches!(**pointee, IrType::Int | IrType::Float | IrType::Bool) =>
+                {
+                    Some((**pointee).clone())
+                }
+                _ => None,
+            }
+        };
+
+        if let Some(scalar) = unboxes_against(&left_ty_raw, &right_ty_raw) {
+            left_name = self.emit_unboxed_scalar(&left_name, &scalar);
+            self.var_types.insert(left.0, scalar);
+        } else if let Some(scalar) = unboxes_against(&right_ty_raw, &left_ty_raw) {
+            right_name = self.emit_unboxed_scalar(&right_name, &scalar);
+            self.var_types.insert(right.0, scalar);
+        }
 
         // Check operand type from var_types - more reliable than ty parameter
         // This handles cases where the IR builder passes incorrect type info
@@ -2620,6 +2648,28 @@ impl LlvmCodegen {
     fn needs_boxing(from: &IrType, to: &IrType) -> bool {
         matches!(from, IrType::Int | IrType::Float | IrType::Bool)
             && matches!(to, IrType::Ptr(pointee) if **pointee == *from)
+    }
+
+    /// Whether an operand is a string at run time.
+    ///
+    /// `نص` is `String` and `نص?` is `Ptr(String)`, but both are a `TrqString*`
+    /// once compiled — so a narrowed optional string must take the string path
+    /// too, or `طول` counts its bytes again (#185).
+    fn is_string_operand(ty: Option<&IrType>) -> bool {
+        matches!(ty, Some(IrType::String))
+            || matches!(ty, Some(IrType::Ptr(inner)) if matches!(**inner, IrType::String))
+    }
+
+    /// Load a boxed scalar back out of its cell.
+    fn emit_unboxed_scalar(&mut self, value_name: &str, ty: &IrType) -> String {
+        let llvm_ty = self.type_mapper.map_type(ty);
+        let loaded = self.fresh_name("opt.unbox");
+        let _ = writeln!(
+            self.output,
+            "  {} = load {}, ptr {}",
+            loaded, llvm_ty, value_name
+        );
+        loaded
     }
 
     /// Allocate an 8-byte cell, store `value_name` in it, and yield the cell.
