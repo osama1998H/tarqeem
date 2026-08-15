@@ -1276,18 +1276,11 @@ impl LlvmCodegen {
 
             Instruction::NewObject { dest, class } => {
                 let dest_name = self.get_or_create_var(*dest);
-                let fields = self.class_defs.get(&class.0).cloned().unwrap_or_default();
-                let field_bytes: u64 = fields
-                    .iter()
-                    .map(|(_, ty)| self.type_mapper.type_size(ty))
-                    .sum();
-                let is_anonymous = class.0 == "__anonymous__";
-                let header_bytes = if is_anonymous {
-                    0
-                } else {
-                    self.type_mapper.pointer_size()
-                };
-                let size = (header_bytes + field_bytes).max(8); // Minimum 8 bytes
+                // Sized off the registered struct layout, which pads each field to
+                // its alignment: summing bare field sizes under-allocated, so
+                // `{ ptr, i1, i64 }` asked for 17 bytes while its `i64` is stored
+                // at offset 16 — a seven-byte overrun on every instance.
+                let size = self.type_mapper.type_size(&IrType::Struct(class.clone()));
 
                 writeln!(
                     self.output,

@@ -75,10 +75,10 @@ impl TypeMapper {
             IrType::Bool => 1,
             IrType::Int => 8,
             IrType::Float => 8,
-            IrType::String => self.pointer_bits as u64 / 8,
-            IrType::Ptr(_) => self.pointer_bits as u64 / 8,
+            IrType::String => self.pointer_size(),
+            IrType::Ptr(_) => self.pointer_size(),
             IrType::Array(elem, size) => self.type_size(elem) * (*size as u64),
-            IrType::Function { .. } => self.pointer_bits as u64 / 8,
+            IrType::Function { .. } => self.pointer_size(),
             IrType::Struct(class_id) => {
                 if let Some(field_types) = self.struct_fields.get(&class_id.0) {
                     let mut total_size = 0u64;
@@ -91,18 +91,18 @@ impl TypeMapper {
                         total_size += self.type_size(field_ty);
                     }
                     if total_size == 0 {
-                        self.pointer_bits as u64 / 8
+                        self.pointer_size()
                     } else {
                         total_size
                     }
                 } else {
-                    self.pointer_bits as u64 / 8
+                    self.pointer_size()
                 }
             }
             IrType::Enum(_) => {
                 // Enum size: discriminant (8 bytes) + max variant data
                 // For now, use a conservative estimate (pointer + 8 bytes for discriminant)
-                8 + self.pointer_bits as u64 / 8
+                8 + self.pointer_size()
             }
         }
     }
@@ -113,11 +113,11 @@ impl TypeMapper {
             IrType::Bool => 1,
             IrType::Int => 8,
             IrType::Float => 8,
-            IrType::String => self.pointer_bits as u64 / 8,
-            IrType::Ptr(_) => self.pointer_bits as u64 / 8,
+            IrType::String => self.pointer_size(),
+            IrType::Ptr(_) => self.pointer_size(),
             IrType::Array(elem, _) => self.type_align(elem),
-            IrType::Function { .. } => self.pointer_bits as u64 / 8,
-            IrType::Struct(_) => self.pointer_bits as u64 / 8,
+            IrType::Function { .. } => self.pointer_size(),
+            IrType::Struct(_) => self.pointer_size(),
             IrType::Enum(_) => 8, // Alignment of discriminant (i64)
         }
     }
