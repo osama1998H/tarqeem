@@ -671,17 +671,19 @@ fn test_narrowed_optional_string_measures_characters() {
     );
 }
 
-/// Concatenation deliberately still drops the `.0`.
+/// A float reads the same whether printed or concatenated.
 ///
-/// `"…" + 5.0` lowers through `trq_float_to_string`, where the runtime and the
-/// interpreter *already agree* on `5`. "Fixing" it to match `اطبع` would
-/// manufacture a divergence rather than remove one. The language is left
-/// internally inconsistent (`اطبع(5.0)` is `5.0`, `اطبع("" + 5.0)` is `5`);
-/// that is a design question, and this test exists so it is settled
-/// deliberately rather than by an unnoticed edit.
+/// These disagreed: `اطبع(5.0)` gave `5.0` while `اطبع("" + 5.0)` gave `5`,
+/// because concatenation lowers through `trq_float_to_string` and that dropped
+/// the fraction. Every backend agreed on the wrong answer, so no cross-backend
+/// check could see it — only reading an example's output did.
 #[test]
-fn test_float_concatenation_keeps_its_existing_format() {
-    assert_prints("عشري_دمج", "اطبع(\"القيمة: \" + 5.0)", &["القيمة: 5"]);
+fn test_float_reads_the_same_printed_and_concatenated() {
+    assert_prints(
+        "عشري_دمج",
+        "اطبع(5.0)\nاطبع(\"القيمة: \" + 5.0)\nاطبع(\"كسر: \" + 2.5)",
+        &["5.0", "القيمة: 5.0", "كسر: 2.5"],
+    );
 }
 
 #[test]

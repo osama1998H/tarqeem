@@ -33,6 +33,12 @@ impl DebugInterpreter {
                 | "trq_string_len"
                 | "trq_string_to_int_checked"
                 | "trq_string_to_float_checked"
+                // String concatenation lowers its non-string side through these,
+                // so `اطبع("الراتب: " + 10000.0)` aborted here while running fine
+                // in every other backend (#185).
+                | "trq_int_to_string"
+                | "trq_float_to_string"
+                | "trq_bool_to_string"
         )
     }
 
@@ -166,6 +172,15 @@ impl DebugInterpreter {
                     Value::String(s) => Ok(Value::Int(s.len() as i64)),
                     _ => Err(RuntimeError::type_error("نص", val.type_name())),
                 }
+            }
+
+            // `to_display_string` is the single definition of how each of these
+            // reads, so the debugger cannot drift from the other backends.
+            "trq_int_to_string" | "trq_float_to_string" | "trq_bool_to_string" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("التحويل إلى نص يتطلب معامل واحد")
+                })?;
+                Ok(Value::string(val.to_display_string()))
             }
 
             "trq_string_to_int_checked" => {

@@ -1025,9 +1025,12 @@ impl Interpreter {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation("عشري_لنص() تتطلب معامل واحد")
                 })?;
+                // `Value::to_display_string` is the single definition of how a
+                // float reads; `f.to_string()` drops the fraction of a whole one
+                // and made `"…" + 10000.0` disagree with `اطبع(10000.0)` (#185).
                 match val {
-                    Value::Float(f) => Ok(Value::string(f.to_string())),
-                    Value::Int(n) => Ok(Value::string((*n as f64).to_string())),
+                    Value::Float(f) => Ok(Value::string(Value::Float(*f).to_display_string())),
+                    Value::Int(n) => Ok(Value::string(Value::Float(*n as f64).to_display_string())),
                     _ => Err(RuntimeError::type_error("عدد_عشري", val.type_name())),
                 }
             }
