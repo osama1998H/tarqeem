@@ -401,8 +401,12 @@ fn test_builtin_wins_over_a_same_named_import_in_every_backend() {
 /// running the program proves a builtin reaches a real implementation.
 #[test]
 fn test_every_core_builtin_agrees_across_backends() {
-    // `ادخل`/`ادخل_رسالة` read stdin and `توقف` terminates by design, so they
-    // are exercised by their own fixtures rather than this sweep.
+    // Three names are deliberately outside this sweep, which compares stdout of
+    // a program that runs to completion: `ادخل`/`ادخل_رسالة` block on stdin, and
+    // `اطبع_خطأ` writes to stderr. They are *not* covered elsewhere — stated
+    // plainly rather than implied away, since a guard test that overstates its
+    // reach is how the next drift hides. `توقف` terminates, so it gets an
+    // exit-code fixture below instead.
     let probes: &[(&str, &str, &[&str])] = &[
         ("اطبع", "اطبع(1)", &["1"]),
         ("طباعة", "طباعة(1)", &["1"]),
@@ -435,7 +439,7 @@ fn test_every_core_builtin_agrees_across_backends() {
         .iter()
         .copied()
         .filter(|name| !covered.contains(name))
-        .filter(|name| !matches!(*name, "ادخل" | "ادخل_رسالة" | "توقف" | "اطبع_خطأ"))
+        .filter(|name| !matches!(*name, "ادخل" | "ادخل_رسالة" | "اطبع_خطأ" | "توقف"))
         .collect();
     assert!(
         uncovered.is_empty(),
@@ -445,4 +449,11 @@ fn test_every_core_builtin_agrees_across_backends() {
     for (name, body, expected) in probes {
         assert_prints(&format!("أساسي_{name}"), body, expected);
     }
+}
+
+/// `توقف` aborts the program, so it is asserted on exit status rather than
+/// stdout — the sweep above only covers builtins that run to completion.
+#[test]
+fn test_halt_builtin_aborts_in_every_backend() {
+    assert_fails("توقف_مباشر", "توقف(\"انتهى\")\nاطبع(\"لا ينبغي طباعته\")");
 }

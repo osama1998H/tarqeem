@@ -2221,3 +2221,60 @@ Decisions worth keeping:
   (`ت٠٣٠٣` renders reversed) — keep each label in one script.
 - `comments.md` / `rust-style.md` globs were `src/**/*.rs`, so neither applied
   to `runtime-rs/` or `benches/`. Widened.
+
+## #222 — core builtins that disagreed between backends
+
+Six core builtins type-checked and ran interpreted but failed to compile
+natively; `طول_مصفوفة` and `الحق` failed the other way. One function explains
+all eight: `mangle_function_name` (`codegen.rs`) is a name-only lookup applied
+symmetrically to call sites *and* definitions. A miss falls through to mangling
+the Arabic identifier, producing a call to a symbol nothing declares — which is
+an LLVM IR **parse** error, not a link error, since an undeclared symbol never
+reaches `ld`. The same symmetry is #257, in the opposite direction.
+
+Decisions worth keeping:
+
+- **Builtins that need argument types are lowered in the IR builder, not the
+  codegen table.** The table is name-only: it can express neither type dispatch
+  (`عدد` is declared over `أي`) nor arity (`تأكد` has one parameter, `trq_assert`
+  takes two). The builder is the only layer holding `var_types` and the only one
+  that can synthesise the missing operand. `اطبع`/`طول`/`نص` were already there,
+  which is exactly why they were the three that worked.
+- **`نوع` folds to a constant.** `IrType` has no dynamic variant, so the answer
+  is known at build time; no runtime type tag is needed, and none exists.
+- **Builtin wins over a same-named user function — pinned, not chosen.** A
+  shadowing guard was written first, to protect `stdlib/اختبار/توكيدات.ترقيم`'s
+  own `تأكد`. It *created* a divergence: native bound the user's function while
+  the interpreter still ran the builtin, because `is_builtin` precedes
+  `call_function` in the executor. The semantic layer also rejects a top-level
+  redefinition outright, so shadowing does not work today in any case. The
+  interception is now unconditional and a cross-backend test pins it. Whether
+  builtins *should* be shadowable is #262.
+- **`عدد("أبجد")` must fail, not yield 0.** `trq_string_to_int` returns 0 via
+  `unwrap_or` — correct for the stdlib's lenient parsers, wrong here, and it
+  would have replaced a loud link error with a silent wrong answer. Hence the
+  `_checked` variants. A conversion fix that only tests valid input tests the
+  wrong half.
+- **`BoolToInt` exists because `Bitcast` is pointer-only** — codegen emits
+  `bitcast ptr … to i64`, and the interpreter ignores `to_ty` entirely, so it
+  silently returned the bool unchanged. Widening needed a real instruction
+  beside `IntToFloat`/`FloatToInt`.
+
+Two traps for the next person touching this:
+
+- **There are two `find_runtime` functions.** `codegen::linker::find_runtime`
+  honours `TARQEEM_RUNTIME_PATH` and `target/<profile>/`; the one `compile`
+  actually calls (`cli/commands/mod.rs`) honours neither, so a freshly built
+  `target/release/libtrq.a` is never found and native links silently bind a
+  stale `~/.tarqeem/lib/libtrq.a`. A new runtime symbol then reads as
+  `Undefined symbols: _trq_…` no matter how often you rebuild. Tests must stage
+  the archive where the CLI looks; `builtins_execution_tests.rs` does.
+- **`nm -g` reads the release archive as empty** — `lto = true` leaves bitcode
+  members. Check symbols against a debug build of the runtime.
+
+The guard test is execution-based on purpose: these lowerings live in the IR
+builder and are invisible to any static check of `get_runtime_function_name`.
+`register_core_builtins` now iterates a list so the set can be enumerated at
+all; three names (`ادخل`, `ادخل_رسالة`, `اطبع_خطأ`) stay uncovered because they
+block on stdin or write to stderr, and the test says so rather than implying
+coverage it does not have.
