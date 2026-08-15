@@ -2361,10 +2361,15 @@ Decisions worth keeping:
 
 Traps for whoever touches this next:
 
-- **Boxing has five coercion sites, not one.** Local store, global store, global
-  *initializer*, call argument, and return. Each was found by a failing test
-  after the previous one passed. A global initializer cannot allocate, so it
-  defers to program start the way string globals already do.
+- **Boxing has seven coercion sites, not one.** Local store, global store, global
+  *initializer*, call argument, return, `SetField`, and `CallMethod` argument.
+  Each was found by a failing test after the previous one passed, and the last
+  two only by deliberately going looking for sites the earlier passes had
+  missed — they compiled cleanly and answered `فارغ` for a present `0`. Two
+  details that cost time: a global initializer cannot allocate, so it defers to
+  program start the way string globals already do; and a method's declared
+  parameter 0 is the receiver, which is *not* in `CallMethod.args`, so argument
+  `i` is declared at `i + 1`.
 - **The unit tests passed while the examples still diverged.** `"…" + مخزون`
   inside a narrowed branch printed the box's address, because the runtime's
   scalar-to-string conversions take the scalar and nothing unboxed for them.
@@ -2381,3 +2386,8 @@ Traps for whoever touches this next:
 
 `KNOWN_DIVERGENT` in `examples.yml` is now empty: `تشفير_وضغط:native` was its
 last entry, and all ten examples agree across all three backends.
+
+Verified afterwards, since the plan called for it and no automated test reaches
+it: `tarqeem debug` (the fourth backend, #223) gives `5` for `طول("مرحبا")`,
+`5.0` for `اطبع(5.0)`, `موجود` for `عدد? = 0` against `لا_شيء`, and `6` for the
+narrowed `س + 1`. All four backends agree.
