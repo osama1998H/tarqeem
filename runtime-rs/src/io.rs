@@ -39,11 +39,15 @@ pub extern "C" fn trq_print_int(value: i64) {
 }
 
 /// Print a float to stdout.
+///
+/// Mirrors the interpreter's `Value::to_display_string` exactly (#185): a whole
+/// float keeps one decimal place, so `اطبع(5.0)` reads `5.0` in every backend.
+/// The previous `%g` convention printed `value as i64`, which agreed with no
+/// other backend and made native output silently disagree with `tarqeem run`.
 #[no_mangle]
 pub extern "C" fn trq_print_float(value: f64) {
-    // Use %g style formatting (remove trailing zeros)
-    if value.fract() == 0.0 && value.abs() < 1e15 {
-        print!("{}", value as i64);
+    if value.fract() == 0.0 {
+        print!("{:.1}", value);
     } else {
         print!("{}", value);
     }
