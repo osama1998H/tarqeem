@@ -639,6 +639,65 @@ pub extern "C" fn trq_string_to_float(s: *const TrqString) -> f64 {
     }
 }
 
+/// Borrow a `TrqString` as `&str`, or `None` if it is null/empty/not UTF-8.
+///
+/// # Safety
+///
+/// - `s` must be a valid pointer to a `TrqString` or null.
+unsafe fn as_str<'a>(s: *const TrqString) -> Option<&'a str> {
+    if s.is_null() || (*s).data.is_null() || (*s).len <= 0 {
+        return None;
+    }
+
+    let bytes = std::slice::from_raw_parts((*s).data, (*s).len as usize);
+    std::str::from_utf8(bytes).ok().map(|text| text.trim())
+}
+
+fn reject_unparsable(value: &str, target: &str) -> ! {
+    eprintln!("خطأ: تعذّر تحويل «{}» إلى {}", value, target);
+    eprintln!("Error: cannot convert \"{}\" to {}", value, target);
+    std::process::exit(1);
+}
+
+/// Parse a string to an integer, terminating the program if it does not parse.
+///
+/// Backs the core builtin `عدد`. [`trq_string_to_int`] returns 0 on failure,
+/// which is the right shape for the stdlib's lenient parsers but would make
+/// `عدد("أبجد")` print `0` natively while the interpreter raises a type error —
+/// a silent cross-backend divergence.
+///
+/// # Safety
+///
+/// - `s` must be a valid pointer to a `TrqString` or null.
+#[no_mangle]
+pub extern "C" fn trq_string_to_int_checked(s: *const TrqString) -> i64 {
+    unsafe {
+        let text = as_str(s).unwrap_or("");
+        match text.parse::<i64>() {
+            Ok(value) => value,
+            Err(_) => reject_unparsable(text, "عدد"),
+        }
+    }
+}
+
+/// Parse a string to a float, terminating the program if it does not parse.
+///
+/// The `عدد_عشري` counterpart of [`trq_string_to_int_checked`].
+///
+/// # Safety
+///
+/// - `s` must be a valid pointer to a `TrqString` or null.
+#[no_mangle]
+pub extern "C" fn trq_string_to_float_checked(s: *const TrqString) -> f64 {
+    unsafe {
+        let text = as_str(s).unwrap_or("");
+        match text.parse::<f64>() {
+            Ok(value) => value,
+            Err(_) => reject_unparsable(text, "عدد_عشري"),
+        }
+    }
+}
+
 // ============================================================================
 // Search Operations (Medium Priority)
 // ============================================================================

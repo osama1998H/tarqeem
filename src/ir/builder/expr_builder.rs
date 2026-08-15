@@ -426,6 +426,212 @@ impl IrBuilder {
         Ok(dest)
     }
 
+    /// The type of `var` as recorded during building, defaulting to `Int` like
+    /// the other builtin lowerings do.
+    fn arg_type(&self, var: VarId) -> IrType {
+        self.var_types.get(&var.0).cloned().unwrap_or(IrType::Int)
+    }
+
+    fn emit_const(&mut self, value: Constant, ty: IrType) -> VarId {
+        let dest = self.new_var();
+        self.emit(Instruction::Const {
+            dest,
+            value,
+            ty: ty.clone(),
+        });
+        self.var_types.insert(dest.0, ty);
+        dest
+    }
+
+    /// A `void`-typed result, for builtins called as statements.
+    fn emit_void(&mut self) -> VarId {
+        self.emit_const(Constant::Null, IrType::Void)
+    }
+
+    fn emit_call(&mut self, symbol: &str, args: Vec<VarId>, ret_ty: IrType) -> VarId {
+        let dest = self.new_var();
+        self.emit(Instruction::Call {
+            dest: Some(dest),
+            func: FuncId(symbol.to_string()),
+            args,
+            ret_ty: ret_ty.clone(),
+        });
+        self.var_types.insert(dest.0, ret_ty);
+        dest
+    }
+
+    /// The Arabic type name `نوع` reports, mirroring `Value::type_name_ar` in
+    /// the interpreter.
+    fn type_name_ar(ty: &IrType) -> &'static str {
+        match ty {
+            IrType::Bool => "منطقي",
+            IrType::Int => "عدد",
+            IrType::Float => "عدد_عشري",
+            IrType::String => "نص",
+            IrType::Array(_, _) => "مصفوفة",
+            IrType::Struct(_) => "كائن",
+            IrType::Enum(_) => "تعداد",
+            IrType::Function { .. } => "دالة",
+            IrType::Void => "لا_شيء",
+            IrType::Ptr(_) => "مؤشر",
+        }
+    }
+
+    /// Lowers a core builtin that cannot be expressed as a name→symbol mapping.
+    ///
+    /// The conversion builtins are declared over `أي`, so the callee depends on
+    /// the argument's type; `نوع` is answerable at build time because `IrType`
+    /// has no dynamic variant; and `تأكد` needs a message operand its call site
+    /// never supplies. Codegen's table is name-only and can express none of
+    /// that, so an unmapped name used to fall through to a mangled Arabic symbol
+    /// that nothing defined (#222).
+    ///
+    /// Returns `None` for anything that is not one of these, leaving the normal
+    /// call path to handle it. Callers must confirm the name is not shadowed by
+    /// a user function first.
+    fn build_core_builtin_call(&mut self, name: &str, args: &[VarId]) -> Result<Option<VarId>> {
+        let Some(&first) = args.first() else {
+            return Ok(None);
+        };
+        let arg_ty = self.arg_type(first);
+
+        let dest = match name {
+            "اطبع" | "طباعة" => {
+                self.emit(Instruction::Print { value: first });
+                self.emit_void()
+            }
+
+            "طول" => {
+                let dest = self.new_var();
+                self.emit(Instruction::ArrayLen { dest, array: first });
+                self.var_types.insert(dest.0, IrType::Int);
+                dest
+            }
+
+            "نص" => self.convert_to_string(first, &arg_ty)?,
+
+            "نوع" => {
+                let idx = self.add_string(Self::type_name_ar(&arg_ty).to_string());
+                self.emit_const(Constant::String(idx), IrType::String)
+            }
+
+            "عدد" => match arg_ty {
+                IrType::Int => first,
+                IrType::Bool => {
+                    // صحيح/خطأ become 1/0, as the interpreter's `عدد` does.
+                    let dest = self.new_var();
+                    self.emit(Instruction::BoolToInt { dest, src: first });
+                    self.var_types.insert(dest.0, IrType::Int);
+                    dest
+                }
+                IrType::Float => {
+                    let dest = self.new_var();
+                    self.emit(Instruction::FloatToInt { dest, src: first });
+                    self.var_types.insert(dest.0, IrType::Int);
+                    dest
+                }
+                _ => self.emit_call("trq_string_to_int_checked", vec![first], IrType::Int),
+            },
+
+            "عدد_عشري" => match arg_ty {
+                IrType::Float => first,
+                IrType::Int | IrType::Bool => {
+                    // A bool widens through i64 first: `sitofp` takes an i64,
+                    // and the interpreter's IntToFloat likewise rejects a bool.
+                    let widened = if arg_ty == IrType::Bool {
+                        let dest = self.new_var();
+                        self.emit(Instruction::BoolToInt { dest, src: first });
+                        self.var_types.insert(dest.0, IrType::Int);
+                        dest
+                    } else {
+                        first
+                    };
+                    let dest = self.new_var();
+                    self.emit(Instruction::IntToFloat { dest, src: widened });
+                    self.var_types.insert(dest.0, IrType::Float);
+                    dest
+                }
+                _ => self.emit_call("trq_string_to_float_checked", vec![first], IrType::Float),
+            },
+
+            "منطقي" => self.build_truthiness(first, &arg_ty),
+
+            "تأكد" | "تأكد_رسالة" => {
+                // `trq_assert` treats a null message as "فشل التأكيد", which is
+                // exactly what the interpreter reports for the one-argument form.
+                let message = match args.get(1) {
+                    Some(&msg) => msg,
+                    None => self.emit_const(Constant::Null, IrType::Ptr(Box::new(IrType::Void))),
+                };
+                self.emit(Instruction::Call {
+                    dest: None,
+                    func: FuncId("trq_assert".to_string()),
+                    args: vec![first, message],
+                    ret_ty: IrType::Void,
+                });
+                self.emit_void()
+            }
+
+            "طول_مصفوفة" => {
+                let dest = self.new_var();
+                self.emit(Instruction::ArrayLen { dest, array: first });
+                self.var_types.insert(dest.0, IrType::Int);
+                dest
+            }
+
+            "الحق" => {
+                let Some(&value) = args.get(1) else {
+                    return Ok(None);
+                };
+                let elem_ty = self.arg_type(value);
+                self.emit(Instruction::ArrayPush {
+                    array: first,
+                    value,
+                    elem_ty,
+                });
+                self.emit_void()
+            }
+
+            _ => return Ok(None),
+        };
+
+        Ok(Some(dest))
+    }
+
+    /// `منطقي` follows the interpreter's `Value::is_truthy`: zero, an empty
+    /// string and an empty array are false; everything else is true.
+    fn build_truthiness(&mut self, var: VarId, ty: &IrType) -> VarId {
+        let (measured, zero) = match ty {
+            IrType::Bool => return var,
+            IrType::Float => (var, self.emit_const(Constant::Float(0.0), IrType::Float)),
+            IrType::String => {
+                let len = self.emit_call("trq_string_len", vec![var], IrType::Int);
+                (len, self.emit_const(Constant::Int(0), IrType::Int))
+            }
+            IrType::Array(_, _) => {
+                let len = self.new_var();
+                self.emit(Instruction::ArrayLen {
+                    dest: len,
+                    array: var,
+                });
+                self.var_types.insert(len.0, IrType::Int);
+                (len, self.emit_const(Constant::Int(0), IrType::Int))
+            }
+            _ => (var, self.emit_const(Constant::Int(0), IrType::Int)),
+        };
+
+        let dest = self.new_var();
+        self.emit(Instruction::Binary {
+            dest,
+            op: BinaryOp::Ne,
+            left: measured,
+            right: zero,
+            ty: self.arg_type(measured),
+        });
+        self.var_types.insert(dest.0, IrType::Bool);
+        dest
+    }
+
     /// Build IR for a unary operation.
     pub(crate) fn build_unary(&mut self, op: AstUnaryOp, operand: &Expr) -> Result<VarId> {
         match op {
@@ -605,46 +811,18 @@ impl IrBuilder {
             None => arg_vars,
         };
 
+        // The core builtins below are lowered here rather than mapped by name in
+        // codegen, because they take `أي` and so need the argument's type (or,
+        // for `تأكد`, an argument codegen cannot synthesise).
+        //
+        // The interception is unconditional, matching the interpreter, which
+        // consults `is_builtin` before user functions (`executor/mod.rs`). A
+        // guard that let a same-named user function win here would make native
+        // call it while the interpreter still ran the builtin — a divergence.
+        // Whether a builtin name *should* be shadowable is #262's question.
         if let ExprKind::Identifier(name) = &callee.kind {
-            if name == "اطبع" {
-                if let Some(arg) = arg_vars.first() {
-                    self.emit(Instruction::Print { value: *arg });
-                }
-                let dest = self.new_var();
-                self.emit(Instruction::Const {
-                    dest,
-                    value: Constant::Null,
-                    ty: IrType::Void,
-                });
-                self.var_types.insert(dest.0, IrType::Void);
+            if let Some(dest) = self.build_core_builtin_call(name, &arg_vars)? {
                 return Ok(dest);
-            }
-
-            // Handle طول (length) as a function call - generates ArrayLen instruction
-            if name == "طول" {
-                if let Some(array_var) = arg_vars.first() {
-                    let dest = self.new_var();
-                    self.emit(Instruction::ArrayLen {
-                        dest,
-                        array: *array_var,
-                    });
-                    self.var_types.insert(dest.0, IrType::Int);
-                    return Ok(dest);
-                }
-            }
-
-            // Handle نص (to-string conversion) with type dispatch
-            // This function accepts Type::Any but needs to dispatch to the correct
-            // runtime function based on the actual argument type
-            if name == "نص" {
-                if let Some(arg_var) = arg_vars.first() {
-                    let arg_ty = self
-                        .var_types
-                        .get(&arg_var.0)
-                        .cloned()
-                        .unwrap_or(IrType::Int);
-                    return self.convert_to_string(*arg_var, &arg_ty);
-                }
             }
 
             // `name` may be a local/global variable holding a function

@@ -118,6 +118,17 @@ pub extern "C" fn trq_abort(msg: *const TrqString) {
     trq_panic(msg);
 }
 
+/// Suspend the calling thread for `milliseconds`.
+///
+/// Backs the core builtin `نم`, which codegen has always emitted a call to
+/// while nothing defined the symbol, so any program using it failed to link.
+#[no_mangle]
+pub extern "C" fn trq_sleep(milliseconds: i64) {
+    if milliseconds > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(milliseconds as u64));
+    }
+}
+
 // ============================================================================
 // Debug Utilities
 // ============================================================================

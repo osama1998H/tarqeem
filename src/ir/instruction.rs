@@ -258,6 +258,12 @@ pub enum Instruction {
         dest: VarId,
         src: VarId,
     },
+    /// Widen a boolean to an integer, as `عدد(صحيح)` does. Distinct from
+    /// `Bitcast`, which codegen emits only for pointers.
+    BoolToInt {
+        dest: VarId,
+        src: VarId,
+    },
     ToString {
         dest: VarId,
         src: VarId,
@@ -482,6 +488,9 @@ impl fmt::Display for Instruction {
             }
             Instruction::FloatToInt { dest, src } => {
                 write!(f, "{}: i64 = float_to_int {}", dest, src)
+            }
+            Instruction::BoolToInt { dest, src } => {
+                write!(f, "{}: i64 = bool_to_int {}", dest, src)
             }
             Instruction::ToString { dest, src } => {
                 write!(f, "{}: str = to_string {}", dest, src)

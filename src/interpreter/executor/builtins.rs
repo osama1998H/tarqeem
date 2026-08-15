@@ -150,6 +150,10 @@ impl Interpreter {
                 | "trq_int_to_string"
                 | "trq_float_to_string"
                 | "trq_bool_to_string"
+                | "trq_assert"
+                | "trq_string_len"
+                | "trq_string_to_int_checked"
+                | "trq_string_to_float_checked"
                 // SHA-256 functions
                 | "احسب_بصمة"
                 | "بصمة_ملف"
@@ -253,6 +257,8 @@ impl Interpreter {
                 match val {
                     Value::Int(i) => Ok(Value::Float(*i as f64)),
                     Value::Float(f) => Ok(Value::Float(*f)),
+                    // Mirrors عدد, which already maps صحيح/خطأ to 1/0.
+                    Value::Bool(b) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })),
                     Value::String(s) => s
                         .parse::<f64>()
                         .map(Value::Float)
@@ -800,15 +806,66 @@ impl Interpreter {
                 Ok(Value::Bool(random.is_multiple_of(2)))
             }
 
-            "تأكد" => {
+            // `trq_assert` is the symbol the IR builder lowers both تأكد and
+            // تأكد_رسالة to, with a null second argument standing for "no
+            // message" — the same contract the native runtime implements.
+            "تأكد" | "trq_assert" => {
                 let cond = args
                     .first()
                     .ok_or_else(|| RuntimeError::invalid_operation("تأكد() تتطلب معامل واحد"))?;
 
                 if !cond.is_truthy() {
-                    return Err(RuntimeError::invalid_operation("فشل التأكيد"));
+                    return match args.get(1) {
+                        Some(msg) if !matches!(msg, Value::Null) => {
+                            Err(RuntimeError::invalid_operation(format!(
+                                "فشل التأكيد: {}",
+                                msg.to_display_string()
+                            )))
+                        }
+                        _ => Err(RuntimeError::invalid_operation("فشل التأكيد")),
+                    };
                 }
                 Ok(Value::Null)
+            }
+
+            "trq_string_len" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("trq_string_len() تتطلب معامل واحد")
+                })?;
+                match val {
+                    Value::String(s) => Ok(Value::Int(s.chars().count() as i64)),
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
+            }
+
+            // The checked parsers back عدد/عدد_عشري on a string. They reject an
+            // unparsable value rather than yielding 0, so every backend agrees.
+            "trq_string_to_int_checked" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("عدد() تتطلب معامل واحد"))?;
+                match val {
+                    Value::String(s) => {
+                        s.trim().parse::<i64>().map(Value::Int).map_err(|_| {
+                            RuntimeError::type_error("numeric string", "invalid string")
+                        })
+                    }
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
+            }
+
+            "trq_string_to_float_checked" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("عدد_عشري() تتطلب معامل واحد")
+                })?;
+                match val {
+                    Value::String(s) => {
+                        s.trim().parse::<f64>().map(Value::Float).map_err(|_| {
+                            RuntimeError::type_error("numeric string", "invalid string")
+                        })
+                    }
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
             }
 
             "تأكد_رسالة" => {

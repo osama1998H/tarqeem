@@ -772,6 +772,7 @@ fn instruction_dest(inst: &Instruction) -> Option<VarId> {
         Instruction::Const { dest, .. }
         | Instruction::Binary { dest, .. }
         | Instruction::Unary { dest, .. }
+        | Instruction::BoolToInt { dest, .. }
         | Instruction::IntToFloat { dest, .. }
         | Instruction::FloatToInt { dest, .. }
         | Instruction::ToString { dest, .. }
@@ -807,7 +808,8 @@ fn instruction_operands(inst: &Instruction) -> Vec<VarId> {
 
         Instruction::Unary { operand, .. } => vec![*operand],
 
-        Instruction::IntToFloat { src, .. }
+        Instruction::BoolToInt { src, .. }
+        | Instruction::IntToFloat { src, .. }
         | Instruction::FloatToInt { src, .. }
         | Instruction::ToString { src, .. }
         | Instruction::Bitcast { src, .. }
