@@ -2,6 +2,73 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-15 — Native virtual dispatch, via the prefix invariant (#280)
+
+### Why a real vtable, not the guard the issue proposed
+
+#280 offered an interim: refuse the shape natively rather than dispatch it. The
+condition on file — definer ≠ the receiver's static class **and** some descendant
+overrides — is precise for #280 and fires on nothing in `examples/أصناف.ترقيم`,
+so it was tempting. It is also, measured, only half the defect. The four upcast
+tests in `tests/oop_execution_tests.rs` are all *definer == static class*
+(`شكل` declares `مساحة`, `مربع` overrides), so the conjunction never fires on
+them, and native printed `0` where the interpreter printed `25`. That half
+predates #253 and was #184's recorded cost, not this regression — but it made
+the guard a fix for one shape of a two-shape bug. Dispatch fixes both.
+
+### The invariant that makes it cheap
+
+A subclass's vtable is its parent's **prefix**, overrides replacing entries in
+place and new members appended. So the slot index a class assigns a member is the
+index every descendant assigns it too, and codegen can read the index off the
+receiver's *static* class while the object's own table supplies the *runtime*
+implementation. Dispatch never needs to know the runtime type — which is exactly
+as well, because natively it cannot: objects carried no type word at all before
+this, and `trq_alloc`'s header is refcount+size.
+
+That is why `class_own_virtuals` records members in **declaration order**.
+Deriving the order from `method_return_types` — a `HashMap` — would renumber slots
+per run and silently break the invariant, on a table nothing prints.
+
+### Two defects that were invisible while the vtable stayed empty
+
+- `emit_vtable` spelled entries `@{class}_{method}` while bodies are emitted as
+  `mangle_function_name("{Class}::{method}")`. Any populated vtable would have
+  referenced symbols nothing defines.
+- `CallVirtual`'s lowering already loaded word 0 as a vtable pointer — a slot that
+  did not exist, so it would have read the first field. Both were dead code with
+  no test able to reach them. `Class.vtable` being empty is what kept them quiet.
+
+The wiring is on `CallMethod`, not `CallVirtual`: the builder already sets
+`virtual_dispatch` correctly at all three emit sites and codegen was discarding
+it, so honouring the existing flag beat introducing an instruction nothing
+constructs. `CallVirtual` stays unemitted.
+
+### Scope boundaries held deliberately
+
+`__anonymous__` object literals get **no** vtable slot: they resolve fields by
+name, are never method receivers, and share `NewObject`. A class with no virtual
+members emits no vtable global, so `NewObject` skips the store and word 0 stays
+`trq_alloc`'s zero — nothing can load it. Interface-typed receivers still bind
+statically (no `ir::Class` entry exists for a `ميثاق`), which is #209, untouched.
+`الأصل.م()` keeps `virtual_dispatch: false`, and a fixture now pins that: an
+override whose body super-calls would otherwise resolve back into itself.
+
+### Verification notes
+
+The `+1` field shift lives only in `get_field_access_info`. A sweep attributing
+every `getelementptr` in `codegen.rs` to its instruction arm confirmed only
+`GetField`/`SetField` index class objects; `GetElementPtr` (arrays),
+`GetVariantField` (enums) and the string-constant GEPs are unaffected — worth the
+check, because #249 was precisely a missed indexer. `ir/opt/inline.rs` was also
+checked: it matches `Instruction::Call` only, so it cannot devirtualize a
+`CallMethod` back to a static bind.
+
+`examples/أصناف.ترقيم` gains an upcast call through a `شخص`-typed parameter, which
+puts the shape under CI's `compare-backends` permanently. Note what that example
+was before: the *reverted coarse guard's* false positive. The shape it was cited
+for protecting now works rather than being refused.
+
 ## 2026-08-15 — Inherited method calls name the definer (#253)
 
 ### One lookup, because two lookups can disagree

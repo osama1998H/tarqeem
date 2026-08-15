@@ -20,8 +20,8 @@ use crate::parser::{
 };
 
 use super::{
-    BasicBlock, BlockId, Class, ClassId, Constant, FuncId, Function, Instruction, IrType, Module,
-    NativeBlock, Parameter, VarId,
+    BasicBlock, BlockId, Class, ClassId, Constant, FuncId, Function, Instruction, IrType, MethodId,
+    Module, NativeBlock, Parameter, VarId,
 };
 
 use std::collections::{HashMap, HashSet};
@@ -113,6 +113,12 @@ pub struct IrBuilder {
     pub(crate) class_names: HashSet<String>,
     /// Inheritance edges: child class name -> parent class name.
     pub(crate) class_parents: HashMap<String, String>,
+    /// Each class's own virtually-dispatchable member names, in declaration
+    /// order: instance methods and property accessors, never `مشترك` members or
+    /// `منشئ`. Declaration order, not map order, because it fixes the vtable
+    /// slot numbering — deriving it from `method_return_types` would renumber
+    /// slots per run and break the prefix invariant `Class.vtable` relies on.
+    pub(crate) class_own_virtuals: HashMap<String, Vec<String>>,
     /// `مشترك` field globals: "Class::field" -> type.
     pub(crate) static_field_types: HashMap<String, IrType>,
     /// `مشترك` methods: "Class::method".
@@ -191,6 +197,7 @@ impl IrBuilder {
             enum_variant_fields: HashMap::new(),
             class_names: HashSet::new(),
             class_parents: HashMap::new(),
+            class_own_virtuals: HashMap::new(),
             static_field_types: HashMap::new(),
             static_methods: HashSet::new(),
             static_properties: HashSet::new(),
@@ -355,6 +362,10 @@ impl IrBuilder {
                 self.collect_class(name, extends.as_ref(), members)?;
             }
         }
+
+        // Needs every class collected first: a slot's provider may be declared
+        // after the class that inherits it.
+        self.build_class_vtables();
 
         // Third pass: collect global variables (after functions, so we can infer types from calls)
         for stmt in &ast.statements {
@@ -588,6 +599,7 @@ impl IrBuilder {
         }
 
         let mut fields = Vec::new();
+        let mut own_virtuals = Vec::new();
 
         for member in members {
             match member {
@@ -621,6 +633,8 @@ impl IrBuilder {
                     let full_name = format!("{}::{}", name, method_name);
                     if *is_static {
                         self.static_methods.insert(full_name.clone());
+                    } else {
+                        own_virtuals.push(method_name.clone());
                     }
                     self.method_return_types.insert(full_name, ret_ty);
                 }
@@ -661,6 +675,9 @@ impl IrBuilder {
                         let getter_name = format!("{}::__احصل_{}", name, prop_name);
                         self.property_getters
                             .insert(prop_key.clone(), (getter_name, prop_type.clone()));
+                        if !*is_static {
+                            own_virtuals.push(format!("__احصل_{}", prop_name));
+                        }
                     }
 
                     // Register setter
@@ -670,6 +687,9 @@ impl IrBuilder {
                     if has_setter || accessors.is_empty() {
                         let setter_name = format!("{}::__عيّن_{}", name, prop_name);
                         self.property_setters.insert(prop_key, setter_name);
+                        if !*is_static {
+                            own_virtuals.push(format!("__عيّن_{}", prop_name));
+                        }
                     }
                 }
                 _ => {}
@@ -677,6 +697,8 @@ impl IrBuilder {
         }
 
         self.class_fields.insert(name.to_string(), fields.clone());
+        self.class_own_virtuals
+            .insert(name.to_string(), own_virtuals);
 
         let class_id = ClassId(name.to_string());
         let mut class = Class::new(class_id, name.to_string());
@@ -684,6 +706,87 @@ impl IrBuilder {
 
         self.module.classes.push(class);
         Ok(())
+    }
+
+    /// Fills every class's `vtable` with one `MethodId` per virtually
+    /// dispatchable member, naming the class that *provides* the implementation
+    /// for that class.
+    ///
+    /// Runs after the class-collection pass, so forward references resolve.
+    pub(crate) fn build_class_vtables(&mut self) {
+        let vtables: Vec<Vec<MethodId>> = self
+            .module
+            .classes
+            .iter()
+            .map(|class| {
+                let class_name = class.id.0.clone();
+                self.vtable_slots(&class_name)
+                    .into_iter()
+                    .filter_map(|member| {
+                        self.slot_provider(&class_name, &member)
+                            .map(|owner| MethodId {
+                                class: ClassId(owner),
+                                name: member,
+                            })
+                    })
+                    .collect()
+            })
+            .collect();
+
+        for (class, vtable) in self.module.classes.iter_mut().zip(vtables) {
+            class.vtable = vtable;
+        }
+    }
+
+    /// The ordered slot names for `class`: its ancestors' slots first, in the
+    /// same order, then its own new members appended.
+    ///
+    /// A subclass's table is therefore always a *prefix extension* of its
+    /// parent's, which is what lets codegen read a slot index off the receiver's
+    /// static class and still land on the runtime class's implementation. An
+    /// override reuses the inherited slot rather than appending a second one.
+    fn vtable_slots(&self, class: &str) -> Vec<String> {
+        let mut chain = Vec::new();
+        let mut visited = HashSet::new();
+        let mut current = Some(class.to_string());
+        while let Some(name) = current {
+            if !visited.insert(name.clone()) {
+                break; // semantic analysis rejects cyclic inheritance; don't hang here
+            }
+            current = self.class_parents.get(&name).cloned();
+            chain.push(name);
+        }
+
+        let mut slots: Vec<String> = Vec::new();
+        for ancestor in chain.iter().rev() {
+            for member in self.class_own_virtuals.get(ancestor).into_iter().flatten() {
+                if !slots.iter().any(|slot| slot == member) {
+                    slots.push(member.clone());
+                }
+            }
+        }
+        slots
+    }
+
+    /// The nearest class at or above `class` that declares `member` — the body
+    /// this class's slot must point at.
+    fn slot_provider(&self, class: &str, member: &str) -> Option<String> {
+        let mut visited = HashSet::new();
+        let mut current = Some(class.to_string());
+        while let Some(name) = current {
+            if !visited.insert(name.clone()) {
+                break;
+            }
+            if self
+                .class_own_virtuals
+                .get(&name)
+                .is_some_and(|members| members.iter().any(|m| m == member))
+            {
+                return Some(name);
+            }
+            current = self.class_parents.get(&name).cloned();
+        }
+        None
     }
 
     /// Lowers a `مشترك` field/property backing field to a module-level

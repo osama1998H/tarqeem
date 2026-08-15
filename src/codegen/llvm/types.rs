@@ -12,6 +12,10 @@ pub struct TypeMapper {
 }
 
 impl TypeMapper {
+    pub fn pointer_size(&self) -> u64 {
+        self.pointer_bits as u64 / 8
+    }
+
     pub fn new(pointer_bits: u32) -> Self {
         Self {
             pointer_bits,
@@ -71,10 +75,10 @@ impl TypeMapper {
             IrType::Bool => 1,
             IrType::Int => 8,
             IrType::Float => 8,
-            IrType::String => self.pointer_bits as u64 / 8,
-            IrType::Ptr(_) => self.pointer_bits as u64 / 8,
+            IrType::String => self.pointer_size(),
+            IrType::Ptr(_) => self.pointer_size(),
             IrType::Array(elem, size) => self.type_size(elem) * (*size as u64),
-            IrType::Function { .. } => self.pointer_bits as u64 / 8,
+            IrType::Function { .. } => self.pointer_size(),
             IrType::Struct(class_id) => {
                 if let Some(field_types) = self.struct_fields.get(&class_id.0) {
                     let mut total_size = 0u64;
@@ -87,18 +91,18 @@ impl TypeMapper {
                         total_size += self.type_size(field_ty);
                     }
                     if total_size == 0 {
-                        self.pointer_bits as u64 / 8
+                        self.pointer_size()
                     } else {
                         total_size
                     }
                 } else {
-                    self.pointer_bits as u64 / 8
+                    self.pointer_size()
                 }
             }
             IrType::Enum(_) => {
                 // Enum size: discriminant (8 bytes) + max variant data
                 // For now, use a conservative estimate (pointer + 8 bytes for discriminant)
-                8 + self.pointer_bits as u64 / 8
+                8 + self.pointer_size()
             }
         }
     }
@@ -109,30 +113,47 @@ impl TypeMapper {
             IrType::Bool => 1,
             IrType::Int => 8,
             IrType::Float => 8,
-            IrType::String => self.pointer_bits as u64 / 8,
-            IrType::Ptr(_) => self.pointer_bits as u64 / 8,
+            IrType::String => self.pointer_size(),
+            IrType::Ptr(_) => self.pointer_size(),
             IrType::Array(elem, _) => self.type_align(elem),
-            IrType::Function { .. } => self.pointer_bits as u64 / 8,
-            IrType::Struct(_) => self.pointer_bits as u64 / 8,
+            IrType::Function { .. } => self.pointer_size(),
+            IrType::Struct(_) => self.pointer_size(),
             IrType::Enum(_) => 8, // Alignment of discriminant (i64)
         }
     }
 
+    /// Emits the LLVM type for a class instance.
+    ///
+    /// `with_vtable` prepends the dispatch pointer at word 0, where
+    /// `Instruction::CallMethod`'s virtual path loads it. Declared classes get
+    /// it; `__anonymous__` object literals do not — they resolve fields by name
+    /// and are never method receivers. The slot is mirrored into `struct_fields`
+    /// so `type_size` keeps agreeing with the emitted layout.
     pub fn generate_struct_type(
         &mut self,
         class_id: &ClassId,
         fields: &[(String, IrType)],
+        with_vtable: bool,
     ) -> String {
-        let mangled_name = mangle_name(&class_id.0);
-        let field_types: Vec<String> = fields.iter().map(|(_, ty)| self.map_type(ty)).collect();
+        let vtable_slot = with_vtable.then(|| IrType::Ptr(Box::new(IrType::Void)));
+
+        let field_types: Vec<String> = vtable_slot
+            .iter()
+            .chain(fields.iter().map(|(_, ty)| ty))
+            .map(|ty| self.map_type(ty))
+            .collect();
         let type_def = format!(
             "%class.{} = type {{ {} }}",
-            mangled_name,
+            mangle_name(&class_id.0),
             field_types.join(", ")
         );
         self.struct_types
             .insert(class_id.0.clone(), type_def.clone());
-        let ir_field_types: Vec<IrType> = fields.iter().map(|(_, ty)| ty.clone()).collect();
+
+        let ir_field_types: Vec<IrType> = vtable_slot
+            .into_iter()
+            .chain(fields.iter().map(|(_, ty)| ty.clone()))
+            .collect();
         self.struct_fields
             .insert(class_id.0.clone(), ir_field_types);
         type_def

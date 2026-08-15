@@ -1805,6 +1805,46 @@ fn test_new_object() {
     assert!(result.contains("call ptr @trq_alloc"));
 }
 
+/// The allocation must cover the struct LLVM actually lays out, padding
+/// included — asserted here rather than by running a program, because an
+/// overrun this small lands in `trq_alloc`'s rounding slack and a fixture
+/// reading the field back passes either way.
+///
+/// `{ ptr, i1, i64 }` puts the `i64` at offset 16, so the object needs 24
+/// bytes. Summing bare field sizes asked for 8 + 1 + 8 = 17 and the
+/// constructor's store then ran seven bytes past the end.
+#[test]
+fn test_new_object_allocation_covers_field_padding() {
+    let mut codegen = create_codegen();
+    let mut module = create_test_module("test");
+
+    let mut class = Class::new(ClassId("Padded".to_string()), "Padded".to_string());
+    class.fields.push(("flag".to_string(), IrType::Bool));
+    class.fields.push(("count".to_string(), IrType::Int));
+    module.classes.push(class);
+
+    let mut func = create_test_function("main", vec![], IrType::Void);
+    func.blocks[0].instructions.push(Instruction::NewObject {
+        dest: VarId(0),
+        class: ClassId("Padded".to_string()),
+    });
+    func.blocks[0]
+        .instructions
+        .push(Instruction::Return { value: None });
+    module.functions.push(func);
+
+    let result = codegen.generate(&module).unwrap();
+
+    assert!(
+        result.contains("%class.Padded = type { ptr, i1, i64 }"),
+        "layout changed; update the expected size below\n{result}"
+    );
+    assert!(
+        result.contains("call ptr @trq_alloc(i64 24)"),
+        "allocation does not cover the padded layout\n{result}"
+    );
+}
+
 #[test]
 fn test_print_int() {
     let mut codegen = create_codegen();
