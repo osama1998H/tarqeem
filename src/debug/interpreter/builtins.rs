@@ -26,6 +26,13 @@ impl DebugInterpreter {
                 | "أرضية"
                 | "سقف"
                 | "قرب"
+                // Runtime symbols the IR builder lowers core builtins to
+                // (#222). Without these, stepping through `عدد("٥")` or
+                // `تأكد(...)` aborts with "دالة غير معرّفة".
+                | "trq_assert"
+                | "trq_string_len"
+                | "trq_string_to_int_checked"
+                | "trq_string_to_float_checked"
         )
     }
 
@@ -128,6 +135,65 @@ impl DebugInterpreter {
                     .first()
                     .ok_or_else(|| RuntimeError::invalid_operation("منطقي() تتطلب معامل واحد"))?;
                 Ok(Value::Bool(val.is_truthy()))
+            }
+
+            // Mirrors `interpreter::executor::builtins`, which implements the
+            // same four symbols for the same lowerings.
+            "trq_assert" => {
+                let cond = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("تأكد() تتطلب معامل واحد"))?;
+
+                if !cond.is_truthy() {
+                    return match args.get(1) {
+                        Some(msg) if !matches!(msg, Value::Null) => {
+                            Err(RuntimeError::invalid_operation(format!(
+                                "فشل التأكيد: {}",
+                                msg.to_display_string()
+                            )))
+                        }
+                        _ => Err(RuntimeError::invalid_operation("فشل التأكيد")),
+                    };
+                }
+                Ok(Value::Null)
+            }
+
+            "trq_string_len" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("طول النص يتطلب معامل واحد"))?;
+                match val {
+                    Value::String(s) => Ok(Value::Int(s.len() as i64)),
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
+            }
+
+            "trq_string_to_int_checked" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("عدد() تتطلب معامل واحد"))?;
+                match val {
+                    Value::String(s) => {
+                        s.trim().parse::<i64>().map(Value::Int).map_err(|_| {
+                            RuntimeError::type_error("numeric string", "invalid string")
+                        })
+                    }
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
+            }
+
+            "trq_string_to_float_checked" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("عدد_عشري() تتطلب معامل واحد")
+                })?;
+                match val {
+                    Value::String(s) => {
+                        s.trim().parse::<f64>().map(Value::Float).map_err(|_| {
+                            RuntimeError::type_error("numeric string", "invalid string")
+                        })
+                    }
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
             }
             "مطلق" => {
                 let val = args

@@ -364,6 +364,11 @@ impl CommonSubexprElim {
                 ty: ty.clone(),
             },
 
+            Instruction::BoolToInt { dest, src } => Instruction::BoolToInt {
+                dest: *dest,
+                src: replace(src),
+            },
+
             _ => inst.clone(),
         }
     }

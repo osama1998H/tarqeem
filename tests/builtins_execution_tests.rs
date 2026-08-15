@@ -109,6 +109,12 @@ struct Output {
     status: Option<i32>,
     stdout: String,
     stderr: String,
+    /// Set only when the native leg never produced a binary. A compile failure
+    /// is indistinguishable from a runtime failure on status and stdout alone —
+    /// both exit non-zero with nothing on stdout — so `assert_fails` would keep
+    /// passing if a lowering regressed into an LLVM parse error, which is the
+    /// exact breakage this suite exists to catch.
+    compile_failed: bool,
 }
 
 impl Output {
@@ -158,6 +164,7 @@ fn tarqeem(args: &[&str], cwd: &Path, home: Option<&Path>) -> Output {
         status: output.status.code(),
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        compile_failed: false,
     }
 }
 
@@ -173,8 +180,9 @@ fn execute(backend: Backend, main: &Path, tag: &str) -> Output {
             let home = runtime_home();
             let exe = cwd.join(format!("مخرج_{tag}"));
             let exe_arg = exe.to_str().expect("مسار غير صالح").to_string();
-            let compiled = tarqeem(&["compile", arg, "-o", &exe_arg], cwd, Some(home));
+            let mut compiled = tarqeem(&["compile", arg, "-o", &exe_arg], cwd, Some(home));
             if !compiled.succeeded() {
+                compiled.compile_failed = true;
                 return compiled;
             }
 
@@ -185,6 +193,7 @@ fn execute(backend: Backend, main: &Path, tag: &str) -> Output {
                 status: run.status.code(),
                 stdout: String::from_utf8_lossy(&run.stdout).into_owned(),
                 stderr: String::from_utf8_lossy(&run.stderr).into_owned(),
+                compile_failed: false,
             }
         }
     }
@@ -212,7 +221,8 @@ fn assert_prints(name: &str, body: &str, expected: &[&str]) {
     }
 }
 
-/// Asserts `body` fails under all three backends, printing nothing on stdout.
+/// Asserts `body` fails *at run time* under all three backends, printing
+/// nothing on stdout.
 ///
 /// Only the exit status and stdout are compared. `trq_assert` emits a bilingual
 /// two-liner while the interpreter formats its own `RuntimeError`, so requiring
@@ -224,6 +234,11 @@ fn assert_fails(name: &str, body: &str) {
     for backend in Backend::ALL {
         let output = execute(backend, &main, &format!("{name}_{backend:?}"));
 
+        assert!(
+            !output.compile_failed,
+            "توقّعنا فشلاً وقت التنفيذ لا وقت الترجمة [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
         assert!(
             !output.succeeded(),
             "توقّعنا فشلاً [{backend:?}] لـ {name}\n{}",
@@ -311,6 +326,36 @@ fn test_to_bool_follows_truthiness() {
         "تحويل_منطقي",
         "اطبع(منطقي(1))\nاطبع(منطقي(0))\nاطبع(منطقي(\"س\"))\nاطبع(منطقي(\"\"))",
         &["صحيح", "خطأ", "صحيح", "خطأ"],
+    );
+}
+
+#[test]
+fn test_to_string_of_a_string_is_the_string_itself() {
+    // `convert_to_string` has no `String` arm and fell through to
+    // `trq_int_to_string`, so native printed the pointer as `4318534576`.
+    assert_prints("نص_من_نص", "اطبع(نص(\"مرحبا\"))", &["مرحبا"]);
+}
+
+#[test]
+fn test_null_is_falsy_and_names_itself() {
+    // `لا_شيء` is typed `Ptr(Void)`, so a type-only answer reports `مؤشر`, and
+    // comparing it against `Int 0` made codegen emit `icmp ne ptr %a, %b` with
+    // an i64 operand.
+    assert_prints(
+        "لا_شيء_منطقي",
+        "اطبع(نوع(لا_شيء))\nاطبع(منطقي(لا_شيء))",
+        &["لا_شيء", "خطأ"],
+    );
+}
+
+#[test]
+fn test_append_uses_the_array_element_type_not_the_value_type() {
+    // `elem_ty` taken from the pushed value stored an i64 bit pattern into a
+    // float array, which the reader decoded as a denormal double.
+    assert_prints(
+        "الحق_عشري",
+        "متغير م = [1.5]\nالحق(م، 2)\nاطبع(م[1] + 0.5)",
+        &["2.5"],
     );
 }
 
@@ -403,14 +448,18 @@ fn test_builtin_wins_over_a_same_named_import_in_every_backend() {
 fn test_every_core_builtin_agrees_across_backends() {
     // Three names are deliberately outside this sweep, which compares stdout of
     // a program that runs to completion: `ادخل`/`ادخل_رسالة` block on stdin, and
-    // `اطبع_خطأ` writes to stderr. They are *not* covered elsewhere — stated
-    // plainly rather than implied away, since a guard test that overstates its
-    // reach is how the next drift hides. `توقف` terminates, so it gets an
-    // exit-code fixture below instead.
+    // `اطبع_خطأ` disagrees about the *stream* — the interpreter prints it to
+    // stdout, native to stderr — which this harness cannot express. They are
+    // *not* covered elsewhere — stated plainly rather than implied away, since a
+    // guard test that overstates its reach is how the next drift hides. `توقف`
+    // terminates, so it gets an exit-code fixture below instead.
     let probes: &[(&str, &str, &[&str])] = &[
         ("اطبع", "اطبع(1)", &["1"]),
         ("طباعة", "طباعة(1)", &["1"]),
-        ("اطبع_سطر", "اطبع_سطر(\"س\")", &["س"]),
+        // Two calls, not one: `lines()` trims, so a single call cannot tell a
+        // trailing newline from its absence — which is how native `اطبع_سطر`
+        // printing through the newline-less `trq_print` stayed invisible.
+        ("اطبع_سطر", "اطبع_سطر(\"أ\")\nاطبع_سطر(\"ب\")", &["أ", "ب"]),
         // Deliberately an array: `طول` on a *string* counts UTF-8 bytes
         // natively and characters in the interpreter (#185).
         ("طول", "اطبع(طول([1، 2، 3]))", &["3"]),

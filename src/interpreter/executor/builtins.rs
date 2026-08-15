@@ -833,7 +833,9 @@ impl Interpreter {
                     RuntimeError::invalid_operation("trq_string_len() تتطلب معامل واحد")
                 })?;
                 match val {
-                    Value::String(s) => Ok(Value::Int(s.chars().count() as i64)),
+                    // Bytes, not characters: `trq_string_len` is the byte-length
+                    // symbol natively (`trq_string_len_chars` is the other one).
+                    Value::String(s) => Ok(Value::Int(s.len() as i64)),
                     _ => Err(RuntimeError::type_error("نص", val.type_name())),
                 }
             }

@@ -487,31 +487,52 @@ impl IrBuilder {
     /// that nothing defined (#222).
     ///
     /// Returns `None` for anything that is not one of these, leaving the normal
-    /// call path to handle it. Callers must confirm the name is not shadowed by
-    /// a user function first.
-    fn build_core_builtin_call(&mut self, name: &str, args: &[VarId]) -> Result<Option<VarId>> {
+    /// call path to handle it. Interception is deliberately unconditional — see
+    /// the note at the call site on why a shadowing guard is wrong here.
+    ///
+    /// `arg_exprs` is the unlowered argument list: `نوع` answers from `IrType`,
+    /// which cannot tell `لا_شيء` from any other untyped pointer, so the literal
+    /// is read back off the AST.
+    fn build_core_builtin_call(
+        &mut self,
+        name: &str,
+        args: &[VarId],
+        arg_exprs: &[Expr],
+    ) -> Result<Option<VarId>> {
         let Some(&first) = args.first() else {
             return Ok(None);
         };
         let arg_ty = self.arg_type(first);
 
         let dest = match name {
-            "اطبع" | "طباعة" => {
+            // `اطبع_سطر` shares the arm because the interpreter prints all three
+            // with `println!`; codegen's table maps it to the newline-less
+            // `trq_print`, which printed `أب` natively for two calls that give
+            // `أ\nب\n` interpreted.
+            "اطبع" | "طباعة" | "اطبع_سطر" => {
                 self.emit(Instruction::Print { value: first });
                 self.emit_void()
             }
 
-            "طول" => {
+            "طول" | "طول_مصفوفة" => {
                 let dest = self.new_var();
                 self.emit(Instruction::ArrayLen { dest, array: first });
                 self.var_types.insert(dest.0, IrType::Int);
                 dest
             }
 
+            // A value already of type `نص` is its own conversion:
+            // `convert_to_string` has no `String` arm and would fall through to
+            // `trq_int_to_string`, printing the pointer as a decimal number.
+            "نص" if arg_ty == IrType::String => first,
             "نص" => self.convert_to_string(first, &arg_ty)?,
 
             "نوع" => {
-                let idx = self.add_string(Self::type_name_ar(&arg_ty).to_string());
+                let name_ar = match arg_exprs.first().map(|e| &e.kind) {
+                    Some(ExprKind::Literal(Literal::Null)) => "لا_شيء",
+                    _ => Self::type_name_ar(&arg_ty),
+                };
+                let idx = self.add_string(name_ar.to_string());
                 self.emit_const(Constant::String(idx), IrType::String)
             }
 
@@ -530,7 +551,10 @@ impl IrBuilder {
                     self.var_types.insert(dest.0, IrType::Int);
                     dest
                 }
-                _ => self.emit_call("trq_string_to_int_checked", vec![first], IrType::Int),
+                ref ty if Self::may_be_string(ty) => {
+                    self.emit_call("trq_string_to_int_checked", vec![first], IrType::Int)
+                }
+                ref ty => return Err(Self::unconvertible(ty, "عدد")),
             },
 
             "عدد_عشري" => match arg_ty {
@@ -551,7 +575,10 @@ impl IrBuilder {
                     self.var_types.insert(dest.0, IrType::Float);
                     dest
                 }
-                _ => self.emit_call("trq_string_to_float_checked", vec![first], IrType::Float),
+                ref ty if Self::may_be_string(ty) => {
+                    self.emit_call("trq_string_to_float_checked", vec![first], IrType::Float)
+                }
+                ref ty => return Err(Self::unconvertible(ty, "عدد_عشري")),
             },
 
             "منطقي" => self.build_truthiness(first, &arg_ty),
@@ -572,18 +599,28 @@ impl IrBuilder {
                 self.emit_void()
             }
 
-            "طول_مصفوفة" => {
-                let dest = self.new_var();
-                self.emit(Instruction::ArrayLen { dest, array: first });
-                self.var_types.insert(dest.0, IrType::Int);
-                dest
-            }
-
             "الحق" => {
                 let Some(&value) = args.get(1) else {
                     return Ok(None);
                 };
-                let elem_ty = self.arg_type(value);
+                // The array's element type wins over the pushed value's, as the
+                // `ألحق` member path below does: pushing `2` into `[1.5]` with
+                // `elem_ty: Int` stores an i64 bit pattern the reader decodes as
+                // a double.
+                let elem_ty = match &arg_ty {
+                    IrType::Array(elem, _) => (**elem).clone(),
+                    IrType::Ptr(inner) => match inner.as_ref() {
+                        IrType::Array(elem, _) => (**elem).clone(),
+                        _ => self.arg_type(value),
+                    },
+                    _ => self.arg_type(value),
+                };
+                // …and the value is widened to it, the same عدد → عدد_عشري
+                // coercion call arguments get: storing a raw i64 into a
+                // `double` slot is an LLVM type error.
+                let value = self
+                    .coerce_args_to_params(vec![value], std::slice::from_ref(&elem_ty))
+                    .remove(0);
                 self.emit(Instruction::ArrayPush {
                     array: first,
                     value,
@@ -598,15 +635,54 @@ impl IrBuilder {
         Ok(Some(dest))
     }
 
+    /// Whether a value of this type may hold a `نص` at runtime, and so can be
+    /// handed to the checked string parsers.
+    ///
+    /// `Ptr(Void)` is the builder's "unknown" — a lambda parameter or an
+    /// untyped local. The reference types below are known *not* to be strings,
+    /// and passing one to `trq_string_to_int_checked` reads a foreign pointer
+    /// as a `TrqString`, which segfaults natively where the interpreter reports
+    /// a type error.
+    fn may_be_string(ty: &IrType) -> bool {
+        !matches!(
+            ty,
+            IrType::Array(_, _)
+                | IrType::Struct(_)
+                | IrType::Enum(_)
+                | IrType::Function { .. }
+                | IrType::Void
+        )
+    }
+
+    fn unconvertible(ty: &IrType, target: &str) -> IrError {
+        IrError::new(format!(
+            "لا يمكن تحويل قيمة من نوع '{}' إلى '{}' / cannot convert a value of type '{}' to '{}'",
+            Self::type_name_ar(ty),
+            target,
+            Self::type_name_ar(ty),
+            target
+        ))
+    }
+
     /// `منطقي` follows the interpreter's `Value::is_truthy`: zero, an empty
     /// string and an empty array are false; everything else is true.
     fn build_truthiness(&mut self, var: VarId, ty: &IrType) -> VarId {
-        let (measured, zero) = match ty {
+        let ptr_ty = IrType::Ptr(Box::new(IrType::Void));
+
+        let (measured, zero, cmp_ty) = match ty {
             IrType::Bool => return var,
-            IrType::Float => (var, self.emit_const(Constant::Float(0.0), IrType::Float)),
+            IrType::Float => (
+                var,
+                self.emit_const(Constant::Float(0.0), IrType::Float),
+                IrType::Float,
+            ),
             IrType::String => {
                 let len = self.emit_call("trq_string_len", vec![var], IrType::Int);
-                (len, self.emit_const(Constant::Int(0), IrType::Int))
+                (
+                    len,
+                    self.emit_const(Constant::Int(0), IrType::Int),
+                    IrType::Int,
+                )
             }
             IrType::Array(_, _) => {
                 let len = self.new_var();
@@ -615,9 +691,23 @@ impl IrBuilder {
                     array: var,
                 });
                 self.var_types.insert(len.0, IrType::Int);
-                (len, self.emit_const(Constant::Int(0), IrType::Int))
+                (
+                    len,
+                    self.emit_const(Constant::Int(0), IrType::Int),
+                    IrType::Int,
+                )
             }
-            _ => (var, self.emit_const(Constant::Int(0), IrType::Int)),
+            // Reference types compare against a null *pointer*, not `0`: an
+            // object is truthy and `لا_شيء` is not, and an `i64 0` operand made
+            // codegen emit `icmp ne ptr %a, %b` with mismatched operand types.
+            IrType::Ptr(_) | IrType::Struct(_) | IrType::Function { .. } | IrType::Void => {
+                (var, self.emit_const(Constant::Null, ptr_ty.clone()), ptr_ty)
+            }
+            _ => (
+                var,
+                self.emit_const(Constant::Int(0), IrType::Int),
+                IrType::Int,
+            ),
         };
 
         let dest = self.new_var();
@@ -626,7 +716,7 @@ impl IrBuilder {
             op: BinaryOp::Ne,
             left: measured,
             right: zero,
-            ty: self.arg_type(measured),
+            ty: cmp_ty,
         });
         self.var_types.insert(dest.0, IrType::Bool);
         dest
@@ -821,7 +911,7 @@ impl IrBuilder {
         // call it while the interpreter still ran the builtin — a divergence.
         // Whether a builtin name *should* be shadowable is #262's question.
         if let ExprKind::Identifier(name) = &callee.kind {
-            if let Some(dest) = self.build_core_builtin_call(name, &arg_vars)? {
+            if let Some(dest) = self.build_core_builtin_call(name, &arg_vars, args)? {
                 return Ok(dest);
             }
 
