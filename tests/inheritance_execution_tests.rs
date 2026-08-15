@@ -1,4 +1,5 @@
-//! Execution-based tests for **inherited instance members** — issue #249.
+//! Execution-based tests for **inherited instance members** — issues #249 and
+//! #253.
 //!
 //! `FieldId` and `MethodId` mean *(defining class, index own-relative to that
 //! class)*: `class_fields` holds a class's own fields only, and codegen adds
@@ -24,20 +25,26 @@
 //! `compare-backends` job would have caught it, but no example program reads an
 //! inherited member through a subclass-typed reference.
 //!
+//! Issue #253 is the *method* half of the same confusion. A method declared on
+//! an ancestor and called through a subclass-typed reference lowered
+//! `MethodId.class` to the receiver rather than to the declaring class, so
+//! native minted `@{subclass}::{method}` — a symbol nothing ever defines,
+//! because the body was compiled as `@{ancestor}::{method}` — and clang rejected
+//! the module. It carries a quieter symptom too: the callee's return type is
+//! looked up as `method_return_types["{receiver}::{method}"]`, misses for the
+//! same reason, and falls back to `Ptr(Void)`. So a fixture that merely links
+//! proves only half of it, and one of the fixtures below prints a returned
+//! `عدد` for that reason.
+//!
 //! So every fixture here runs under **all three backends** against exact stdout,
-//! and reads inherited members through the *subclass* — the shape that
+//! and reaches inherited members through the *subclass* — the shape that
 //! `examples/أصناف.ترقيم` avoids by accident.
 //!
-//! Two deliberate exclusions, so a failure here never means something else:
+//! One deliberate exclusion, so a failure here never means something else:
 //!
 //! * Fixtures assign every member they read. A declared default is parsed and
 //!   dropped (issue #251), so `خاصية س: عدد = 7` still reads as `لا_شيء`
 //!   interpreted and `0` natively.
-//! * No fixture calls a method *declared on an ancestor* through a
-//!   subclass-typed reference. That has the same root cause and is still open:
-//!   `MethodId.class` names the receiver, so native emits a call to
-//!   `@{subclass}::{method}`, which is never defined. Fixtures that need a
-//!   method put it on the subclass.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -375,9 +382,6 @@ fn test_inherited_and_own_fields_keep_distinct_slots() {
 
 /// The other direction of the same access: `هذا.<inherited>` from inside the
 /// subclass's own code, where `هذا` is statically the subclass.
-///
-/// `اعرض` is declared on the subclass on purpose — see this file's header on
-/// inherited *method* calls, which are still broken natively.
 #[test]
 fn test_inherited_field_read_from_subclass_method() {
     assert_prints(
@@ -595,6 +599,222 @@ fn test_compound_assignment_to_inherited_members() {
 اطبع(كائن.خاص_به)
 "#,
         &["111", "121", "30"],
+    );
+}
+
+/// Issue #253's exact repro: a method declared on the parent, reached through a
+/// subclass-typed reference, where the subclass declares nothing but a
+/// constructor.
+///
+/// `MethodId.class` named the receiver, so native emitted a call to
+/// `@فرع::اعرض` while the body had been compiled as `@أصل::اعرض`, and clang
+/// rejected the module with `use of undefined value`. The interpreter and the
+/// JIT resolve from the object's runtime class, so neither ever saw it — which
+/// is why this needs the native leg to mean anything.
+#[test]
+fn test_inherited_method_called_through_subclass() {
+    assert_prints(
+        r#"
+صنف أصل {
+    عام قيمة: عدد
+
+    منشئ(ق: عدد) {
+        هذا.قيمة = ق
+    }
+
+    عام دالة اعرض() {
+        اطبع(هذا.قيمة)
+    }
+}
+
+صنف فرع يرث أصل {
+    منشئ(ق: عدد) {
+        الأصل(ق)
+    }
+}
+
+متغير كائن = جديد فرع(7)
+كائن.اعرض()
+"#,
+        &["7"],
+    );
+}
+
+/// The half a link-only fixture would miss: the *return type* of the inherited
+/// callee.
+///
+/// It is looked up as `method_return_types["{receiver}::{method}"]`, misses for
+/// the same reason the symbol does, and falls back to `Ptr(Void)` — visible in
+/// `--dump-ir` as a `*void` result for a method whose declared return type is
+/// `عدد`. Printing the returned value is what forces the type to matter: a fix
+/// that repaired only the callee symbol would link cleanly and still be wrong
+/// here.
+#[test]
+fn test_inherited_method_returning_number_through_subclass() {
+    assert_prints(
+        r#"
+صنف أصل {
+    عام قيمة: عدد
+
+    منشئ(ق: عدد) {
+        هذا.قيمة = ق
+    }
+
+    عام دالة مضاعف() -> عدد {
+        أرجع هذا.قيمة * 2
+    }
+}
+
+صنف فرع يرث أصل {
+    منشئ(ق: عدد) {
+        الأصل(ق)
+    }
+}
+
+متغير كائن = جديد فرع(21)
+اطبع(كائن.مضاعف())
+"#,
+        &["42"],
+    );
+}
+
+/// The over-correction guard: an override must still win.
+///
+/// Resolving `MethodId.class` to the *declaring* class has to stop at the first
+/// class in the chain that declares the method, not run to the topmost one —
+/// otherwise `كائن.احسب()` on a `فرع` would execute `أصل::احسب`. The two bodies
+/// return deliberately far-apart values so a wrong binding cannot read as an
+/// arithmetic slip.
+///
+/// Green before the fix as well as after: naming the receiver happens to be
+/// right exactly when the receiver declares the method. That is the point — it
+/// is the constraint the fix must not trade away.
+#[test]
+fn test_subclass_override_wins_over_inherited_method() {
+    assert_prints(
+        r#"
+صنف أصل {
+    عام قيمة: عدد
+
+    منشئ(ق: عدد) {
+        هذا.قيمة = ق
+    }
+
+    عام دالة احسب() -> عدد {
+        أرجع هذا.قيمة + 1
+    }
+}
+
+صنف فرع يرث أصل {
+    منشئ(ق: عدد) {
+        الأصل(ق)
+    }
+
+    عام دالة احسب() -> عدد {
+        أرجع هذا.قيمة + 100
+    }
+}
+
+متغير كائن = جديد فرع(5)
+اطبع(كائن.احسب())
+"#,
+        &["105"],
+    );
+}
+
+/// Two hops, so a resolver that consults only the immediate parent fails here
+/// while passing every single-level fixture above.
+///
+/// `اعرض` is declared on `مستوى_أول`, the receiver is `مستوى_ثالث`, and the
+/// class in between declares nothing at all — the method half of what
+/// `test_field_inherited_across_two_levels` does for fields.
+#[test]
+fn test_method_inherited_across_two_levels() {
+    assert_prints(
+        r#"
+صنف مستوى_أول {
+    عام أ: عدد
+
+    منشئ(ق: عدد) {
+        هذا.أ = ق
+    }
+
+    عام دالة اعرض() {
+        اطبع(هذا.أ)
+    }
+}
+
+صنف مستوى_ثان يرث مستوى_أول {
+    منشئ(ق: عدد) {
+        الأصل(ق)
+    }
+}
+
+صنف مستوى_ثالث يرث مستوى_ثان {
+    منشئ(ق: عدد) {
+        الأصل(ق)
+    }
+}
+
+متغير كائن = جديد مستوى_ثالث(9)
+كائن.اعرض()
+"#,
+        &["9"],
+    );
+}
+
+/// `الأصل.<method>()` where the method is declared on the *grandparent* — and
+/// the one shape here that fails on **all three** backends, where the rest of
+/// #253 is native-only.
+///
+/// `infer_expr_type`'s `ExprKind::Super` arm yields the immediate parent, so the
+/// call is minted as `مستوى_ثان::اعرض`, a method that class does not declare
+/// either. A super call dispatches non-virtually from that static id, so the
+/// interpreter and the JIT cannot recover it the way they recover a member call:
+/// both abort with `دالة غير معرّفة: مستوى_ثان::اعرض`, and native fails to link
+/// the very same symbol.
+///
+/// Whether #253's fix reaches this depends on where it lands. A member call
+/// mints the *receiver's* class; a super call mints the *immediate parent's*. A
+/// fix at the shared resolution layer — walk the chain to the class that
+/// declares the method — takes both; one confined to the member-access arm
+/// leaves this red, and it belongs in an issue of its own.
+#[test]
+fn test_super_call_to_method_declared_on_grandparent() {
+    assert_prints(
+        r#"
+صنف مستوى_أول {
+    عام أ: عدد
+
+    منشئ(ق: عدد) {
+        هذا.أ = ق
+    }
+
+    عام دالة اعرض() {
+        اطبع(هذا.أ)
+    }
+}
+
+صنف مستوى_ثان يرث مستوى_أول {
+    منشئ(ق: عدد) {
+        الأصل(ق)
+    }
+}
+
+صنف مستوى_ثالث يرث مستوى_ثان {
+    منشئ(ق: عدد) {
+        الأصل(ق)
+    }
+
+    عام دالة نفّذ() {
+        الأصل.اعرض()
+    }
+}
+
+متغير كائن = جديد مستوى_ثالث(4)
+كائن.نفّذ()
+"#,
+        &["4"],
     );
 }
 

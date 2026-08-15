@@ -2,6 +2,75 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-15 — Inherited method calls name the definer (#253)
+
+### One lookup, because two lookups can disagree
+
+`MethodId.class` and the return type were derived separately from the same wrong
+key, `{receiver}::{method}`. Both missed for an inherited method, and the two
+misses failed differently: the class produced an undefined symbol at link, while
+the return type degraded quietly to `Ptr(Void)`, lowering an `عدد` method into a
+`trq_print(ptr)` on an integer. The fix takes both from one
+`resolve_instance_method` call, so a future edit cannot repair one and leave the
+other. That is why the resolver returns a tuple rather than just the class.
+
+Same defect and same shape as #249/#250, one branch over: those fixed member
+*access* in `build_member`/`store_to_member`, this fixes the method-call branch
+of `build_call`. The static-method branch twenty lines above already resolved up
+the chain, so the file contained its own counter-example the whole time.
+
+### The miss path stays lenient — deliberately
+
+#249 added a strict `unknown_member_error` gate for fields. That was not copied
+here. This branch also carries `أي`-typed receivers, `ClassId("")` receivers,
+`__anonymous__` object literals, and interface-typed receivers — `InterfaceDecl`
+is a no-op in the builder, so a `ميثاق` type never enters `class_fields` and
+would look identical to a typo. A hard diagnostic would have traded a fixed bug
+for a new class of false positives.
+
+### Codegen and the interpreter were left alone, on purpose
+
+Native always binds statically on `MethodId.class`; the IR `Class.vtable` is
+initialised empty and nothing ever pushes to it, so `emit_vtable` never fires and
+`CallVirtual` is never emitted. Naming the definer fixes the link error without
+reopening that. The interpreter is unaffected because `resolve_virtual_method`
+walks from the object's *runtime* class, not from `MethodId.class` — it only ever
+consulted that field in its non-virtual fallback.
+
+### `الأصل.م()` to a grandparent was fixed for free
+
+A fixture written as discovery — a super call to a method declared two levels up
+— failed on **all three** backends before the fix, minting the *immediate
+parent's* class rather than the definer's (`infer_expr_type`'s `Super` arm yields
+the immediate parent). Unlike a normal member call, a super call dispatches
+non-virtually, so the interpreter could not rescue it either. It flows through
+the same branch, so the chain walk carried it with no second change. Worth
+remembering: super calls are the one path where an id defect is *not* native-only.
+
+### Why nothing caught this
+
+`tests/oop_execution_tests.rs` covers inherited dispatch thoroughly and is
+interpreter+JIT only, and `examples/أصناف.ترقيم` had the one call that would have
+exercised the shape commented out with a note citing this issue. A test suite and
+a corpus can both be green while jointly excluding the same case. The example is
+re-armed here, which puts the shape under CI's `compare-backends` job.
+
+### Discoveries
+
+- **#277** — `cargo fmt --check` failed on `develop` itself
+  (`src/semantic/linker.rs:115`, from 9af9382): a closing paren left on the
+  argument line. The `lint` job gates all of CI, so this failed every branch cut
+  from `develop`, whatever it changed. Fixed here rather than deferred, because
+  no branch — including this one — can go green until it lands.
+- **#278** — a subclass does not inherit its parent's `منشئ`; `check` rejects it
+  with `الصنف 'فرع' ليس له منشئ` even though the parent has one. Distinct from
+  #211, which is the no-constructor-anywhere case.
+- #211 gained a note that it also fails at link natively, not only at runtime.
+- #222 and #241 gained corrections: both undercount, and #241's own diff command
+  uses `@trq_[a-z_]*`, whose character class stops at the first digit — it
+  invented `trq_base`/`trq_sha` while hiding `trq_base64_encode`/`trq_base64_decode`.
+  A 2-for-2 swap, which is why the wrong total still looked self-consistent.
+
 ## 2026-08-13 — `blocks.last()` is never the current block (#234)
 
 ### The asymmetry

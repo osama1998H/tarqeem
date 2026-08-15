@@ -602,6 +602,33 @@ impl IrBuilder {
         })
     }
 
+    /// Walk `class` up through `class_parents` looking for a non-`مشترك`
+    /// method, returning the defining class and the method's return type.
+    ///
+    /// Both halves must come from one lookup or they can disagree (issue #253):
+    /// native codegen mints the callee symbol from `MethodId.class`, and
+    /// `{subclass}::{method}` is never synthesized for an inherited method,
+    /// while a missed return type degraded silently to `*void` — lowering an
+    /// `عدد` method into a `trq_print(ptr)` on an integer. `method_return_types`
+    /// registers every method, `Void` ones included, so it doubles as the
+    /// existence check; `static_methods` separates off the `مشترك` side, which
+    /// has its own resolver above.
+    pub(crate) fn resolve_instance_method(
+        &self,
+        class: &str,
+        member: &str,
+    ) -> Option<(ClassId, IrType)> {
+        self.resolve_up_chain(class, |b, c| {
+            let key = format!("{}::{}", c, member);
+            if b.static_methods.contains(&key) {
+                return None;
+            }
+            b.method_return_types
+                .get(&key)
+                .map(|ty| (ClassId(c.to_string()), ty.clone()))
+        })
+    }
+
     /// Does the IR builder know a field layout for `class`? False for `أي`-typed
     /// and unresolved receivers, and for `__anonymous__` object literals, whose
     /// fields codegen resolves by name and which `collect_class` therefore never
