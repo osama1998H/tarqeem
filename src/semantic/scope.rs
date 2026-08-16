@@ -182,11 +182,8 @@ impl Scope {
             ("طول_مصفوفة", vec![Type::Any], Type::Int),
             ("الحق", vec![Type::Any, Type::Any], Type::Void),
             // Bitwise - عمليات البتات
-            //
-            // Functions rather than operators: Tarqeem has no `&` token, and
-            // adding one would be a syntax change. `بتات_` prefixes the family
-            // because `و`/`أو` are keywords and cannot open an identifier, and
-            // because `ثنائي` already means "byte array" here (بصمة_ثنائي).
+            // Functions, not operators: there is no `&` token, and `بتات_` opens
+            // the name because `و`/`أو` are keywords.
             ("بتات_و", vec![Type::Int, Type::Int], Type::Int),
         ]
     }
