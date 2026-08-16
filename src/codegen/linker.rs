@@ -255,6 +255,13 @@ impl Linker {
         output: &Path,
         runtime_path: Option<&Path>,
     ) -> Result<(), LinkerError> {
+        if !self.target.is_wasm() {
+            return Err(LinkerError::with_code(
+                "الهدف ليس WebAssembly. استخدم --target wasm32-unknown-unknown".to_string(),
+                ERR_LLVM_INTERNAL.to_string(),
+            ));
+        }
+
         // The wasm archive, never the native one: handing an aarch64 `libtrq.a`
         // to a wasm link is worse than linking without it. Nothing builds
         // `libtrq_wasm.a` yet, so `None` is the normal outcome and, unlike the
@@ -267,13 +274,6 @@ impl Linker {
                 Some(path) => eprintln!("مكتبة وقت التشغيل: {}", path.display()),
                 None => eprintln!("تحذير: لم يتم العثور على {WASM_RUNTIME_LIB}."),
             }
-        }
-
-        if !self.target.is_wasm() {
-            return Err(LinkerError::with_code(
-                "الهدف ليس WebAssembly. استخدم --target wasm32-unknown-unknown".to_string(),
-                ERR_LLVM_INTERNAL.to_string(),
-            ));
         }
 
         let ir_path = output.with_extension("ll");
@@ -578,21 +578,22 @@ struct RuntimeLayout {
     lib_name: &'static str,
     /// `runtime` natively, `runtime/wasm` for the wasm archive.
     runtime_dir: &'static str,
-    /// Whether `build.rs`'s baked path applies. It names the *native* archive,
-    /// so the wasm search must not consult it.
-    use_baked_path: bool,
+    /// Whether the two `TARQEEM_RUNTIME_PATH` reads apply — the one exported
+    /// into the process and the one `build.rs` bakes in. Both name the *native*
+    /// archive, so the wasm search must consult neither.
+    use_native_override: bool,
 }
 
 const NATIVE_LAYOUT: RuntimeLayout = RuntimeLayout {
     lib_name: RUNTIME_LIB,
     runtime_dir: "runtime",
-    use_baked_path: true,
+    use_native_override: true,
 };
 
 const WASM_LAYOUT: RuntimeLayout = RuntimeLayout {
     lib_name: WASM_RUNTIME_LIB,
     runtime_dir: "runtime/wasm",
-    use_baked_path: false,
+    use_native_override: false,
 };
 
 /// Everything discovery reads from outside the process, gathered up front so
@@ -649,8 +650,10 @@ fn runtime_candidates(env: &RuntimeEnv, layout: &RuntimeLayout) -> Vec<PathBuf> 
     let mut paths = Vec::new();
     let lib = layout.lib_name;
 
-    if let Some(explicit) = &env.explicit {
-        paths.push(explicit.clone());
+    if layout.use_native_override {
+        if let Some(explicit) = &env.explicit {
+            paths.push(explicit.clone());
+        }
     }
 
     if let Some(dir) = &env.exe_dir {
@@ -662,7 +665,7 @@ fn runtime_candidates(env: &RuntimeEnv, layout: &RuntimeLayout) -> Vec<PathBuf> 
         }
     }
 
-    if layout.use_baked_path {
+    if layout.use_native_override {
         if let Some(baked) = &env.baked {
             paths.push(baked.clone());
         }
@@ -1228,17 +1231,19 @@ mod tests {
         }
     }
 
-    /// `build.rs` bakes in the path of the *native* archive.
+    /// Both `TARQEEM_RUNTIME_PATH` reads — the exported one and the one
+    /// `build.rs` bakes in — name the *native* archive. Handing either to a wasm
+    /// link is worse than linking without a runtime at all, so no wasm candidate
+    /// may be anything but `libtrq_wasm.a`.
     #[test]
-    fn wasm_search_ignores_the_baked_native_path() {
+    fn wasm_search_ignores_the_native_override() {
         let paths = runtime_candidates(&sample_env(), &WASM_LAYOUT);
-        assert!(paths
-            .iter()
-            .all(|p| !p.ends_with("target/release/libtrq.a")));
-        assert!(paths.iter().all(|p| {
-            p.file_name().is_none_or(|n| n == WASM_RUNTIME_LIB)
-                || p == &PathBuf::from("/explicit/libtrq.a")
-        }));
+        assert!(
+            paths
+                .iter()
+                .all(|p| p.file_name().is_some_and(|n| n == WASM_RUNTIME_LIB)),
+            "a native archive reached the wasm search: {paths:?}"
+        );
         rank(&paths, "runtime/wasm/libtrq_wasm.a");
     }
 
