@@ -2462,3 +2462,45 @@ Verified in all four backends, including `tarqeem debug`, which no automated
 test reaches: `دالة مطلق → ٩٩٩` prints `999` and `دالة طول(س: نص) → ٤٢` prints
 `42` — the latter having been a compile error before. All 10 `examples/` agree
 across interpreter, JIT and native.
+
+### The visibility trap this fix walked into first
+
+The first version of the shadowing guard asked *"is this name declared?"* of the
+**linked** AST, and that is the wrong question. `Analyzer::analyze` runs on
+**main's** AST and registers only main's declarations plus the names it
+imported; `linked_ast` then merges every declaration of every imported module
+into one flat namespace under its bare name. So the two layers disagreed about
+what "declared" means, and the backends took the linker's answer.
+
+The result was worse than the bug being fixed. A module exporting `شيء` *and*
+declaring `اطبع` captured `اطبع` in any program that imported only `شيء`:
+semantic type-checked the call against the built-in's `أي` signature, the
+backends called the module's `(نص)` function, and an i64 landed in a
+`TrqString*` slot — wrong output interpreted, **SIGSEGV** natively. Before the
+shadowing work the same program failed *loudly* at compile (that was #257), so
+this traded a loud failure for a silent one. `stdlib/طرفية` has exactly this
+shape: it exports `اطبع`, `ادخل` and `ادخل_رسالة`, all core builtins.
+
+The fix is `Analyzer::visible_names` → `IrBuilder::with_visible_names` →
+`Module::shadowing_names`: the question is answered **once**, from semantic's
+own scope, and the backends read the answer instead of recomputing it. That also
+retires the altitude problem the first version had — one rule re-derived in four
+places from three sets that do not agree (`IrBuilder::function_names` is
+top-level `FuncDecl`s of the linked AST, `Module::functions` additionally holds
+methods and lifted lambdas, and the semantic scope holds neither).
+
+Codegen needs **both** sets, and conflating them is a bug in either direction:
+definitions mangle against *all* user functions, so every one keeps a symbol of
+its own and #257's collision cannot return; call sites mangle against
+`shadowing_names`, so a call the semantic layer bound to a built-in still
+reaches `trq_*` even when some merged module declares that name.
+
+Two smaller things the same review caught: a *variable* holding a function value
+(`ثابت طول = (س: نص) => ٤٢`) is tier 1/3 and must suppress the interception too
+— it type-checks since this change, and was still lowering to `ArrayLen`; and
+§٤.٩'s claim that a module-level name shadows an import is false for file
+modules, where `linker::record_origin` rejects the pair with و٠١٠١.
+
+Guard verified by breaking it: with `shadows_builtin` forced to `true` the new
+`test_an_unimported_module_declaration_does_not_shadow_a_builtin` fails on the
+interpreter leg, so it is not vacuous.

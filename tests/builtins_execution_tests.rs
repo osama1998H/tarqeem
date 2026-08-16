@@ -798,12 +798,10 @@ fn test_a_core_builtin_is_shadowable_in_every_backend() {
 
 /// Shadowing reached through an import — tier 4 beating tier 5.
 ///
-/// This is how the rule bites a *shipped* module rather than a hand-written
-/// program: `stdlib/طرفية/اساسي.ترقيم` exports `اطبع`, and `طرفية` is not in
-/// `get_stdlib_modules()`, so it loads from disk and its declarations are
-/// merged into the main AST by `semantic::linker`. Before this change the
-/// import was silently dropped (`Scope::define` returned `false` and every
-/// caller discarded it) and the builtin kept winning.
+/// The declaration lives in a separate file, so the name arrives through
+/// `semantic::linker`'s merge rather than from main's own AST. Before this
+/// change the import `define` was silently dropped and the builtin kept
+/// winning.
 #[test]
 fn test_an_imported_function_shadows_a_builtin_in_every_backend() {
     let temp = TempDir::new().unwrap();
@@ -836,6 +834,57 @@ fn test_an_imported_function_shadows_a_builtin_in_every_backend() {
             output.lines(),
             ["777"],
             "الدالة المستوردة يجب أن تظلّل المدمجة في كل الخلفيات [{backend:?}]\n{}",
+            output.report()
+        );
+    }
+}
+
+/// A module declaration the program never imported must NOT shadow a builtin.
+///
+/// The linker merges every declaration of an imported module into one flat
+/// namespace under its bare name, so the IR builder sees `اطبع` as declared
+/// even though `analyze` — which only registers *imported* names — bound the
+/// call to the builtin. Backends that re-derived "is this declared?" from the
+/// linked AST therefore called a function the type-checker never checked the
+/// arguments against: `اطبع(٥)` passed an i64 into a `نص` parameter, printing
+/// the wrong thing interpreted and segfaulting natively.
+///
+/// This is the shape `stdlib/طرفية` has — it exports `اطبع`, `ادخل` and
+/// `ادخل_رسالة`, all core builtins — so importing anything at all from it hit
+/// this.
+#[test]
+fn test_an_unimported_module_declaration_does_not_shadow_a_builtin() {
+    let temp = TempDir::new().unwrap();
+    let dir = temp.path();
+
+    write_program(
+        dir,
+        "وحدة_غير_مستوردة",
+        "صدّر دالة شيء() -> عدد {\n    أرجع ١\n}\n\
+         صدّر دالة اطبع(س: نص) {\n    طباعة(\"[وحدة] \")\n    طباعة(س)\n}",
+    );
+    let main = write_program(
+        dir,
+        "رئيسي_غير_مستورد",
+        "استورد { شيء } من \"./وحدة_غير_مستوردة\"\nاطبع(شيء())",
+    );
+
+    for backend in Backend::ALL {
+        let output = execute(backend, &main, &format!("غير_مستورد_{backend:?}"));
+        assert!(
+            !output.compile_failed,
+            "توقّعنا ترجمة ناجحة [{backend:?}]\n{}",
+            output.report()
+        );
+        assert!(
+            output.succeeded(),
+            "فشل التنفيذ [{backend:?}] — تعطّل محتمل\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.lines(),
+            ["1"],
+            "دالة وحدة لم تُستورَد يجب ألا تظلّل المدمجة [{backend:?}]\n{}",
             output.report()
         );
     }

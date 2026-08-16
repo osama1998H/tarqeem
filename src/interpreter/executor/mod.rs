@@ -490,13 +490,14 @@ impl Interpreter {
                     .collect::<RuntimeResult<Vec<_>>>()?;
 
                 // A declared function of the same name wins: built-ins are the
-                // last tier of the lookup order (#262).
-                let outcome =
-                    if self.module.get_function(func).is_none() && self.is_builtin(&func.0) {
-                        self.call_builtin(&func.0, arg_values)
-                    } else {
-                        self.call_function(func, arg_values)
-                    };
+                // last tier of the lookup order (#262). The answer is decided by the IR
+                // builder, not recomputed here — `get_function` would also match a
+                // module declaration the program never imported.
+                let outcome = if self.is_builtin(&func.0) && !self.module.shadows_builtin(&func.0) {
+                    self.call_builtin(&func.0, arg_values)
+                } else {
+                    self.call_function(func, arg_values)
+                };
 
                 self.finish_call(outcome, dest.as_ref())
             }

@@ -4,6 +4,7 @@
 //! by the Tarqeem compiler. The IR is a three-address code in SSA (Static Single
 //! Assignment) form, designed to be lowered to LLVM IR or interpreted directly.
 
+use std::collections::HashSet;
 use std::fmt;
 
 use crate::error::codes::{ErrorCode, ERR_UNTYPED_LAMBDA_PARAM};
@@ -1015,6 +1016,14 @@ pub struct Module {
     pub classes: Vec<Class>,
     pub functions: Vec<Function>,
     pub globals: Vec<(String, IrType, Option<Constant>)>,
+    /// Names that outrank a same-named built-in, decided once by the IR builder
+    /// from the semantic layer's visibility rather than re-derived per backend.
+    ///
+    /// `functions` is not that answer: it also holds every declaration the
+    /// linker merged from an imported module, including ones the program never
+    /// imported, so a module's private `اطبع` would otherwise capture a call
+    /// that `analyze` bound to the built-in (#262).
+    pub shadowing_names: HashSet<String>,
 }
 
 impl Module {
@@ -1025,7 +1034,13 @@ impl Module {
             classes: Vec::new(),
             functions: Vec::new(),
             globals: Vec::new(),
+            shadowing_names: HashSet::new(),
         }
+    }
+
+    /// Whether `name` resolves to a user declaration rather than a built-in.
+    pub fn shadows_builtin(&self, name: &str) -> bool {
+        self.shadowing_names.contains(name)
     }
 
     pub fn get_function(&self, id: &FuncId) -> Option<&Function> {

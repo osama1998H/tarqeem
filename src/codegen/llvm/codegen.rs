@@ -80,6 +80,14 @@ pub struct LlvmCodegen {
     /// already declared — an invalid redefinition LLVM rejects while parsing
     /// the IR (#257).
     user_function_names: HashSet<String>,
+    /// The subset of `user_function_names` that outranks a same-named built-in,
+    /// as decided by the IR builder (`Module::shadowing_names`).
+    ///
+    /// Definitions are mangled against `user_function_names` so *every* user
+    /// function keeps a symbol of its own (#257); call sites are mangled against
+    /// this narrower set, so a call the semantic layer bound to a built-in still
+    /// reaches `trq_*` even when a merged module happens to declare that name.
+    shadowing_names: HashSet<String>,
 }
 
 impl LlvmCodegen {
@@ -107,6 +115,7 @@ impl LlvmCodegen {
             global_types: HashMap::new(),
             has_global_init: false,
             user_function_names: HashSet::new(),
+            shadowing_names: HashSet::new(),
         }
     }
 
@@ -116,6 +125,7 @@ impl LlvmCodegen {
         // Must precede every `mangle_function_name` call below, definitions and
         // call sites alike, or the two disagree about one name.
         self.user_function_names = module.functions.iter().map(|f| f.id.0.clone()).collect();
+        self.shadowing_names = module.shadowing_names.clone();
 
         self.emit_header(&module.name)?;
 
@@ -318,7 +328,7 @@ impl LlvmCodegen {
                 }
                 Some(Constant::Null) => "null".to_string(),
                 Some(Constant::Function(name)) => {
-                    format!("@{}", mangle_function_name(name, &self.user_function_names))
+                    format!("@{}", mangle_function_name(name, &self.shadowing_names))
                 }
                 Some(Constant::String(idx)) => {
                     // String globals store TrqString*, initialized at program start
@@ -1279,7 +1289,7 @@ impl LlvmCodegen {
                 args,
                 ret_ty,
             } => {
-                let func_name = mangle_function_name(&func.0, &self.user_function_names);
+                let func_name = mangle_function_name(&func.0, &self.shadowing_names);
 
                 // The callee's declared parameter types, where known: an argument
                 // otherwise describes itself, which is wrong for a `عدد?`
@@ -1560,6 +1570,11 @@ impl LlvmCodegen {
                     .then(|| self.receiver_vtable_slot(object.0, &method.name))
                     .flatten();
 
+                let method_symbol = mangle_function_name(
+                    &format!("{}::{}", method.class.0, method.name),
+                    &self.user_function_names,
+                );
+
                 let callee = match slot {
                     Some(index) => {
                         let vtable_ptr = self.fresh_name("vtable.ptr");
@@ -1578,23 +1593,13 @@ impl LlvmCodegen {
                         emit!(self, "  {} = load ptr, ptr {}", method_ptr, method_ptr_ptr);
                         method_ptr
                     }
-                    None => format!(
-                        "@{}",
-                        mangle_function_name(
-                            &format!("{}::{}", method.class.0, method.name),
-                            &self.user_function_names,
-                        )
-                    ),
+                    None => format!("@{}", method_symbol),
                 };
 
                 // Declared parameter 0 is the receiver, which is not in `args`, so
                 // the argument at `i` is declared at `i + 1`. Without this, a
                 // method taking `س: عدد?` called as `م.افحص(0)` receives a raw
                 // scalar in a pointer slot (#185).
-                let method_symbol = mangle_function_name(
-                    &format!("{}::{}", method.class.0, method.name),
-                    &self.user_function_names,
-                );
                 let declared_params = self.fn_param_types.get(&method_symbol).cloned();
 
                 let mut all_args = vec![format!("ptr {}", obj_name)];
@@ -2202,7 +2207,7 @@ impl LlvmCodegen {
                 emit!(self, "  {} = bitcast ptr null to ptr", dest_name);
             }
             Constant::Function(name) => {
-                let mangled = mangle_function_name(name, &self.user_function_names);
+                let mangled = mangle_function_name(name, &self.shadowing_names);
                 emit!(self, "  {} = bitcast ptr @{} to ptr", dest_name, mangled);
             }
             Constant::Bool(b) => {

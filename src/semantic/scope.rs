@@ -1172,6 +1172,27 @@ impl Scope {
         }
         all
     }
+
+    /// Names this scope chain resolves to a *user* declaration rather than a
+    /// built-in — main's own declarations plus whatever it imported.
+    ///
+    /// This is the visibility the IR builder must agree with. It sees the
+    /// linked AST, which carries every merged module declaration under its bare
+    /// name whether or not it was imported, so re-deriving "is this declared?"
+    /// from that AST makes a module's private `اطبع` outrank the built-in in a
+    /// program that never imported it.
+    pub fn user_defined_names(&self) -> HashSet<String> {
+        let mut names: HashSet<String> = self
+            .symbols
+            .keys()
+            .filter(|name| !self.builtin_names.contains(*name))
+            .cloned()
+            .collect();
+        if let Some(ref parent) = self.parent {
+            names.extend(parent.user_defined_names());
+        }
+        names
+    }
 }
 
 #[cfg(test)]
