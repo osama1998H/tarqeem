@@ -737,4 +737,25 @@ mod tests {
         assert_eq!(text_of(trq_base64_decode(owned("Zm9!"))), "");
         assert_eq!(text_of(trq_base64_decode(owned("Z=9v"))), "");
     }
+
+    #[test]
+    fn test_base64_decode_rejects_pathological_padding() {
+        // Padding that is not a final one-or-two-character tail.
+        for bad in ["====", "AAAA====", "=", "A===", "AB=A"] {
+            assert_eq!(
+                text_of(trq_base64_decode(owned(bad))),
+                "",
+                "accepted {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_base64_encodes_arbitrary_bytes() {
+        // 0xFF/0x00 exercise the top bits of the 24-bit accumulator, which
+        // UTF-8 text alone never sets.
+        let raw = [0xFFu8, 0x00, 0xFF];
+        let s = trq_string_new(raw.as_ptr(), 3);
+        assert_eq!(text_of(trq_base64_encode(s)), "/wD/");
+    }
 }
