@@ -62,8 +62,15 @@ fn month_length(year: i64, month: i64) -> Option<i64> {
     })
 }
 
+/// Widest year `days_from_civil` can take without its `era * 146097` term
+/// overflowing. Far past any date a program will hold, and bounding it here is
+/// what keeps an absurd literal returning [`INVALID`] instead of panicking
+/// across the C ABI (debug) or wrapping to a garbage answer (release).
+const YEAR_LIMIT: i64 = 1_000_000;
+
 fn is_valid_date(year: i64, month: i64, day: i64) -> bool {
-    month_length(year, month).is_some_and(|len| (1..=len).contains(&day))
+    (-YEAR_LIMIT..=YEAR_LIMIT).contains(&year)
+        && month_length(year, month).is_some_and(|len| (1..=len).contains(&day))
 }
 
 fn is_valid_time(hour: i64, minute: i64, second: i64, milli: i64) -> bool {
@@ -74,9 +81,9 @@ fn is_valid_time(hour: i64, minute: i64, second: i64, milli: i64) -> bool {
         && (0..1000).contains(&milli)
 }
 
-/// Days since 1970-01-01, by Howard Hinnant's `days_from_civil`. Exact for the
-/// whole proleptic Gregorian range, with no lookup table and no overflow for
-/// any year an `i64` can hold.
+/// Days since 1970-01-01, by Howard Hinnant's `days_from_civil`. Exact across
+/// the proleptic Gregorian calendar with no lookup table, for any year within
+/// [`YEAR_LIMIT`] — callers must reject wider ones, or `era * 146097` overflows.
 fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let y = if month <= 2 { year - 1 } else { year };
     let era = if y >= 0 { y } else { y - 399 } / 400;
@@ -404,6 +411,41 @@ mod tests {
         assert_eq!(trq_day_of_week(2024, 0, 1), INVALID);
         assert_eq!(trq_day_of_year(2024, 4, 31), INVALID);
         assert_eq!(trq_date_diff_days(2024, 1, 1, 2023, 2, 29), INVALID);
+    }
+
+    /// `days_from_civil` multiplies by 146097, which overflows well before
+    /// `i64::MAX`. Unbounded, that is an overflow panic in a debug build of the
+    /// runtime — which is exactly what the test harness stages — and a wrapped
+    /// garbage answer in release. Every entry point reaching it is covered.
+    #[test]
+    fn test_absurd_years_are_rejected_rather_than_overflowing() {
+        for year in [i64::MAX, i64::MIN, YEAR_LIMIT + 1, -YEAR_LIMIT - 1] {
+            assert_eq!(trq_day_of_week(year, 1, 1), INVALID, "{year}");
+            assert_eq!(trq_day_of_year(year, 1, 1), INVALID, "{year}");
+            assert_eq!(trq_week_number(year, 1, 1), INVALID, "{year}");
+            assert_eq!(
+                trq_date_diff_days(2024, 1, 1, year, 1, 1),
+                INVALID,
+                "{year}"
+            );
+            assert_eq!(
+                trq_date_diff_days(year, 1, 1, 2024, 1, 1),
+                INVALID,
+                "{year}"
+            );
+            assert_eq!(formatted(trq_date_format(year, 1, 1, pattern("YYYY"))), "");
+            assert_eq!(
+                formatted(trq_datetime_format(year, 1, 1, 0, 0, 0, pattern("YYYY"))),
+                ""
+            );
+        }
+    }
+
+    #[test]
+    fn test_the_year_bound_itself_still_computes() {
+        // The boundary must be inclusive, or the limit is off by one.
+        assert_ne!(trq_day_of_week(YEAR_LIMIT, 1, 1), INVALID);
+        assert_ne!(trq_day_of_week(-YEAR_LIMIT, 1, 1), INVALID);
     }
 
     #[test]
