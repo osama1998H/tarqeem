@@ -108,9 +108,14 @@ Legend for **status**: `unchanged` · `renamed` · `narrowed` · `new`.
 | `بتات_إزاحة_يمين` | `(عدد، عدد) -> عدد` | new | **Arithmetic** (sign-propagating). Correct for 32-bit-masked SHA-256/CRC words. |
 | `بتات_إزاحة_يمين_منطقية` | `(عدد، عدد) -> عدد` | new | **Logical** (zero-fill). Required, not redundant: `عدد` is signed i64 and every backend's `Shr` is arithmetic, so a self-hosted xorshift64 or DEFLATE bit reader silently produces wrong numbers *consistently across all three backends* without it. Named to contrast explicitly, since confusing the two is the failure mode. |
 
-> The `بتات_` prefix is chosen over bare `و_بتي` / `أو_ثنائي` for two reasons: it avoids opening an
-> identifier with the reserved keywords `و` / `أو`, and `ثنائي` is already taken — it is this
-> codebase's word for *byte array* (`بصمة_ثنائي`, `اضغط_ثنائي`, `ثنائي_إلى_ست_عشري`).
+> The `بتات_` prefix is chosen over bare `و_بتي` / `أو_ثنائي` for two reasons: it keeps the family
+> clear of `و` / `أو`, which are keywords and so cannot be names on their own, and `ثنائي` is
+> already taken — it is this codebase's word for *byte array* (`بصمة_ثنائي`, `اضغط_ثنائي`,
+> `ثنائي_إلى_ست_عشري`).
+>
+> **Correction (#302):** an earlier wording here said the prefix avoids *opening* an identifier
+> with `و` / `أو`. That is false — an identifier may begin with either letter, as `وقت` and
+> `أولوية` do. Only the bare one-letter names are unavailable.
 
 **Cost note (headline finding, gap analysis):** all seven bitwise names lower in
 `build_core_builtin_call` to `Instruction::Binary` / `Instruction::Unary`, whose variants already

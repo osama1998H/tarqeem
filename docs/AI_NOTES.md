@@ -2668,7 +2668,8 @@ shape, and the seven bitwise names are all of that shape.
 ### Why bitwise names are functions
 
 Tarqeem has no `&` token, and the refactor may not change syntax. `بتات_` prefixes the
-family because `و`/`أو` are keywords and cannot open an identifier, and because `ثنائي`
+family because `و`/`أو` are keywords and so cannot *be* a name on their own (an identifier
+may still begin with either — `وقت`, `أولوية`), and because `ثنائي`
 already means "byte array" here (`بصمة_ثنائي`). A lexer test pins that `بتات_و` scans as one
 identifier rather than `بتات_` followed by the logical-and keyword.
 
