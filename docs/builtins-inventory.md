@@ -14,8 +14,8 @@ backed by a mechanical count that agrees with the hand enumeration.
 
 | | |
 |---|---|
-| Names declared in `Scope` | **184** — 19 `core_builtins()` + 165 `get_stdlib_builtin()` across 7 modules |
-| Names reachable on *some* backend | **236** — the extra 52 exist in a backend but in no registry, so no program can call them |
+| Names declared in `Scope` | **185** — 20 `core_builtins()` + 165 `get_stdlib_builtin()` across 7 modules |
+| Names reachable on *some* backend | **237** — the extra 52 exist in a backend but in no registry, so no program can call them |
 | `runtime-rs` exports | **218** `#[no_mangle] pub extern "C" fn` |
 | … of which ABI-internal (compiler-emitted plumbing) | **22** — excluded from the language surface |
 | … of which orphans (no caller anywhere) | **28** |
@@ -39,7 +39,7 @@ nothing enforces that it is present on all of them.
 
 | Surface | File | Mechanism |
 |---|---|---|
-| Semantic | `src/semantic/scope.rs` | `core_builtins()` — a `Vec` of 19 `(name, params, ret)` tuples registered into the global scope. `get_stdlib_builtin(module, name)` — a two-level `match` with 165 arms, manufactured on demand at import. `get_stdlib_module_exports()` — a **second, hand-maintained copy** of the same 165 names with no consistency test. |
+| Semantic | `src/semantic/scope.rs` | `core_builtins()` — a `Vec` of 20 `(name, params, ret)` tuples registered into the global scope. `get_stdlib_builtin(module, name)` — a two-level `match` with 165 arms, manufactured on demand at import. `get_stdlib_module_exports()` — a **second, hand-maintained copy** of the same 165 names with no consistency test. |
 | Interpreter | `src/interpreter/executor/builtins.rs` | `is_builtin` string membership + a dispatch `match`. Two edits per name, same file. |
 | Debug interpreter | `src/debug/interpreter/builtins.rs` | A private duplicate of the above, used by DAP. Knows **18** names. |
 | Native | `src/ir/builder/expr_builder.rs` + `src/codegen/llvm/codegen.rs` | Either intercepted in the IR builder (15 names) or looked up in `get_runtime_function_name` (213 names) and emitted as a `trq_*` call. |
@@ -75,7 +75,7 @@ the refactor; fixing them is scoped in the plan document, not here.
 
 ### 2.1 The default backend is the weakest one
 
-**78 of 184 declared names (42%) have no interpreter arm**, so `tarqeem run` fails on them after
+**78 of 185 declared names (42%) have no interpreter arm**, so `tarqeem run` fails on them after
 the import type-checks cleanly: all 23 `شبكة` names, 19 of 21 `ملفات`, 32 of 41 `نص`, plus
 `الحق، طول_مصفوفة، باقي، بذرة_عشوائي`. Both JIT tiers inherit every one of these holes by
 delegation.
@@ -209,7 +209,7 @@ the dispatch matrix (`يُحذف`), otherwise `مكتبة`, which is the criteri
 deterministic; no row was assigned by judgement outside those rules.
 
 **Reconciling with the plan document.** Its executive summary counts 26 alias collapses and 11 dead
-names against the **184 declared** names; this table counts 48 against the **236 reachable** names,
+names against the **185 declared** names; this table counts 48 against the **237 reachable** names,
 which additionally covers the 52 that exist in a backend but in no registry. Likewise the plan
 defers **12 socket primitives** while this table marks **47 socket-family names** deferred — 12 is
 the primitive count after collapse, 47 is the raw name count. Both are correct; they count
@@ -218,7 +218,7 @@ different universes.
 
 ## 4. The inventory
 
-#### `core` — 22
+#### `core` — 23
 
 Rows marked **مُنفَّذ** landed after this census; the backend columns are re-verified,
 not carried over from the original pass.
@@ -234,6 +234,7 @@ not carried over from the original pass.
 | `اطبع_سطر` | ✓ | ✓ | ✗ | ~ | `trq_print` | يُحذف | alias/dead |
 | `اقرأ_سطر` | ✗ | ✓ | ✗ | ✗ | `-` | مكتبة |  |
 | `الحق` | ✓ | ✗ | ✗ | ~ | `trq_array_push` | يُحذف | alias/dead |
+| `بتات_أو` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#306) |
 | `بتات_و` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#302) |
 | `تأكد` | ✓ | ✓ | ✗ | ✓ | `trq_assert` | مكتبة |  |
 | `تأكد_رسالة` | ✓ | ✓ | ✗ | ✓ | `-` | مكتبة |  |

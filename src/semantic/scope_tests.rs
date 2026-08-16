@@ -132,7 +132,7 @@ fn test_global_scope_creation() {
 
 #[test]
 fn test_global_scope_has_core_builtins() {
-    // Only 19 core builtins should be available globally without imports
+    // Only 20 core builtins should be available globally without imports
     let scope = Scope::new_global();
 
     // I/O (6)
@@ -163,8 +163,9 @@ fn test_global_scope_has_core_builtins() {
     assert!(scope.lookup("طول_مصفوفة").is_some());
     assert!(scope.lookup("الحق").is_some());
 
-    // Bitwise (1)
+    // Bitwise (2)
     assert!(scope.lookup("بتات_و").is_some());
+    assert!(scope.lookup("بتات_أو").is_some());
 
     // Verify stdlib functions are NOT in global scope
     assert!(scope.lookup("مطلق").is_none());

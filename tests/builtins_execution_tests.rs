@@ -440,6 +440,78 @@ fn test_user_function_shadows_bitwise_and() {
 }
 
 // ---------------------------------------------------------------------------
+// بتات_أو — the second bitwise primitive (#306)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_bitwise_or_sets_bits_in_every_backend() {
+    assert_prints(
+        "بتات_أو_ضم",
+        "اطبع(بتات_أو(12، 10))\nاطبع(بتات_أو(255، 0))\nاطبع(بتات_أو(0، 0))",
+        &["14", "255", "0"],
+    );
+}
+
+/// `عدد` is a signed i64 in every backend, so a negative left operand is the
+/// case where a backend that widened or truncated differently would show it.
+/// `-1` is all-ones, which makes it absorbing for OR — the mirror of its being
+/// the identity for AND.
+#[test]
+fn test_bitwise_or_agrees_on_negative_operands() {
+    assert_prints(
+        "بتات_أو_سالب",
+        "اطبع(بتات_أو(-1، 0))\nاطبع(بتات_أو(-2، 1))\nاطبع(بتات_أو(-16، 3))",
+        &["-1", "-1", "-13"],
+    );
+}
+
+/// Printing a result proves only that *something* came back. A builtin whose
+/// destination carries the `Ptr(Void)` sentinel instead of `عدد` prints
+/// plausibly and then composes wrongly, which is the failure this whole
+/// registry work exists to stop — so the result is added, compared and passed
+/// on as an argument rather than only printed.
+#[test]
+fn test_bitwise_or_result_composes_as_an_integer() {
+    assert_prints(
+        "بتات_أو_تركيب",
+        concat!(
+            "اطبع(بتات_أو(12، 10) + 1)\n",
+            "اطبع(بتات_أو(12، 10) == 14)\n",
+            "اطبع(نوع(بتات_أو(1، 2)))\n",
+            "دالة ضاعف(ن: عدد) -> عدد {\n    أرجع ن * 2\n}\n",
+            "اطبع(ضاعف(بتات_أو(4، 1)))",
+        ),
+        &["15", "صحيح", "عدد", "10"],
+    );
+}
+
+/// Why OR is a separate primitive and not a convenience: AND can only inspect
+/// bits, so replacing a packed field needs both. `-256` is the inverse of the
+/// low-byte mask, which is how a field is cleared until `بتات_نفي` lands.
+/// `0x1234` with its low byte replaced by `0xAB` is `0x12AB`.
+#[test]
+fn test_bitwise_or_and_and_replace_a_packed_field() {
+    assert_prints(
+        "بتات_أو_حقل",
+        "اطبع(بتات_أو(بتات_و(4660، -256)، 171))",
+        &["4779"],
+    );
+}
+
+/// Builtins are the last tier of the lookup order, so a user function of the
+/// same name must win — in every backend at once. An earlier shadowing fix
+/// changed only the IR builder and left native calling the user's function
+/// while the interpreter still ran the builtin (#262).
+#[test]
+fn test_user_function_shadows_bitwise_or() {
+    assert_prints(
+        "بتات_أو_مظلل",
+        "دالة بتات_أو(أ: عدد، ب: عدد) -> عدد {\n    أرجع 42\n}\nاطبع(بتات_أو(12، 10))",
+        &["42"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // طول over a string — characters, not bytes (#185)
 // ---------------------------------------------------------------------------
 
@@ -996,6 +1068,7 @@ fn test_every_core_builtin_agrees_across_backends() {
             &["2"],
         ),
         ("بتات_و", "اطبع(بتات_و(12، 10))", &["8"]),
+        ("بتات_أو", "اطبع(بتات_أو(12، 10))", &["14"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();

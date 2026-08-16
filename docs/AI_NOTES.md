@@ -2686,3 +2686,46 @@ Four unrelated examples failed the local three-backend diff until `TARQEEM_HOME`
 freshly built `libtrq.a`. `find_runtime` never searches `target/<profile>/` (#285), so a
 local `compile` links `~/.tarqeem/lib/libtrq.a` — blocker B14. An `ld` undefined-symbol error
 means a stale archive; a clang IR-parse error would mean a real bug.
+
+---
+
+## #306 — بتات_أو, the second bitwise primitive
+
+Branch `feature/306-bitwise-or-builtin`. Increment A of
+[`builtins-vs-stdlib.md`](builtins-vs-stdlib.md) §6.1, two names of seven.
+
+### The estimate held a second time
+
+Same two source files as #302, and no third. `BinaryOp::BitOr` already had arms in the
+interpreter (`executor/mod.rs:976`), the debug interpreter (`debug/interpreter/operations.rs`),
+both JIT tiers (`bor`), LLVM (`or i64`), the constant folder and CSE — so the whole primitive
+is a `Scope::core_builtins()` entry plus an IR-builder arm.
+
+### One arm for the family, not one per name
+
+The `بتات_و` arm became `"بتات_و" | "بتات_أو"` with the op chosen by name, following the
+`"تأكد" | "تأكد_رسالة"` arm in the same function. The remaining four single-op names
+(`بتات_أو_حصري`, and the two arithmetic shifts plus `بتات_نفي`, which is `Unary`) extend the
+same shape; `بتات_إزاحة_يمين_منطقية` is the only one that composes rather than emitting one op.
+
+### Why OR is a primitive and not a convenience
+
+AND can only inspect bits; it cannot build a value. Replacing a packed field needs both —
+`بتات_أو(بتات_و(ق، معكوس_القناع)، حقل)` — which is the operation every bit-packing routine in
+the migration set performs. Until `بتات_نفي` lands, the inverse mask is written as a negative
+literal (`-256` clears the low byte), and both the example and the execution tests use exactly
+that form so it is covered rather than assumed.
+
+### #304 reproduces here, and is not this change's
+
+`ثابت م = [بتات_أو(12، 10)، …]` prints correctly interpreted and exits 139 natively —
+identical to `بتات_و` and to `طول_مصفوفة`, which is why #304 is filed against the interception
+path rather than any one name. Verified rather than assumed before saying so in §6.1. Nothing
+in this change touches it; self-hosted stdlib built on these primitives must avoid an
+intercepted call inside an array literal until it is fixed.
+
+### Verification
+
+Interpreter, JIT, native and the DAP debug interpreter all produce byte-identical output for
+`examples/مدمجات.ترقيم`, and the regenerated `examples/متوقع/مدمجات.خرج` diff is purely
+additive — no other example's committed output moved.
