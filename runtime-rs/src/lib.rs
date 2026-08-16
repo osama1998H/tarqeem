@@ -140,6 +140,7 @@ pub use io::{
     trq_print_float,
     trq_print_int,
     trq_print_newline,
+    trq_print_optional_scalar,
 };
 
 // Re-export all math functions

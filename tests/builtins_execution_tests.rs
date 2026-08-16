@@ -381,6 +381,311 @@ fn test_array_len_builtin_works_in_every_backend() {
     assert_prints("طول_مصفوفة_مباشر", "اطبع(طول_مصفوفة([1، 2، 3]))", &["3"]);
 }
 
+// ---------------------------------------------------------------------------
+// طول over a string — characters, not bytes (#185)
+// ---------------------------------------------------------------------------
+
+/// `ArrayLen` is polymorphic in every interpreting backend but a single symbol
+/// in codegen, and picking the array symbol for a string is *silent*: both
+/// `TrqString` and `TrqArray` are `#[repr(C)]` with `len` first, so the load
+/// succeeds and returns the byte count. Five Arabic characters occupy ten
+/// bytes, which is why this fixture is Arabic rather than ASCII — the same
+/// assertion over "hello" would pass against the bug.
+#[test]
+fn test_string_len_counts_characters_not_bytes() {
+    assert_prints("طول_نص_عربي", "اطبع(طول(\"مرحبا\"))", &["5"]);
+}
+
+/// A literal and a parameter reach `var_types` by different routes (constant
+/// emission vs parameter registration), so covering only the literal would
+/// leave half the dispatch untested.
+#[test]
+fn test_string_len_counts_characters_through_a_parameter() {
+    assert_prints(
+        "طول_نص_معامل",
+        "دالة قِس(ن: نص) -> عدد {\n    أرجع طول(ن)\n}\nاطبع(قِس(\"مرحبا\"))",
+        &["5"],
+    );
+}
+
+/// Arrays must not regress: the same instruction serves both.
+#[test]
+fn test_array_len_still_counts_elements() {
+    assert_prints("طول_مصفوفة_لم_يتغير", "اطبع(طول([1، 2، 3]))", &["3"]);
+}
+
+/// Indexing a string yields a one-character string, as in the interpreter.
+/// Natively this reached `trq_array_get`, which read the string's byte pointer
+/// as an element table and aborted.
+#[test]
+fn test_string_index_yields_one_character() {
+    assert_prints(
+        "فهرسة_نص",
+        "متغير ن = \"مرحبا\"\nاطبع(ن[0])\nاطبع(ن[4])",
+        &["م", "ا"],
+    );
+}
+
+/// `لكل … في` shares `ArrayLen` for its trip count, so the fix changes native
+/// string iteration from bytes to characters too.
+#[test]
+fn test_string_iteration_visits_characters_not_bytes() {
+    assert_prints(
+        "تكرار_نص",
+        "متغير ع = 0\nلكل ح في \"مرحبا\" {\n    ع = ع + 1\n}\nاطبع(ع)",
+        &["5"],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Float display — native must match the interpreter (#185)
+// ---------------------------------------------------------------------------
+
+/// A whole float keeps its `.0`. The runtime printed `value as i64` under a
+/// `%g` convention no other backend followed.
+#[test]
+fn test_whole_float_prints_with_a_decimal_place() {
+    assert_prints("عشري_صحيح", "اطبع(5.0)", &["5.0"]);
+}
+
+/// The runtime's guard also carried an `abs() < 1e15` clause the interpreter
+/// never had, so the two agreed on nothing above that magnitude either.
+#[test]
+fn test_large_whole_float_prints_with_a_decimal_place() {
+    assert_prints("عشري_كبير", "اطبع(1.0e20)", &["100000000000000000000.0"]);
+}
+
+/// A fractional float was always consistent — pinned so the fix cannot regress
+/// the branch it did not touch.
+#[test]
+fn test_fractional_float_is_unchanged() {
+    assert_prints("عشري_كسري", "اطبع(5.5)", &["5.5"]);
+}
+
+// ---------------------------------------------------------------------------
+// Comparison operand dispatch, and optional representation (#185)
+// ---------------------------------------------------------------------------
+//
+// These are not builtins, but they need exactly the harness above: a divergence
+// that only appears in one backend is invisible to any single-backend test, and
+// duplicating `assert_prints` into another file would be the more expensive
+// mistake. Note the JIT leg proves less here than it looks — Cranelift compiles
+// neither of these instruction shapes and delegates to the interpreter, so the
+// JIT column agrees by fallback rather than by compiling anything (#215).
+
+/// Comparison opcodes were chosen from the instruction's *result* type, which is
+/// always Bool, so every non-Int operand hit an arm that spelled `i64`. Integers
+/// were correct only by coincidence; booleans could not be compiled at all.
+#[test]
+fn test_booleans_compare_in_every_backend() {
+    assert_prints(
+        "مقارنة_منطقي",
+        "متغير أ = صحيح\nمتغير ب = صحيح\nإذا (أ == ب) { اطبع(\"متساوي\") } وإلا { اطبع(\"مختلف\") }",
+        &["متساوي"],
+    );
+}
+
+#[test]
+fn test_optional_compared_against_null_in_every_backend() {
+    for (ty, value) in [
+        ("نص", "\"أ\""),
+        ("عدد", "5"),
+        ("عدد_عشري", "2.5"),
+        ("منطقي", "صحيح"),
+    ] {
+        assert_prints(
+            &format!("اختياري_معيّن_{ty}"),
+            &format!(
+                "متغير س: {ty}? = {value}\nإذا (س != لا_شيء) {{ اطبع(\"موجود\") }} وإلا {{ اطبع(\"فارغ\") }}"
+            ),
+            &["موجود"],
+        );
+        assert_prints(
+            &format!("اختياري_فارغ_{ty}"),
+            &format!(
+                "متغير س: {ty}? = لا_شيء\nإذا (س != لا_شيء) {{ اطبع(\"موجود\") }} وإلا {{ اطبع(\"فارغ\") }}"
+            ),
+            &["فارغ"],
+        );
+    }
+}
+
+/// The falsy scalars are the whole point of boxing.
+///
+/// An optional lowers to a pointer, and a scalar stored raw into that slot is
+/// its own bit pattern — so `0`, `خطأ` and `0.0` were indistinguishable from a
+/// null pointer. Fixing the comparison without fixing the representation would
+/// have turned a build error into a silent wrong answer, which is strictly worse.
+#[test]
+fn test_falsy_scalar_optionals_are_not_null() {
+    for (ty, value) in [("عدد", "0"), ("منطقي", "خطأ"), ("عدد_عشري", "0.0")] {
+        assert_prints(
+            &format!("اختياري_صفري_{ty}"),
+            &format!(
+                "متغير س: {ty}? = {value}\nإذا (س != لا_شيء) {{ اطبع(\"موجود\") }} وإلا {{ اطبع(\"فارغ\") }}"
+            ),
+            &["موجود"],
+        );
+    }
+}
+
+/// Boxing has to happen wherever `T` is implicitly widened to `T?`, not only at
+/// a `متغير` declaration — an argument and a return value are coercion sites too.
+#[test]
+fn test_optionals_are_boxed_at_argument_and_return_positions() {
+    assert_prints(
+        "اختياري_معامل",
+        "دالة افحص(س: عدد?) {\n    إذا (س != لا_شيء) { اطبع(\"موجود\") } وإلا { اطبع(\"فارغ\") }\n}\nافحص(0)\nافحص(لا_شيء)",
+        &["موجود", "فارغ"],
+    );
+    assert_prints(
+        "اختياري_إرجاع",
+        "دالة اصنع() -> عدد? { أرجع 0 }\nمتغير س = اصنع()\nإذا (س != لا_شيء) { اطبع(\"موجود\") } وإلا { اطبع(\"فارغ\") }",
+        &["موجود"],
+    );
+}
+
+/// Fields and method parameters are coercion sites too.
+///
+/// These were found only by going looking for sites the first pass had missed —
+/// both compiled cleanly and answered `فارغ` for a present `0`, which is the
+/// silent wrong answer the boxing exists to prevent.
+#[test]
+fn test_optionals_are_boxed_in_fields_and_method_parameters() {
+    assert_prints(
+        "اختياري_حقل",
+        "صنف حساب {\n    عام رصيد: عدد?\n    منشئ() { هذا.رصيد = 0 }\n    عام دالة افحص() {\n        إذا (هذا.رصيد != لا_شيء) { اطبع(\"موجود\") } وإلا { اطبع(\"فارغ\") }\n    }\n}\nمتغير ح = جديد حساب()\nح.افحص()",
+        &["موجود"],
+    );
+    assert_prints(
+        "اختياري_معامل_دالة_عضو",
+        "صنف فاحص {\n    منشئ() { }\n    عام دالة افحص(س: عدد?) {\n        إذا (س != لا_شيء) { اطبع(\"موجود\") } وإلا { اطبع(\"فارغ\") }\n    }\n}\nمتغير ف = جديد فاحص()\nف.افحص(0)",
+        &["موجود"],
+    );
+}
+
+/// Every other fixture here is script mode, where a `متغير` is a *global* and
+/// takes the global store path. Inside a function it is an alloca instead —
+/// a different branch, and one that only manual runs had covered.
+#[test]
+fn test_falsy_scalar_optional_is_not_null_inside_a_function() {
+    assert_prints(
+        "اختياري_صفري_محلي",
+        "دالة رئيسية() {\n    متغير س: عدد? = 0\n    إذا (س != لا_شيء) { اطبع(\"موجود\") } وإلا { اطبع(\"فارغ\") }\n}",
+        &["موجود"],
+    );
+}
+
+/// Printing a scalar optional segfaulted: the pointer went to `trq_print`, which
+/// reads it as a `TrqString*`.
+#[test]
+fn test_printing_a_scalar_optional_matches_the_interpreter() {
+    assert_prints("طباعة_اختياري_عدد", "متغير س: عدد? = 5\nاطبع(س)", &["5"]);
+    assert_prints(
+        "طباعة_اختياري_فارغ",
+        "متغير س: عدد? = لا_شيء\nاطبع(س)",
+        &["لا_شيء"],
+    );
+    assert_prints(
+        "طباعة_اختياري_عشري",
+        "متغير س: عدد_عشري? = 2.5\nاطبع(س)",
+        &["2.5"],
+    );
+    assert_prints(
+        "طباعة_اختياري_منطقي",
+        "متغير س: منطقي? = صحيح\nاطبع(س)",
+        &["صحيح"],
+    );
+}
+
+/// Two optional strings compare by *value*, as the interpreter does. Routing all
+/// pointer-typed operands to `icmp ptr` would have made this pointer identity —
+/// trading a build error for a wrong answer, again.
+#[test]
+fn test_optional_strings_compare_by_value_not_identity() {
+    assert_prints(
+        "اختياري_نص_بالقيمة",
+        "متغير أ: نص? = \"سلام\"\nمتغير ب: نص? = \"سلا\" + \"م\"\nإذا (أ == ب) { اطبع(\"متساوي\") } وإلا { اطبع(\"مختلف\") }",
+        &["متساوي"],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Null-check narrowing — LANGUAGE_SPEC §13.4 (#185)
+// ---------------------------------------------------------------------------
+
+/// The example from the spec: after the check, the value is usable as its
+/// unwrapped type.
+#[test]
+fn test_null_check_narrows_in_the_then_branch() {
+    assert_prints(
+        "تضييق_ثم",
+        "متغير س: عدد? = 5\nإذا (س != لا_شيء) { اطبع(س + 1) }",
+        &["6"],
+    );
+}
+
+/// `لا_شيء != س` reads as naturally in Arabic as the reverse, so both operand
+/// orders narrow.
+#[test]
+fn test_null_check_narrows_with_operands_reversed() {
+    assert_prints(
+        "تضييق_معكوس",
+        "متغير س: عدد? = 5\nإذا (لا_شيء != س) { اطبع(س + 1) }",
+        &["6"],
+    );
+}
+
+/// `==` proves the opposite branch.
+#[test]
+fn test_null_check_narrows_the_else_branch() {
+    assert_prints(
+        "تضييق_وإلا",
+        "متغير س: عدد? = 5\nإذا (س == لا_شيء) { اطبع(0) } وإلا { اطبع(س + 1) }",
+        &["6"],
+    );
+}
+
+/// Concatenating a narrowed optional printed the box's address.
+///
+/// The runtime's scalar-to-string conversions take the scalar itself, so the
+/// pointer has to be loaded before the call. The example corpus caught this
+/// after the unit tests above had all passed — worth keeping as a fixture.
+#[test]
+fn test_narrowed_optional_concatenates_its_value_not_its_address() {
+    assert_prints(
+        "تضييق_دمج",
+        "متغير س: عدد? = 0\nإذا (س != لا_شيء) { اطبع(\"القيمة \" + س) }",
+        &["القيمة 0"],
+    );
+}
+
+/// A narrowed `نص?` is still a `TrqString*`, so it has to take the string path
+/// rather than falling back to the array one and counting bytes again.
+#[test]
+fn test_narrowed_optional_string_measures_characters() {
+    assert_prints(
+        "تضييق_نص",
+        "متغير س: نص? = \"مرحبا\"\nإذا (س != لا_شيء) { اطبع(طول(س)) }",
+        &["5"],
+    );
+}
+
+/// A float reads the same whether printed or concatenated.
+///
+/// These disagreed: `اطبع(5.0)` gave `5.0` while `اطبع("" + 5.0)` gave `5`,
+/// because concatenation lowers through `trq_float_to_string` and that dropped
+/// the fraction. Every backend agreed on the wrong answer, so no cross-backend
+/// check could see it — only reading an example's output did.
+#[test]
+fn test_float_reads_the_same_printed_and_concatenated() {
+    assert_prints(
+        "عشري_دمج",
+        "اطبع(5.0)\nاطبع(\"القيمة: \" + 5.0)\nاطبع(\"كسر: \" + 2.5)",
+        &["5.0", "القيمة: 5.0", "كسر: 2.5"],
+    );
+}
+
 #[test]
 fn test_array_push_builtin_works_in_every_backend() {
     assert_prints(
@@ -460,9 +765,9 @@ fn test_every_core_builtin_agrees_across_backends() {
         // trailing newline from its absence — which is how native `اطبع_سطر`
         // printing through the newline-less `trq_print` stayed invisible.
         ("اطبع_سطر", "اطبع_سطر(\"أ\")\nاطبع_سطر(\"ب\")", &["أ", "ب"]),
-        // Deliberately an array: `طول` on a *string* counts UTF-8 bytes
-        // natively and characters in the interpreter (#185).
-        ("طول", "اطبع(طول([1، 2، 3]))", &["3"]),
+        // A *string*, deliberately: this probe used an array while native `طول`
+        // counted UTF-8 bytes and the interpreter counted characters (#185).
+        ("طول", "اطبع(طول(\"مرحبا\"))", &["5"]),
         ("نوع", "اطبع(نوع(1))", &["عدد"]),
         ("عدد", "اطبع(عدد(\"5\"))", &["5"]),
         ("عدد_عشري", "اطبع(عدد_عشري(\"5.5\"))", &["5.5"]),

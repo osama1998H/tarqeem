@@ -198,6 +198,67 @@ jobs:
   # ============================================
   # Run Examples with Interpreter (Default Mode)
   # ============================================
+  # ============================================
+  # Expected Output — the only job that checks a *value*
+  # ============================================
+  #
+  # Every other example job checks that a program runs, and compare-backends
+  # checks that the backends agree. Neither can see a wrong answer: three
+  # backends agreeing on the same wrong number is a pass. `اطبع(5.0)` printing
+  # `5` survived exactly that way, in every backend at once.
+  #
+  # So each example's output is committed under examples/متوقع/ and diffed here.
+  # Regenerate deliberately, and read the diff before committing it:
+  #
+  #   ./scripts/جدد_المتوقع.sh
+  #
+  expected-output:
+    name: Expected Output (values, not just exit codes)
+    runs-on: ubuntu-latest
+    needs: build-compiler
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download compiler
+        uses: actions/download-artifact@v8
+        with:
+          name: tarqeem-compiler
+          path: ./bin
+
+      - name: Make compiler executable
+        run: chmod +x ./bin/tarqeem
+
+      - name: Diff every example against its committed output
+        run: |
+          unset TARQEEM_HOME
+          status=0
+          for file in examples/*.ترقيم; do
+            name="$(basename "$file" .ترقيم)"
+            expected="examples/متوقع/${name}.خرج"
+
+            if [ ! -f "$expected" ]; then
+              echo "::error::لا يوجد خرج متوقع لـ ${name} / no expected output committed"
+              echo "  أضفه بتشغيل / add it with: ./scripts/جدد_المتوقع.sh"
+              status=1
+              continue
+            fi
+
+            if ! timeout 60s ./bin/tarqeem run "$file" > "/tmp/${name}.actual" 2>&1; then
+              echo "::error::فشل تنفيذ ${name} / ${name} failed to run"
+              tail -20 "/tmp/${name}.actual"
+              status=1
+              continue
+            fi
+
+            if diff -u "$expected" "/tmp/${name}.actual"; then
+              echo "✅ ${name}"
+            else
+              echo "::error::خرج ${name} تغيّر / ${name} output changed — if intended, regenerate and commit"
+              status=1
+            fi
+          done
+          exit $status
+
   run-examples-interpreted:
     name: Run Examples (Interpreter)
     runs-on: ubuntu-latest
@@ -381,17 +442,12 @@ jobs:
           # the issue that tracks each. Entries are removed as the issues are
           # fixed — never added to silence a fresh divergence without filing one
           # first. Keyed per backend, not per example, because a bug is usually
-          # specific to one: تشفير_وضغط agrees under the JIT and differs only
-          # natively, so a per-example entry would wrongly excuse a future JIT
-          # regression.
+          # specific to one, so a per-example entry would wrongly excuse a
+          # regression in a backend that was never broken.
           #
-          #   تشفير_وضغط:native — #185: native طول counts UTF-8 bytes where the
-          #                interpreter counts characters, so Arabic lengths differ.
-          #                Exactly four lines diverge: the two طول lines over the
-          #                Arabic text (448 vs 784) and the نسبة line derived from
-          #                them (17% vs 9%). طول over the compressed bytes agrees,
-          #                and so do the SHA-256 digests and the gzip round-trip.
-          KNOWN_DIVERGENT: "تشفير_وضغط:native"
+          #   (none today — تشفير_وضغط:native was the last entry, removed with
+          #    #185 once native طول counted characters rather than UTF-8 bytes.)
+          KNOWN_DIVERGENT: ""
           # Examples native codegen is *documented* to refuse, so a refusal here
           # is the expected outcome rather than a build break. KNOWN_DIVERGENT
           # cannot cover these: it is only consulted once a binary exists.

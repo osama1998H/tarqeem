@@ -704,6 +704,89 @@ impl Analyzer {
         }
     }
 
+    /// The variable an `X != لا_شيء` / `X == لا_شيء` test proves non-null, and
+    /// which branch it is proven in.
+    ///
+    /// Returns `(name, true)` when the *then* branch is the narrowed one — the
+    /// `!=` spelling — and `(name, false)` for `==`, where the *else* branch is.
+    /// Both operand orders are accepted, since `لا_شيء != س` reads as naturally
+    /// in Arabic as the reverse.
+    fn null_check_target(condition: &Expr) -> Option<(String, bool)> {
+        let ExprKind::Binary { left, op, right } = &condition.kind else {
+            return None;
+        };
+        let narrowed_in_then = match op {
+            BinaryOp::NotEq => true,
+            BinaryOp::Eq => false,
+            _ => return None,
+        };
+
+        let is_null = |e: &Expr| matches!(&e.kind, ExprKind::Literal(Literal::Null));
+        let name_of = |e: &Expr| match &e.kind {
+            ExprKind::Identifier(name) => Some(name.clone()),
+            _ => None,
+        };
+
+        let name = if is_null(right) {
+            name_of(left)
+        } else if is_null(left) {
+            name_of(right)
+        } else {
+            None
+        }?;
+
+        Some((name, narrowed_in_then))
+    }
+
+    /// Whether `block` assigns to `name` anywhere within it.
+    ///
+    /// Narrowing is withdrawn entirely when it does. Tracking the point at which
+    /// an assignment invalidates the proof needs a flow pass this analyzer does
+    /// not have, and narrowing a variable that the branch then sets to `لا_شيء`
+    /// would be unsound — so the conservative answer is to narrow nothing.
+    fn block_assigns_to(block: &Block, name: &str) -> bool {
+        fn expr_assigns(expr: &Expr, name: &str) -> bool {
+            match &expr.kind {
+                ExprKind::Assignment { target, value, .. } => {
+                    matches!(&target.kind, ExprKind::Identifier(n) if n == name)
+                        || expr_assigns(target, name)
+                        || expr_assigns(value, name)
+                }
+                ExprKind::Binary { left, right, .. } => {
+                    expr_assigns(left, name) || expr_assigns(right, name)
+                }
+                ExprKind::Unary { operand, .. } => expr_assigns(operand, name),
+                ExprKind::Call { callee, args } => {
+                    expr_assigns(callee, name) || args.iter().any(|a| expr_assigns(a, name))
+                }
+                _ => false,
+            }
+        }
+
+        fn stmt_assigns(stmt: &Stmt, name: &str) -> bool {
+            match &stmt.kind {
+                StmtKind::Expr(expr) => expr_assigns(expr, name),
+                StmtKind::Block(inner) => inner.statements.iter().any(|s| stmt_assigns(s, name)),
+                StmtKind::If {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    then_branch.statements.iter().any(|s| stmt_assigns(s, name))
+                        || else_branch
+                            .as_ref()
+                            .is_some_and(|b| b.statements.iter().any(|s| stmt_assigns(s, name)))
+                }
+                StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => {
+                    body.statements.iter().any(|s| stmt_assigns(s, name))
+                }
+                _ => true, // Unknown shape: assume it might assign, and do not narrow.
+            }
+        }
+
+        block.statements.iter().any(|s| stmt_assigns(s, name))
+    }
+
     /// Analyze an if statement.
     pub(crate) fn analyze_if(
         &mut self,
@@ -713,11 +796,60 @@ impl Analyzer {
     ) {
         self.check_condition_type(condition);
 
-        self.analyze_block(then_branch, ScopeKind::Block);
+        // After `إذا (س != لا_شيء)` the value is known to be present, so the
+        // branch sees `س` at its unwrapped type and arithmetic on it type-checks
+        // (LANGUAGE_SPEC §13.4). Implemented by shadowing the symbol inside the
+        // branch scope, which unwinds with the scope.
+        let narrowing = Self::null_check_target(condition).and_then(|(name, in_then)| {
+            match self.scope.lookup(&name).map(|s| s.ty.clone()) {
+                Some(Type::Optional(inner)) => Some((name, in_then, *inner)),
+                _ => None,
+            }
+        });
 
-        if let Some(else_block) = else_branch {
-            self.analyze_block(else_block, ScopeKind::Block);
+        match &narrowing {
+            Some((name, true, inner)) if !Self::block_assigns_to(then_branch, name) => {
+                self.analyze_block_narrowing(then_branch, Some((name.clone(), inner.clone())));
+                if let Some(else_block) = else_branch {
+                    self.analyze_block(else_block, ScopeKind::Block);
+                }
+            }
+            Some((name, false, inner))
+                if else_branch.is_some_and(|b| !Self::block_assigns_to(b, name)) =>
+            {
+                self.analyze_block(then_branch, ScopeKind::Block);
+                self.analyze_block_narrowing(
+                    else_branch.expect("checked above"),
+                    Some((name.clone(), inner.clone())),
+                );
+            }
+            _ => {
+                self.analyze_block(then_branch, ScopeKind::Block);
+                if let Some(else_block) = else_branch {
+                    self.analyze_block(else_block, ScopeKind::Block);
+                }
+            }
         }
+    }
+
+    /// Analyze a block with one symbol shadowed at a narrowed type.
+    fn analyze_block_narrowing(&mut self, block: &Block, narrowed: Option<(String, Type)>) {
+        self.push_scope(ScopeKind::Block);
+
+        if let Some((name, ty)) = narrowed {
+            if let Some(original) = self.scope.lookup(&name).cloned() {
+                let mut shadow = original;
+                shadow.ty = ty;
+                shadow.used = true; // The outer binding was read by the null test.
+                self.scope.define(shadow);
+            }
+        }
+
+        for stmt in &block.statements {
+            self.analyze_stmt(stmt);
+        }
+
+        self.pop_scope();
     }
 
     /// Analyze a while loop.

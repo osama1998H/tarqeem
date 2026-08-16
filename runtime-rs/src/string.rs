@@ -545,10 +545,15 @@ pub extern "C" fn trq_int_to_string(value: i64) -> *mut TrqString {
 /// ```c
 /// TrqString* trq_float_to_string(double value);
 /// ```
+/// Renders exactly as `اطبع` does, so `"الراتب: " + 10000.0` and
+/// `اطبع(10000.0)` agree (#185). They disagreed before: this dropped the
+/// fraction while `اطبع` kept it, so the same value read `10000` in one place
+/// and `10000.0` in the other. All backends agreed on the wrong answer, which
+/// is why no cross-backend check could see it.
 #[no_mangle]
 pub extern "C" fn trq_float_to_string(value: f64) -> *mut TrqString {
-    let s = if value.fract() == 0.0 && value.abs() < 1e15 {
-        format!("{}", value as i64)
+    let s = if value.fract() == 0.0 {
+        format!("{:.1}", value)
     } else {
         format!("{}", value)
     };

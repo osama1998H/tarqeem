@@ -50,11 +50,24 @@ pub struct LlvmCodegen {
     /// without codegen knowing the runtime type.
     vtable_slots: HashMap<String, HashMap<String, u32>>,
     current_return_type: IrType,
+    /// Declared parameter types per mangled function name.
+    ///
+    /// A call site otherwise types each argument from the argument itself, which
+    /// is wrong wherever the callee declares an optional: passing `0` to a
+    /// `عدد?` parameter has to box, and only the callee's signature says so.
+    fn_param_types: HashMap<String, Vec<IrType>>,
     global_vars: HashMap<String, String>,
     inherited_field_count: HashMap<String, usize>,
     /// Global string variables that need runtime initialization
     /// (mangled_global_name, string_constant_global, length)
     global_string_inits: Vec<(String, String, usize)>,
+    /// Global optional scalars needing their initial value boxed at program
+    /// start: (mangled_global_name, pointee_type, literal).
+    global_optional_inits: Vec<(String, IrType, String)>,
+    /// Declared type of each global, by source name. `GlobalStore` otherwise
+    /// types the store from the value, which boxes nothing when a scalar is
+    /// assigned to an optional global.
+    global_types: HashMap<String, IrType>,
     /// Whether the module has a synthesized `__global_init__` function
     /// (non-constant global/`مشترك` initializers). Interpreter mode calls it
     /// explicitly; native codegen must call it from `__main__`'s prologue
@@ -78,10 +91,13 @@ impl LlvmCodegen {
             class_defs: HashMap::new(),
             vtable_globals: HashMap::new(),
             vtable_slots: HashMap::new(),
+            fn_param_types: HashMap::new(),
             current_return_type: IrType::Void,
             global_vars: HashMap::new(),
             inherited_field_count: HashMap::new(),
             global_string_inits: Vec::new(),
+            global_optional_inits: Vec::new(),
+            global_types: HashMap::new(),
             has_global_init: false,
         }
     }
@@ -114,6 +130,13 @@ impl LlvmCodegen {
         self.emit_anonymous_class_definition(&anon_fields)?;
 
         self.emit_runtime_declarations()?;
+
+        for func in &module.functions {
+            self.fn_param_types.insert(
+                mangle_function_name(&func.id.0),
+                func.params.iter().map(|p| p.ty.clone()).collect(),
+            );
+        }
 
         for func in &module.functions {
             self.emit_function(func)?;
@@ -151,6 +174,40 @@ impl LlvmCodegen {
                 len
             );
             emit!(self, "  store ptr {}, ptr @{}", str_temp, global_name);
+        }
+        Ok(())
+    }
+
+    /// The literal text of a scalar constant, or `None` if it is not one.
+    fn scalar_literal(init: &Constant) -> Option<String> {
+        match init {
+            Constant::Int(n) => Some(n.to_string()),
+            Constant::Bool(b) => Some(if *b { "1" } else { "0" }.to_string()),
+            Constant::Float(f) => {
+                let s = format!("{:e}", f);
+                Some(if s.contains('.') {
+                    s
+                } else {
+                    s.replace('e', ".0e")
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Box the initial value of each global optional scalar, at program start.
+    fn emit_global_optional_init(&mut self) -> Result<(), CodegenError> {
+        if self.global_optional_inits.is_empty() {
+            return Ok(());
+        }
+
+        emit!(self, "  ; Initialize global optional scalars");
+        for (global_name, ty, literal) in self.global_optional_inits.clone() {
+            let llvm_ty = self.type_mapper.map_type(&ty);
+            let boxed = self.new_temp();
+            emit!(self, "  {} = call ptr @trq_alloc(i64 8)", boxed);
+            emit!(self, "  store {} {}, ptr {}", llvm_ty, literal, boxed);
+            emit!(self, "  store ptr {}, ptr @{}", boxed, global_name);
         }
         Ok(())
     }
@@ -208,6 +265,26 @@ impl LlvmCodegen {
         for (name, ty, init) in &module.globals {
             let llvm_type = self.type_mapper.map_type(ty);
             let global_name = mangle_name(name);
+            self.global_types.insert(name.clone(), ty.clone());
+
+            // A global optional scalar cannot carry its value in the initializer:
+            // the slot is a pointer, so the value has to live in a box, and a box
+            // needs an allocation. Defer it the way string globals already are —
+            // start as null, fill in at program start (#185).
+            if let IrType::Ptr(pointee) = ty {
+                if matches!(**pointee, IrType::Int | IrType::Float | IrType::Bool) {
+                    if let Some(literal) = init.as_ref().and_then(Self::scalar_literal) {
+                        emit!(self, "@{} = global {} null", global_name, llvm_type);
+                        self.global_optional_inits.push((
+                            global_name.clone(),
+                            (**pointee).clone(),
+                            literal,
+                        ));
+                        self.global_vars.insert(name.clone(), global_name);
+                        continue;
+                    }
+                }
+            }
 
             let init_val = match init {
                 Some(Constant::Int(n)) => n.to_string(),
@@ -651,6 +728,7 @@ impl LlvmCodegen {
         emit!(self, "declare void @trq_print(ptr)");
         emit!(self, "declare void @trq_print_int(i64)");
         emit!(self, "declare void @trq_print_float(double)");
+        emit!(self, "declare void @trq_print_optional_scalar(ptr, i64)");
         emit!(self, "declare void @trq_print_bool(i1 zeroext)");
         emit!(self, "declare void @trq_print_array(ptr)");
         emit!(self, "declare void @trq_print_newline()");
@@ -901,7 +979,9 @@ impl LlvmCodegen {
         // Flag to track if we need to emit global string init and/or the
         // __global_init__ call
         let needs_global_init = func_name == "__main__"
-            && (!self.global_string_inits.is_empty() || self.has_global_init);
+            && (!self.global_string_inits.is_empty()
+                || !self.global_optional_inits.is_empty()
+                || self.has_global_init);
 
         for (i, block) in func.blocks.iter().enumerate() {
             // For __main__, emit global string initialization at the start of the first block
@@ -909,6 +989,7 @@ impl LlvmCodegen {
                 let label = self.get_block(block.id)?;
                 emit!(self, "{}:", label);
                 self.emit_global_string_init()?;
+                self.emit_global_optional_init()?;
                 // String globals must be initialized first: __global_init__
                 // may store string values into globals it depends on.
                 if self.has_global_init {
@@ -1095,6 +1176,25 @@ impl LlvmCodegen {
                         })
                     })
                     .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+
+                // An optional `T?` lowers to `Ptr(T)`, so a slot holding one is
+                // `Ptr(Ptr(T))`. Storing a bare scalar into it wrote the raw i64
+                // where a pointer belongs — valid LLVM under opaque pointers, so
+                // nothing rejected it, and `عدد? = 0` then compared equal to
+                // `لا_شيء` because both bit patterns are zero (#185). Box the
+                // scalar so the null test is a genuine pointer test.
+                let slot_ty = match self.var_types.get(&ptr.0) {
+                    Some(IrType::Ptr(inner)) => Some((**inner).clone()),
+                    _ => None,
+                };
+                if let Some(slot_ty) = slot_ty {
+                    if Self::needs_boxing(&val_type, &slot_ty) {
+                        let boxed = self.emit_boxed_scalar(&value_name, &val_type);
+                        emit!(self, "  store ptr {}, ptr {}", boxed, ptr_name);
+                        return Ok(());
+                    }
+                }
+
                 let llvm_ty = self.type_mapper.map_type(&val_type);
                 emit!(self, "  store {} {}, ptr {}", llvm_ty, value_name, ptr_name);
             }
@@ -1143,8 +1243,14 @@ impl LlvmCodegen {
 
             Instruction::Return { value } => {
                 if let Some(val) = value {
-                    let val_name = self.get_var(*val)?;
-                    let ret_ty = self.type_mapper.map_type(&self.current_return_type);
+                    let mut val_name = self.get_var(*val)?;
+                    let declared = self.current_return_type.clone();
+                    if let Some(val_ty) = self.var_types.get(&val.0).cloned() {
+                        if Self::needs_boxing(&val_ty, &declared) {
+                            val_name = self.emit_boxed_scalar(&val_name, &val_ty);
+                        }
+                    }
+                    let ret_ty = self.type_mapper.map_type(&declared);
                     emit!(self, "  ret {} {}", ret_ty, val_name);
                 } else {
                     emit!(self, "  ret void");
@@ -1159,19 +1265,44 @@ impl LlvmCodegen {
             } => {
                 let func_name = mangle_function_name(&func.0);
 
-                let args_str: Vec<String> = args
-                    .iter()
-                    .map(|a| {
-                        let name = self.get_var(*a).unwrap_or("undef".to_string());
-                        let arg_ty = self
-                            .var_types
-                            .get(&a.0)
-                            .cloned()
-                            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
-                        let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
-                        format!("{} {}", llvm_ty, name)
-                    })
-                    .collect();
+                // The callee's declared parameter types, where known: an argument
+                // otherwise describes itself, which is wrong for a `عدد?`
+                // parameter given a bare `0` — that has to be boxed first (#185).
+                let declared_params = self.fn_param_types.get(&func_name).cloned();
+                // Runtime conversions take the scalar itself, so a boxed optional
+                // reaching one — as `"…" + مخزون` does inside a narrowed branch —
+                // has to be loaded first, or the pointer is printed as the value.
+                let runtime_scalar_param = match func_name.as_str() {
+                    "trq_int_to_string" => Some(IrType::Int),
+                    "trq_float_to_string" => Some(IrType::Float),
+                    "trq_bool_to_string" => Some(IrType::Bool),
+                    _ => None,
+                };
+
+                let mut args_str: Vec<String> = Vec::with_capacity(args.len());
+                for (i, a) in args.iter().enumerate() {
+                    let mut name = self.get_var(*a).unwrap_or("undef".to_string());
+                    let mut arg_ty = self
+                        .var_types
+                        .get(&a.0)
+                        .cloned()
+                        .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+
+                    if let Some(declared) = declared_params.as_ref().and_then(|p| p.get(i)) {
+                        if Self::needs_boxing(&arg_ty, declared) {
+                            name = self.emit_boxed_scalar(&name, &arg_ty);
+                            arg_ty = declared.clone();
+                        }
+                    } else if let Some(scalar) = runtime_scalar_param.as_ref().filter(|_| i == 0) {
+                        if matches!(&arg_ty, IrType::Ptr(inner) if **inner == *scalar) {
+                            name = self.emit_unboxed_scalar(&name, scalar);
+                            arg_ty = scalar.clone();
+                        }
+                    }
+
+                    let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
+                    args_str.push(format!("{} {}", llvm_ty, name));
+                }
                 let ret_type = self.type_mapper.map_type(ret_ty);
 
                 let is_void = matches!(ret_ty, IrType::Void);
@@ -1371,7 +1502,20 @@ impl LlvmCodegen {
                     ptr_name, struct_ty, obj_name, actual_index
                 )
                 .unwrap();
-                let val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+                let mut val_name = val_name;
+                let mut val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+
+                // A field declared `عدد?` holds a boxed scalar like any other
+                // optional, so assigning a bare scalar to it boxes here too —
+                // otherwise `هذا.رصيد = 0` stores a raw 0 and the field then
+                // compares equal to `لا_شيء` (#185).
+                if let Some(declared) = self.declared_field_type(&field.class.0, &field.name) {
+                    if Self::needs_boxing(&val_type, &declared) {
+                        val_name = self.emit_boxed_scalar(&val_name, &val_type);
+                        val_type = declared;
+                    }
+                }
+
                 let llvm_ty = self.type_mapper.map_type(&val_type);
                 writeln!(
                     self.output,
@@ -1424,10 +1568,30 @@ impl LlvmCodegen {
                     ),
                 };
 
+                // Declared parameter 0 is the receiver, which is not in `args`, so
+                // the argument at `i` is declared at `i + 1`. Without this, a
+                // method taking `س: عدد?` called as `م.افحص(0)` receives a raw
+                // scalar in a pointer slot (#185).
+                let declared_params = self
+                    .fn_param_types
+                    .get(&mangle_function_name(&format!(
+                        "{}::{}",
+                        method.class.0, method.name
+                    )))
+                    .cloned();
+
                 let mut all_args = vec![format!("ptr {}", obj_name)];
-                for arg in args {
-                    let arg_name = self.get_var(*arg)?;
-                    let arg_ty = self.var_types.get(&arg.0).cloned().unwrap_or(IrType::Int);
+                for (i, arg) in args.iter().enumerate() {
+                    let mut arg_name = self.get_var(*arg)?;
+                    let mut arg_ty = self.var_types.get(&arg.0).cloned().unwrap_or(IrType::Int);
+
+                    if let Some(declared) = declared_params.as_ref().and_then(|p| p.get(i + 1)) {
+                        if Self::needs_boxing(&arg_ty, declared) {
+                            arg_name = self.emit_boxed_scalar(&arg_name, &arg_ty);
+                            arg_ty = declared.clone();
+                        }
+                    }
+
                     let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
                     all_args.push(format!("{} {}", llvm_ty, arg_name));
                 }
@@ -1586,10 +1750,24 @@ impl LlvmCodegen {
             Instruction::ArrayLen { dest, array } => {
                 let dest_name = self.get_or_create_var(*dest);
                 let array_name = self.get_var(*array)?;
+                // `ArrayLen` is polymorphic: every interpreting backend branches on
+                // the runtime value and counts characters for a string. Codegen has
+                // no runtime tag, so it must dispatch on the operand's IR type here
+                // — and getting it wrong is silent, not loud, because `TrqString`
+                // and `TrqArray` are both `#[repr(C)]` with `len` first, so reading
+                // one as the other returns the *byte* count instead of trapping
+                // (#185). An unknown operand type keeps the array symbol: that is
+                // today's behaviour, and the catch-all arm is where type-directed
+                // fixes break (#222).
+                let symbol = if Self::is_string_operand(self.var_types.get(&array.0)) {
+                    "trq_string_len_chars"
+                } else {
+                    "trq_array_len"
+                };
                 writeln!(
                     self.output,
-                    "  {} = call i64 @trq_array_len(ptr {})",
-                    dest_name, array_name
+                    "  {} = call i64 @{}(ptr {})",
+                    dest_name, symbol, array_name
                 )
                 .unwrap();
                 // ArrayLen returns i64 (Int type)
@@ -1605,8 +1783,25 @@ impl LlvmCodegen {
                 let dest_name = self.get_or_create_var(*dest);
                 let array_name = self.get_var(*array)?;
                 let index_name = self.get_var(*index)?;
-                let llvm_ty = self.type_mapper.map_type(elem_ty);
 
+                // Indexing a string yields a one-character string, exactly as the
+                // interpreter's `Value::String` arm does. Routing it through
+                // `trq_array_get` instead read the string's byte pointer as an
+                // element table and aborted with "الوصول إلى مصفوفة فارغة" — the
+                // element-access half of the same polymorphism gap as `ArrayLen`
+                // (#185). `لكل ح في نص` is the common way to reach it.
+                if Self::is_string_operand(self.var_types.get(&array.0)) {
+                    writeln!(
+                        self.output,
+                        "  {} = call ptr @trq_string_char_at(ptr {}, i64 {})",
+                        dest_name, array_name, index_name
+                    )
+                    .unwrap();
+                    self.var_types.insert(dest.0, IrType::String);
+                    return Ok(());
+                }
+
+                let llvm_ty = self.type_mapper.map_type(elem_ty);
                 let elem_ptr = self.fresh_name("elem.ptr");
                 writeln!(
                     self.output,
@@ -1746,6 +1941,25 @@ impl LlvmCodegen {
                 let val_name = self.get_var(*value)?;
                 let var_type = self.var_types.get(&value.0).cloned();
                 match &var_type {
+                    // A boxed scalar optional is `Ptr(Int|Float|Bool)`. Handing it
+                    // to `trq_print`, which expects a `TrqString*`, segfaulted
+                    // (#185). Print `لا_شيء` for a null one and the pointee
+                    // otherwise, matching the interpreter.
+                    Some(IrType::Ptr(pointee))
+                        if matches!(**pointee, IrType::Int | IrType::Float | IrType::Bool) =>
+                    {
+                        let kind = match **pointee {
+                            IrType::Float => 1,
+                            IrType::Bool => 2,
+                            _ => 0,
+                        };
+                        emit!(
+                            self,
+                            "  call void @trq_print_optional_scalar(ptr {}, i64 {})",
+                            val_name,
+                            kind
+                        );
+                    }
                     Some(IrType::String) | Some(IrType::Ptr(_)) => {
                         emit!(self, "  call void @trq_print(ptr {})", val_name);
                     }
@@ -1788,8 +2002,18 @@ impl LlvmCodegen {
             }
 
             Instruction::GlobalStore { name, value } => {
-                let value_name = self.get_var(*value)?;
-                let value_ty = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+                let mut value_name = self.get_var(*value)?;
+                let mut value_ty = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+
+                // Assigning a scalar to an optional global boxes, exactly as it
+                // does for a local (#185).
+                if let Some(declared) = self.global_types.get(name).cloned() {
+                    if Self::needs_boxing(&value_ty, &declared) {
+                        value_name = self.emit_boxed_scalar(&value_name, &value_ty);
+                        value_ty = declared;
+                    }
+                }
+
                 let llvm_type = self.type_mapper.map_type(&value_ty);
                 let global_name = mangle_name(name);
                 writeln!(
@@ -2025,8 +2249,35 @@ impl LlvmCodegen {
         ty: &IrType,
     ) -> Result<(), CodegenError> {
         let dest_name = self.get_or_create_var(dest);
-        let left_name = self.get_var(left)?;
-        let right_name = self.get_var(right)?;
+        let mut left_name = self.get_var(left)?;
+        let mut right_name = self.get_var(right)?;
+
+        // Once the analyzer narrows `س` after `إذا (س != لا_شيء)`, the branch may
+        // use it as a plain scalar — but it is still a boxed pointer here, so the
+        // value has to be loaded back out (#185). Unbox only against a bare
+        // scalar operand: a comparison with `لا_شيء` has `Ptr(Void)` on the other
+        // side and must stay a pointer test.
+        let left_ty_raw = self.var_types.get(&left.0).cloned();
+        let right_ty_raw = self.var_types.get(&right.0).cloned();
+        let unboxes_against = |boxed: &Option<IrType>, other: &Option<IrType>| -> Option<IrType> {
+            match (boxed, other) {
+                (Some(IrType::Ptr(pointee)), Some(other_ty))
+                    if **pointee == *other_ty
+                        && matches!(**pointee, IrType::Int | IrType::Float | IrType::Bool) =>
+                {
+                    Some((**pointee).clone())
+                }
+                _ => None,
+            }
+        };
+
+        if let Some(scalar) = unboxes_against(&left_ty_raw, &right_ty_raw) {
+            left_name = self.emit_unboxed_scalar(&left_name, &scalar);
+            self.var_types.insert(left.0, scalar);
+        } else if let Some(scalar) = unboxes_against(&right_ty_raw, &left_ty_raw) {
+            right_name = self.emit_unboxed_scalar(&right_name, &scalar);
+            self.var_types.insert(right.0, scalar);
+        }
 
         // Check operand type from var_types - more reliable than ty parameter
         // This handles cases where the IR builder passes incorrect type info
@@ -2065,8 +2316,51 @@ impl LlvmCodegen {
         );
 
         if is_comparison {
-            // Get the operand type from var_types
-            if let Some(operand_ty) = self.var_types.get(&left.0) {
+            // `Binary.ty` is the *result* type, always Bool for a comparison, so
+            // the opcode table below cannot be trusted to describe the operands —
+            // integer comparison only works there because that arm happens to
+            // spell `i64`. Everything non-scalar has to be resolved here instead,
+            // from the operand types codegen already tracks (#185).
+            //
+            // Two shapes need care. `لا_شيء` is emitted as `Ptr(Void)` and an
+            // optional `T?` as `Ptr(T)`, so anything involving the null literal is
+            // a pointer-identity test — but two optional *strings* compared with
+            // each other must keep the value semantics the interpreter has, and so
+            // route to the string path rather than to `icmp ptr`.
+            let left_ty = self.var_types.get(&left.0).cloned();
+            let right_ty = self.var_types.get(&right.0).cloned();
+
+            let is_null_literal = |t: &Option<IrType>| matches!(t, Some(IrType::Ptr(inner)) if matches!(**inner, IrType::Void));
+            let both_optional_strings = matches!(
+                (&left_ty, &right_ty),
+                (Some(IrType::Ptr(a)), Some(IrType::Ptr(b)))
+                    if matches!(**a, IrType::String) && matches!(**b, IrType::String)
+            );
+            let is_reference = |t: &Option<IrType>| {
+                matches!(
+                    t,
+                    Some(
+                        IrType::Ptr(_)
+                            | IrType::Struct(_)
+                            | IrType::Enum(_)
+                            | IrType::Function { .. }
+                    )
+                )
+            };
+
+            let operand_ty = if matches!(left_ty, Some(IrType::String)) || both_optional_strings {
+                Some(IrType::String)
+            } else if is_null_literal(&left_ty)
+                || is_null_literal(&right_ty)
+                || is_reference(&left_ty)
+                || is_reference(&right_ty)
+            {
+                Some(IrType::Ptr(Box::new(IrType::Void)))
+            } else {
+                left_ty
+            };
+
+            if let Some(operand_ty) = operand_ty.as_ref() {
                 match operand_ty {
                     IrType::String => {
                         // String comparison using runtime functions
@@ -2127,6 +2421,55 @@ impl LlvmCodegen {
                             BinaryOp::Le => "fcmp ole double",
                             BinaryOp::Gt => "fcmp ogt double",
                             BinaryOp::Ge => "fcmp oge double",
+                            _ => unreachable!(),
+                        };
+                        writeln!(
+                            self.output,
+                            "  {} = {} {}, {}",
+                            dest_name, cmp_op, left_name, right_name
+                        )
+                        .unwrap();
+                        return Ok(());
+                    }
+                    // Pointer identity, which is what the interpreter gives for a
+                    // class instance too. Enum values do not reach this arm — the
+                    // IR types them as strings, so a direct `==` between them
+                    // reads a discriminant as a `TrqString` header, before this
+                    // change and after it.
+                    IrType::Ptr(_)
+                    | IrType::Struct(_)
+                    | IrType::Enum(_)
+                    | IrType::Function { .. } => {
+                        let cmp_op = match op {
+                            BinaryOp::Eq => "icmp eq ptr",
+                            BinaryOp::Ne => "icmp ne ptr",
+                            // Ordering two references is not meaningful; the
+                            // analyzer rejects it, so reaching here is a bug in
+                            // an earlier layer rather than user input.
+                            _ => {
+                                return Err(CodegenError::new(format!(
+                                    "لا يمكن ترتيب مرجعين بالعامل {op:?} / cannot order two references with {op:?}"
+                                )))
+                            }
+                        };
+                        writeln!(
+                            self.output,
+                            "  {} = {} {}, {}",
+                            dest_name, cmp_op, left_name, right_name
+                        )
+                        .unwrap();
+                        return Ok(());
+                    }
+                    IrType::Bool => {
+                        // Booleans are `i1`; the fallback table would compare them
+                        // as `i64` and LLVM rejects the module outright.
+                        let cmp_op = match op {
+                            BinaryOp::Eq => "icmp eq i1",
+                            BinaryOp::Ne => "icmp ne i1",
+                            BinaryOp::Lt => "icmp ult i1",
+                            BinaryOp::Le => "icmp ule i1",
+                            BinaryOp::Gt => "icmp ugt i1",
+                            BinaryOp::Ge => "icmp uge i1",
                             _ => unreachable!(),
                         };
                         writeln!(
@@ -2346,6 +2689,80 @@ impl LlvmCodegen {
     fn fresh_name(&mut self, prefix: &str) -> String {
         self.name_counter += 1;
         format!("%{}.{}", prefix, self.name_counter)
+    }
+
+    /// True when a value of type `from` needs boxing to satisfy a slot, parameter
+    /// or return position declared `to`.
+    ///
+    /// An optional `T?` lowers to `Ptr(T)`, so a scalar reaching one has to be
+    /// put behind a pointer — otherwise the raw bit pattern stands in for the
+    /// pointer and `عدد? = 0` is indistinguishable from `لا_شيء` (#185).
+    fn needs_boxing(from: &IrType, to: &IrType) -> bool {
+        matches!(from, IrType::Int | IrType::Float | IrType::Bool)
+            && matches!(to, IrType::Ptr(pointee) if **pointee == *from)
+    }
+
+    /// Whether an operand is a string at run time.
+    ///
+    /// `نص` is `String` and `نص?` is `Ptr(String)`, but both are a `TrqString*`
+    /// once compiled — so a narrowed optional string must take the string path
+    /// too, or `طول` counts its bytes again (#185).
+    fn is_string_operand(ty: Option<&IrType>) -> bool {
+        matches!(ty, Some(IrType::String))
+            || matches!(ty, Some(IrType::Ptr(inner)) if matches!(**inner, IrType::String))
+    }
+
+    /// The declared type of `field` on `class`.
+    ///
+    /// `class_defs` holds each class's *own* fields, so an inherited field is not
+    /// under the receiver's name. The fallback searches every class, but only
+    /// accepts an unambiguous match — guessing between two same-named fields on
+    /// unrelated classes would be worse than declining to box.
+    fn declared_field_type(&self, class: &str, field: &str) -> Option<IrType> {
+        let own = |c: &str| {
+            self.class_defs.get(c).and_then(|fields| {
+                fields
+                    .iter()
+                    .find(|(name, _)| name == field)
+                    .map(|(_, ty)| ty.clone())
+            })
+        };
+
+        own(class).or_else(|| {
+            let mut found = self.class_defs.values().filter_map(|fields| {
+                fields
+                    .iter()
+                    .find(|(name, _)| name == field)
+                    .map(|(_, ty)| ty.clone())
+            });
+            let only = found.next()?;
+            found.next().is_none().then_some(only)
+        })
+    }
+
+    /// Load a boxed scalar back out of its cell.
+    fn emit_unboxed_scalar(&mut self, value_name: &str, ty: &IrType) -> String {
+        let llvm_ty = self.type_mapper.map_type(ty);
+        let loaded = self.fresh_name("opt.unbox");
+        let _ = writeln!(
+            self.output,
+            "  {} = load {}, ptr {}",
+            loaded, llvm_ty, value_name
+        );
+        loaded
+    }
+
+    /// Allocate an 8-byte cell, store `value_name` in it, and yield the cell.
+    fn emit_boxed_scalar(&mut self, value_name: &str, ty: &IrType) -> String {
+        let llvm_ty = self.type_mapper.map_type(ty);
+        let boxed = self.fresh_name("opt.box");
+        let _ = writeln!(self.output, "  {} = call ptr @trq_alloc(i64 8)", boxed);
+        let _ = writeln!(
+            self.output,
+            "  store {} {}, ptr {}",
+            llvm_ty, value_name, boxed
+        );
+        boxed
     }
 }
 
