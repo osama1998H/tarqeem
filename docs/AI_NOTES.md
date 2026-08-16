@@ -2,6 +2,68 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-17 — One runtime search, ordered so a dev build wins (#285)
+
+### The bug was the install instructions, not just the duplication
+
+Two `find_runtime`s had diverged, and `compile` called the weaker. But the reason
+that mattered on *every* developer machine is that `install.sh` and the `Makefile`
+both tell the user to export `TARQEEM_HOME` — and the CLI copy ranked it first.
+So the documented way to install Tarqeem was also the way to permanently stop
+linking your own `cargo build` output. Confirmed locally: the selected archive was
+ten days older than the built one and lacked `trq_string_to_int_checked`.
+
+### Resolving against the executable is what makes one order serve both cases
+
+The fix is not "demote `TARQEEM_HOME`" — for an installed user it is the right
+answer. It is that **neither copy ever probed `<exe_dir>/libtrq.a`**, though
+`target/release/libtrq.a` sits directly beside `target/release/tarqeem`. Ranking
+exe-relative paths high resolves dev and installed layouts with no environment
+variable at all: the dev binary finds its sibling, `~/.tarqeem/bin/tarqeem` finds
+`../lib`. `TARQEEM_RUNTIME_PATH` stays above everything as the explicit override.
+
+The merge is a union — no location either copy searched was dropped, since CI's
+compiled-examples job depends on the CWD `runtime/` entry and someone may rely on
+beside-the-executable.
+
+### Three defects found underneath the reported one
+
+- **`build.rs`'s `TARQEEM_RUNTIME_PATH` never arrived.** It is emitted as
+  `cargo:rustc-env`, which feeds `option_env!`; the linker read it with runtime
+  `std::env::var`. That priority had never once fired outside CI. Now read via
+  `option_env!` as intended.
+- **The target-dir probe tried `release` before `debug` unconditionally**, so a
+  debug compiler linked the release runtime whenever both existed. Now keyed to
+  `cfg!(debug_assertions)`, matching the suites' own `test_profile()`.
+- **`compile_to_wasm` fell back to the *native* finder**, so a missing
+  `libtrq_wasm.a` made it link an aarch64 archive into a wasm build. Nothing in
+  the workspace builds `libtrq_wasm.a` at all, which is why ت٠١٠٢ is scoped to
+  the native path — hard-erroring on wasm would break every `--emit-wasm`.
+
+### Purity is what made the precedence testable
+
+`find_runtime` read process-global env and the filesystem in one pass, which is
+why its two tests mutated `TARQEEM_RUNTIME_PATH` and were flaky under the full
+suite (recorded below, now resolved), and why one of them asserted nothing at
+all. Splitting `runtime_candidates(&RuntimeEnv, &RuntimeLayout) -> Vec<PathBuf>`
+out as a pure function turns "a dev build outranks every installed location" into
+a plain assertion over a vector — no `set_var`, no temp dirs, parallel-safe. The
+same vector is what ت٠١٠٢ lists, so message and behaviour cannot drift apart.
+
+### The tests were passing against the wrong runtime
+
+`module`/`exception`/`property`/`inheritance` build the archive into
+`target/<profile>/` and assume the compiler looks there. It did — but only via
+the linker fallback, which is reached only when the CLI search returns `None`. On
+any machine with `~/.tarqeem/lib`, the CLI found that first, so those four native
+legs were locally linking a stale runtime while still going green. CI never saw
+it because runners have no `~/.tarqeem`. That is the silent-wrong-output failure
+mode this repo keeps hitting, hiding inside the test suite meant to catch it.
+
+`builtins_execution_tests` was the one suite that had noticed, and worked around
+it by staging a copy into a `TARQEEM_HOME`-shaped directory. That staging is now
+deleted; the build-on-demand half stays.
+
 ## 2026-08-15 — Native virtual dispatch, via the prefix invariant (#280)
 
 ### Why a real vtable, not the guard the issue proposed
@@ -1248,6 +1310,10 @@ suite: it and `test_find_runtime_nonexistent_env_path` both mutate the
 process-global `TARQEEM_RUNTIME_PATH` concurrently. Passes in isolation and in 5
 consecutive `cargo test --lib` runs. Pre-existing, unrelated, unfiled.
 
+> **Resolved 2026-08-17 (#285).** Both tests are gone. Discovery now splits into
+> a pure `runtime_candidates` over a gathered `RuntimeEnv`, so precedence is
+> asserted without touching process env at all.
+
 ## 2026-08-10 — Issue #182 step 5: imported module bodies now execute (AST merge)
 
 `check` already passed after steps 1–4, but `tarqeem run` still died with
@@ -2271,6 +2337,12 @@ Two traps for the next person touching this:
   stale `~/.tarqeem/lib/libtrq.a`. A new runtime symbol then reads as
   `Undefined symbols: _trq_…` no matter how often you rebuild. Tests must stage
   the archive where the CLI looks; `builtins_execution_tests.rs` does.
+
+  > **Resolved 2026-08-17 (#285).** There is now one `find_runtime`, in
+  > `codegen::linker`, and it prefers the archive beside the compiler over any
+  > installed copy. The staging this recommended has been deleted from
+  > `builtins_execution_tests.rs`; building the runtime is enough.
+  > `tarqeem compile -v` names the archive chosen.
 - **`nm -g` reads the release archive as empty** — `lto = true` leaves bitcode
   members. Check symbols against a debug build of the runtime.
 
@@ -2686,6 +2758,10 @@ Four unrelated examples failed the local three-backend diff until `TARQEEM_HOME`
 freshly built `libtrq.a`. `find_runtime` never searches `target/<profile>/` (#285), so a
 local `compile` links `~/.tarqeem/lib/libtrq.a` — blocker B14. An `ld` undefined-symbol error
 means a stale archive; a clang IR-parse error would mean a real bug.
+
+> **No longer applies as of #285.** The archive beside the compiler now outranks
+> `TARQEEM_HOME`, so a local `compile` picks up `target/<profile>/libtrq.a`
+> without the workaround. `-v` prints the archive actually chosen.
 
 ---
 

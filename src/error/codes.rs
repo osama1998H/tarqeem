@@ -363,6 +363,14 @@ pub const ERR_LLVM_INTERNAL: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 
 /// ت٠١٠١: فشل الربط
 pub const ERR_LINKING_FAILED: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 101);
 
+/// ت٠١٠٢: مكتبة وقت التشغيل غير موجودة
+/// Every native executable links `libtrq.a`, and a missing one used to be
+/// ignored: the archive was simply left off the clang invocation, so the build
+/// failed one step later with an undefined-symbol dump naming internal `trq_`
+/// symbols. Refusing up front lets the message name the searched paths and the
+/// `cargo build -p tarqeem-runtime` that fixes it (see issue #285).
+pub const ERR_RUNTIME_NOT_FOUND: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 102);
+
 /// ت٠٢٠١: تعارض وضع نقطة الدخول (وضع السكربت ووضع البرنامج معاً)
 /// Entry point mode conflict: Cannot have both top-level executable code (Script mode)
 /// and دالة رئيسية() (Program mode) in the same file.
@@ -444,6 +452,8 @@ mod tests {
         assert_eq!(ERR_CLASS_NOT_FOUND.to_string(), "ص٠٠٠١");
         assert_eq!(ERR_MODULE_NOT_FOUND.to_string(), "و٠٠٠١");
         assert_eq!(ERR_LLVM_INTERNAL.to_string(), "ت٠٠٠١");
+        assert_eq!(ERR_LINKING_FAILED.to_string(), "ت٠١٠١");
+        assert_eq!(ERR_RUNTIME_NOT_FOUND.to_string(), "ت٠١٠٢");
         assert_eq!(ERR_ENTRY_POINT_CONFLICT.to_string(), "ت٠٢٠١");
         assert_eq!(ERR_NO_ENTRY_POINT.to_string(), "ت٠٢٠٢");
     }

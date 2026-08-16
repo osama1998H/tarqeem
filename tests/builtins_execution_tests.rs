@@ -26,30 +26,26 @@ fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// A directory laid out as `<home>/lib/libtrq.a`, to be handed to the compiler
-/// as `TARQEEM_HOME`.
+/// Guarantees `libtrq.a` exists before the first native case links against it.
 ///
-/// The CLI's `find_runtime` (`src/cli/commands/mod.rs`) searches `TARQEEM_HOME`,
-/// then paths beside the executable, then `runtime/` under the CWD, then
-/// `~/.tarqeem/lib`. It never looks in `target/<profile>/`, which is exactly
-/// where `cargo build -p tarqeem-runtime` puts the archive — so a test that
-/// merely builds the runtime still links against whatever stale copy happens to
-/// sit in `~/.tarqeem/lib`, and would keep passing against a runtime months out
-/// of date. Staging a copy where the compiler actually looks is what makes the
-/// native leg test *this* checkout.
-fn runtime_home() -> &'static Path {
-    static HOME: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+/// This used to stage a copy into a `TARQEEM_HOME`-shaped directory, because the
+/// CLI ranked `TARQEEM_HOME` above everything and never looked in
+/// `target/<profile>/` — so merely building the runtime left the native leg
+/// linking whatever stale archive sat in `~/.tarqeem/lib`. Since #285 the
+/// compiler prefers the archive beside its own executable, which under
+/// `cargo test` is the one built here, so building is now enough.
+fn ensure_runtime_library() {
+    static RUNTIME: OnceLock<Result<(), String>> = OnceLock::new();
 
-    match HOME.get_or_init(stage_runtime_library) {
-        Ok(path) => path.as_path(),
-        Err(message) => panic!("{message}"),
+    if let Err(message) = RUNTIME.get_or_init(build_runtime_library) {
+        panic!("{message}");
     }
 }
 
 /// `cargo test` of this package never builds the separate `tarqeem-runtime`
 /// crate — the workspace root is itself a package, so the default member set is
-/// just `tarqeem`. Build it on demand, at most once, then stage it.
-fn stage_runtime_library() -> Result<PathBuf, String> {
+/// just `tarqeem`. Build it on demand, at most once.
+fn build_runtime_library() -> Result<(), String> {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let mut args = vec!["build", "-p", "tarqeem-runtime"];
     if !cfg!(debug_assertions) {
@@ -78,6 +74,9 @@ fn stage_runtime_library() -> Result<PathBuf, String> {
         .join("target")
         .join(profile)
         .join(RUNTIME_LIB);
+    // A build that succeeds without producing the artifact means it went
+    // somewhere the compiler will not look — `CARGO_TARGET_DIR` being the usual
+    // cause. Linking would fail next, with a far less obvious message.
     if !built.exists() {
         return Err(format!(
             "مكتبة وقت التشغيل غير موجودة بعد البناء: {}",
@@ -85,13 +84,7 @@ fn stage_runtime_library() -> Result<PathBuf, String> {
         ));
     }
 
-    let home = project_root().join("target").join("بيت_اختبار_الدوال");
-    let lib_dir = home.join("lib");
-    fs::create_dir_all(&lib_dir).map_err(|e| format!("تعذّر إنشاء {}: {e}", lib_dir.display()))?;
-    fs::copy(&built, lib_dir.join(RUNTIME_LIB))
-        .map_err(|e| format!("تعذّر نسخ مكتبة وقت التشغيل: {e}"))?;
-
-    Ok(home)
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -145,16 +138,14 @@ fn write_program(dir: &Path, name: &str, body: &str) -> PathBuf {
     path
 }
 
-/// `home` is `None` for the two interpreted backends, which need no runtime and
-/// must not see a stale `TARQEEM_HOME` shadowing this checkout's `stdlib`.
-fn tarqeem(args: &[&str], cwd: &Path, home: Option<&Path>) -> Output {
+fn tarqeem(args: &[&str], cwd: &Path) -> Output {
     let mut command = Command::new(TARQEEM);
     command.args(args).current_dir(cwd);
 
-    match home {
-        Some(path) => command.env("TARQEEM_HOME", path),
-        None => command.env_remove("TARQEEM_HOME"),
-    };
+    // A stale `TARQEEM_HOME` silently shadows this checkout's `stdlib`, so it is
+    // scrubbed on every backend. The runtime archive no longer needs it either:
+    // the compiler finds the one built beside its own executable.
+    command.env_remove("TARQEEM_HOME");
 
     let output = command
         .output()
@@ -173,14 +164,14 @@ fn execute(backend: Backend, main: &Path, tag: &str) -> Output {
     let arg = main.to_str().expect("مسار غير صالح");
 
     match backend {
-        Backend::Interpreter => tarqeem(&["run", arg], cwd, None),
-        Backend::Jit => tarqeem(&["run", "--jit", arg], cwd, None),
+        Backend::Interpreter => tarqeem(&["run", arg], cwd),
+        Backend::Jit => tarqeem(&["run", "--jit", arg], cwd),
         Backend::Native => {
             // The only backend that links, so the only one needing libtrq.a.
-            let home = runtime_home();
+            ensure_runtime_library();
             let exe = cwd.join(format!("مخرج_{tag}"));
             let exe_arg = exe.to_str().expect("مسار غير صالح").to_string();
-            let mut compiled = tarqeem(&["compile", arg, "-o", &exe_arg], cwd, Some(home));
+            let mut compiled = tarqeem(&["compile", arg, "-o", &exe_arg], cwd);
             if !compiled.succeeded() {
                 compiled.compile_failed = true;
                 return compiled;

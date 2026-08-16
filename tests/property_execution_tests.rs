@@ -73,12 +73,12 @@ fn test_profile() -> &'static str {
     }
 }
 
-/// Deliberately the test binary's own profile only, unlike
-/// `module_execution_tests.rs`, which accepts `target/release/libtrq.a` even
-/// under a debug `cargo test`. A months-old release archive satisfying that
-/// check would link the native leg against a runtime that does not correspond
-/// to this checkout — hiding a runtime regression, or failing the link with an
-/// `undefined reference` that reads like a compiler bug.
+/// Deliberately the test binary's own profile only. A months-old release
+/// archive satisfying a laxer check would link the native leg against a runtime
+/// that does not correspond to this checkout — hiding a runtime regression, or
+/// failing the link with an `undefined reference` that reads like a compiler
+/// bug. Every execution suite pins this way since #285; `module` and
+/// `exception` were the last two to accept either profile.
 fn runtime_archive() -> PathBuf {
     project_root()
         .join("target")
