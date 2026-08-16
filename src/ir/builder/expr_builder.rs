@@ -636,10 +636,12 @@ impl IrBuilder {
                 let Some(&right) = args.get(1) else {
                     return Ok(None);
                 };
-                let op = if name == "بتات_و" {
-                    BinaryOp::BitAnd
-                } else {
-                    BinaryOp::BitOr
+                // Exhaustive by name: a sibling added to the pattern above but
+                // not here falls through uncalled instead of silently emitting OR.
+                let op = match name {
+                    "بتات_و" => BinaryOp::BitAnd,
+                    "بتات_أو" => BinaryOp::BitOr,
+                    _ => return Ok(None),
                 };
                 let dest = self.new_var();
                 self.emit(Instruction::Binary {
