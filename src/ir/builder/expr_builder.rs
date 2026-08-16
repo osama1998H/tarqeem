@@ -905,16 +905,12 @@ impl IrBuilder {
         // codegen, because they take `أي` and so need the argument's type (or,
         // for `تأكد`, an argument codegen cannot synthesise).
         //
-        // The interception is unconditional, matching the interpreter, which
-        // consults `is_builtin` before user functions (`executor/mod.rs`). A
-        // guard that let a same-named user function win here would make native
-        // call it while the interpreter still ran the builtin — a divergence.
-        // Whether a builtin name *should* be shadowable is #262's question.
+        // Any nearer binding of the same name suppresses the interception:
+        // built-ins are the last tier of the lookup order (#262). The guard must
+        // stay in step with the interpreter, the debug interpreter and codegen —
+        // an earlier attempt changed only this site, so native called the user's
+        // function while the interpreter still ran the builtin.
         if let ExprKind::Identifier(name) = &callee.kind {
-            if let Some(dest) = self.build_core_builtin_call(name, &arg_vars, args)? {
-                return Ok(dest);
-            }
-
             // `name` may be a local/global variable holding a function
             // value (a lambda, or a named function used as a value) rather
             // than a directly-callable declared function — dispatch through
@@ -924,6 +920,27 @@ impl IrBuilder {
             // local merely shadows an unrelated function name.
             let local_var = self.lookup_var(name);
             let local_ty = local_var.and_then(|v| self.var_types.get(&v.0).cloned());
+
+            // A variable *known* to hold a function is tier 1/3 and outranks a
+            // built-in as much as a declared function does; `ثابت طول = (س:
+            // نص) => ٤٢` type-checks since #262 and must not still lower to
+            // `ArrayLen`. Only the function-typed case counts here — an
+            // untyped or non-function binding is a semantic error at the call,
+            // and treating it as a shadow would hide the built-in behind it.
+            let holds_function_value = matches!(local_ty, Some(IrType::Function { .. }))
+                || (local_var.is_none()
+                    && self.global_variables.contains(name)
+                    && matches!(
+                        self.global_var_types.get(name),
+                        Some(IrType::Function { .. })
+                    ));
+
+            if !self.shadows_builtin(name) && !holds_function_value {
+                if let Some(dest) = self.build_core_builtin_call(name, &arg_vars, args)? {
+                    return Ok(dest);
+                }
+            }
+
             let is_callable_value = if local_var.is_some() {
                 matches!(local_ty, Some(IrType::Function { .. }))
                     || !self.function_names.contains(name)

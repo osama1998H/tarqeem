@@ -3,6 +3,7 @@
 use super::types::Type;
 use crate::error::Span;
 use indexmap::IndexMap;
+use std::collections::HashSet;
 use unicode_normalization::UnicodeNormalization;
 
 pub(crate) fn normalize_name(name: &str) -> String {
@@ -98,6 +99,11 @@ pub enum SymbolKind {
 #[derive(Debug)]
 pub struct Scope {
     symbols: IndexMap<String, Symbol>,
+    /// The subset of `symbols` registered by `register_builtins`. Built-ins are
+    /// the last tier of the lookup order, so a user declaration displaces one
+    /// rather than colliding with it (#262). Not inferable from
+    /// `span == Span::default()` — `هذا` shares that span and must stay fixed.
+    builtin_names: HashSet<String>,
     parent: Option<Box<Scope>>,
     kind: ScopeKind,
     return_type: Option<Type>,
@@ -126,6 +132,7 @@ impl Scope {
     pub fn new_global() -> Self {
         let mut scope = Self {
             symbols: IndexMap::new(),
+            builtin_names: HashSet::new(),
             parent: None,
             kind: ScopeKind::Global,
             return_type: None,
@@ -192,6 +199,7 @@ impl Scope {
     fn register_core_builtins(scope: &mut Scope) {
         for (name, params, return_type) in Self::core_builtins() {
             scope.define(Symbol::function(name, params, return_type, Span::default()));
+            scope.builtin_names.insert(normalize_name(name));
         }
     }
 
@@ -940,6 +948,7 @@ impl Scope {
     pub fn new_child(parent: Scope, kind: ScopeKind) -> Self {
         Self {
             symbols: IndexMap::new(),
+            builtin_names: HashSet::new(),
             parent: Some(Box::new(parent)),
             kind,
             return_type: None,
@@ -950,6 +959,7 @@ impl Scope {
     pub fn new_function(parent: Scope, ret_type: Type) -> Self {
         Self {
             symbols: IndexMap::new(),
+            builtin_names: HashSet::new(),
             parent: Some(Box::new(parent)),
             kind: ScopeKind::Function,
             return_type: Some(ret_type),
@@ -963,6 +973,7 @@ impl Scope {
     pub fn new_lambda(parent: Scope, ret_type: Type) -> Self {
         Self {
             symbols: IndexMap::new(),
+            builtin_names: HashSet::new(),
             parent: Some(Box::new(parent)),
             kind: ScopeKind::Lambda,
             return_type: Some(ret_type),
@@ -976,14 +987,13 @@ impl Scope {
 
     pub fn define(&mut self, symbol: Symbol) -> bool {
         let normalized = normalize_name(&symbol.name);
-        if self.symbols.contains_key(&normalized) {
-            false
-        } else {
-            let mut symbol = symbol;
-            symbol.name = normalized.clone();
-            self.symbols.insert(normalized, symbol);
-            true
+        if self.symbols.contains_key(&normalized) && !self.builtin_names.remove(&normalized) {
+            return false;
         }
+        let mut symbol = symbol;
+        symbol.name = normalized.clone();
+        self.symbols.insert(normalized, symbol);
+        true
     }
 
     pub fn lookup(&self, name: &str) -> Option<&Symbol> {
@@ -1161,6 +1171,27 @@ impl Scope {
             all.extend(parent.all_symbols());
         }
         all
+    }
+
+    /// Names this scope chain resolves to a *user* declaration rather than a
+    /// built-in — main's own declarations plus whatever it imported.
+    ///
+    /// This is the visibility the IR builder must agree with. It sees the
+    /// linked AST, which carries every merged module declaration under its bare
+    /// name whether or not it was imported, so re-deriving "is this declared?"
+    /// from that AST makes a module's private `اطبع` outrank the built-in in a
+    /// program that never imported it.
+    pub fn user_defined_names(&self) -> HashSet<String> {
+        let mut names: HashSet<String> = self
+            .symbols
+            .keys()
+            .filter(|name| !self.builtin_names.contains(*name))
+            .cloned()
+            .collect();
+        if let Some(ref parent) = self.parent {
+            names.extend(parent.user_defined_names());
+        }
+        names
     }
 }
 

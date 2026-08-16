@@ -84,6 +84,14 @@ pub struct IrBuilder {
     pub(crate) property_setters: HashMap<String, String>,
     /// Set of all function names for lookup.
     pub(crate) function_names: HashSet<String>,
+    /// Names the semantic layer resolved to a user declaration, or `None` when
+    /// no semantic pass fed the builder (unit tests, single-file paths).
+    ///
+    /// Only these may outrank a built-in. `function_names` cannot be used for
+    /// that decision: it is collected from the *linked* AST, which carries
+    /// every merged module declaration under its bare name whether the program
+    /// imported it or not.
+    visible_names: Option<HashSet<String>>,
     /// Return types for functions: function_name -> return_type.
     pub(crate) function_return_types: HashMap<String, IrType>,
     /// Parameter types for functions (declared functions and lifted
@@ -187,6 +195,7 @@ impl IrBuilder {
             property_getters: HashMap::new(),
             property_setters: HashMap::new(),
             function_names: HashSet::new(),
+            visible_names: None,
             function_return_types: HashMap::new(),
             function_param_types: HashMap::new(),
             lambda_counter: 0,
@@ -309,6 +318,17 @@ impl IrBuilder {
     /// module that is never meant to run on its own.
     pub fn build(self, ast: &Ast) -> Result<Module> {
         self.build_with_entry_point_policy(ast, true)
+    }
+
+    /// Supply the names the semantic layer resolved to user declarations
+    /// (`Analyzer::visible_names`), which is what may outrank a built-in.
+    ///
+    /// Callers that link modules must set this. Without it the builder falls
+    /// back to the linked AST's declarations, which include module declarations
+    /// the program never imported.
+    pub fn with_visible_names(mut self, names: HashSet<String>) -> Self {
+        self.visible_names = Some(names);
+        self
     }
 
     /// Build IR from an AST that is not required to define an entry point.
@@ -559,7 +579,30 @@ impl IrBuilder {
             }
         }
 
+        self.module.shadowing_names = self
+            .function_names
+            .iter()
+            .filter(|name| self.shadows_builtin(name))
+            .cloned()
+            .collect();
+
         Ok(self.module)
+    }
+
+    /// Whether a declaration of `name` outranks a same-named built-in.
+    ///
+    /// The single place this is decided. Backends read the answer off
+    /// `Module::shadowing_names` rather than recomputing it, because the three
+    /// sets they could recompute it from — the linked AST, `Module::functions`,
+    /// and the semantic scope — do not agree.
+    pub(crate) fn shadows_builtin(&self, name: &str) -> bool {
+        if !self.function_names.contains(name) {
+            return false;
+        }
+        match &self.visible_names {
+            Some(visible) => visible.contains(name),
+            None => true,
+        }
     }
 
     /// Record the compile-time-only names one `استورد` introduces.

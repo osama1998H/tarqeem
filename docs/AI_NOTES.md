@@ -2242,14 +2242,16 @@ Decisions worth keeping:
   which is exactly why they were the three that worked.
 - **`نوع` folds to a constant.** `IrType` has no dynamic variant, so the answer
   is known at build time; no runtime type tag is needed, and none exists.
-- **Builtin wins over a same-named user function — pinned, not chosen.** A
-  shadowing guard was written first, to protect `stdlib/اختبار/توكيدات.ترقيم`'s
-  own `تأكد`. It *created* a divergence: native bound the user's function while
-  the interpreter still ran the builtin, because `is_builtin` precedes
-  `call_function` in the executor. The semantic layer also rejects a top-level
-  redefinition outright, so shadowing does not work today in any case. The
-  interception is now unconditional and a cross-backend test pins it. Whether
-  builtins *should* be shadowable is #262.
+- **Builtin wins over a same-named user function — pinned, not chosen.**
+  **REVERSED — see "Built-ins are the last tier" below. Kept for the reasoning,
+  which still explains why a one-layer change fails.** A shadowing guard was
+  written first, to protect `stdlib/اختبار/توكيدات.ترقيم`'s own `تأكد`. It
+  *created* a divergence: native bound the user's function while the interpreter
+  still ran the builtin, because `is_builtin` precedes `call_function` in the
+  executor. The semantic layer also rejects a top-level redefinition outright,
+  so shadowing does not work today in any case. The interception is now
+  unconditional and a cross-backend test pins it. Whether builtins *should* be
+  shadowable is #262.
 - **`عدد("أبجد")` must fail, not yield 0.** `trq_string_to_int` returns 0 via
   `unwrap_or` — correct for the stdlib's lenient parsers, wrong here, and it
   would have replaced a loud link error with a silent wrong answer. Hence the
@@ -2391,3 +2393,114 @@ Verified afterwards, since the plan called for it and no automated test reaches
 it: `tarqeem debug` (the fourth backend, #223) gives `5` for `طول("مرحبا")`,
 `5.0` for `اطبع(5.0)`, `موجود` for `عدد? = 0` against `لا_شيء`, and `6` for the
 narrowed `س + 1`. All four backends agree.
+
+## #262 + #257 — built-ins are the last tier of the lookup order
+
+**This reverses the "builtin wins" decision recorded above.** It is an owner
+decision about language semantics, not a bug fix, so it is written down here
+rather than inferred from the diff — the earlier note is still in this file and
+would otherwise read as current policy.
+
+The rule, first match wins:
+
+```
+local → enclosing scopes → module-level → imported → built-ins
+```
+
+Naming a function after a built-in is legal. Built-ins are a fallback, not
+reserved words.
+
+- **Why the first attempt failed, and this one does not.** The reverted guard
+  changed only the IR builder, so native called the user's function while the
+  interpreter still ran the built-in. The lesson is *"change every backend
+  against one predicate"*, not *"user-wins is wrong"*. That predicate is "does
+  the program declare a function of this name?", answered from `ir::Module`
+  (interpreter, debug interpreter, codegen) and from `IrBuilder::function_names`
+  in the builder, which runs before `Module` exists. The two sets come from the
+  same top-level `FuncDecl` pass.
+
+- **The semantic half is the half that was missing.** Two populations failed
+  differently: the 18 `core_builtins()` are `define`d into global scope, so
+  `دالة اطبع(…)` was a hard `د٠١٠١` and no backend ever ran; the ~180
+  import-registered names were accepted silently and only died in codegen. A
+  backend-only change is a no-op for the names people actually want to shadow.
+
+- **`Scope::builtin_names`, not a `Symbol` field.** `define` needed to tell a
+  built-in it may displace from a user symbol it may not. A flag on `Symbol`
+  would have forced `is_builtin: false` into ~20 `Symbol { … }` literals in the
+  analyzer for no gain. It must *not* be inferred from `span == Span::default()`:
+  `هذا` shares that span and would become overwritable.
+
+- **One arm in `define` fixed six sites.** Variables, nested functions, classes,
+  interfaces, enums and top-level functions all report through the same
+  refuse-on-duplicate path, and every import `define` already discarded its
+  `bool` — so imports began shadowing built-ins with no call-site edit. Call
+  type-checking followed for free: `infer_call_expr` has no built-in branch, it
+  types the callee from whatever `lookup` returns.
+
+- **#257 dissolved rather than being fixed.** `mangle_function_name` applied the
+  runtime table to *definitions* as well as call sites, so a user's `مطلق` was
+  emitted as `define @trq_abs_float` beside the `declare` of the same name and
+  LLVM rejected the IR while parsing — never reaching the linker, despite the
+  error text. Once a declared name keeps its own symbol there is nothing to
+  collide. The function had to take the declared-name set because it is free,
+  and `Module` is a parameter of `generate` that is never stored on `self`.
+
+- **#262 scenario (b) is not a defect.** `متغير عدد = ٧` then `عدد("٥")` failing
+  is correct: the local legitimately makes the built-in unreachable. Only the
+  wording is arguable.
+
+- **What has no in-language answer yet.** A same-name delegating wrapper —
+  `دالة مطلق(س) { أرجع مطلق(س) }` — is now unconditional recursion, with no way
+  to reach the built-in. No such wrapper exists in the repo; the six that did
+  were deleted for this reason (see "Renaming Latin stdlib identifiers is not
+  mechanical"). The `مدمج.` escape hatch is deferred to its own issue, and it is
+  not the one-liner it looks like: `resolve_import_ref` rewrites `ns.prop` to a
+  bare identifier, which under this rule re-resolves to the user's function.
+
+Verified in all four backends, including `tarqeem debug`, which no automated
+test reaches: `دالة مطلق → ٩٩٩` prints `999` and `دالة طول(س: نص) → ٤٢` prints
+`42` — the latter having been a compile error before. All 10 `examples/` agree
+across interpreter, JIT and native.
+
+### The visibility trap this fix walked into first
+
+The first version of the shadowing guard asked *"is this name declared?"* of the
+**linked** AST, and that is the wrong question. `Analyzer::analyze` runs on
+**main's** AST and registers only main's declarations plus the names it
+imported; `linked_ast` then merges every declaration of every imported module
+into one flat namespace under its bare name. So the two layers disagreed about
+what "declared" means, and the backends took the linker's answer.
+
+The result was worse than the bug being fixed. A module exporting `شيء` *and*
+declaring `اطبع` captured `اطبع` in any program that imported only `شيء`:
+semantic type-checked the call against the built-in's `أي` signature, the
+backends called the module's `(نص)` function, and an i64 landed in a
+`TrqString*` slot — wrong output interpreted, **SIGSEGV** natively. Before the
+shadowing work the same program failed *loudly* at compile (that was #257), so
+this traded a loud failure for a silent one. `stdlib/طرفية` has exactly this
+shape: it exports `اطبع`, `ادخل` and `ادخل_رسالة`, all core builtins.
+
+The fix is `Analyzer::visible_names` → `IrBuilder::with_visible_names` →
+`Module::shadowing_names`: the question is answered **once**, from semantic's
+own scope, and the backends read the answer instead of recomputing it. That also
+retires the altitude problem the first version had — one rule re-derived in four
+places from three sets that do not agree (`IrBuilder::function_names` is
+top-level `FuncDecl`s of the linked AST, `Module::functions` additionally holds
+methods and lifted lambdas, and the semantic scope holds neither).
+
+Codegen needs **both** sets, and conflating them is a bug in either direction:
+definitions mangle against *all* user functions, so every one keeps a symbol of
+its own and #257's collision cannot return; call sites mangle against
+`shadowing_names`, so a call the semantic layer bound to a built-in still
+reaches `trq_*` even when some merged module declares that name.
+
+Two smaller things the same review caught: a *variable* holding a function value
+(`ثابت طول = (س: نص) => ٤٢`) is tier 1/3 and must suppress the interception too
+— it type-checks since this change, and was still lowering to `ArrayLen`; and
+§٤.٩'s claim that a module-level name shadows an import is false for file
+modules, where `linker::record_origin` rejects the pair with و٠١٠١.
+
+Guard verified by breaking it: with `shadows_builtin` forced to `true` the new
+`test_an_unimported_module_declaration_does_not_shadow_a_builtin` fails on the
+interpreter leg, so it is not vacuous.

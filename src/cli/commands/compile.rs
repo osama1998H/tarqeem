@@ -151,7 +151,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
         diag.emit(&source, &filename, lang);
     }
 
-    let ir_builder = IrBuilder::new(module_name);
+    let ir_builder = IrBuilder::new(module_name).with_visible_names(analyzer.visible_names());
     let mut ir_module = ir_builder
         .build(&linked)
         .map_err(|e| format!("خطأ في توليد التمثيل الوسيط: {}", e.message))?;

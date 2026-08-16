@@ -124,6 +124,17 @@ impl Analyzer {
         )
     }
 
+    /// The names visible to the main file as user declarations, for
+    /// [`crate::ir::IrBuilder::with_visible_names`].
+    ///
+    /// Must be read after `analyze`. `linked_ast` hands the IR builder every
+    /// merged module declaration under its bare name, so without this the
+    /// builder would treat a module's un-imported `اطبع` as shadowing the
+    /// built-in that `analyze` actually bound the call to.
+    pub fn visible_names(&self) -> std::collections::HashSet<String> {
+        self.scope.user_defined_names()
+    }
+
     /// Get the class resolver.
     pub fn class_resolver(&self) -> &ClassResolver {
         &self.class_resolver

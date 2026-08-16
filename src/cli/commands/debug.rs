@@ -67,7 +67,7 @@ pub fn debug(args: DebugArgs, lang: Language) -> Result<(), String> {
         diag.emit(&source, &filename, lang);
     }
 
-    let ir_builder = IrBuilder::new(filename.clone());
+    let ir_builder = IrBuilder::new(filename.clone()).with_visible_names(analyzer.visible_names());
     let ir_module = ir_builder
         .build(&linked)
         .map_err(|e| format!("خطأ بناء التمثيل الوسيط: {}", e.message))?;

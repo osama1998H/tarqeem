@@ -551,7 +551,7 @@ fn run_command(
         diag.emit(&source, &filename, lang);
     }
 
-    let ir_builder = IrBuilder::new(filename.clone());
+    let ir_builder = IrBuilder::new(filename.clone()).with_visible_names(analyzer.visible_names());
     let ir_module = ir_builder.build(&linked).map_err(|e| {
         format!(
             "IR build error: {} / خطأ بناء التمثيل الوسيط: {}",
@@ -711,16 +711,21 @@ pub(super) fn has_entry_point(module: &crate::ir::Module) -> bool {
         .is_some()
 }
 
+/// Returns the linked AST together with the names the semantic layer resolved
+/// to user declarations, which `IrBuilder::with_visible_names` needs to tell a
+/// real shadow from a merged-but-unimported module declaration.
 pub(super) fn link_repl_line(
     ast: &crate::parser::Ast,
     current_file: PathBuf,
     verbose: bool,
     warnings: &mut Vec<crate::error::Diagnostic>,
-) -> Result<crate::parser::Ast, Vec<crate::error::Diagnostic>> {
+) -> Result<(crate::parser::Ast, std::collections::HashSet<String>), Vec<crate::error::Diagnostic>>
+{
     let mut analyzer = Analyzer::for_file(current_file);
     configure_analyzer(&mut analyzer, verbose);
     analyzer.analyze(ast)?;
-    analyzer.linked_ast(ast, warnings)
+    let linked = analyzer.linked_ast(ast, warnings)?;
+    Ok((linked, analyzer.visible_names()))
 }
 
 fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
@@ -784,13 +789,14 @@ fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
                                     diag.emit(&source, REPL_PSEUDO_FILE, lang);
                                 }
                             }
-                            Ok(linked) => {
+                            Ok((linked, visible)) => {
                                 for diag in &link_warnings {
                                     diag.emit(&source, REPL_PSEUDO_FILE, lang);
                                 }
 
                                 let module_name = format!("<repl:{}>", line_count);
-                                let ir_builder = IrBuilder::new(module_name);
+                                let ir_builder =
+                                    IrBuilder::new(module_name).with_visible_names(visible);
                                 // A line that only declares (`متغير س = ٥`) is a
                                 // library, not a program: `build` would reject
                                 // it for having no entry point (ت٠٢٠٢).
@@ -1325,8 +1331,9 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("; ")
         })
-        .and_then(|linked| {
+        .and_then(|(linked, visible)| {
             IrBuilder::new("<repl:1>".to_string())
+                .with_visible_names(visible)
                 .build_library(&linked)
                 .map_err(|e| e.message)
         });
