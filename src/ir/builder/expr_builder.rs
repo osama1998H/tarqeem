@@ -629,6 +629,25 @@ impl IrBuilder {
                 self.emit_void()
             }
 
+            // Lowered here rather than mapped to a runtime symbol: `BinaryOp` is
+            // already implemented by every backend and the constant folder, so
+            // an `and i64` costs no `runtime-rs` work and no call.
+            "بتات_و" => {
+                let Some(&right) = args.get(1) else {
+                    return Ok(None);
+                };
+                let dest = self.new_var();
+                self.emit(Instruction::Binary {
+                    dest,
+                    op: BinaryOp::BitAnd,
+                    left: first,
+                    right,
+                    ty: IrType::Int,
+                });
+                self.var_types.insert(dest.0, IrType::Int);
+                dest
+            }
+
             _ => return Ok(None),
         };
 

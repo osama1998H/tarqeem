@@ -39,7 +39,7 @@ insertion point — the mechanism `مجموعات` and the `استثناء` prel
 
 | | |
 |---|---|
-| Declared names today | 183 in `Scope` (18 core + 165 across 7 modules), plus ~40 more reachable only through the codegen mangle map |
+| Declared names today | 184 in `Scope` (19 core + 165 across 7 modules), plus ~40 more reachable only through the codegen mangle map |
 | **Final primitive registry** | **40 names** |
 | Migrated to self-hosted Tarqeem | ~150 names across 9 stdlib modules |
 | Dropped (alias collapse) | 26 |
@@ -108,9 +108,14 @@ Legend for **status**: `unchanged` · `renamed` · `narrowed` · `new`.
 | `بتات_إزاحة_يمين` | `(عدد، عدد) -> عدد` | new | **Arithmetic** (sign-propagating). Correct for 32-bit-masked SHA-256/CRC words. |
 | `بتات_إزاحة_يمين_منطقية` | `(عدد، عدد) -> عدد` | new | **Logical** (zero-fill). Required, not redundant: `عدد` is signed i64 and every backend's `Shr` is arithmetic, so a self-hosted xorshift64 or DEFLATE bit reader silently produces wrong numbers *consistently across all three backends* without it. Named to contrast explicitly, since confusing the two is the failure mode. |
 
-> The `بتات_` prefix is chosen over bare `و_بتي` / `أو_ثنائي` for two reasons: it avoids opening an
-> identifier with the reserved keywords `و` / `أو`, and `ثنائي` is already taken — it is this
-> codebase's word for *byte array* (`بصمة_ثنائي`, `اضغط_ثنائي`, `ثنائي_إلى_ست_عشري`).
+> The `بتات_` prefix is chosen over bare `و_بتي` / `أو_ثنائي` for two reasons: it keeps the family
+> clear of `و` / `أو`, which are keywords and so cannot be names on their own, and `ثنائي` is
+> already taken — it is this codebase's word for *byte array* (`بصمة_ثنائي`, `اضغط_ثنائي`,
+> `ثنائي_إلى_ست_عشري`).
+>
+> **Correction (#302):** an earlier wording here said the prefix avoids *opening* an identifier
+> with `و` / `أو`. That is false — an identifier may begin with either letter, as `وقت` and
+> `أولوية` do. Only the bare one-letter names are unavailable.
 
 **Cost note (headline finding, gap analysis):** all seven bitwise names lower in
 `build_core_builtin_call` to `Instruction::Binary` / `Instruction::Unary`, whose variants already
@@ -461,6 +466,15 @@ highest-proof first.
 Not a migration. See §7. Nothing below may start until items B1-B5 are done.
 
 ### 6.1 Increment A — the seven bitwise primitives
+
+**Progress: 1 of 7 landed.** `بتات_و` (#302) — `Scope` entry plus a
+`build_core_builtin_call` arm emitting `BinaryOp::BitAnd` over `IrType::Int`. The two-file
+cost estimate below held exactly: no `runtime-rs` work, no runtime symbol, no interpreter or
+debug-interpreter arm (an intercepted builtin emits no `Call`), and no
+`register_builtin_return_types` entry (`var_types` carries `Int` directly). Verified in all
+four executing backends — interpreter, JIT, native, and the DAP debug interpreter. The
+remaining six follow the same shape; only `بتات_إزاحة_يمين_منطقية` composes rather than
+emitting one op.
 
 **Why first:** highest ratio of unblocking to risk in the whole plan. Two files
 (`scope.rs` + `expr_builder.rs`), zero backend work, zero `runtime-rs` work, zero migration — the IR

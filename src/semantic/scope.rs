@@ -181,6 +181,10 @@ impl Scope {
             // Arrays - دوال المصفوفات
             ("طول_مصفوفة", vec![Type::Any], Type::Int),
             ("الحق", vec![Type::Any, Type::Any], Type::Void),
+            // Bitwise - عمليات البتات
+            // Functions, not operators: there is no `&` token, and `بتات_` opens
+            // the name because `و`/`أو` are keywords.
+            ("بتات_و", vec![Type::Int, Type::Int], Type::Int),
         ]
     }
 
