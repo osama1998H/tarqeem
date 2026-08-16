@@ -503,6 +503,109 @@ fn test_user_function_shadows_bitwise_or() {
 }
 
 // ---------------------------------------------------------------------------
+// بتات_أو_حصري — the third bitwise primitive (#309)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_bitwise_xor_toggles_bits_in_every_backend() {
+    assert_prints(
+        "بتات_أو_حصري_ضم",
+        "اطبع(بتات_أو_حصري(12، 10))\nاطبع(بتات_أو_حصري(255، 0))\nاطبع(بتات_أو_حصري(7، 7))",
+        &["6", "255", "0"],
+    );
+}
+
+/// What makes XOR a primitive rather than a convenience: it is its own inverse,
+/// so masking round-trips without a second operation. Every stream cipher and
+/// every xorshift step rests on this identity, and a backend that widened or
+/// truncated one operand would break it while a bare truth table still passed.
+#[test]
+fn test_bitwise_xor_is_self_inverse() {
+    assert_prints(
+        "بتات_أو_حصري_معكوس",
+        concat!(
+            "ثابت س = 4660\n",
+            "ثابت قناع = 43981\n",
+            "اطبع(بتات_أو_حصري(بتات_أو_حصري(س، قناع)، قناع) == س)\n",
+            "اطبع(بتات_أو_حصري(بتات_أو_حصري(-7، قناع)، قناع) == -7)",
+        ),
+        &["صحيح", "صحيح"],
+    );
+}
+
+/// `عدد` is a signed i64 in every backend, and `-1` is all-ones — so XOR against
+/// it is the bitwise complement, the one operation neither `بتات_و` nor
+/// `بتات_أو` can express. This is also the case a backend disagreeing about
+/// operand width would fail first.
+#[test]
+fn test_bitwise_xor_against_all_ones_is_complement() {
+    assert_prints(
+        "بتات_أو_حصري_متمم",
+        concat!(
+            "اطبع(بتات_أو_حصري(0، -1))\n",
+            "اطبع(بتات_أو_حصري(5، -1))\n",
+            "اطبع(بتات_أو_حصري(-1، -1))\n",
+            "اطبع(بتات_أو_حصري(-8، 3))",
+        ),
+        &["-1", "-6", "0", "-5"],
+    );
+}
+
+/// Printing a result proves only that *something* came back. A builtin whose
+/// destination carries the `Ptr(Void)` sentinel instead of `عدد` prints
+/// plausibly and then composes wrongly, which is the failure this whole
+/// registry work exists to stop — so the result is added, compared and passed
+/// on as an argument rather than only printed.
+#[test]
+fn test_bitwise_xor_result_composes_as_an_integer() {
+    assert_prints(
+        "بتات_أو_حصري_تركيب",
+        concat!(
+            "اطبع(بتات_أو_حصري(12، 10) + 1)\n",
+            "اطبع(بتات_أو_حصري(12، 10) == 6)\n",
+            "اطبع(نوع(بتات_أو_حصري(1، 2)))\n",
+            "دالة ضاعف(ن: عدد) -> عدد {\n    أرجع ن * 2\n}\n",
+            "اطبع(ضاعف(بتات_أو_حصري(4، 1)))",
+        ),
+        &["7", "صحيح", "عدد", "10"],
+    );
+}
+
+/// The three bitwise names lower through one IR-builder arm that picks its op by
+/// name. A sibling added to the arm's pattern but not to its inner `match`
+/// falls through un-intercepted; one added to the inner `match` under the wrong
+/// op emits a plausible number. Composing all three in a single expression
+/// pins each to its own operation.
+#[test]
+fn test_bitwise_family_ops_do_not_collide() {
+    assert_prints(
+        "بتات_عائلة",
+        concat!(
+            "اطبع(بتات_و(12، 10))\n",
+            "اطبع(بتات_أو(12، 10))\n",
+            "اطبع(بتات_أو_حصري(12، 10))\n",
+            // XOR is OR minus AND: 14 - 8 = 6, so a family that collapsed onto
+            // one op cannot satisfy this line.
+            "اطبع(بتات_أو_حصري(12، 10) == بتات_أو(12، 10) - بتات_و(12، 10))",
+        ),
+        &["8", "14", "6", "صحيح"],
+    );
+}
+
+/// Builtins are the last tier of the lookup order, so a user function of the
+/// same name must win — in every backend at once. An earlier shadowing fix
+/// changed only the IR builder and left native calling the user's function
+/// while the interpreter still ran the builtin (#262).
+#[test]
+fn test_user_function_shadows_bitwise_xor() {
+    assert_prints(
+        "بتات_أو_حصري_مظلل",
+        "دالة بتات_أو_حصري(أ: عدد، ب: عدد) -> عدد {\n    أرجع 42\n}\nاطبع(بتات_أو_حصري(12، 10))",
+        &["42"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // طول over a string — characters, not bytes (#185)
 // ---------------------------------------------------------------------------
 
@@ -1060,6 +1163,7 @@ fn test_every_core_builtin_agrees_across_backends() {
         ),
         ("بتات_و", "اطبع(بتات_و(12، 10))", &["8"]),
         ("بتات_أو", "اطبع(بتات_أو(12، 10))", &["14"]),
+        ("بتات_أو_حصري", "اطبع(بتات_أو_حصري(12، 10))", &["6"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();

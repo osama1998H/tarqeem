@@ -467,20 +467,27 @@ Not a migration. See §7. Nothing below may start until items B1-B5 are done.
 
 ### 6.1 Increment A — the seven bitwise primitives
 
-**Progress: 2 of 7 landed.** `بتات_و` (#302) and `بتات_أو` (#306) — a `Scope` entry each
-plus one shared `build_core_builtin_call` arm emitting `BinaryOp::BitAnd` / `BinaryOp::BitOr`
-over `IrType::Int`. The two-file cost estimate below held exactly, twice: no `runtime-rs`
-work, no runtime symbol, no interpreter or debug-interpreter arm (an intercepted builtin
-emits no `Call`), and no `register_builtin_return_types` entry (`var_types` carries `Int`
-directly). Both verified in all four executing backends — interpreter, JIT, native, and the
-DAP debug interpreter. The remaining five follow the same shape; only
-`بتات_إزاحة_يمين_منطقية` composes rather than emitting one op.
+**Progress: 3 of 7 landed.** `بتات_و` (#302), `بتات_أو` (#306) and `بتات_أو_حصري` (#309) —
+a `Scope` entry each plus one shared `build_core_builtin_call` arm emitting
+`BinaryOp::BitAnd` / `BitOr` / `BitXor` over `IrType::Int`. The two-file cost estimate below
+held exactly, three times: no `runtime-rs` work, no runtime symbol, no interpreter or
+debug-interpreter arm (an intercepted builtin emits no `Call`), and no
+`register_builtin_return_types` entry (`var_types` carries `Int` directly). All three
+verified in all four executing backends — interpreter, JIT, native, and the DAP debug
+interpreter. The remaining four follow the same shape, except that `بتات_نفي` is `Unary`
+rather than `Binary` and `بتات_إزاحة_يمين_منطقية` composes rather than emitting one op.
 
-One caveat found while landing #302 and confirmed unchanged by #306: an intercepted builtin
-**segfaults natively as an element of an array literal** (#304). It predates both — the same
-call in any other position is correct in every backend, and `طول_مصفوفة` reproduces it — so
-it gates nothing here, but self-hosted stdlib written on these primitives must avoid that
-shape until it is fixed.
+With XOR landed the three logic operations are complete, and with them the bitwise
+complement: `بتات_أو_حصري(س، -1)` flips every bit, which neither AND nor OR can do. Recorded
+as an observation for whoever lands `بتات_نفي`, not as a change to its verdict — the
+capability it names is now reachable, so its remaining case is the readability of the bare
+spelling.
+
+One caveat found while landing #302 and confirmed unchanged by #306 and #309: an intercepted
+builtin **segfaults natively as an element of an array literal** (#304). It predates all
+three — the same call in any other position is correct in every backend, and `طول_مصفوفة`
+reproduces it — so it gates nothing here, but self-hosted stdlib written on these primitives
+must avoid that shape until it is fixed.
 
 **Why first:** highest ratio of unblocking to risk in the whole plan. Two files
 (`scope.rs` + `expr_builder.rs`), zero backend work, zero `runtime-rs` work, zero migration — the IR
@@ -491,8 +498,12 @@ exist and are already unit-tested. It unblocks تشفير, ضغط, the RNG and h
 the CI backend-diff job runs, and explicit range-check documentation — shift amounts outside 0-63
 diverge three ways (interpreter errors, LLVM poisons, Cranelift masks).
 
-**Lexer check required before commit:** confirm `بتات_أو_حصري` lexes as **one identifier** and not as
-a keyword split, since `و` and `أو` are keywords.
+**Lexer check — done (#309), and it passed.** `بتات_أو_حصري` lexes as **one identifier**: the
+greedy identifier scan neither stops at the embedded `أو` nor resumes after it. The mid-name
+position was the harder shape — a split there would have parsed as a logical-or between
+`بتات_` and `_حصري` rather than failing outright. Pinned by
+`lexer::tests::test_identifier_containing_a_keyword_stays_one_token`, which now covers all
+three landed spellings.
 
 ### 6.2 Increment B — the character/byte bridge, and repairing `قص_حروف`
 
