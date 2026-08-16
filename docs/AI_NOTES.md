@@ -2504,3 +2504,73 @@ modules, where `linker::record_origin` rejects the pair with و٠١٠١.
 Guard verified by breaking it: with `shadows_builtin` forced to `true` the new
 `test_an_unimported_module_declaration_does_not_shadow_a_builtin` fails on the
 interpreter leg, so it is not vacuous.
+
+## #241 — symbols codegen declares that nothing defines
+
+Third instance of one drift class, after #185 (native `طول`/`نوع` diverging) and
+#222 (names missing from the mapping table). All three surfaced as
+`undefined value '@trq_…'` at link: an internal symbol, no source location, no
+Arabic diagnostic.
+
+### The issue's own list was wrong, in both directions
+
+Its diff used `@trq_[a-z_]*` — no digits — so `trq_base64_encode`/`_decode`
+truncated to a phantom `trq_base` and `trq_sha256*` to a phantom `trq_sha`, and
+it listed `trq_sleep`, which is defined. Redone with digits, the real count is 21
+(19 after excluding `trq_throw`/`trq_get_exception`, which belong to #238).
+
+### Six tables must agree, not two
+
+Worth writing down, because the next drift will be between two of these:
+
+| # | Table | Location |
+|---|-------|----------|
+| 1 | declared externs | `codegen.rs::emit_runtime_declarations` |
+| 2 | Arabic name → symbol | `codegen.rs::get_runtime_function_name` |
+| 3 | definitions | `runtime-rs/src/*.rs` |
+| 4 | semantic registry | `scope.rs::core_builtins` + `get_stdlib_builtin` |
+| 5 | interpreter dispatch | `interpreter/executor/builtins.rs` |
+| 6 | debug interpreter dispatch | `debug/interpreter/builtins.rs` |
+
+For the `وقت` family these held 19, 19, 1, 2, 2 and 0 entries respectively.
+
+### The two live symbols were broken three ways at once
+
+`وقت_الآن` and `وقت_أداء` are the only two of the 21 reachable by documented
+syntax. Defining them in `runtime-rs` fixes just one of three faults:
+
+1. Codegen declared `ptr @trq_time_now()` while table 4 typed it `عدد` and table
+   5 returned `Value::Int` — now `i64`, agreeing with both.
+2. Neither was in `register_builtin_return_types`, so the call result carried the
+   `Ptr(Void)` sentinel. That is the `جذر` bug: define the symbol and the link
+   error becomes a segfault instead. **Defining a runtime symbol without
+   registering its IR return type is never a complete fix.**
+3. Table 6 had neither, so `tarqeem debug` aborted on both.
+
+### Why the guard is static, not an execution test
+
+No `examples/*.ترقيم` calls any of the 21, so `compare-backends` never links
+them — a symbol only reaches the linker if some program happens to call it.
+`tests/runtime_symbols_tests.rs` diffs tables 1 and 3 as source text instead.
+Codegen never assembles `@trq_` names dynamically (the one wildcard match is a
+doc comment), so the scan has no blind spot. Verified by breaking it: renaming
+`trq_time_now` makes it fail and name the symbol.
+
+Its `KNOWN_UNDEFINED` allow-list carries the `examples.yml` rule — entries are
+removed as issues close, never added to silence fresh drift — and two further
+tests fail if an entry becomes defined, or stops being declared.
+
+### Deliberately out of scope
+
+The nine date constructors return a field-bearing object (`بيانات.سنة`) that has
+no representation below the semantic layer (#287), so they cannot be written at
+all. Filed as #298 with the full mapping. The 10 that could be built were
+implemented but **not** registered in tables 4–6, which is why native now
+succeeds where the interpreter errors on the phantom-import path — recorded in
+#298 rather than silently absorbed.
+
+`runtime-rs/src/date.rs` fixes semantics no interpreter can be diffed against, so
+those choices are now the contract: weekday 0 = الأحد, ISO-8601 weeks, Arabic
+`DDD`/`MMM`, `i64::MIN` for impossible dates, epoch milliseconds for both clocks.
+The WASM/JS shim disagrees on the last one (`performance.now()` is page-load
+relative), in the family of #288.

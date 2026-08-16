@@ -1126,7 +1126,8 @@ impl DebugInterpreter {
                 // A declared function of the same name wins: built-ins are the
                 // last tier of the lookup order (#262). Decided by the IR builder so all
                 // backends answer identically.
-                let outcome = if self.is_builtin(&func.0) && !self.module.shadows_builtin(&func.0) {
+                let outcome = if Self::is_builtin(&func.0) && !self.module.shadows_builtin(&func.0)
+                {
                     self.call_builtin(&func.0, arg_values)
                 } else {
                     self.call_function(func, arg_values)

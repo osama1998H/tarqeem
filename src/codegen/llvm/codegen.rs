@@ -861,7 +861,10 @@ impl LlvmCodegen {
         emit!(self, "declare i64 @trq_week_number(i64, i64, i64)");
         emit!(self, "declare i64 @trq_days_in_month(i64, i64)");
         emit!(self, "declare ptr @trq_date_format(i64, i64, i64, ptr)");
-        emit!(self, "declare ptr @trq_time_now()");
+        // i64, not ptr: the semantic layer types وقت_الآن as عدد and the
+        // interpreter returns epoch milliseconds. The old `ptr` came from an
+        // unbuilt struct-returning date API (#241).
+        emit!(self, "declare i64 @trq_time_now()");
         emit!(self, "declare ptr @trq_time_parse(ptr)");
         emit!(
             self,
