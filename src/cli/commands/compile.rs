@@ -40,9 +40,7 @@ impl CompilationTiming {
     }
 }
 
-use super::{
-    analyzer_file_path, configure_analyzer, find_runtime, find_wasm_runtime, warn_invalid_extension,
-};
+use super::{analyzer_file_path, configure_analyzer, warn_invalid_extension};
 
 /// Arguments for the compile command
 pub struct CompileArgs {
@@ -285,12 +283,9 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
             return Err("ترجمة WebAssembly غير متاحة. ثبّت LLVM مع دعم WebAssembly.".to_string());
         }
 
-        // Find WASM runtime if available
-        let wasm_runtime = find_wasm_runtime();
-
         linker
-            .compile_to_wasm(&llvm_ir, &output_path, wasm_runtime.as_deref())
-            .map_err(|e| format!(" ترجمة WebAssembly: {}", e.message))?;
+            .compile_to_wasm(&llvm_ir, &output_path, None)
+            .map_err(|e| format!(" ترجمة WebAssembly: {}", e))?;
 
         println!(
             "{}",
@@ -319,14 +314,11 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
             .verbose(args.verbose);
 
         if linker.is_available() {
-            let runtime_path = find_runtime();
-            if runtime_path.is_none() && args.verbose {
-                eprintln!("{}", "تحذير: لم يتم العثور على مكتبة التشغيل.".yellow());
-            }
-
+            // Discovery, the verbose report, and the ت٠١٠٢ refusal all live in
+            // the linker, so there is one search rather than two disagreeing ones.
             linker
-                .compile_to_executable(&llvm_ir, &output_path, runtime_path.as_deref())
-                .map_err(|e| format!("فشل الربط: {}", e.message))?;
+                .compile_to_executable(&llvm_ir, &output_path, None)
+                .map_err(|e| e.to_string())?;
             println!(
                 "{}",
                 format!(" إنشاء الملف التنفيذي: {}", output_path.display(),).green()

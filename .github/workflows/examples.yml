@@ -456,9 +456,12 @@ jobs:
           #    native compilation rejects it with ت٠٣٠٣ by design, see #238.)
           NATIVE_UNSUPPORTED: ""
         run: |
-          # `find_runtime`'s first priority, and the only one that resolves in a
-          # job that downloads the library as an artifact rather than building
-          # it: no target/ directory, no CARGO_MANIFEST_DIR, no ~/.tarqeem.
+          # `find_runtime`'s first priority — the explicit override, which beats
+          # every other location. It is the honest choice for a job that
+          # downloads the library as an artifact rather than building it: no
+          # target/ directory, no CARGO_MANIFEST_DIR, no ~/.tarqeem. (Before
+          # #285 the CLI ignored this variable outright and the job passed only
+          # because ./runtime/ is also searched.)
           export TARQEEM_RUNTIME_PATH="$PWD/runtime/libtrq.a"
           # TARQEEM_HOME is deliberately left unset (not set to ""), so the
           # stdlib search falls through to this checkout's own stdlib.

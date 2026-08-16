@@ -4,7 +4,7 @@
 //! to create executables. Supports native targets and WebAssembly.
 
 use super::Target;
-use crate::error::codes::{ERR_LINKING_FAILED, ERR_LLVM_INTERNAL};
+use crate::error::codes::{ERR_LINKING_FAILED, ERR_LLVM_INTERNAL, ERR_RUNTIME_NOT_FOUND};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -155,8 +155,14 @@ impl Linker {
         output: &Path,
         runtime_path: Option<&Path>,
     ) -> Result<(), LinkerError> {
-        // Auto-discover runtime if not provided
-        let runtime = runtime_path.map(|p| p.to_path_buf()).or_else(find_runtime);
+        let runtime = match runtime_path {
+            Some(path) => path.to_path_buf(),
+            None => locate_runtime().map_err(|searched| runtime_not_found(&searched))?,
+        };
+        if self.verbose {
+            eprintln!("مكتبة وقت التشغيل: {}", runtime.display());
+        }
+        let runtime = Some(runtime);
 
         let ir_path = output.with_extension("ll");
         fs::write(&ir_path, llvm_ir).map_err(|e| {
@@ -249,8 +255,19 @@ impl Linker {
         output: &Path,
         runtime_path: Option<&Path>,
     ) -> Result<(), LinkerError> {
-        // Auto-discover runtime if not provided
-        let runtime = runtime_path.map(|p| p.to_path_buf()).or_else(find_runtime);
+        // The wasm archive, never the native one: handing an aarch64 `libtrq.a`
+        // to a wasm link is worse than linking without it. Nothing builds
+        // `libtrq_wasm.a` yet, so `None` is the normal outcome and, unlike the
+        // native path, must not be fatal.
+        let runtime = runtime_path
+            .map(|p| p.to_path_buf())
+            .or_else(find_wasm_runtime);
+        if self.verbose {
+            match &runtime {
+                Some(path) => eprintln!("مكتبة وقت التشغيل: {}", path.display()),
+                None => eprintln!("تحذير: لم يتم العثور على {WASM_RUNTIME_LIB}."),
+            }
+        }
 
         if !self.target.is_wasm() {
             return Err(LinkerError::with_code(
@@ -549,71 +566,203 @@ impl std::fmt::Display for LinkerError {
 
 impl std::error::Error for LinkerError {}
 
-/// Finds the Tarqeem runtime library (libtrq.a or trq.lib)
+/// The static runtime archive every native executable links against.
+pub const RUNTIME_LIB: &str = if cfg!(windows) { "trq.lib" } else { "libtrq.a" };
+
+/// The WebAssembly counterpart. Nothing in the workspace builds this yet, so
+/// discovery is expected to come up empty and the wasm link proceeds without it.
+pub const WASM_RUNTIME_LIB: &str = "libtrq_wasm.a";
+
+/// Which archive to look for, and the directory installers nest it under.
+struct RuntimeLayout {
+    lib_name: &'static str,
+    /// `runtime` natively, `runtime/wasm` for the wasm archive.
+    runtime_dir: &'static str,
+    /// Whether `build.rs`'s baked path applies. It names the *native* archive,
+    /// so the wasm search must not consult it.
+    use_baked_path: bool,
+}
+
+const NATIVE_LAYOUT: RuntimeLayout = RuntimeLayout {
+    lib_name: RUNTIME_LIB,
+    runtime_dir: "runtime",
+    use_baked_path: true,
+};
+
+const WASM_LAYOUT: RuntimeLayout = RuntimeLayout {
+    lib_name: WASM_RUNTIME_LIB,
+    runtime_dir: "runtime/wasm",
+    use_baked_path: false,
+};
+
+/// Everything discovery reads from outside the process, gathered up front so
+/// that the ordering itself stays a pure function of its inputs.
+#[derive(Debug, Default, Clone)]
+struct RuntimeEnv {
+    /// `TARQEEM_RUNTIME_PATH` as exported into the running process.
+    explicit: Option<PathBuf>,
+    /// The same variable as `build.rs` baked in. It arrives through
+    /// `cargo:rustc-env`, which feeds `option_env!` and *not* `std::env::var` —
+    /// reading it at runtime is why that priority never fired before (#285).
+    baked: Option<PathBuf>,
+    exe_dir: Option<PathBuf>,
+    manifest_dir: Option<PathBuf>,
+    tarqeem_home: Option<PathBuf>,
+    home_dir: Option<PathBuf>,
+    /// Windows only, but carried unconditionally so `runtime_candidates` stays
+    /// pure on every platform rather than reading the environment under `cfg`.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    local_app_data: Option<PathBuf>,
+}
+
+impl RuntimeEnv {
+    fn current() -> Self {
+        Self {
+            explicit: std::env::var_os("TARQEEM_RUNTIME_PATH").map(PathBuf::from),
+            local_app_data: std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
+            baked: option_env!("TARQEEM_RUNTIME_PATH").map(PathBuf::from),
+            exe_dir: std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(Path::to_path_buf)),
+            manifest_dir: std::env::var_os("CARGO_MANIFEST_DIR").map(PathBuf::from),
+            tarqeem_home: std::env::var_os("TARQEEM_HOME").map(PathBuf::from),
+            home_dir: dirs::home_dir(),
+        }
+    }
+}
+
+/// Every location that may hold the runtime archive, most specific first.
 ///
-/// Search order:
-/// 1. TARQEEM_RUNTIME_PATH environment variable (set by build.rs)
-/// 2. Cargo workspace target directory
-/// 3. TARQEEM_HOME environment variable
-/// 4. Home directory ~/.tarqeem/lib/
-/// 5. System installation /usr/local/lib/tarqeem/
+/// The rule the order encodes: **the archive built alongside this compiler wins
+/// over any installed copy.** `install.sh` and the `Makefile` both tell users to
+/// export `TARQEEM_HOME`, so ranking it first — as this once did — meant a
+/// developer's `cargo build` output was never linked again, and a newly added
+/// runtime symbol read as an undefined-symbol error forever (#285).
+///
+/// Resolving against the executable is what makes one order serve both cases:
+/// `target/release/tarqeem` sits beside `target/release/libtrq.a`, and
+/// `~/.tarqeem/bin/tarqeem` sits beside `../lib/libtrq.a`.
+///
+/// Pure by design — no environment reads and no filesystem probing — so the
+/// precedence can be asserted directly instead of through `set_var`.
+fn runtime_candidates(env: &RuntimeEnv, layout: &RuntimeLayout) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let lib = layout.lib_name;
+
+    if let Some(explicit) = &env.explicit {
+        paths.push(explicit.clone());
+    }
+
+    if let Some(dir) = &env.exe_dir {
+        paths.push(dir.join(lib));
+        paths.push(dir.join(layout.runtime_dir).join(lib));
+        if let Some(parent) = dir.parent() {
+            paths.push(parent.join(layout.runtime_dir).join(lib));
+            paths.push(parent.join("lib").join(lib));
+        }
+    }
+
+    if layout.use_baked_path {
+        if let Some(baked) = &env.baked {
+            paths.push(baked.clone());
+        }
+    }
+
+    // The profile this compiler was built with is the only one whose runtime
+    // matches it; probing `release` first regardless would hand a debug build
+    // the release archive.
+    if let Some(manifest) = &env.manifest_dir {
+        let profile = if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        };
+        paths.push(manifest.join("target").join(profile).join(lib));
+    }
+
+    if let Some(home) = &env.tarqeem_home {
+        paths.push(home.join("lib").join(lib));
+    }
+
+    paths.push(PathBuf::from(layout.runtime_dir).join(lib));
+
+    if let Some(home) = &env.home_dir {
+        paths.push(home.join(".tarqeem").join("lib").join(lib));
+    }
+
+    #[cfg(windows)]
+    {
+        if let Some(local_app_data) = &env.local_app_data {
+            paths.push(local_app_data.join("Tarqeem/lib").join(lib));
+        }
+        paths.push(PathBuf::from("C:/Program Files/Tarqeem/lib").join(lib));
+    }
+    #[cfg(not(windows))]
+    {
+        paths.push(PathBuf::from("/usr/local/lib/tarqeem").join(lib));
+        paths.push(PathBuf::from("/opt/homebrew/lib/tarqeem").join(lib));
+        paths.push(PathBuf::from("/usr/lib/tarqeem").join(lib));
+    }
+
+    // Layouts overlap — an installed tree has `TARQEEM_HOME/lib` and the exe's
+    // `../lib` naming one directory — and a repeat reads as a mistake in the
+    // not-found listing. Keep the first occurrence, which is the higher rank.
+    let mut seen = std::collections::HashSet::new();
+    paths.retain(|path| seen.insert(path.clone()));
+
+    paths
+}
+
+/// The runtime archive, or every path probed for it so a failure can say where
+/// it looked.
+pub fn locate_runtime() -> Result<PathBuf, Vec<PathBuf>> {
+    locate(&NATIVE_LAYOUT)
+}
+
+fn locate(layout: &RuntimeLayout) -> Result<PathBuf, Vec<PathBuf>> {
+    let candidates = runtime_candidates(&RuntimeEnv::current(), layout);
+    match candidates.iter().find(|path| path.exists()) {
+        Some(found) => Ok(found.clone()),
+        None => Err(candidates),
+    }
+}
+
+/// Finds the Tarqeem runtime library (`libtrq.a`, or `trq.lib` on Windows).
 pub fn find_runtime() -> Option<PathBuf> {
-    let lib_name = if cfg!(windows) { "trq.lib" } else { "libtrq.a" };
+    locate_runtime().ok()
+}
 
-    // Priority 1: Build-time environment variable from build.rs
-    if let Ok(path) = std::env::var("TARQEEM_RUNTIME_PATH") {
-        let p = PathBuf::from(&path);
-        if p.exists() {
-            return Some(p);
-        }
-    }
+/// Finds the WebAssembly runtime library.
+pub fn find_wasm_runtime() -> Option<PathBuf> {
+    locate(&WASM_LAYOUT).ok()
+}
 
-    // Priority 2: Cargo target directory (development mode)
-    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        // Try release first, then debug
-        for profile in &["release", "debug"] {
-            let workspace_lib = PathBuf::from(&manifest_dir)
-                .join("target")
-                .join(profile)
-                .join(lib_name);
-            if workspace_lib.exists() {
-                return Some(workspace_lib);
-            }
-        }
-    }
-
-    // Priority 3: TARQEEM_HOME environment variable
-    if let Ok(home) = std::env::var("TARQEEM_HOME") {
-        let p = PathBuf::from(&home).join("lib").join(lib_name);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-
-    // Priority 4: User home directory
-    if let Some(home_dir) = dirs::home_dir() {
-        let p = home_dir.join(".tarqeem").join("lib").join(lib_name);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-
-    // Priority 5: System installation paths
-    let system_paths = if cfg!(windows) {
-        vec![PathBuf::from("C:\\Program Files\\Tarqeem\\lib\\trq.lib")]
-    } else if cfg!(target_os = "macos") {
-        vec![
-            PathBuf::from("/usr/local/lib/tarqeem/libtrq.a"),
-            PathBuf::from("/opt/homebrew/lib/tarqeem/libtrq.a"),
-        ]
+/// Renders the "no runtime anywhere" refusal, naming what was searched.
+///
+/// The archive comes from the separate `tarqeem-runtime` crate, which is not a
+/// default workspace member, so "never built" is the overwhelmingly likely
+/// cause — hence leading with the command that builds it.
+fn runtime_not_found(searched: &[PathBuf]) -> LinkerError {
+    let profile_flag = if cfg!(debug_assertions) {
+        ""
     } else {
-        vec![
-            PathBuf::from("/usr/local/lib/tarqeem/libtrq.a"),
-            PathBuf::from("/usr/lib/tarqeem/libtrq.a"),
-        ]
+        " --release"
     };
+    let listing = searched
+        .iter()
+        .map(|path| format!("  {}", path.display()))
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    system_paths.into_iter().find(|path| path.exists())
+    LinkerError::with_code(
+        format!(
+            "لم يتم العثور على مكتبة وقت التشغيل {RUNTIME_LIB} اللازمة للربط الأصلي.\n\
+             Could not find the runtime library required to link native binaries.\n\
+             المواضع التي بُحث فيها / searched:\n{listing}\n\
+             ابنِها بـ / build it with: cargo build -p tarqeem-runtime{profile_flag}"
+        ),
+        ERR_RUNTIME_NOT_FOUND.to_string(),
+    )
 }
 
 fn find_program(name: &str) -> Option<PathBuf> {
@@ -958,47 +1107,146 @@ mod tests {
         let _ = linker.is_wasm_available();
     }
 
-    #[test]
-    fn test_find_runtime_with_env_var() {
-        // Create temp file to simulate runtime
-        let temp_dir = std::env::temp_dir();
-        let temp_lib = temp_dir.join("test_libtrq.a");
-        std::fs::write(&temp_lib, b"test").unwrap();
-
-        // Save original value if exists
-        let original = std::env::var("TARQEEM_RUNTIME_PATH").ok();
-
-        std::env::set_var("TARQEEM_RUNTIME_PATH", &temp_lib);
-        let result = find_runtime();
-
-        // Restore original value
-        match original {
-            Some(val) => std::env::set_var("TARQEEM_RUNTIME_PATH", val),
-            None => std::env::remove_var("TARQEEM_RUNTIME_PATH"),
+    /// A fully populated environment, so each test can knock out just the one
+    /// input it is about.
+    fn sample_env() -> RuntimeEnv {
+        RuntimeEnv {
+            explicit: Some(PathBuf::from("/explicit/libtrq.a")),
+            baked: Some(PathBuf::from("/checkout/target/release/libtrq.a")),
+            exe_dir: Some(PathBuf::from("/checkout/target/release")),
+            manifest_dir: Some(PathBuf::from("/checkout")),
+            tarqeem_home: Some(PathBuf::from("/home/u/.tarqeem")),
+            home_dir: Some(PathBuf::from("/home/u")),
+            local_app_data: None,
         }
-        std::fs::remove_file(&temp_lib).ok();
+    }
 
-        assert!(result.is_some());
-        assert!(result.unwrap().to_string_lossy().contains("test_libtrq.a"));
+    fn native_candidates(env: &RuntimeEnv) -> Vec<PathBuf> {
+        runtime_candidates(env, &NATIVE_LAYOUT)
+    }
+
+    /// Index of the first candidate whose path ends with `suffix`.
+    fn rank(paths: &[PathBuf], suffix: &str) -> usize {
+        paths
+            .iter()
+            .position(|p| p.to_string_lossy().replace('\\', "/").ends_with(suffix))
+            .unwrap_or_else(|| panic!("{suffix} missing from {paths:?}"))
+    }
+
+    /// The regression this whole ordering exists for (#285): an installed
+    /// archive must never outrank one sitting beside the compiler.
+    #[test]
+    fn dev_build_outranks_every_installed_location() {
+        let paths = native_candidates(&sample_env());
+        let sibling = rank(&paths, "/checkout/target/release/libtrq.a");
+
+        for installed in [
+            "/home/u/.tarqeem/lib/libtrq.a",
+            "/usr/local/lib/tarqeem/libtrq.a",
+        ] {
+            assert!(
+                sibling < rank(&paths, installed),
+                "{installed} outranked the archive beside the executable"
+            );
+        }
+        assert!(sibling < rank(&paths, ".tarqeem/lib/libtrq.a"));
     }
 
     #[test]
-    fn test_find_runtime_nonexistent_env_path() {
-        // Save original value if exists
-        let original = std::env::var("TARQEEM_RUNTIME_PATH").ok();
+    fn explicit_override_outranks_everything() {
+        let paths = native_candidates(&sample_env());
+        assert_eq!(paths.first().unwrap(), &PathBuf::from("/explicit/libtrq.a"));
+    }
 
-        // Set to a path that doesn't exist
-        std::env::set_var("TARQEEM_RUNTIME_PATH", "/nonexistent/path/libtrq.a");
-        let result = find_runtime();
+    /// `TARQEEM_HOME` used to be probed first, which is precisely how a stale
+    /// installed archive shadowed every rebuild.
+    #[test]
+    fn tarqeem_home_does_not_outrank_the_build_tree() {
+        let paths = native_candidates(&sample_env());
+        let home = rank(&paths, "/home/u/.tarqeem/lib/libtrq.a");
+        assert!(rank(&paths, "/checkout/target/release/libtrq.a") < home);
+        assert!(rank(&paths, "/explicit/libtrq.a") < home);
+    }
 
-        // Restore original value
-        match original {
-            Some(val) => std::env::set_var("TARQEEM_RUNTIME_PATH", val),
-            None => std::env::remove_var("TARQEEM_RUNTIME_PATH"),
+    /// An installed binary has no sibling archive; `../lib` is what resolves,
+    /// and it still has to beat `~/.tarqeem` and the system paths.
+    #[test]
+    fn installed_layout_resolves_beside_its_own_executable() {
+        let env = RuntimeEnv {
+            exe_dir: Some(PathBuf::from("/opt/tarqeem/bin")),
+            home_dir: Some(PathBuf::from("/home/u")),
+            ..Default::default()
+        };
+        let paths = native_candidates(&env);
+        assert!(
+            rank(&paths, "/opt/tarqeem/lib/libtrq.a")
+                < rank(&paths, "/home/u/.tarqeem/lib/libtrq.a")
+        );
+    }
+
+    /// Probing `release` before `debug` regardless of build would hand a debug
+    /// compiler the release runtime.
+    #[test]
+    fn target_dir_follows_this_binarys_profile() {
+        let env = RuntimeEnv {
+            manifest_dir: Some(PathBuf::from("/checkout")),
+            ..Default::default()
+        };
+        let (matching, other) = if cfg!(debug_assertions) {
+            (
+                "/checkout/target/debug/libtrq.a",
+                "/checkout/target/release/libtrq.a",
+            )
+        } else {
+            (
+                "/checkout/target/release/libtrq.a",
+                "/checkout/target/debug/libtrq.a",
+            )
+        };
+        let paths = native_candidates(&env);
+        rank(&paths, matching);
+        assert!(
+            !paths.iter().any(|p| p.to_string_lossy() == other),
+            "the other profile's runtime must not be a candidate"
+        );
+    }
+
+    /// Locations the CLI copy searched before the merge; dropping any of them
+    /// would break a layout someone relies on — CI's compiled-examples job
+    /// depends on the CWD entry.
+    #[test]
+    fn merge_kept_every_previously_searched_location() {
+        let paths = native_candidates(&sample_env());
+        for kept in [
+            "/checkout/target/release/runtime/libtrq.a",
+            "/checkout/target/runtime/libtrq.a",
+            "/checkout/target/lib/libtrq.a",
+            "runtime/libtrq.a",
+            "/home/u/.tarqeem/lib/libtrq.a",
+        ] {
+            rank(&paths, kept);
         }
+    }
 
-        // Should fall through to other discovery methods (or return None if nothing found)
-        // We can't assert specific behavior since it depends on system state
-        let _ = result;
+    /// `build.rs` bakes in the path of the *native* archive.
+    #[test]
+    fn wasm_search_ignores_the_baked_native_path() {
+        let paths = runtime_candidates(&sample_env(), &WASM_LAYOUT);
+        assert!(paths
+            .iter()
+            .all(|p| !p.ends_with("target/release/libtrq.a")));
+        assert!(paths.iter().all(|p| {
+            p.file_name().is_none_or(|n| n == WASM_RUNTIME_LIB)
+                || p == &PathBuf::from("/explicit/libtrq.a")
+        }));
+        rank(&paths, "runtime/wasm/libtrq_wasm.a");
+    }
+
+    #[test]
+    fn missing_runtime_error_names_the_code_and_the_fix() {
+        let err = runtime_not_found(&[PathBuf::from("/a/libtrq.a")]);
+        assert_eq!(err.code.as_deref(), Some("ت٠١٠٢"));
+        assert!(err.message.contains("/a/libtrq.a"));
+        assert!(err.message.contains("cargo build -p tarqeem-runtime"));
     }
 }
