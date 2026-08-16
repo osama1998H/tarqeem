@@ -65,18 +65,28 @@ fn ensure_runtime_library() {
     }
 }
 
+/// The profile this test binary was built with — the only one whose runtime
+/// matches the compiler under test. Since #285 the compiler probes only its own
+/// profile, so accepting either here could skip building the archive the link
+/// actually needs.
+fn test_profile() -> &'static str {
+    if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    }
+}
+
 fn runtime_library_present() -> bool {
     if std::env::var("TARQEEM_RUNTIME_PATH").is_ok_and(|path| Path::new(&path).exists()) {
         return true;
     }
 
-    ["release", "debug"].iter().any(|profile| {
-        project_root()
-            .join("target")
-            .join(profile)
-            .join(RUNTIME_LIB)
-            .exists()
-    })
+    project_root()
+        .join("target")
+        .join(test_profile())
+        .join(RUNTIME_LIB)
+        .exists()
 }
 
 fn build_runtime_library() -> Result<(), String> {
@@ -84,14 +94,9 @@ fn build_runtime_library() -> Result<(), String> {
         return Ok(());
     }
 
-    let profile = if cfg!(debug_assertions) {
-        "debug"
-    } else {
-        "release"
-    };
     let expected = project_root()
         .join("target")
-        .join(profile)
+        .join(test_profile())
         .join(RUNTIME_LIB);
 
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());

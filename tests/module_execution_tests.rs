@@ -70,25 +70,35 @@ fn ensure_runtime_library() {
     }
 }
 
-/// The two `find_runtime` priorities a `cargo test` run can count on:
-/// `TARQEEM_RUNTIME_PATH` (exported by `build.rs`, and stale often enough to
-/// need the existence check) and the workspace target directory, release first.
+/// The profile this test binary was built with — the only one whose runtime
+/// matches the compiler under test.
+fn test_profile() -> &'static str {
+    if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    }
+}
+
+/// Deliberately this profile only. Accepting `target/release/libtrq.a` under a
+/// debug `cargo test` used to look harmless, because the compiler probed
+/// release first too. Since #285 it probes only its own profile, so the lax
+/// check could see a release archive, skip building the debug one, and leave
+/// the link to fall through to whatever sits in `~/.tarqeem/lib` — passing
+/// against a runtime that is not from this checkout.
 ///
-/// `TARQEEM_HOME` and `~/.tarqeem/lib` are deliberately *not* consulted. They
-/// hold whatever runtime was installed last, which need not match this
-/// checkout, and the fixtures scrub or repoint `TARQEEM_HOME` anyway.
+/// `TARQEEM_HOME` and `~/.tarqeem/lib` are deliberately *not* consulted here for
+/// the same reason, and the fixtures scrub or repoint `TARQEEM_HOME` anyway.
 fn runtime_library_present() -> bool {
     if std::env::var("TARQEEM_RUNTIME_PATH").is_ok_and(|path| Path::new(&path).exists()) {
         return true;
     }
 
-    ["release", "debug"].iter().any(|profile| {
-        project_root()
-            .join("target")
-            .join(profile)
-            .join(RUNTIME_LIB)
-            .exists()
-    })
+    project_root()
+        .join("target")
+        .join(test_profile())
+        .join(RUNTIME_LIB)
+        .exists()
 }
 
 /// Builds `tarqeem-runtime` into the profile this test binary was built with,
@@ -98,14 +108,9 @@ fn build_runtime_library() -> Result<(), String> {
         return Ok(());
     }
 
-    let profile = if cfg!(debug_assertions) {
-        "debug"
-    } else {
-        "release"
-    };
     let expected = project_root()
         .join("target")
-        .join(profile)
+        .join(test_profile())
         .join(RUNTIME_LIB);
 
     eprintln!(

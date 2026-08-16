@@ -2337,6 +2337,12 @@ Two traps for the next person touching this:
   stale `~/.tarqeem/lib/libtrq.a`. A new runtime symbol then reads as
   `Undefined symbols: _trq_…` no matter how often you rebuild. Tests must stage
   the archive where the CLI looks; `builtins_execution_tests.rs` does.
+
+  > **Resolved 2026-08-17 (#285).** There is now one `find_runtime`, in
+  > `codegen::linker`, and it prefers the archive beside the compiler over any
+  > installed copy. The staging this recommended has been deleted from
+  > `builtins_execution_tests.rs`; building the runtime is enough.
+  > `tarqeem compile -v` names the archive chosen.
 - **`nm -g` reads the release archive as empty** — `lto = true` leaves bitcode
   members. Check symbols against a debug build of the runtime.
 
