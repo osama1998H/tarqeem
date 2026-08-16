@@ -39,7 +39,7 @@ insertion point — the mechanism `مجموعات` and the `استثناء` prel
 
 | | |
 |---|---|
-| Declared names today | 184 in `Scope` (19 core + 165 across 7 modules), plus ~40 more reachable only through the codegen mangle map |
+| Declared names today | 185 in `Scope` (20 core + 165 across 7 modules), plus ~40 more reachable only through the codegen mangle map |
 | **Final primitive registry** | **40 names** |
 | Migrated to self-hosted Tarqeem | ~150 names across 9 stdlib modules |
 | Dropped (alias collapse) | 26 |
@@ -467,14 +467,20 @@ Not a migration. See §7. Nothing below may start until items B1-B5 are done.
 
 ### 6.1 Increment A — the seven bitwise primitives
 
-**Progress: 1 of 7 landed.** `بتات_و` (#302) — `Scope` entry plus a
-`build_core_builtin_call` arm emitting `BinaryOp::BitAnd` over `IrType::Int`. The two-file
-cost estimate below held exactly: no `runtime-rs` work, no runtime symbol, no interpreter or
-debug-interpreter arm (an intercepted builtin emits no `Call`), and no
-`register_builtin_return_types` entry (`var_types` carries `Int` directly). Verified in all
-four executing backends — interpreter, JIT, native, and the DAP debug interpreter. The
-remaining six follow the same shape; only `بتات_إزاحة_يمين_منطقية` composes rather than
-emitting one op.
+**Progress: 2 of 7 landed.** `بتات_و` (#302) and `بتات_أو` (#306) — a `Scope` entry each
+plus one shared `build_core_builtin_call` arm emitting `BinaryOp::BitAnd` / `BinaryOp::BitOr`
+over `IrType::Int`. The two-file cost estimate below held exactly, twice: no `runtime-rs`
+work, no runtime symbol, no interpreter or debug-interpreter arm (an intercepted builtin
+emits no `Call`), and no `register_builtin_return_types` entry (`var_types` carries `Int`
+directly). Both verified in all four executing backends — interpreter, JIT, native, and the
+DAP debug interpreter. The remaining five follow the same shape; only
+`بتات_إزاحة_يمين_منطقية` composes rather than emitting one op.
+
+One caveat found while landing #302 and confirmed unchanged by #306: an intercepted builtin
+**segfaults natively as an element of an array literal** (#304). It predates both — the same
+call in any other position is correct in every backend, and `طول_مصفوفة` reproduces it — so
+it gates nothing here, but self-hosted stdlib written on these primitives must avoid that
+shape until it is fixed.
 
 **Why first:** highest ratio of unblocking to risk in the whole plan. Two files
 (`scope.rs` + `expr_builder.rs`), zero backend work, zero `runtime-rs` work, zero migration — the IR
