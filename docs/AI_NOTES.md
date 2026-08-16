@@ -2574,3 +2574,66 @@ those choices are now the contract: weekday 0 = الأحد, ISO-8601 weeks, Arab
 `DDD`/`MMM`, `i64::MIN` for impossible dates, epoch milliseconds for both clocks.
 The WASM/JS shim disagrees on the last one (`performance.now()` is page-load
 relative), in the family of #288.
+
+---
+
+## Builtin / stdlib boundary — Phase 1+2 (research and plan only)
+
+Branch `feature/builtins-stdlib-boundary`. Two documents, no code changes:
+[`builtins-inventory.md`](builtins-inventory.md) (census) and
+[`builtins-vs-stdlib.md`](builtins-vs-stdlib.md) (the boundary decision).
+
+### Why the census had to come first
+
+The "builtin count" was ambiguous until the two planes were separated. `runtime-rs`
+exports 218 symbols, but 22 are ABI plumbing the compiler emits for ordinary
+operators and allocation, and 28 have no caller at all. Counting those as builtins
+doubles the apparent surface and makes any target size meaningless. The
+language-visible surface is 183 declared names; the runtime symbols reachable from
+one are 154.
+
+### The finding that set the plan's shape
+
+`استورد … من "رياضيات"` never touches disk — `stmt_analyzer.rs:1122-1128`
+short-circuits 7 specifiers to the native table and `modules.rs:299` skips loading
+them. But `مجموعات` genuinely loads from disk and type-checks, and the `استثناء`
+prelude injects an AST-backed declaration visible with no import across all three
+backends. So the loader and the no-import mechanism both already exist; this is a
+migration between two live paths, not new infrastructure.
+
+Empirically (probe, Phase 2): the *same* computation segfaults natively when routed
+through the builtin table and returns the correct answer on all three backends when
+its body is Tarqeem source in a disk module. Migration *fixes* #185 per name moved,
+and closes the 78-name interpreter hole for free.
+
+### Decisions recorded so they are not relitigated
+
+- **`اطبع` cannot become a stdlib wrapper over an fd-write primitive**, which the
+  task specification assumed. Three independent blockers: native codegen refuses any
+  user function with an `أي` parameter (ت٠٣٠١); `نوع` folds at build time and cannot
+  dispatch; generic *free functions* do not parse. The escapes are a value-representation
+  change or a syntax change, both forbidden. `اطبع`, `اطبع_خطأ`, `نص`, `منطقي`, `عدد`,
+  `عدد_عشري`, `نوع` stay compiler intrinsics. Corollary: no alias of an `أي`-signature
+  builtin can be demoted to a wrapper — those are keep-or-remove, never wrap.
+- **Category 1 and 5 of the target surface are legitimately zero.** Object construction
+  is syntax; reference identity already works (`==` on objects compares identity, verified);
+  maps are not a runtime type (`IrType` has no map variant) and are already self-hosted.
+- **Bitwise arrives as functions, not operators**, because the refactor may not change
+  syntax. The IR variants (`BitAnd`/`BitOr`/`BitXor`/`BitNot`/`Shl`/`Shr`) already exist
+  with arms in the interpreter, debug interpreter, both JIT tiers, LLVM codegen and the
+  const folder — only the frontend is missing, so seven primitives cost two files.
+- **A stdlib function may never wrap a still-registered builtin of the same name.**
+  It self-recurses; the native binary compiles clean and then segfaults with no
+  diagnostic. Delete the registration in the same commit that defines the replacement.
+- **Prelude tier ≠ builtin tier.** Builtins are shadowable (#262); prelude and module
+  names collide fatally (ص٠٦٠٢ / و٠١٠١). Moving a no-import name to the prelude would
+  turn documented working shadowing into a compile error, so no name moves until
+  `linker.rs` learns to treat prelude-origin declarations as displaceable.
+
+### Blockers found that are not part of this refactor
+
+Generic type-parameter substitution is broken (`جديد قائمة<عدد>()` does not bind `ن`;
+same failure for a locally declared generic and with an explicit annotation), and merely
+*importing* a module containing a generic class breaks native codegen with an unsized
+`%class.__anonymous__`. Together these mean `مجموعات` is importable but unusable, which
+contradicts the assumption that it is in production use. Both need issues.
