@@ -32,3 +32,6 @@ mod executor_tests;
 pub use error::{ErrorKind, RuntimeError, RuntimeResult};
 pub use executor::Interpreter;
 pub use value::Value;
+
+/// Shared with the debug interpreter so both time builtins agree (#241).
+pub(crate) use executor::builtins::epoch_millis;

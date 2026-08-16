@@ -3,7 +3,7 @@
 //! This module implements the IR interpreter that executes Tarqeem programs
 //! by walking through IR instructions and maintaining execution state.
 
-mod builtins;
+pub(crate) mod builtins;
 
 use std::collections::HashMap;
 use std::io::{self, Write};

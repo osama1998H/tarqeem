@@ -962,3 +962,66 @@ fn test_every_core_builtin_agrees_across_backends() {
 fn test_halt_builtin_aborts_in_every_backend() {
     assert_fails("توقف_مباشر", "توقف(\"انتهى\")\nاطبع(\"لا ينبغي طباعته\")");
 }
+
+/// The two `وقت` builtins read a clock, so their value cannot be pinned the way
+/// `assert_prints` requires. Assert the shape instead: one line holding a
+/// positive integer of epoch-millisecond magnitude.
+///
+/// Both were declared by codegen with nothing defining them, so every program
+/// importing either failed to link (#241). The range below is what makes this a
+/// real assertion — it rejects the `0` a stubbed call yields and the huge value
+/// a pointer printed as an integer would give, which is how the missing IR
+/// return type would have surfaced.
+///
+/// Two backends, not four, and neither omission is an oversight:
+/// - **JIT** stubs every call to the constant `0` (#262), so it would assert
+///   nothing here.
+/// - **`tarqeem debug`** has no leg in this harness; it launches a DAP server
+///   rather than running to completion. The debug interpreter's own copy of
+///   these builtins is covered by a unit test beside it.
+#[test]
+fn test_time_builtins_read_a_real_clock_in_interpreter_and_native() {
+    // Wide enough never to expire in practice (through the year 5138), tight
+    // enough that a pointer, a zero, or a byte count all fall outside.
+    const PLAUSIBLE_MILLIS: std::ops::Range<i64> = 1_000_000_000_000..100_000_000_000_000;
+
+    for name in ["وقت_الآن", "وقت_أداء"] {
+        let temp = TempDir::new().unwrap();
+        let main = write_program(
+            temp.path(),
+            "ساعة",
+            &format!("استورد {{ {name} }} من \"وقت\"\nاطبع({name}())"),
+        );
+
+        for backend in [Backend::Interpreter, Backend::Native] {
+            let output = execute(backend, &main, &format!("ساعة_{backend:?}"));
+
+            assert!(
+                output.succeeded(),
+                "فشل تنفيذ {name} [{backend:?}]\n{}",
+                output.report()
+            );
+
+            let lines = output.lines();
+            assert_eq!(
+                lines.len(),
+                1,
+                "توقّعنا سطراً واحداً من {name} [{backend:?}]\n{}",
+                output.report()
+            );
+
+            let millis: i64 = lines[0].parse().unwrap_or_else(|_| {
+                panic!(
+                    "لم يُرجع {name} عدداً [{backend:?}]: {:?}\n{}",
+                    lines[0],
+                    output.report()
+                )
+            });
+            assert!(
+                PLAUSIBLE_MILLIS.contains(&millis),
+                "{name} أرجع {millis} [{backend:?}]، وهو ليس توقيتاً بالميلي ثانية\n{}",
+                output.report()
+            );
+        }
+    }
+}

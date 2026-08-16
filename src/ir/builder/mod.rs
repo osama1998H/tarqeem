@@ -307,6 +307,32 @@ impl IrBuilder {
             .insert("اقرأ_سطر".to_string(), IrType::String);
         self.function_return_types
             .insert("read_line".to_string(), IrType::String);
+
+        // Date/time and base64 builtins (#241). Registering these is not
+        // optional: defining the runtime symbols without a return type would
+        // trade the link error for exactly the `جذر` segfault described above.
+        for name in [
+            "وقت_الآن",
+            "وقت_أداء",
+            "يوم_الأسبوع",
+            "يوم_السنة",
+            "رقم_الأسبوع",
+            "أيام_الشهر",
+            "فرق_أيام",
+        ] {
+            self.function_return_types
+                .insert(name.to_string(), IrType::Int);
+        }
+        for name in [
+            "نسّق_تاريخ",
+            "نسّق_وقت",
+            "نسّق_تاريخ_ووقت",
+            "ترميز_أساس64",
+            "فك_أساس64",
+        ] {
+            self.function_return_types
+                .insert(name.to_string(), IrType::String);
+        }
     }
 
     /// Build IR from an AST for an executable program.

@@ -2,12 +2,13 @@
 
 use std::io::{self, Write};
 
+use crate::interpreter::epoch_millis;
 use crate::interpreter::{RuntimeError, RuntimeResult, Value};
 
 use super::DebugInterpreter;
 
 impl DebugInterpreter {
-    pub(crate) fn is_builtin(&self, name: &str) -> bool {
+    pub(crate) fn is_builtin(name: &str) -> bool {
         matches!(
             name,
             "اطبع"
@@ -39,11 +40,17 @@ impl DebugInterpreter {
                 | "trq_int_to_string"
                 | "trq_float_to_string"
                 | "trq_bool_to_string"
+                // Stdlib time builtins. Absent here, stepping through
+                // `وقت_أداء()` aborted while every other backend ran it (#241).
+                | "وقت_الآن"
+                | "وقت_أداء"
         )
     }
 
     pub(crate) fn call_builtin(&mut self, name: &str, args: Vec<Value>) -> RuntimeResult<Value> {
         match name {
+            "وقت_الآن" | "وقت_أداء" => Ok(Value::Int(epoch_millis())),
+
             "اطبع" => {
                 let output = args
                     .iter()
@@ -295,5 +302,37 @@ impl DebugInterpreter {
 
             _ => Err(RuntimeError::undefined_function(name)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The debug interpreter is the fourth backend and the one that silently
+    /// falls behind (#223): `tests/builtins_execution_tests.rs` has no `debug`
+    /// leg, so nothing else here would notice these going missing again (#241).
+    ///
+    /// `is_builtin` and the `call_builtin` match are separate lists, and a name
+    /// present in one but not the other still fails at run time, so both are
+    /// checked.
+    #[test]
+    fn test_time_builtins_are_dispatchable() {
+        for name in ["وقت_الآن", "وقت_أداء"] {
+            assert!(
+                DebugInterpreter::is_builtin(name),
+                "{name} غير مُعرَّف كدالة مدمجة في مفسّر التنقيح"
+            );
+        }
+    }
+
+    #[test]
+    fn test_time_builtins_share_the_interpreter_clock() {
+        // Same helper the main interpreter calls, so the two cannot drift.
+        let millis = epoch_millis();
+        assert!(
+            millis > 1_000_000_000_000,
+            "التوقيت {millis} ليس بالميلي ثانية منذ ١٩٧٠"
+        );
     }
 }

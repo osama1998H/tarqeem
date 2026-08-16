@@ -16,6 +16,18 @@ use sha2::{Digest, Sha256};
 
 use super::{Interpreter, RuntimeError, RuntimeResult, Value};
 
+/// Milliseconds since the UNIX epoch, backing both `وقت_الآن` and `وقت_أداء`.
+///
+/// Shared with the debug interpreter so the two registries cannot drift; the
+/// native runtime mirrors it in `runtime-rs/src/runtime.rs` (#241).
+pub(crate) fn epoch_millis() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 /// Convert a Value to a byte (0-255) with range validation.
 fn value_to_byte(v: &Value) -> Result<u8, RuntimeError> {
     let i = v
@@ -912,14 +924,7 @@ impl Interpreter {
                 Ok(Value::Null)
             }
 
-            "وقت_الآن" | "وقت_أداء" => {
-                use std::time::{SystemTime, UNIX_EPOCH};
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(0);
-                Ok(Value::Int(now))
-            }
+            "وقت_الآن" | "وقت_أداء" => Ok(Value::Int(epoch_millis())),
 
             "ادخل_رسالة" => {
                 let prompt = args

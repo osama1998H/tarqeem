@@ -55,6 +55,7 @@
 pub mod array;
 pub mod compress;
 pub mod crypto;
+pub mod date;
 mod helpers; // Internal helpers (not re-exported)
 pub mod io;
 pub mod math;
@@ -210,7 +211,7 @@ pub use math::{
 // Re-export all runtime functions
 pub use runtime::{
     trq_abort, trq_assert, trq_debug, trq_env_get, trq_env_remove, trq_env_set, trq_panic,
-    trq_runtime_cleanup, trq_runtime_init, trq_version,
+    trq_performance_now, trq_runtime_cleanup, trq_runtime_init, trq_time_now, trq_version,
 };
 
 // Re-export all network functions
@@ -251,6 +252,9 @@ pub use network::{
 
 // Re-export all crypto functions
 pub use crypto::{
+    // Base64 encoding functions (2)
+    trq_base64_decode,
+    trq_base64_encode,
     // Hex encoding functions (4)
     trq_hex_decode,
     trq_hex_decode_to_bytes,
@@ -261,6 +265,12 @@ pub use crypto::{
     trq_sha256_compare,
     trq_sha256_file,
     trq_sha256_string,
+};
+
+// Re-export all date/time functions (8)
+pub use date::{
+    trq_date_diff_days, trq_date_format, trq_datetime_format, trq_day_of_week, trq_day_of_year,
+    trq_days_in_month, trq_time_format, trq_week_number, INVALID,
 };
 
 // Re-export all compression functions
