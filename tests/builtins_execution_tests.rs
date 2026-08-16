@@ -696,19 +696,20 @@ fn test_array_push_builtin_works_in_every_backend() {
 }
 
 // ---------------------------------------------------------------------------
-// Shadowing — a builtin name resolves to the builtin, in every backend
+// Shadowing — an imported name resolves to the import, in every backend
 // ---------------------------------------------------------------------------
 
-/// A core builtin wins over a same-named imported function, consistently.
+/// A same-named imported function wins over a core builtin, consistently.
 ///
-/// This is not an endorsement of the rule — whether a user should be able to
-/// shadow a builtin is #262's question, and the semantic layer already rejects a
-/// *top-level* redefinition outright. What matters here is that all three
-/// backends answer the same way: the interpreter consults `is_builtin` before
-/// user functions, so lowering that let native bind the user's function instead
-/// would print a different answer natively than interpreted.
+/// This asserted the opposite until #262 was decided: imported names are tier 4
+/// and builtins tier 5, so the import shadows. What has not changed is the part
+/// that matters most — all three backends must answer the same way. The
+/// interpreter consults `is_builtin` before user functions, so a lowering that
+/// let only native bind the user's function would print a different answer
+/// natively than interpreted, which is how the first attempt at shadowing was
+/// caught and reverted.
 #[test]
-fn test_builtin_wins_over_a_same_named_import_in_every_backend() {
+fn test_an_import_shadows_a_same_named_builtin_in_every_backend() {
     let temp = TempDir::new().unwrap();
     let dir = temp.path();
 
@@ -732,8 +733,109 @@ fn test_builtin_wins_over_a_same_named_import_in_every_backend() {
         );
         assert_eq!(
             output.lines(),
-            ["عدد"],
-            "الدالة الأساسية يجب أن تفوز في كل الخلفيات [{backend:?}]\n{}",
+            ["خاصتي"],
+            "الدالة المستوردة يجب أن تظلّل المدمجة في كل الخلفيات [{backend:?}]\n{}",
+            output.report()
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A user function shadows a same-named builtin (#262, and #257 as a side effect)
+// ---------------------------------------------------------------------------
+
+/// A user's function wins over a same-named runtime builtin, in every backend.
+///
+/// `مطلق` is registered only on `استورد … من "رياضيات"`, so the semantic layer
+/// always accepted the declaration — and codegen then applied
+/// `get_runtime_function_name` to the *definition* as well as the call,
+/// emitting `define @trq_abs_float` into a module that already carried
+/// `declare @trq_abs_float`. LLVM rejected that pair while parsing the IR, so
+/// the user saw a clang error naming a C symbol they never wrote (#257). Under
+/// the shadowing rule the definition keeps its own mangled symbol, so the
+/// collision cannot arise.
+///
+/// The body returns a constant rather than an absolute value on purpose. #257
+/// reported this program as working under `run` because `مطلق(-٥)` and `|−5|`
+/// both give `5` — a fixture that cannot tell which function ran. `٩٩٩` can.
+#[test]
+fn test_a_user_function_shadows_a_same_named_builtin_in_every_backend() {
+    assert_prints(
+        "تظليل_مطلق",
+        "دالة مطلق(س: عدد) -> عدد {\n    أرجع ٩٩٩\n}\nاطبع(مطلق(-٥))",
+        &["999"],
+    );
+}
+
+/// The same shape on a second name, so the rule cannot pass by way of one lucky
+/// entry in a 197-name table.
+#[test]
+fn test_a_second_shadowed_builtin_name_behaves_the_same() {
+    assert_prints(
+        "تظليل_قاسم",
+        "دالة قاسم_مشترك(أ: عدد، ب: عدد) -> عدد {\n    أرجع ٧٧٧\n}\nاطبع(قاسم_مشترك(١٢، ١٨))",
+        &["777"],
+    );
+}
+
+/// A *core* builtin — one pre-registered into the global scope — is shadowable
+/// too.
+///
+/// This is the half that no backend change alone can deliver: `دالة طول(…)` was
+/// a hard `د٠١٠١ معرّف مسبقاً` at hoist time (#262), because
+/// `register_core_builtins` defines the 18 core names as ordinary global
+/// symbols and `Scope::define` refuses a duplicate. So this fixture proves the
+/// semantic half landed, and the differing signature (`نص` in, not `أي`) proves
+/// the call type-checks against the user's declaration.
+#[test]
+fn test_a_core_builtin_is_shadowable_in_every_backend() {
+    assert_prints(
+        "تظليل_طول",
+        "دالة طول(س: نص) -> عدد {\n    أرجع ٤٢\n}\nاطبع(طول(\"مرحبا\"))",
+        &["42"],
+    );
+}
+
+/// Shadowing reached through an import — tier 4 beating tier 5.
+///
+/// This is how the rule bites a *shipped* module rather than a hand-written
+/// program: `stdlib/طرفية/اساسي.ترقيم` exports `اطبع`, and `طرفية` is not in
+/// `get_stdlib_modules()`, so it loads from disk and its declarations are
+/// merged into the main AST by `semantic::linker`. Before this change the
+/// import was silently dropped (`Scope::define` returned `false` and every
+/// caller discarded it) and the builtin kept winning.
+#[test]
+fn test_an_imported_function_shadows_a_builtin_in_every_backend() {
+    let temp = TempDir::new().unwrap();
+    let dir = temp.path();
+
+    write_program(
+        dir,
+        "وحدة_تظليل",
+        "صدّر دالة قاسم_مشترك(أ: عدد، ب: عدد) -> عدد {\n    أرجع ٧٧٧\n}",
+    );
+    let main = write_program(
+        dir,
+        "رئيسي_تظليل_مستورد",
+        "استورد { قاسم_مشترك } من \"./وحدة_تظليل\"\nاطبع(قاسم_مشترك(١٢، ١٨))",
+    );
+
+    for backend in Backend::ALL {
+        let output = execute(backend, &main, &format!("تظليل_مستورد_{backend:?}"));
+        assert!(
+            !output.compile_failed,
+            "توقّعنا ترجمة ناجحة [{backend:?}]\n{}",
+            output.report()
+        );
+        assert!(
+            output.succeeded(),
+            "فشل التنفيذ [{backend:?}]\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.lines(),
+            ["777"],
+            "الدالة المستوردة يجب أن تظلّل المدمجة في كل الخلفيات [{backend:?}]\n{}",
             output.report()
         );
     }

@@ -9,7 +9,7 @@ use crate::ir::{
     BasicBlock, BinaryOp, BlockId, Class, ClassId, Constant, Function, Instruction, IrType, Module,
     UnaryOp, VarId,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 
 /// Struct slots a declared class reserves before its first field: the dispatch
@@ -73,6 +73,13 @@ pub struct LlvmCodegen {
     /// explicitly; native codegen must call it from `__main__`'s prologue
     /// itself, or arrays/objects assigned to globals stay null.
     has_global_init: bool,
+    /// Names the program declares as functions. A declared name keeps its own
+    /// mangled symbol instead of adopting the runtime's, because built-ins are
+    /// the last tier of the lookup order (#262). Without it a user's `مطلق` is
+    /// *defined* as `@trq_abs_float`, which `emit_runtime_declarations` has
+    /// already declared — an invalid redefinition LLVM rejects while parsing
+    /// the IR (#257).
+    user_function_names: HashSet<String>,
 }
 
 impl LlvmCodegen {
@@ -99,12 +106,16 @@ impl LlvmCodegen {
             global_optional_inits: Vec::new(),
             global_types: HashMap::new(),
             has_global_init: false,
+            user_function_names: HashSet::new(),
         }
     }
 
     pub fn generate(&mut self, module: &Module) -> Result<String, CodegenError> {
         self.output.clear();
         self.has_global_init = module.functions.iter().any(|f| f.name == "__global_init__");
+        // Must precede every `mangle_function_name` call below, definitions and
+        // call sites alike, or the two disagree about one name.
+        self.user_function_names = module.functions.iter().map(|f| f.id.0.clone()).collect();
 
         self.emit_header(&module.name)?;
 
@@ -133,7 +144,7 @@ impl LlvmCodegen {
 
         for func in &module.functions {
             self.fn_param_types.insert(
-                mangle_function_name(&func.id.0),
+                mangle_function_name(&func.id.0, &self.user_function_names),
                 func.params.iter().map(|p| p.ty.clone()).collect(),
             );
         }
@@ -306,7 +317,9 @@ impl LlvmCodegen {
                     }
                 }
                 Some(Constant::Null) => "null".to_string(),
-                Some(Constant::Function(name)) => format!("@{}", mangle_function_name(name)),
+                Some(Constant::Function(name)) => {
+                    format!("@{}", mangle_function_name(name, &self.user_function_names))
+                }
                 Some(Constant::String(idx)) => {
                     // String globals store TrqString*, initialized at program start
                     // Store the init info for emit_global_string_init() to handle
@@ -647,7 +660,10 @@ impl LlvmCodegen {
             .vtable
             .iter()
             .map(|method| {
-                let symbol = mangle_function_name(&format!("{}::{}", method.class.0, method.name));
+                let symbol = mangle_function_name(
+                    &format!("{}::{}", method.class.0, method.name),
+                    &self.user_function_names,
+                );
                 format!("ptr @{}", symbol)
             })
             .collect();
@@ -939,7 +955,7 @@ impl LlvmCodegen {
         self.block_map.clear();
         self.name_counter = 0;
 
-        let func_name = mangle_function_name(&func.id.0);
+        let func_name = mangle_function_name(&func.id.0, &self.user_function_names);
         self.current_func = Some(func_name.clone());
         self.current_return_type = func.return_type.clone();
 
@@ -1263,7 +1279,7 @@ impl LlvmCodegen {
                 args,
                 ret_ty,
             } => {
-                let func_name = mangle_function_name(&func.0);
+                let func_name = mangle_function_name(&func.0, &self.user_function_names);
 
                 // The callee's declared parameter types, where known: an argument
                 // otherwise describes itself, which is wrong for a `عدد?`
@@ -1564,7 +1580,10 @@ impl LlvmCodegen {
                     }
                     None => format!(
                         "@{}",
-                        mangle_function_name(&format!("{}::{}", method.class.0, method.name))
+                        mangle_function_name(
+                            &format!("{}::{}", method.class.0, method.name),
+                            &self.user_function_names,
+                        )
                     ),
                 };
 
@@ -1572,13 +1591,11 @@ impl LlvmCodegen {
                 // the argument at `i` is declared at `i + 1`. Without this, a
                 // method taking `س: عدد?` called as `م.افحص(0)` receives a raw
                 // scalar in a pointer slot (#185).
-                let declared_params = self
-                    .fn_param_types
-                    .get(&mangle_function_name(&format!(
-                        "{}::{}",
-                        method.class.0, method.name
-                    )))
-                    .cloned();
+                let method_symbol = mangle_function_name(
+                    &format!("{}::{}", method.class.0, method.name),
+                    &self.user_function_names,
+                );
+                let declared_params = self.fn_param_types.get(&method_symbol).cloned();
 
                 let mut all_args = vec![format!("ptr {}", obj_name)];
                 for (i, arg) in args.iter().enumerate() {
@@ -2185,7 +2202,7 @@ impl LlvmCodegen {
                 emit!(self, "  {} = bitcast ptr null to ptr", dest_name);
             }
             Constant::Function(name) => {
-                let mangled = mangle_function_name(name);
+                let mangled = mangle_function_name(name, &self.user_function_names);
                 emit!(self, "  {} = bitcast ptr @{} to ptr", dest_name, mangled);
             }
             Constant::Bool(b) => {
@@ -2800,9 +2817,17 @@ impl std::fmt::Display for CodegenError {
 
 impl std::error::Error for CodegenError {}
 
-fn mangle_function_name(name: &str) -> String {
-    if let Some(runtime_name) = get_runtime_function_name(name) {
-        return runtime_name.to_string();
+/// The LLVM symbol a function name is emitted under.
+///
+/// `user_functions` is every name the program declares. A declared name keeps
+/// its own mangled symbol; only an undeclared one falls through to the runtime
+/// table. Applying the table to a *definition* is what made a user's `مطلق`
+/// collide with the `declare @trq_abs_float` above it (#257).
+fn mangle_function_name(name: &str, user_functions: &HashSet<String>) -> String {
+    if !user_functions.contains(name) {
+        if let Some(runtime_name) = get_runtime_function_name(name) {
+            return runtime_name.to_string();
+        }
     }
     mangle_name(name)
 }
@@ -3076,13 +3101,32 @@ mod tests {
 
     #[test]
     fn test_mangle_function_name() {
-        assert_eq!(mangle_function_name("main"), "main");
-        assert_eq!(mangle_function_name("add_numbers"), "add_numbers");
-        assert_eq!(mangle_function_name("اطبع"), "trq_print");
-        assert_eq!(mangle_function_name("طباعة"), "trq_print");
-        let mangled = mangle_function_name("دالتي");
+        let none = HashSet::new();
+        assert_eq!(mangle_function_name("main", &none), "main");
+        assert_eq!(mangle_function_name("add_numbers", &none), "add_numbers");
+        assert_eq!(mangle_function_name("اطبع", &none), "trq_print");
+        assert_eq!(mangle_function_name("طباعة", &none), "trq_print");
+        let mangled = mangle_function_name("دالتي", &none);
         assert!(!mangled.contains("دالتي"));
         assert!(mangled.contains("_U"));
+    }
+
+    /// A name the program declares keeps its own symbol, so the definition can
+    /// never collide with the `declare @trq_*` emitted for the same name (#257).
+    #[test]
+    fn test_a_declared_name_does_not_adopt_the_runtime_symbol() {
+        let declared: HashSet<String> = ["اطبع", "مطلق"].iter().map(|s| s.to_string()).collect();
+
+        for name in ["اطبع", "مطلق"] {
+            let symbol = mangle_function_name(name, &declared);
+            assert!(
+                !symbol.starts_with("trq_"),
+                "'{name}' يجب ألا يأخذ رمز وقت التشغيل، وُجد {symbol}"
+            );
+        }
+
+        // An undeclared name still maps, so call sites reach the runtime.
+        assert_eq!(mangle_function_name("طباعة", &declared), "trq_print");
     }
 
     #[test]

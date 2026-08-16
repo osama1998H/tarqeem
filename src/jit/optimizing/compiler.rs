@@ -546,7 +546,9 @@ fn compile_optimized_instruction(
             args: _,
             ret_ty,
         } => {
-            // TODO: Implement optimized function calls with inline caching
+            // TODO: Implement optimized function calls with inline caching. As
+            // in the baseline tier, dispatch must prefer a declared function
+            // over a same-named builtin (#262).
             let cranelift_ty = ir_type_to_cranelift(ret_ty)?;
             let dest_var = get_or_create_var(builder, d.0, cranelift_ty, var_map);
             let zero = builder.ins().iconst(types::I64, 0);

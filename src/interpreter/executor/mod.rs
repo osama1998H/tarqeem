@@ -489,11 +489,14 @@ impl Interpreter {
                     .map(|v| self.get_local(*v))
                     .collect::<RuntimeResult<Vec<_>>>()?;
 
-                let outcome = if self.is_builtin(&func.0) {
-                    self.call_builtin(&func.0, arg_values)
-                } else {
-                    self.call_function(func, arg_values)
-                };
+                // A declared function of the same name wins: built-ins are the
+                // last tier of the lookup order (#262).
+                let outcome =
+                    if self.module.get_function(func).is_none() && self.is_builtin(&func.0) {
+                        self.call_builtin(&func.0, arg_values)
+                    } else {
+                        self.call_function(func, arg_values)
+                    };
 
                 self.finish_call(outcome, dest.as_ref())
             }

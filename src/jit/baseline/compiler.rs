@@ -458,8 +458,10 @@ fn compile_instruction(
             args: _,
             ret_ty,
         } => {
-            // TODO: Implement function calls
-            // For now, just define a zero value for the destination
+            // TODO: Implement function calls. Whoever does must resolve a
+            // declared function before a same-named builtin (#262) — every
+            // other backend does, and this tier silently returning 0 is the
+            // only reason the divergence is invisible today.
             let cranelift_ty = ir_type_to_cranelift(ret_ty)?;
             let dest_var = get_or_create_var(builder, d.0, cranelift_ty, var_map);
             let zero = builder.ins().iconst(types::I64, 0);

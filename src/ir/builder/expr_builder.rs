@@ -905,14 +905,16 @@ impl IrBuilder {
         // codegen, because they take `أي` and so need the argument's type (or,
         // for `تأكد`, an argument codegen cannot synthesise).
         //
-        // The interception is unconditional, matching the interpreter, which
-        // consults `is_builtin` before user functions (`executor/mod.rs`). A
-        // guard that let a same-named user function win here would make native
-        // call it while the interpreter still ran the builtin — a divergence.
-        // Whether a builtin name *should* be shadowable is #262's question.
+        // A declared function of the same name suppresses the interception:
+        // built-ins are the last tier of the lookup order (#262). The guard must
+        // stay in step with the interpreter, the debug interpreter and codegen —
+        // an earlier attempt changed only this site, so native called the user's
+        // function while the interpreter still ran the builtin.
         if let ExprKind::Identifier(name) = &callee.kind {
-            if let Some(dest) = self.build_core_builtin_call(name, &arg_vars, args)? {
-                return Ok(dest);
+            if !self.function_names.contains(name) {
+                if let Some(dest) = self.build_core_builtin_call(name, &arg_vars, args)? {
+                    return Ok(dest);
+                }
             }
 
             // `name` may be a local/global variable holding a function
