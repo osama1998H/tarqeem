@@ -39,7 +39,7 @@ insertion point — the mechanism `مجموعات` and the `استثناء` prel
 
 | | |
 |---|---|
-| Declared names today | 183 in `Scope` (18 core + 165 across 7 modules), plus ~40 more reachable only through the codegen mangle map |
+| Declared names today | 184 in `Scope` (19 core + 165 across 7 modules), plus ~40 more reachable only through the codegen mangle map |
 | **Final primitive registry** | **40 names** |
 | Migrated to self-hosted Tarqeem | ~150 names across 9 stdlib modules |
 | Dropped (alias collapse) | 26 |
@@ -461,6 +461,15 @@ highest-proof first.
 Not a migration. See §7. Nothing below may start until items B1-B5 are done.
 
 ### 6.1 Increment A — the seven bitwise primitives
+
+**Progress: 1 of 7 landed.** `بتات_و` (#302) — `Scope` entry plus a
+`build_core_builtin_call` arm emitting `BinaryOp::BitAnd` over `IrType::Int`. The two-file
+cost estimate below held exactly: no `runtime-rs` work, no runtime symbol, no interpreter or
+debug-interpreter arm (an intercepted builtin emits no `Call`), and no
+`register_builtin_return_types` entry (`var_types` carries `Int` directly). Verified in all
+four executing backends — interpreter, JIT, native, and the DAP debug interpreter. The
+remaining six follow the same shape; only `بتات_إزاحة_يمين_منطقية` composes rather than
+emitting one op.
 
 **Why first:** highest ratio of unblocking to risk in the whole plan. Two files
 (`scope.rs` + `expr_builder.rs`), zero backend work, zero `runtime-rs` work, zero migration — the IR

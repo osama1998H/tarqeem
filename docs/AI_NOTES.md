@@ -2637,3 +2637,51 @@ same failure for a locally declared generic and with an explicit annotation), an
 *importing* a module containing a generic class breaks native codegen with an unsized
 `%class.__anonymous__`. Together these mean `مجموعات` is importable but unusable, which
 contradicts the assumption that it is in production use. Both need issues.
+
+---
+
+## #302 — بتات_و, the first bitwise primitive
+
+Branch `feature/302-bitwise-and-builtin`. Increment A of
+[`builtins-vs-stdlib.md`](builtins-vs-stdlib.md) §6.1, one name of seven.
+
+### The cost estimate held
+
+Two source files: a `Scope::core_builtins()` entry `(عدد، عدد) -> عدد`, and an arm in
+`build_core_builtin_call` emitting `BinaryOp::BitAnd` over `IrType::Int`. No `runtime-rs`
+work and no runtime symbol, because the IR variant already had arms in the interpreter, the
+debug interpreter, both JIT tiers, LLVM (`and i64`), the constant folder and CSE.
+
+### Two registration sites the plan's rule 5 does not require here
+
+Rule 5 asks for a `register_builtin_return_types` entry and interpreter + debug-interpreter
+arms. Neither applies to a builtin intercepted in the IR builder:
+
+- The interception emits `Instruction::Binary`, never `Instruction::Call`, and `is_builtin`
+  is only consulted on a `Call`. The existing `BitAnd` arms serve it.
+- `function_return_types` is read to type a `Call` result. The arm inserts `IrType::Int`
+  into `var_types` directly, so the destination is typed at the point it is created.
+
+The rule is written for the symbol-mapped path; an IR-lowered primitive is the cheaper
+shape, and the seven bitwise names are all of that shape.
+
+### Why bitwise names are functions
+
+Tarqeem has no `&` token, and the refactor may not change syntax. `بتات_` prefixes the
+family because `و`/`أو` are keywords and cannot open an identifier, and because `ثنائي`
+already means "byte array" here (`بصمة_ثنائي`). A lexer test pins that `بتات_و` scans as one
+identifier rather than `بتات_` followed by the logical-and keyword.
+
+### What the example is for
+
+`examples/مدمجات.ترقيم` is the home for builtin coverage in the CI backend-diff, and it
+asserts *composition* — the result is added, compared, passed to a typed function, and run
+through `نوع` — not just printed. A destination carrying the `Ptr(Void)` sentinel prints
+plausibly and composes wrongly; printing alone would pass against that bug.
+
+### Environment note, not a defect in this change
+
+Four unrelated examples failed the local three-backend diff until `TARQEEM_HOME` pointed at a
+freshly built `libtrq.a`. `find_runtime` never searches `target/<profile>/` (#285), so a
+local `compile` links `~/.tarqeem/lib/libtrq.a` — blocker B14. An `ld` undefined-symbol error
+means a stale archive; a clang IR-parse error would mean a real bug.

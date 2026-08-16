@@ -968,6 +968,18 @@ mod tests {
     }
 
     #[test]
+    fn test_identifier_ending_in_a_keyword_stays_one_token() {
+        // «و» is the logical-and keyword, so a greedy identifier scan is the only
+        // thing keeping «بتات_و» from lexing as `بتات_` followed by an operator.
+        let source = "بتات_و(12، 10)";
+        let mut lexer = Lexer::new(source);
+        let tokens: Vec<_> = lexer.tokenize();
+
+        assert!(matches!(&tokens[0].kind, TokenKind::Identifier(s) if s == "بتات_و"));
+        assert_eq!(tokens[1].kind, TokenKind::LeftParen);
+    }
+
+    #[test]
     fn test_arabic_identifier_with_underscore() {
         let source = "متغير _خاص = 5";
         let mut lexer = Lexer::new(source);

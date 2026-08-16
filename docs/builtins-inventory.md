@@ -14,7 +14,7 @@ backed by a mechanical count that agrees with the hand enumeration.
 
 | | |
 |---|---|
-| Names declared in `Scope` | **183** — 18 `core_builtins()` + 165 `get_stdlib_builtin()` across 7 modules |
+| Names declared in `Scope` | **184** — 19 `core_builtins()` + 165 `get_stdlib_builtin()` across 7 modules |
 | Names reachable on *some* backend | **235** — the extra 52 exist in a backend but in no registry, so no program can call them |
 | `runtime-rs` exports | **218** `#[no_mangle] pub extern "C" fn` |
 | … of which ABI-internal (compiler-emitted plumbing) | **22** — excluded from the language surface |
@@ -218,7 +218,10 @@ different universes.
 
 ## 4. The inventory
 
-#### `core` — 21
+#### `core` — 22
+
+Rows marked **مُنفَّذ** landed after this census; the backend columns are re-verified,
+not carried over from the original pass.
 
 | الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
 |---|:-:|:-:|:-:|:-:|---|---|---|
@@ -231,6 +234,7 @@ different universes.
 | `اطبع_سطر` | ✓ | ✓ | ✗ | ~ | `trq_print` | يُحذف | alias/dead |
 | `اقرأ_سطر` | ✗ | ✓ | ✗ | ✗ | `-` | مكتبة |  |
 | `الحق` | ✓ | ✗ | ✗ | ~ | `trq_array_push` | يُحذف | alias/dead |
+| `بتات_و` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#302) |
 | `تأكد` | ✓ | ✓ | ✗ | ✓ | `trq_assert` | مكتبة |  |
 | `تأكد_رسالة` | ✓ | ✓ | ✗ | ✓ | `-` | مكتبة |  |
 | `توقف` | ✓ | ✓ | ✗ | ~ | `trq_panic` | مدمج | primitive |

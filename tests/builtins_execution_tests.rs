@@ -382,6 +382,64 @@ fn test_array_len_builtin_works_in_every_backend() {
 }
 
 // ---------------------------------------------------------------------------
+// بتات_و — the first bitwise primitive (#302)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_bitwise_and_masks_in_every_backend() {
+    assert_prints(
+        "بتات_و_قناع",
+        "اطبع(بتات_و(12، 10))\nاطبع(بتات_و(255، 0))\nاطبع(بتات_و(7، 7))",
+        &["8", "0", "7"],
+    );
+}
+
+/// `عدد` is a signed i64 in every backend, so a negative left operand is the
+/// case where a backend that widened or truncated differently would show it.
+/// `-1` is all-ones, which makes the mask the identity.
+#[test]
+fn test_bitwise_and_agrees_on_negative_operands() {
+    assert_prints(
+        "بتات_و_سالب",
+        "اطبع(بتات_و(-1، 255))\nاطبع(بتات_و(-2، 3))\nاطبع(بتات_و(-8، -3))",
+        &["255", "2", "-8"],
+    );
+}
+
+/// Printing a result proves only that *something* came back. A builtin whose
+/// destination carries the `Ptr(Void)` sentinel instead of `عدد` prints
+/// plausibly and then composes wrongly, which is the failure this whole
+/// registry work exists to stop — so the result is added, compared and passed
+/// on as an argument rather than only printed.
+#[test]
+fn test_bitwise_and_result_composes_as_an_integer() {
+    assert_prints(
+        "بتات_و_تركيب",
+        concat!(
+            "اطبع(بتات_و(12، 10) + 1)\n",
+            "اطبع(بتات_و(12، 10) == 8)\n",
+            "اطبع(نوع(بتات_و(1، 1)))\n",
+            "دالة ضاعف(ن: عدد) -> عدد {\n    أرجع ن * 2\n}\n",
+            "اطبع(ضاعف(بتات_و(6، 5)))",
+        ),
+        &["9", "صحيح", "عدد", "8"],
+    );
+}
+
+/// Builtins are the last tier of the lookup order, so a user function of the
+/// same name must win — in every backend at once. An earlier shadowing fix
+/// changed only the IR builder and left native calling the user's function
+/// while the interpreter still ran the builtin (#262).
+#[test]
+fn test_user_function_shadows_bitwise_and() {
+    assert_prints(
+        "بتات_و_مظلل",
+        "دالة بتات_و(أ: عدد، ب: عدد) -> عدد {\n    أرجع 42\n}\nاطبع(بتات_و(12، 10))",
+        &["42"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // طول over a string — characters, not bytes (#185)
 // ---------------------------------------------------------------------------
 
@@ -937,6 +995,7 @@ fn test_every_core_builtin_agrees_across_backends() {
             "متغير م = [1]\nالحق(م، 2)\nاطبع(طول_مصفوفة(م))",
             &["2"],
         ),
+        ("بتات_و", "اطبع(بتات_و(12، 10))", &["8"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
