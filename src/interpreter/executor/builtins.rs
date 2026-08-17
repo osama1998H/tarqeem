@@ -152,6 +152,7 @@ impl Interpreter {
                 | "وقت_أداء"
                 // String functions
                 | "حرف_إلى_رمز"
+                | "رمز_إلى_حرف"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
                 | "نص_ينتهي_بـ"
@@ -985,6 +986,30 @@ impl Interpreter {
                     // the interpreter disagree with native on reachable source.
                     Value::Null => Ok(Value::Int(-1)),
                     _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
+            }
+
+            // No `Value::Null` arm, deliberately, and unlike `حرف_إلى_رمز`
+            // above. There the runtime function guarded a null *pointer* and
+            // answered -1, so the arm mirrored a designed contract. Here the
+            // parameter is an integer: native turns `لا_شيء` into `0` as a
+            // side effect of passing a null pointer in an i64 slot, and
+            // encoding that artifact as "لا_شيء means U+0000" would make the
+            // contract worse to close a gap this name does not own. `نم` and
+            // `بتات_نفي` diverge identically on the same source (#327).
+            "رمز_إلى_حرف" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("رمز_إلى_حرف() تتطلب معامل واحد")
+                })?;
+
+                match val {
+                    Value::Int(code) => Ok(Value::string(
+                        u32::try_from(*code)
+                            .ok()
+                            .and_then(char::from_u32)
+                            .map_or(String::new(), |c| c.to_string()),
+                    )),
+                    _ => Err(RuntimeError::type_error("عدد", val.type_name())),
                 }
             }
 

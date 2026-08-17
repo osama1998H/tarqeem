@@ -14,12 +14,12 @@ backed by a mechanical count that agrees with the hand enumeration.
 
 | | |
 |---|---|
-| Names declared in `Scope` | **191** — 26 `core_builtins()` + 165 `get_stdlib_builtin()` across 7 modules |
-| Names reachable on *some* backend | **243** — the extra 52 exist in a backend but in no registry, so no program can call them |
-| `runtime-rs` exports | **219** `#[no_mangle] pub extern "C" fn` |
+| Names declared in `Scope` | **192** — 27 `core_builtins()` + 165 `get_stdlib_builtin()` across 7 modules |
+| Names reachable on *some* backend | **244** — the extra 52 exist in a backend but in no registry, so no program can call them |
+| `runtime-rs` exports | **220** `#[no_mangle] pub extern "C" fn` |
 | … of which ABI-internal (compiler-emitted plumbing) | **22** — excluded from the language surface |
 | … of which orphans (no caller anywhere) | **28** |
-| … reachable from a declared name | **155** |
+| … reachable from a declared name | **156** |
 | Self-hosted `.ترقيم` exports under `stdlib/` | **385** `صدّر` declarations across 44 files |
 | … actually loadable today | **one module** (`مجموعات`); 201 exports are dead by short-circuit |
 | Places to edit to add **one** builtin | **9** for a symbol-mapped name, **2** for an IR-intercepted one — measured on both (see §1) |
@@ -39,10 +39,10 @@ nothing enforces that it is present on all of them.
 
 | Surface | File | Mechanism |
 |---|---|---|
-| Semantic | `src/semantic/scope.rs` | `core_builtins()` — a `Vec` of 26 `(name, params, ret)` tuples registered into the global scope. `get_stdlib_builtin(module, name)` — a two-level `match` with 165 arms, manufactured on demand at import. `get_stdlib_module_exports()` — a **second, hand-maintained copy** of the same 165 names with no consistency test. |
+| Semantic | `src/semantic/scope.rs` | `core_builtins()` — a `Vec` of 27 `(name, params, ret)` tuples registered into the global scope. `get_stdlib_builtin(module, name)` — a two-level `match` with 165 arms, manufactured on demand at import. `get_stdlib_module_exports()` — a **second, hand-maintained copy** of the same 165 names with no consistency test. |
 | Interpreter | `src/interpreter/executor/builtins.rs` | `is_builtin` string membership + a dispatch `match`. Two edits per name, same file. |
-| Debug interpreter | `src/debug/interpreter/builtins.rs` | A private duplicate of the above, used by DAP. Knows **26** names — 19 Arabic plus 7 `trq_*` symbols, and `is_builtin` and the dispatch `match` list the same 26. The original census recorded 18; that figure was already stale when written, since the #185/#222/#241 repairs had added runtime-symbol arms. **Count it excluding comments:** the comment lines inside `is_builtin` quote Arabic diagnostics («دالة غير معرّفة») and call syntax (`عدد("٥")`), so a regex over the block that does not strip `//` lines over-counts — that is how a wrong 29 reached this row once already. |
-| Native | `src/ir/builder/expr_builder.rs` + `src/codegen/llvm/codegen.rs` | Either intercepted in the IR builder (15 names) or looked up in `get_runtime_function_name` (214 names) and emitted as a `trq_*` call. |
+| Debug interpreter | `src/debug/interpreter/builtins.rs` | A private duplicate of the above, used by DAP. Knows **27** names — 20 Arabic plus 7 `trq_*` symbols, and `is_builtin` and the dispatch `match` list the same 27. The original census recorded 18; that figure was already stale when written, since the #185/#222/#241 repairs had added runtime-symbol arms. **Count it excluding comments:** the comment lines inside `is_builtin` quote Arabic diagnostics («دالة غير معرّفة») and call syntax (`عدد("٥")`), so a regex over the block that does not strip `//` lines over-counts — that is how a wrong 29 reached this row once already. |
+| Native | `src/ir/builder/expr_builder.rs` + `src/codegen/llvm/codegen.rs` | Either intercepted in the IR builder (15 names) or looked up in `get_runtime_function_name` (215 names) and emitted as a `trq_*` call. |
 | JIT | `src/jit/{baseline,optimizing}/compiler.rs` | **Compiles zero builtins.** `run_with_profiling` always returns `interpreter.run()`; `get_function_ptr` has no callers. The JIT column agrees with the interpreter by delegation, not by compiling. |
 | Editor | `src/lsp/handlers/{completion,semantic_tokens,inlay_hints}.rs` | Three hardcoded lists (10 / 14 / 18 names) that derive from nothing and agree with neither the registry nor each other. |
 
@@ -75,7 +75,7 @@ the refactor; fixing them is scoped in the plan document, not here.
 
 ### 2.1 The default backend is the weakest one
 
-**78 of 191 declared names (41%) have no interpreter arm**, so `tarqeem run` fails on them after
+**78 of 192 declared names (41%) have no interpreter arm**, so `tarqeem run` fails on them after
 the import type-checks cleanly: all 23 `شبكة` names, 19 of 21 `ملفات`, 32 of 41 `نص`, plus
 `الحق، طول_مصفوفة، باقي، بذرة_عشوائي`. Both JIT tiers inherit every one of these holes by
 delegation.
@@ -209,7 +209,7 @@ the dispatch matrix (`يُحذف`), otherwise `مكتبة`, which is the criteri
 deterministic; no row was assigned by judgement outside those rules.
 
 **Reconciling with the plan document.** Its executive summary counts 26 alias collapses and 11 dead
-names against the **191 declared** names; this table counts 48 against the **243 reachable** names,
+names against the **192 declared** names; this table counts 48 against the **244 reachable** names,
 which additionally covers the 52 that exist in a backend but in no registry. Likewise the plan
 defers **12 socket primitives** while this table marks **47 socket-family names** deferred — 12 is
 the primitive count after collapse, 47 is the raw name count. Both are correct; they count
@@ -218,7 +218,7 @@ different universes.
 
 ## 4. The inventory
 
-#### `core` — 29
+#### `core` — 30
 
 Rows marked **مُنفَّذ** landed after this census; the backend columns are re-verified,
 not carried over from the original pass.
@@ -245,6 +245,7 @@ not carried over from the original pass.
 | `تأكد_رسالة` | ✓ | ✓ | ✗ | ✓ | `-` | مكتبة |  |
 | `توقف` | ✓ | ✓ | ✗ | ~ | `trq_panic` | مدمج | primitive |
 | `حرف_إلى_رمز` | ✓ | ✓ | ✓ | ✓ | `trq_string_char_code` | مدمج | primitive، **مُنفَّذ** (#324) |
+| `رمز_إلى_حرف` | ✓ | ✓ | ✓ | ✓ | `trq_string_from_char_code` | مدمج | primitive، **مُنفَّذ** (#326) |
 | `طباعة` | ✓ | ✓ | ✗ | ~ | `trq_print` | يُحذف | alias/dead |
 | `طول` | ✓ | ✓ | ✓ | ✓ | `trq_array_len, trq_string_len…` | مدمج | primitive |
 | `طول_مصفوفة` | ✓ | ✗ | ✗ | ~ | `trq_array_len` | يُحذف | alias/dead |

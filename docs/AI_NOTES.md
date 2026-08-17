@@ -3372,3 +3372,98 @@ always gone stale" — it is that the claim must be checked, and here the answer
 symbol from the staticlib regardless of Rust-level visibility. `trq_string_char_code` was added to
 the block since a new export belongs in it, but the two older omissions were left alone rather than
 folded into an unrelated change.
+
+## #326 — رمز_إلى_حرف, and a sibling's lesson that did not generalize
+
+Second of the five names in Increment B, and the inverse of #324. Signature
+`رمز_إلى_حرف(رمز: عدد) -> نص`: the one-character string holding `رمز`, and `""` when `رمز` is not
+a Unicode scalar value.
+
+The nine-site path #324 measured held exactly, and finding nothing new about it is the result.
+The interesting part was elsewhere.
+
+### The `Null` arm was the wrong thing to copy
+
+#324 closed with a rule: *any symbol-mapped primitive whose runtime function guards null needs a
+matching `Value::Null` arm in both interpreters.* Copying it here would have been wrong, and the
+probe is what showed it.
+
+`Type::compat` admits an un-narrowed `عدد?` into an `عدد` parameter exactly as it does `نص?` into
+`نص`, so `رمز_إلى_حرف(غائب)` type-checks. But the two cases diverge underneath. For `نص?` the
+argument is already a pointer, native passes `ptr null`, and `trq_string_char_code`'s own guard
+answers `-1` — a **designed** answer that the interpreter arm mirrors. For `عدد?` there is no
+null to guard: codegen turns `لا_شيء` into integer `0` *above* the runtime, and `0` is a perfectly
+valid codepoint, so the runtime cannot tell it apart from a real call. Mirroring that would have
+written "`لا_شيء` means U+0000" into the language.
+
+So this name has **no** `Null` arm, and both interpreters keep the `type_error` fallthrough —
+which is what `نم` and `بتات_نفي` already do on the identical source.
+
+The narrowed rule: check whether the mechanism that produced the sibling's answer exists for this
+name before mirroring its edge-case arm. A guard is a contract only where there is something to
+guard.
+
+### The probe found a bug that is not this name's, and is worse than #318
+
+Chasing the above produced **#327**. A *narrowed* optional passed as a call argument is never
+unboxed natively:
+
+```tarqeem
+دالة هوية(س: عدد) -> عدد { أرجع س }
+متغير موجود: عدد? = 1605
+إذا (موجود != لا_شيء) {
+    اطبع(هوية(موجود))      // 1605 مفسَّراً، 39040583984 أصلياً
+    اطبع(بتات_نفي(موجود))  // -1606 في الثلاثة
+    اطبع(موجود + 0)        // 1605 في الثلاثة
+}
+```
+
+A plain user function reproduces it, so it is the call-argument path, not a builtin defect.
+Arithmetic unboxes and an IR-intercepted builtin unboxes; only the call argument does not — and
+it is the one position where the wrong value provokes no type mismatch in the emitted IR, so
+clang accepts the module and the binary runs to completion printing a pointer. That makes it
+strictly worse than #318, which at least fails to compile. Filed rather than fixed: it predates
+this change, this name neither depends on it nor works around it.
+
+The un-narrowed half of the same site is recorded there too — `نم(غائب)` prints `نام` and exits 0
+natively while both interpreters raise a type error, and `بتات_نفي(غائب)` segfaults.
+
+### Why `""` and not an abort
+
+The rejection convention was the one genuine design decision, and the spec fixed only that
+rejection must happen, not how. `""` was chosen over `reject_unparsable`'s `exit(1)` because it
+mirrors `حرف_إلى_رمز`'s `-1` and closes the round trip in both directions: `حرف_إلى_رمز("")` is
+`-1`, so every rejected code maps to `""` and back to `-1` rather than into a hole. It also
+matches every other string constructor in `string.rs`, which returns an empty `TrqString` on bad
+input and reserves raw null for allocation failure alone. `عدد`'s abort contract is explicitly
+the *checked* half of a documented checked/lenient pair (D5); this name has no lenient sibling
+to be the checked half of.
+
+### The range check has to be on the `i64`
+
+`char::from_u32(code as u32)` alone would be wrong: `4294967361` truncates to `65` and answers
+`"A"`. `u32::try_from` first sends that and every negative through the same rejection as a
+surrogate. It is pinned at both levels — a `runtime-rs` unit test and a cross-backend one — since
+a cast that silently succeeds is exactly the shape that passes a printing test.
+
+### Rejections are asserted through `طول`, never by printing
+
+`Output::lines()` in the execution harness trims, so a printed empty string is indistinguishable
+from a printed newline and an `assert_prints` on `""` could not fail. Every rejection case in
+both the tests and `examples/مدمجات.ترقيم` goes through `طول` or the round trip. The same reason
+keeps `رمز_إلى_حرف(٠)` out of the printed output: it is a real one-character string, but what a
+NUL byte does on stdout is a question about the terminal, not about the contract.
+
+### The lexer check was run, and needed nothing
+
+`رمز`, `إلى` and `حرف` are absent from `keywords.rs`, and the name contains no `و`, `أو`, `في`,
+`ك` or `منطقي`. So `test_identifier_containing_a_keyword_stays_one_token` was left alone, as in
+#317 and #320 rather than #322. Recorded because the check is per name and the answer has now
+gone both ways twice.
+
+### Criterion (a) re-derived, and it held a second time
+
+`نص(٦٥)` formats the digits `"65"`; `ثنائي_إلى_نص` does not exist (**B9**); `س[i]` and
+`لكل ح في س` are still `Ptr(Void)` (**B6**); and `حرف_في` reads a character out of a string that
+already exists rather than making one. With this name **B9** is half-closed the other way round:
+char↔code works in both directions, and only the string↔bytes bridge remains.

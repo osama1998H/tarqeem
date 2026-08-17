@@ -157,7 +157,7 @@ clear the sign bit, shift the rest, and place the bit at `٦٣-ن`.
 |---|---|---|---|
 | `قص_حروف` | `(نص، عدد، عدد) -> نص` | narrowed | **The** codepoint accessor, and the only way self-hosted Tarqeem can reach the i-th character at all — `س[i]` and `لكل ح في س` both yield an untyped `Ptr(Void)` (probes p4/p7). Requires UTF-8 boundary walking over the raw buffer. Subsumes `حرف_في`, which becomes a one-line stdlib wrapper. **Narrowed** because it moves from the `نص` module tier to the core tier (no import) — see §4.3. |
 | `حرف_إلى_رمز` | `(نص) -> عدد` | new — **مُنفَّذ (#324)** | Codepoint of the first character; `-1` for empty. Nothing in the 235 declared names or the 42 `string.rs` exports returns a numeric character code — the nearest, `حرف_في`, returns a one-character `نص`. **The single highest-leverage missing primitive:** case conversion, digit parsing, character classification, hex encoding, sorting and hashing are all inexpressible without it. Arity 1 so it composes as `حرف_إلى_رمز(قص_حروف(س، ي، ١))` — one unit throughout, so it cannot participate in the byte/char trap. |
-| `رمز_إلى_حرف` | `(عدد) -> نص` | new | Inverse. Required to *build* strings from computed characters, which is what number formatting is. Must reject surrogates and values > U+10FFFF rather than emit invalid UTF-8. |
+| `رمز_إلى_حرف` | `(عدد) -> نص` | new — **مُنفَّذ (#326)** | Inverse. Required to *build* strings from computed characters, which is what number formatting is. Rejects surrogates and values > U+10FFFF rather than emit invalid UTF-8 — the rejection answers `""`, mirroring `حرف_إلى_رمز`'s `-1`, so the pair is total in both directions instead of leaving a hole. |
 | `نص_إلى_ثنائي` | `(نص) -> مصفوفة<عدد>` | new | UTF-8 octets of a string. No bridge exists today; the payload buffer is behind the `TrqString` ABI. `ثنائي` is existing vocabulary for a byte array and the `X_إلى_Y` shape matches `ثنائي_إلى_ست_عشري` exactly — reuse of vocabulary, not invention. Criterion (a). |
 | `ثنائي_إلى_نص` | `(مصفوفة<عدد>) -> نص` | new | Inverse. **Must not validate UTF-8** — a socket or file read is legitimately arbitrary bytes and must round-trip. |
 
@@ -631,8 +631,8 @@ Four new primitives (`حرف_إلى_رمز`, `رمز_إلى_حرف`, `نص_إل�
 Five names × the full nine-site path — the most registration work in the plan, and the last time it
 is paid at scale.
 
-**Progress: 1 of 5 landed.** `حرف_إلى_رمز` (#324). Remaining: `رمز_إلى_حرف`, `نص_إلى_ثنائي`,
-`ثنائي_إلى_نص`, and `قص_حروف`'s repair (**B7**, still open). **Not one atomic change** — the
+**Progress: 2 of 5 landed.** `حرف_إلى_رمز` (#324) and `رمز_إلى_حرف` (#326). Remaining:
+`نص_إلى_ثنائي`, `ثنائي_إلى_نص`, and `قص_حروف`'s repair (**B7**, still open). **Not one atomic change** — the
 increment is landing a name at a time, as Increment A did, and each name's criterion (a) is
 re-derived when its turn comes rather than trusted from §1.3.
 
@@ -660,6 +660,26 @@ Three things #324 found that the plan did not state:
 3. **Decode only the first character's bytes, never the whole buffer.** `from_utf8` over the whole
    slice fails when *any* later byte is invalid, which would throw away a perfectly decodable first
    character — and `ثنائي_إلى_نص` is specified not to validate, so that input is coming.
+
+**What #326 added, and one correction to the above.** `رمز_إلى_حرف` cost the same nine sites and
+found nothing new about the path, which is the result. Its criterion (a) was re-derived and
+**held** for the second consecutive name: `نص(٦٥)` formats the digits `"65"`, the byte bridge is
+still absent (**B9**), and `س[i]` is still `Ptr(Void)` (**B6**).
+
+Finding 1 above is stated too broadly and is narrowed here: *"any symbol-mapped primitive whose
+runtime function guards null needs a matching `Value::Null` arm"* holds only where the parameter
+is a **pointer** and the runtime guard is a designed answer. For an `عدد` parameter there is no
+null to guard — codegen turns `لا_شيء` into `0` above the runtime — so mirroring it would encode
+an artifact as contract. `رمز_إلى_حرف` therefore has **no** `Null` arm, matching `نم` and
+`بتات_نفي`, which diverge identically on the same source. The underlying defect is filed as
+**#327**: a *narrowed* optional passed as a call argument emits the raw pointer natively, the
+module is valid LLVM IR, and the binary runs to completion with a wrong answer. A plain
+user-defined function reproduces it, so it belongs to the call-argument path rather than to any
+builtin — and it is worse than #318, which at least fails to compile.
+
+Generalisable: before mirroring a sibling's edge-case arm, check whether the mechanism that
+produced the sibling's answer exists for this name. Here it did not, and the two names differ in
+the one place the family otherwise looks uniform.
 
 **Gate:** a **composition** test, not a print test. `"X" + حرف_في(س،١)` printed `X4377631856`
 natively today — printing alone passes while composition is silently wrong. The examples program
@@ -780,7 +800,7 @@ the same disease as the nine `#298` date constructors.
 | **B6** | **Character-binding type inference defect — the highest-severity item here.** Both `لكل ح في نص` and `س[i]` yield an untyped `Ptr(Void)`. Un-annotated: `ح == "م"` **never matches natively while working interpreted and JIT'd**, and `ج + ح` prints raw pointer integers natively while the other two backends at least error loudly. Writing `: نص` repairs it. | `ح_مساواة`, `ح_دمج`, `فهرس_حلقة` vs `فهرس_حلقة2`, `دمج_معنون`, `p7` | Increment F (`نص`) |
 | **B7** | **`قص_حروف` has no interpreter arm, no debug arm, and no registered IR return type.** Without the return type it inherits the `Ptr(Void)` sentinel and reproduces the exact bug this refactor removes. | `p8`; `"X" + حرف_في(س،١)` → `X4377631856` | Increment B, and everything downstream |
 | **B8** | **No bitwise capability exists** in any spelling — no lexer token, no Arabic name, nothing to reuse. | `ثنائي_عامل` probe: `أ & ب` → `ب٠٠٠٢` at the `&` | Increments E, I, J and the RNG |
-| **B9** | **Half closed (#324).** char→code exists as `حرف_إلى_رمز`; code→char (`رمز_إلى_حرف`) and the string↔bytes bridge (`نص_إلى_ثنائي` / `ثنائي_إلى_نص`) still do not. | grep over all 235 names and all 42 `string.rs` exports, as of the original census | Increments E, F, I |
+| **B9** | **char↔code closed (#324, #326);** the string↔bytes bridge (`نص_إلى_ثنائي` / `ثنائي_إلى_نص`) still does not exist. | grep over all 235 names and all 42 `string.rs` exports, as of the original census | Increments E, F, I |
 | **B10** | **`احذف_آخر` needs a new IR instruction.** The only proposed primitive requiring genuine per-backend work: `ArrayPop` plus arms in the interpreter, debug interpreter, both JIT tiers and LLVM. `trq_array_pop` already exists, unused. | `سحب` probe fails in all three | `مجموعات/مكدس`, `طابور` |
 | **B11** | **Array `==` emits invalid LLVM IR.** Works interpreted (reference identity); natively clang rejects *"'%v10' defined with type 'ptr' but expected 'i64'"* at `icmp eq i64`. | `هوية3` | Any self-hosted collection that compares arrays |
 | **B12** | **The linker treats prelude-origin declarations as fatal collisions** rather than displaceable. | `P3_collision`, `P3_linkercollide` vs `P3b` | Increment H; all prelude-gated names |
