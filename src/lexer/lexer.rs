@@ -969,15 +969,16 @@ mod tests {
 
     #[test]
     fn test_identifier_containing_a_keyword_stays_one_token() {
-        // «و» and «أو» are the logical operators, so a greedy identifier scan is
-        // the only thing keeping these from lexing as `بتات_` plus an operator.
-        // The third case is the harder shape: the keyword sits mid-name, so the
-        // scan must also not resume after it — `بتات_ أو _حصري` would parse as a
+        // «و»، «أو» and «في» are all keywords, so a greedy identifier scan is the
+        // only thing keeping these from lexing as `بتات_` plus a keyword. The
+        // third case is the harder shape: the keyword sits mid-name, so the scan
+        // must also not resume after it — `بتات_ أو _حصري` would parse as a
         // logical-or between two identifiers rather than fail outright.
         let cases = [
             ("بتات_و(12، 10)", "بتات_و"),
             ("بتات_أو(12، 10)", "بتات_أو"),
             ("بتات_أو_حصري(12، 10)", "بتات_أو_حصري"),
+            ("بتات_نفي(255)", "بتات_نفي"),
         ];
 
         for (source, name) in cases {

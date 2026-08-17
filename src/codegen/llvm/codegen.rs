@@ -2651,7 +2651,20 @@ impl LlvmCodegen {
         ty: &IrType,
     ) -> Result<(), CodegenError> {
         let dest_name = self.get_or_create_var(dest);
-        let operand_name = self.get_var(operand)?;
+        let mut operand_name = self.get_var(operand)?;
+
+        // A narrowed optional is still a boxed `Ptr(T)` here, so the value has to
+        // be loaded back out before an integer opcode can touch it — the same
+        // unboxing `emit_binary` does (#185). Without it, `بتات_نفي(س)` after
+        // `إذا (س != لا_شيء)` emits `xor i64 %ptr, -1` and clang rejects the
+        // module, while the interpreter and JIT both answer correctly.
+        if let Some(IrType::Ptr(pointee)) = self.var_types.get(&operand.0).cloned() {
+            let scalar = *pointee;
+            if scalar == *ty && matches!(scalar, IrType::Int | IrType::Float | IrType::Bool) {
+                operand_name = self.emit_unboxed_scalar(&operand_name, &scalar);
+                self.var_types.insert(operand.0, scalar);
+            }
+        }
 
         match (op, ty) {
             (UnaryOp::Neg, IrType::Int) => {

@@ -187,6 +187,8 @@ impl Scope {
             ("بتات_و", vec![Type::Int, Type::Int], Type::Int),
             ("بتات_أو", vec![Type::Int, Type::Int], Type::Int),
             ("بتات_أو_حصري", vec![Type::Int, Type::Int], Type::Int),
+            // Unary, and distinct from the logical `ليس`, which takes a `منطقي`.
+            ("بتات_نفي", vec![Type::Int], Type::Int),
         ]
     }
 

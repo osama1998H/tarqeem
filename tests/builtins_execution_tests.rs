@@ -606,6 +606,132 @@ fn test_user_function_shadows_bitwise_xor() {
 }
 
 // ---------------------------------------------------------------------------
+// بتات_نفي — the fourth bitwise primitive, and the first unary one (#312)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_bitwise_not_complements_in_every_backend() {
+    assert_prints(
+        "بتات_نفي_ضم",
+        concat!(
+            "اطبع(بتات_نفي(0))\n",
+            "اطبع(بتات_نفي(-1))\n",
+            "اطبع(بتات_نفي(5))\n",
+            "اطبع(بتات_نفي(255))",
+        ),
+        &["-1", "0", "-6", "-256"],
+    );
+}
+
+/// `عدد` is a signed i64, so complementing is `-س - ١` exactly. A backend that
+/// complemented a narrower value — or that treated the operand as `منطقي`, which
+/// the interpreter's `BitNot` arm also accepts — would still print a plausible
+/// number while failing this.
+#[test]
+fn test_bitwise_not_matches_twos_complement_identity() {
+    assert_prints(
+        "بتات_نفي_متمم_اثنين",
+        concat!(
+            "اطبع(بتات_نفي(0) == -1)\n",
+            "اطبع(بتات_نفي(42) == -43)\n",
+            "اطبع(بتات_نفي(-43) == 42)\n",
+            "اطبع(بتات_نفي(بتات_نفي(4660)) == 4660)",
+        ),
+        &["صحيح", "صحيح", "صحيح", "صحيح"],
+    );
+}
+
+/// The operation this name spells was already reachable as
+/// `بتات_أو_حصري(س، -1)` once #309 landed, so the primitive earns its slot only
+/// if it agrees with that form everywhere. Asserting the two together is what
+/// pins the new arm to `BitNot` rather than to some other unary op that happens
+/// to return an integer.
+#[test]
+fn test_bitwise_not_agrees_with_xor_against_all_ones() {
+    assert_prints(
+        "بتات_نفي_يطابق_الحصري",
+        concat!(
+            "ثابت س = 4660\n",
+            "اطبع(بتات_نفي(س) == بتات_أو_حصري(س، -1))\n",
+            "اطبع(بتات_نفي(0) == بتات_أو_حصري(0، -1))\n",
+            "اطبع(بتات_نفي(-7) == بتات_أو_حصري(-7، -1))",
+        ),
+        &["صحيح", "صحيح", "صحيح"],
+    );
+}
+
+/// `بتات_نفي` is the first of the family to emit `Instruction::Unary`, whose
+/// codegen path had never been reached from source before. Printing alone would
+/// not distinguish a correct `عدد` from the `Ptr(Void)` sentinel, so the result
+/// is added, compared and passed on.
+#[test]
+fn test_bitwise_not_result_composes_as_an_integer() {
+    assert_prints(
+        "بتات_نفي_تركيب",
+        concat!(
+            "اطبع(بتات_نفي(255) + 256)\n",
+            "اطبع(بتات_نفي(255) == -256)\n",
+            "اطبع(نوع(بتات_نفي(1)))\n",
+            "دالة ضاعف(ن: عدد) -> عدد {\n    أرجع ن * 2\n}\n",
+            "اطبع(ضاعف(بتات_نفي(-4)))",
+        ),
+        &["0", "صحيح", "عدد", "6"],
+    );
+}
+
+/// The inverse mask is what a complement is *for*: clearing a packed field
+/// before writing it. Until this name landed the example wrote `-256` by hand;
+/// this asserts the computed form agrees, across all three backends.
+#[test]
+fn test_bitwise_not_builds_an_inverse_mask() {
+    assert_prints(
+        "بتات_نفي_قناع",
+        concat!(
+            "دالة استبدل_البايت_الأدنى(قيمة: عدد، بايت: عدد) -> عدد {\n",
+            "    أرجع بتات_أو(بتات_و(قيمة، بتات_نفي(255))، بايت)\n",
+            "}\n",
+            "اطبع(استبدل_البايت_الأدنى(4660، 171))\n",
+            "اطبع(بتات_نفي(255) == -256)",
+        ),
+        &["4779", "صحيح"],
+    );
+}
+
+/// A narrowed optional is still a boxed pointer in codegen, and only
+/// `emit_binary` unboxed it — so `بتات_و(س، 255)` compiled while `بتات_نفي(س)`
+/// on the same `س` emitted `xor i64 %ptr, -1` and clang rejected the module, an
+/// error neither the interpreter nor the JIT ever saw. Both calls sit in one
+/// fixture so the asymmetry cannot come back unnoticed.
+#[test]
+fn test_bitwise_not_over_a_narrowed_optional() {
+    assert_prints(
+        "بتات_نفي_اختياري",
+        concat!(
+            "متغير س: عدد? = 255\n",
+            "إذا (س != لا_شيء) {\n",
+            "    اطبع(بتات_نفي(س))\n",
+            "    اطبع(بتات_و(س، 255))\n",
+            "    اطبع(بتات_نفي(س) + 1)\n",
+            "}",
+        ),
+        &["-256", "255", "-255"],
+    );
+}
+
+/// Builtins are the last tier of the lookup order, so a user function of the
+/// same name must win — in every backend at once. An earlier shadowing fix
+/// changed only the IR builder and left native calling the user's function
+/// while the interpreter still ran the builtin (#262).
+#[test]
+fn test_user_function_shadows_bitwise_not() {
+    assert_prints(
+        "بتات_نفي_مظلل",
+        "دالة بتات_نفي(س: عدد) -> عدد {\n    أرجع 42\n}\nاطبع(بتات_نفي(255))",
+        &["42"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // طول over a string — characters, not bytes (#185)
 // ---------------------------------------------------------------------------
 
@@ -1164,6 +1290,7 @@ fn test_every_core_builtin_agrees_across_backends() {
         ("بتات_و", "اطبع(بتات_و(12، 10))", &["8"]),
         ("بتات_أو", "اطبع(بتات_أو(12، 10))", &["14"]),
         ("بتات_أو_حصري", "اطبع(بتات_أو_حصري(12، 10))", &["6"]),
+        ("بتات_نفي", "اطبع(بتات_نفي(255))", &["-256"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();

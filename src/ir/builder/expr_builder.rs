@@ -656,6 +656,19 @@ impl IrBuilder {
                 dest
             }
 
+            // The family's only unary member, so it cannot share the arm above.
+            "بتات_نفي" => {
+                let dest = self.new_var();
+                self.emit(Instruction::Unary {
+                    dest,
+                    op: UnaryOp::BitNot,
+                    operand: first,
+                    ty: IrType::Int,
+                });
+                self.var_types.insert(dest.0, IrType::Int);
+                dest
+            }
+
             _ => return Ok(None),
         };
 
