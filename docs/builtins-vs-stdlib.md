@@ -116,14 +116,33 @@ Legend for **status**: `unchanged` · `renamed` · `narrowed` · `new`.
 > **Correction (#302):** an earlier wording here said the prefix avoids *opening* an identifier
 > with `و` / `أو`. That is false — an identifier may begin with either letter, as `وقت` and
 > `أولوية` do. Only the bare one-letter names are unavailable.
+>
+> **Correction (#322):** `بتات_إزاحة_يمين_منطقية`'s row claims criterion (a), inexpressible. That
+> was true when written and **expired when `بتات_إزاحة_يمين` landed** (#320) — the operation became
+> composable from the six names that already existed, pinned by
+> `test_logical_right_shift_matches_the_composition_it_names`:
+>
+> ```tarqeem
+> بتات_أو(
+>     بتات_إزاحة_يمين(بتات_و(س، 9223372036854775807)، ن)،
+>     بتات_و(بتات_إزاحة_يمين(س، 63)، بتات_إزاحة_يسار(1، 63 - ن)))
+> ```
+>
+> The verdict is unchanged and the name shipped as a primitive, on `بتات_نفي`'s grounds (#312) plus
+> one this family did not have before: the bitwise names are **core tier**, and §5.2 keeps a
+> no-import name a builtin until **B12** is fixed, so stdlib was not an available home. Every
+> remaining row asserting criterion (a) should be re-checked against what has landed since, not
+> trusted.
 
 **Cost note (headline finding, gap analysis):** all seven bitwise names lower in
 `build_core_builtin_call` to `Instruction::Binary` / `Instruction::Unary`, whose variants already
 exist and already have arms in the interpreter, the debug interpreter, both JIT tiers, LLVM
 codegen and the constant folder. **Two files** — `src/semantic/scope.rs` and
 `src/ir/builder/expr_builder.rs` — not nine. Zero `runtime-rs` work.
-`بتات_إزاحة_يمين_منطقية` composes existing IR ops (`(أ >> 1) & 0x7FFF…FFFF` then `>> (ن-1)`, with
-`ن==0` returning `أ`), so it too costs zero backend work.
+`بتات_إزاحة_يمين_منطقية` composes existing IR ops, so it too costs zero backend work — though not
+by the sketch this note used to give (`(أ >> 1) & 0x7FFF…FFFF` then `>> (ن-1)`, with `ن==0`
+returning `أ`), which needs a select on `ن==٠`. #322 shipped a branchless equivalent instead:
+clear the sign bit, shift the rest, and place the bit at `٦٣-ن`.
 
 #### Category 3 — String primitives (5)
 
@@ -467,19 +486,21 @@ Not a migration. See §7. Nothing below may start until items B1-B5 are done.
 
 ### 6.1 Increment A — the seven bitwise primitives
 
-**Progress: 6 of 7 landed.** `بتات_و` (#302), `بتات_أو` (#306), `بتات_أو_حصري` (#309),
-`بتات_نفي` (#312), `بتات_إزاحة_يسار` (#317) and `بتات_إزاحة_يمين` (#320) — a `Scope` entry each
-plus a `build_core_builtin_call` arm: one shared arm emitting `BinaryOp::BitAnd` / `BitOr` /
-`BitXor` over `IrType::Int`, a second for `UnaryOp::BitNot`, and one per shift over a shared
-range guard. The two-file cost estimate below held exactly, six times: no `runtime-rs` work, no
-runtime symbol, no interpreter or debug-interpreter arm (an intercepted builtin emits no `Call`),
-and no `register_builtin_return_types` entry (`var_types` carries `Int` directly). All six
-verified in all four executing backends — interpreter, JIT, native, and the DAP debug
-interpreter. #312 extended the estimate to the `Unary` shape and #317 to a **multi-instruction
-chain**, which were the two untested assumptions in it; #320 added nothing new to it, which is
-itself the result — the second shift cost no new mechanism and, after the guard was shared,
-no extra instruction either: both tails are three ops over the same six-op guard. The remaining
-one is `بتات_إزاحة_يمين_منطقية`, which composes rather than emitting one op.
+**Complete: 7 of 7 landed.** `بتات_و` (#302), `بتات_أو` (#306), `بتات_أو_حصري` (#309),
+`بتات_نفي` (#312), `بتات_إزاحة_يسار` (#317), `بتات_إزاحة_يمين` (#320) and
+`بتات_إزاحة_يمين_منطقية` (#322) — a `Scope` entry each plus a `build_core_builtin_call` arm: one
+shared arm emitting `BinaryOp::BitAnd` / `BitOr` / `BitXor` over `IrType::Int`, a second for
+`UnaryOp::BitNot`, and one per shift over a shared range guard. The two-file cost estimate below
+held exactly, seven times: no `runtime-rs` work, no runtime symbol, no interpreter or
+debug-interpreter arm (an intercepted builtin emits no `Call`), and no
+`register_builtin_return_types` entry (`var_types` carries `Int` directly). All seven verified in
+all four executing backends — interpreter, JIT, native, and the DAP debug interpreter. #312
+extended the estimate to the `Unary` shape and #317 to a **multi-instruction chain**, which were
+the two untested assumptions in it; #320 added nothing new to it, which is itself the result — the
+second shift cost no new mechanism and, after the guard was shared, no extra instruction either:
+both tails are three ops over the same six-op guard. #322's tail is eight ops over that same
+guard, the longest of the three and still no new mechanism, so the estimate now covers the whole
+range of shapes the family has.
 
 With XOR landed the three logic operations were complete, and with them the bitwise
 complement: `بتات_أو_حصري(س، -1)` flips every bit, which neither AND nor OR can do. `بتات_نفي`
@@ -488,9 +509,22 @@ therefore landed as a **spelling for an already-reachable operation**, not as a 
 assert agreement with the XOR form rather than treating it as independent. The verdict in
 §1.3 is unchanged; the justification recorded there is.
 
-One caveat found while landing #302 and confirmed unchanged by #306, #309, #312, #317 and #320:
-an intercepted builtin **segfaults natively as an element of an array literal** (#304). It
-predates all six — the same call in any other position is correct in every backend, and
+`بتات_إزاحة_يمين_منطقية` (#322) is the **second** name in that position, and it is the more
+instructive one because its row claimed criterion (a) rather than convenience. Landing
+`بتات_إزاحة_يمين` made the logical shift composable from the six names that existed, so by the
+time the seventh was written its own justification had expired — see the §1.3 correction. It
+shipped anyway, on `بتات_نفي`'s readability grounds plus §5.2: the family is core tier and a
+no-import name cannot live in stdlib until **B12** is fixed. Its probes assert the equivalence
+with the composition instead of asserting a capability it no longer adds.
+
+**Generalisable, and it applies to the rest of this document:** an inexpressibility claim is a
+statement about the language *at the time of writing*, and every increment that lands changes what
+is expressible. Two of the 21 `new` rows have now had that claim expire under them. Re-derive
+criterion (a) at the start of each increment rather than reading it off §1.3.
+
+One caveat found while landing #302 and confirmed unchanged by #306, #309, #312, #317, #320 and
+#322: an intercepted builtin **segfaults natively as an element of an array literal** (#304). It
+predates all seven — the same call in any other position is correct in every backend, and
 `طول_مصفوفة` reproduces it — so it gates nothing here, but self-hosted stdlib written on these
 primitives must avoid that shape until it is fixed.
 
@@ -500,6 +534,12 @@ second emits the raw pointer and clang rejects the module (#318). Reachable from
 as `س + س` inside `إذا (س != لا_شيء)`, so it predates the shift; the workaround is to copy the
 amount once (`أ | ٠`), and since #320 it lives in the guard both shifts share. Any later lowering
 that reads an operand more than once must do the same until #318 is fixed.
+
+#322 is the first shift to read the **value** twice as well, and it shows the workaround has a
+cheaper form when the lowering already needs a mask: `س & keep` is one instruction that both unboxes the
+value and applies the out-of-range answer, so no separate copy is emitted. Prefer folding the copy
+into work the arm already does over adding an `أ | ٠`. Either form is load-bearing and neither is
+an optimizable identity — a peephole for `x | 0` or `x & -1` would silently restore #318.
 
 **Why first:** highest ratio of unblocking to risk in the whole plan. Two files
 (`scope.rs` + `expr_builder.rs`), zero backend work, zero `runtime-rs` work, zero migration — the IR
@@ -536,28 +576,45 @@ So the contract is one clause, stated one level up:
 
 Zeros for `بتات_إزاحة_يسار`, so `٠` — #317's behaviour is unchanged. The sign for
 `بتات_إزاحة_يمين`, so `٠` for a non-negative operand and `-١` for a negative one. Zeros again for
-`بتات_إزاحة_يمين_منطقية`, so `٠` — the amendment changes the behaviour of exactly one of the three
-names and pre-commits the seventh to nothing. Negative amounts fold into the same clause rather
-than getting a second one.
+`بتات_إزاحة_يمين_منطقية`, so `٠` — the amendment changed the behaviour of exactly one of the three
+names. Negative amounts fold into the same clause rather than getting a second one.
+
+#322 shipped that third answer unchanged, which is the amendment's own test: the criterion was
+written before the name it predicted, and produced `٠` for a *negative* operand where its sibling
+produces `-١`. The two right shifts therefore agree on the rule and disagree on the number, out of
+range exactly as in range.
 
 It also gives the right shift the counterpart of the identity documented for the left one: a left
 shift is multiplication by powers of two bounded by the sign bit, and a right shift is **floor**
 division by powers of two — `بتات_إزاحة_يمين(س، ن) == floor(س / ٢**ن)` at every `ن ≥ ٠`, with no
 boundary at 64. Under the inherited wording that identity would hold to 63 and then stop.
 
-Implementation difference: the left shift masks the *result* to zero out of range, the right shift
-saturates the *amount* to 63. `guard.amount | (٦٣ & out_of_range)` saturates without a select,
-because the guard's masked amount already fits in those six bits. Three instructions — the same
-number the left shift's tail costs, so the two lower to identical instruction counts.
+Implementation difference: the left shift masks the *result* to zero out of range, the arithmetic
+right shift saturates the *amount* to 63. `guard.amount | (٦٣ & out_of_range)` saturates without a
+select, because the guard's masked amount already fits in those six bits. Three instructions — the
+same number the left shift's tail costs, so the two lower to identical instruction counts.
 
-**Lexer check — done (#309), and it passed.** `بتات_أو_حصري` lexes as **one identifier**: the
+The logical right shift masks the **value** instead, which is the only one of the three positions
+that works for it: it needs a zero result out of range like `يسار`, but it reads the value twice,
+so zeroing the value zeroes every term below *and* serves as the #318 copy. Its tail is `س & keep`,
+then the sign bit separated (`& ٩٢٢٣٣٧٢٠٣٦٨٥٤٧٧٥٨٠٧`) and shifted, then re-placed at `٦٣-ن` —
+eight instructions, and `٦٣-ن` reads the guard's *masked* amount so it too stays in range.
+
+**Lexer check — done (#309), extended (#322), and it passed both times.** `بتات_أو_حصري` lexes as **one identifier**: the
 greedy identifier scan neither stops at the embedded `أو` nor resumes after it. The mid-name
 position was the harder shape — a split there would have parsed as a logical-or between
 `بتات_` and `_حصري` rather than failing outright. Pinned by
-`lexer::tests::test_identifier_containing_a_keyword_stays_one_token`, which covers all four
+`lexer::tests::test_identifier_containing_a_keyword_stays_one_token`, which covers all five
 spellings that embed one — `بتات_نفي` was added to it because `في` is also a keyword
-(`TokenKind::In`), in the same suffix position as `و` and `أو`. `بتات_إزاحة_يسار` embeds no
-keyword, so #317 deliberately left that test alone rather than diluting what it tests.
+(`TokenKind::In`), in the same suffix position as `و` and `أو`. `بتات_إزاحة_يسار` and
+`بتات_إزاحة_يمين` embed no keyword, so #317 and #320 deliberately left that test alone rather than
+diluting what it tests.
+
+`بتات_إزاحة_يمين_منطقية` **does** embed one, so #322 extended it — and in the one shape the other
+four do not cover: `منطقي` is followed by a *letter* (`ة`) rather than by `_` or the end of the
+name, so a scan that resumed after a keyword match would split a word rather than a separator. Both
+conclusions are recorded because "the previous ones left it alone" is exactly the kind of pattern
+that gets copied without checking; the check is per name, and the answer changed on the seventh.
 
 ### 6.2 Increment B — the character/byte bridge, and repairing `قص_حروف`
 

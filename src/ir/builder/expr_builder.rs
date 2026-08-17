@@ -733,6 +733,47 @@ impl IrBuilder {
                 self.emit_int_binary(BinaryOp::Shr, first, clamped)
             }
 
+            // The zero-filling counterpart: `عدد` is signed and every backend's
+            // `Shr` is arithmetic, so يمين refills from the sign at every
+            // amount and no spelling of it fills with zeros.
+            //
+            // Separating the sign bit is what makes an arithmetic shift behave
+            // logically — the remaining 63 bits are non-negative — and the bit
+            // is then placed at its new position rather than dropped. That
+            // needs no `ن == ٠` special case, unlike the sketch in §1.3.
+            "بتات_إزاحة_يمين_منطقية" => {
+                let Some(&amount) = args.get(1) else {
+                    return Ok(None);
+                };
+                let guard = self.emit_shift_range_guard(amount);
+
+                // Out of range every bit leaves the word and zeros fill behind
+                // it, so zeroing the *value* zeroes every term below. Folding
+                // that into one instruction also makes this the value's first
+                // scalar use, which is where codegen unboxes a narrowed
+                // optional (#318) — `keep` being a bare `Int` is what makes it
+                // fire. An `x & -1 => x` peephole would silently restore that
+                // bug; `test_logical_right_shift_over_a_narrowed_optional`
+                // catches it, natively.
+                let keep = self.emit_int_unary(UnaryOp::BitNot, guard.out_of_range);
+                let value = self.emit_int_binary(BinaryOp::BitAnd, first, keep);
+
+                let sign_cleared = self.emit_int_const(i64::MAX);
+                let low = self.emit_int_binary(BinaryOp::BitAnd, value, sign_cleared);
+                let shifted = self.emit_int_binary(BinaryOp::Shr, low, guard.amount);
+
+                // `٦٣ - المقدار` reads the guard's *masked* amount, so it stays
+                // in 0-63 and cannot overflow at `i64::MIN`.
+                let sign = self.emit_int_binary(BinaryOp::Shr, value, guard.range_mask);
+                let sign_position =
+                    self.emit_int_binary(BinaryOp::Sub, guard.range_mask, guard.amount);
+                let one = self.emit_int_const(1);
+                let bit = self.emit_int_binary(BinaryOp::Shl, one, sign_position);
+                let moved_sign = self.emit_int_binary(BinaryOp::BitAnd, sign, bit);
+
+                self.emit_int_binary(BinaryOp::BitOr, shifted, moved_sign)
+            }
+
             _ => return Ok(None),
         };
 
