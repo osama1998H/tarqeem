@@ -1782,6 +1782,31 @@ fn test_string_to_bytes_result_binds_and_iterates() {
     );
 }
 
+/// Appending to the **empty** result, which is the one array in the language
+/// reachable with `cap == 0`: `helpers::allocate_array` sets `cap = len`, while
+/// `trq_array_new` floors capacity at `ARRAY_INITIAL_CAP`. Growth doubles, and
+/// `0 * 2` is `0`, so this hung the native binary forever while both
+/// interpreters answered `1`.
+///
+/// `runtime-rs` has a unit test for the same shape, but **CI never runs it** —
+/// every CI `cargo test` is root-package scoped, so this is the leg that
+/// actually guards the fix. Note the failure mode if it regresses: the native
+/// leg hangs rather than failing, so the signal is a stuck job, not a red
+/// assertion.
+#[test]
+fn test_appending_to_an_empty_byte_array_grows_it_in_every_backend() {
+    assert_prints(
+        "ثنائي_إلحاق",
+        concat!(
+            "متغير ب = نص_إلى_ثنائي(\"\")\n",
+            "الحق(ب، 5)\n",
+            "اطبع(طول(ب))\n",
+            "اطبع(ب[0])",
+        ),
+        &["1", "5"],
+    );
+}
+
 /// Round trip against the landed inverse: an ASCII byte read out here is the
 /// codepoint `رمز_إلى_حرف` builds the same character from. Restricted to ASCII
 /// on purpose — a multi-byte character's *bytes* are not its codepoint, and

@@ -3588,3 +3588,46 @@ operation is unreachable from source.
 
 **B9** is now closed in one direction: a string's octets can be read, but not assembled back into a
 string. That waits on `ثنائي_إلى_نص`.
+
+### The review finding: an empty result reached a zero-capacity growth loop
+
+Caught by code review, not by any test here, and it is the most serious thing in this change.
+
+`helpers::allocate_array` sets `cap = len`, so `نص_إلى_ثنائي("")` returns an array with `cap == 0`.
+`trq_array_ensure_capacity` grew by doubling from `current_cap`, and `0 * 2` is `0`, so the loop
+never terminated. `الحق(نص_إلى_ثنائي("")، ٥)` printed `1` in both interpreters and **hung the native
+binary indefinitely** — reproduced directly: SIGKILL after an 8-second budget, exit 137.
+
+The path is new to this change. `trq_array_new` floors capacity at `ARRAY_INITIAL_CAP` and so never
+produces `cap == 0`; the `[]`-literal route is blocked by a separate codegen type error; and
+`ست_عشري_إلى_ثنائي`, the other `helpers::allocate_array` caller with an Arabic name, is not
+importable. So an empty byte array was the first zero-capacity array a program could actually get.
+
+Fixed in `trq_array_ensure_capacity` rather than in `trq_string_to_bytes`, because the empty array is
+a *correct* return value and the defect is in the growth loop. That also closes it for
+`ثنائي_إلى_نص` and for the `compress`/`crypto` callers of the same helper, which can all return
+`cap == 0`. `realloc(NULL, n)` is well-defined as `malloc(n)`, and `old_size` stays derived from the
+real `current_cap`, so the whole new buffer is zeroed.
+
+**Two generalisable points.**
+
+The first is about where a "return an empty collection instead of null" convention lands. Choosing
+the empty array over a raw null was right for the contract, and it handed downstream code a value
+whose *capacity* no previous array had. A convention chosen for the contract's sake can still be a
+new input shape for every consumer of that type — enumerate the consumers, not just the callers.
+
+The second is a CI gap this exposed. The fix's natural home for a regression test is
+`runtime-rs/src/array.rs`, and **CI never runs those tests** — every CI `cargo test` is root-package
+scoped, so a `runtime-rs` unit test is documentation, not a guard. The durable anchor is
+`test_appending_to_an_empty_byte_array_grows_it_in_every_backend` in
+`tests/builtins_execution_tests.rs`, which CI does run. Its own failure mode is worth stating in the
+test, and is: on regression the native leg **hangs** rather than failing, so the signal is a stuck
+job, not a red assertion.
+
+### One claim in this change contradicted another
+
+The spec and the example both said `نص_إلى_ثنائي` is «أول مدمجة تُرجع مصفوفة» while the section above
+in this same file explains it is only a first for its *tier*. Both were written here, one PR, two
+incompatible sentences — the careful version and the slogan. Narrowed to «أول مدمجة أساسية» with the
+stdlib precedent named. Worth recording as a failure mode rather than a typo: the summary sentence is
+where a qualified finding tends to lose its qualifier.
