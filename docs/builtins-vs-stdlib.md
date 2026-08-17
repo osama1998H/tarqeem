@@ -467,16 +467,17 @@ Not a migration. See §7. Nothing below may start until items B1-B5 are done.
 
 ### 6.1 Increment A — the seven bitwise primitives
 
-**Progress: 4 of 7 landed.** `بتات_و` (#302), `بتات_أو` (#306), `بتات_أو_حصري` (#309) and
-`بتات_نفي` (#312) — a `Scope` entry each plus a `build_core_builtin_call` arm: one shared arm
-emitting `BinaryOp::BitAnd` / `BitOr` / `BitXor` over `IrType::Int`, and a second for
-`UnaryOp::BitNot`. The two-file cost estimate below held exactly, four times: no `runtime-rs`
-work, no runtime symbol, no interpreter or debug-interpreter arm (an intercepted builtin emits
-no `Call`), and no `register_builtin_return_types` entry (`var_types` carries `Int` directly).
-All four verified in all four executing backends — interpreter, JIT, native, and the DAP debug
-interpreter. #312 extended the estimate to the `Unary` shape, which had been the one untested
-assumption in it. The remaining three are the shifts; `بتات_إزاحة_يمين_منطقية` composes rather
-than emitting one op.
+**Progress: 5 of 7 landed.** `بتات_و` (#302), `بتات_أو` (#306), `بتات_أو_حصري` (#309),
+`بتات_نفي` (#312) and `بتات_إزاحة_يسار` (#317) — a `Scope` entry each plus a
+`build_core_builtin_call` arm: one shared arm emitting `BinaryOp::BitAnd` / `BitOr` / `BitXor`
+over `IrType::Int`, a second for `UnaryOp::BitNot`, and a third for the guarded shift. The
+two-file cost estimate below held exactly, five times: no `runtime-rs` work, no runtime symbol,
+no interpreter or debug-interpreter arm (an intercepted builtin emits no `Call`), and no
+`register_builtin_return_types` entry (`var_types` carries `Int` directly). All five verified in
+all four executing backends — interpreter, JIT, native, and the DAP debug interpreter. #312
+extended the estimate to the `Unary` shape and #317 to a **multi-instruction chain**, which were
+the two untested assumptions in it. The remaining two are the right shifts;
+`بتات_إزاحة_يمين_منطقية` composes rather than emitting one op.
 
 With XOR landed the three logic operations were complete, and with them the bitwise
 complement: `بتات_أو_حصري(س، -1)` flips every bit, which neither AND nor OR can do. `بتات_نفي`
@@ -485,11 +486,18 @@ therefore landed as a **spelling for an already-reachable operation**, not as a 
 assert agreement with the XOR form rather than treating it as independent. The verdict in
 §1.3 is unchanged; the justification recorded there is.
 
-One caveat found while landing #302 and confirmed unchanged by #306, #309 and #312: an
+One caveat found while landing #302 and confirmed unchanged by #306, #309, #312 and #317: an
 intercepted builtin **segfaults natively as an element of an array literal** (#304). It
-predates all four — the same call in any other position is correct in every backend, and
+predates all five — the same call in any other position is correct in every backend, and
 `طول_مصفوفة` reproduces it — so it gates nothing here, but self-hosted stdlib written on these
 primitives must avoid that shape until it is fixed.
+
+A second caveat, surfaced by #317 because its chain is the first lowering to read one operand
+**twice**: codegen unboxes a narrowed optional only on that operand's *first* scalar use, so the
+second emits the raw pointer and clang rejects the module (#318). Reachable from ordinary source
+as `س + س` inside `إذا (س != لا_شيء)`, so it predates the shift; #317 works around it by copying
+the amount once (`أ | ٠`). Any later lowering that reads an operand more than once must do the
+same until #318 is fixed.
 
 **Why first:** highest ratio of unblocking to risk in the whole plan. Two files
 (`scope.rs` + `expr_builder.rs`), zero backend work, zero `runtime-rs` work, zero migration — the IR
@@ -497,16 +505,29 @@ variants, the interpreter arms, both JIT tiers, LLVM codegen and the constant fo
 exist and are already unit-tested. It unblocks تشفير, ضغط, the RNG and hex/base64 outright.
 
 **Gate:** unit tests per name at all three backends, an `examples/` program exercising all seven that
-the CI backend-diff job runs, and explicit range-check documentation — shift amounts outside 0-63
-diverge three ways (interpreter errors, LLVM poisons, Cranelift masks).
+the CI backend-diff job runs, and explicit range-check documentation.
+
+**Range contract — decided in #317, and the whole family inherits it.** An amount outside 0-63
+yields **0**. Unguarded the divergence is four ways, not the three recorded here before: both
+interpreters raise «مقدار الإزاحة خارج النطاق», LLVM's `shl i64` is poison, Cranelift's `ishl`
+masks, and the constant folder's `wrapping_shl` masks — so native disagreed with the interpreter
+*and with itself*, depending on whether the amount was a literal. The IR builder therefore emits a
+guard chain (`ن >> ٦` is zero exactly on 0-63; `high | -high` spreads the sign to a -1/0 mask; the
+amount is masked to 0-63 before the shift), which costs no backend arm and leaves the interpreters'
+range errors unreachable from the builtin. `٠` is the arithmetic answer rather than a sentinel:
+shifting a 64-bit value by 64 or more moves every bit out. Masking the *amount* mod 64 — the C and
+Cranelift behaviour, under which `بتات_إزاحة_يسار(١، ٦٤) == ١` — was rejected as transliterated
+rather than described. The guard is branchless and uses only ops with arms in all six consumers;
+in particular it avoids `BoolToInt`, which **neither JIT tier implements**.
 
 **Lexer check — done (#309), and it passed.** `بتات_أو_حصري` lexes as **one identifier**: the
 greedy identifier scan neither stops at the embedded `أو` nor resumes after it. The mid-name
 position was the harder shape — a split there would have parsed as a logical-or between
 `بتات_` and `_حصري` rather than failing outright. Pinned by
-`lexer::tests::test_identifier_containing_a_keyword_stays_one_token`, which now covers all
-four landed spellings — `بتات_نفي` was added to it because `في` is also a keyword
-(`TokenKind::In`), in the same suffix position as `و` and `أو`.
+`lexer::tests::test_identifier_containing_a_keyword_stays_one_token`, which covers all four
+spellings that embed one — `بتات_نفي` was added to it because `في` is also a keyword
+(`TokenKind::In`), in the same suffix position as `و` and `أو`. `بتات_إزاحة_يسار` embeds no
+keyword, so #317 deliberately left that test alone rather than diluting what it tests.
 
 ### 6.2 Increment B — the character/byte bridge, and repairing `قص_حروف`
 

@@ -2950,3 +2950,86 @@ The three prior runs each confirmed by hand that an intercepted builtin segfault
 inside an array literal, and this run initially took that as established rather than re-running
 it. It was then reproduced: `ثابت م = [بتات_نفي(255)، 1]` prints `-256` interpreted and exits
 139 natively, so §6.1's "confirmed unchanged by #306, #309 and #312" is accurate.
+
+---
+
+## #317 — بتات_إزاحة_يسار, the fifth bitwise primitive and the first chain
+
+Branch `feature/317-bitwise-shl-builtin`. Increment A of
+[`builtins-vs-stdlib.md`](builtins-vs-stdlib.md) §6.1, five names of seven.
+
+### The range question the three prior runs deferred
+
+#312 deferred all three shifts for one stated reason: shift amounts outside 0-63 "diverge three
+ways (the interpreter errors, LLVM poisons, Cranelift masks)". Re-verified against source it is
+**four**, and the fourth is the one that mattered — the constant folder's `wrapping_shl`
+(`const_fold.rs:180`) masks, and `Optimizer::optimize` runs only in `compile`
+(`cli/commands/compile.rs:167`). So a bare `Shl` would have made native disagree with the
+interpreter *and with itself*, depending on whether the amount was a literal or a variable.
+
+The decision recorded in §6.1 and in LANGUAGE_SPEC §8.6: **the operation is total, and an amount
+outside 0-63 yields 0.** Two alternatives were weighed and rejected.
+
+- **Abort, matching the interpreters' existing `Shl` arms.** It is the loud option, but it cannot
+  be gated the way §11 rule 4 requires: the backend-diff jobs compare stdout of runs that
+  *succeed*, and the abort text itself already differs between backends. It also needs
+  branch-to-panic block machinery inside `build_core_builtin_call`, which no lowering has.
+- **Mask the amount mod 64**, which is what C, Cranelift and `wrapping_shl` do. One instruction,
+  but it makes `بتات_إزاحة_يسار(١، ٦٤) == ١` — a transliterated behaviour rather than a described
+  one, which is what `arabic-philosophy.md` rule 1 exists to refuse.
+
+`٠` is not a sentinel; it is the arithmetic answer. Shifting a 64-bit value by 64 or more moves
+every bit out of the word.
+
+### The estimate held a fifth time, on a chain rather than one op
+
+Still the same two source files. What is new is that this is the first lowering that is **not**
+one instruction: the guard is `ن >> ٦` (zero exactly on 0-63), `high | -high` to carry the sign
+whenever `high` is non-zero, an arithmetic shift by 63 to spread it into a -1/0 mask, `BitNot` to
+invert it, `ن & ٦٣` to keep the amount inside every backend's own accepted range, then the shift
+and a final mask.
+
+Two properties of that chain were chosen deliberately and are worth keeping if the right shifts
+copy it:
+
+1. **No `BoolToInt`.** The obvious guard is `valid = high == ٠` widened to an integer, which is
+   two fewer instructions. `Instruction::BoolToInt` has arms in the interpreter, the debug
+   interpreter and LLVM — and in **neither JIT tier**, which would have made this the one builtin
+   that cannot be JIT-compiled the day tiering is switched on. Every op the chain does use
+   (`Shr`, `Sub`, `BitOr`, `BitNot`, `BitAnd`, `Shl`) has an arm in all six consumers including
+   the constant folder, so the whole chain folds away when both arguments are literals.
+2. **No subtraction of the amount itself.** `٠ - (ن >> ٦)` is safe for every `عدد` because
+   `high` spans `[-2^57, 2^57-1]`; `٦٣ - ن` or `٠ - ن` would overflow at `i64::MIN` and panic the
+   interpreter in a debug build. `test_left_shift_handles_the_most_negative_amount` pins it,
+   reaching that amount as `بتات_إزاحة_يسار(1، 63)` because the literal cannot be written.
+
+### #318 — reading one operand twice is what found it
+
+The chain needs the amount twice, and that is a shape no previous lowering had. Natively it
+produced `%v27 = and i64 %v18, %v19` where `%v18` is a pointer: `emit_binary` unboxes a narrowed
+optional by binding the load to a **fresh** SSA name and then rewriting `var_types` for the
+variable, so the second use of the same `VarId` sees `Int`, skips the unbox, and emits the
+original pointer name.
+
+It is not caused by this builtin — `س + س` inside `إذا (س != لا_شيء)` reproduces it on `develop`,
+printing `10` interpreted and failing clang natively — so it is filed as #318 rather than fixed
+here. The obvious fix is a trap worth recording: rebinding the variable's *name* to the unboxed
+value would break a later `س != لا_شيء` in the same branch, which still needs the pointer and does
+not unbox.
+
+The workaround in the lowering is one instruction, `أ | ٠`, which reads the amount once through a
+copy. It is free after either optimizer.
+
+Two separate *statements* using the same optional are fine (`اطبع(س + 1)` then `اطبع(س + 2)`
+compiles and runs) because the builder emits a fresh load per statement. That is why the
+narrowed-optional fixtures from #312 pass — none of them puts one `VarId` in two operand
+positions. Same lesson as #312's, one level further in: backend-diff on an example samples only
+the operand shapes the example happens to use, and now also only the *reuse patterns* it happens
+to use.
+
+### The lexer test was checked and deliberately not extended
+
+`بتات_و`, `بتات_أو`, `بتات_أو_حصري` and `بتات_نفي` each embed a keyword (`و`, `أو`, `في`) and are
+pinned in `test_identifier_containing_a_keyword_stays_one_token`. `بتات_إزاحة_يسار` embeds none,
+so adding it would have diluted what that test is for. Recorded here because "the previous four
+all touched it" is exactly the kind of pattern that gets copied without checking.

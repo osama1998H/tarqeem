@@ -732,6 +732,174 @@ fn test_user_function_shadows_bitwise_not() {
 }
 
 // ---------------------------------------------------------------------------
+// بتات_إزاحة_يسار — the fifth bitwise primitive, and the first shift (#317)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_left_shift_moves_bits_in_every_backend() {
+    assert_prints(
+        "إزاحة_يسار_ضم",
+        concat!(
+            "اطبع(بتات_إزاحة_يسار(1، 0))\n",
+            "اطبع(بتات_إزاحة_يسار(1، 1))\n",
+            "اطبع(بتات_إزاحة_يسار(1، 10))\n",
+            "اطبع(بتات_إزاحة_يسار(3، 4))\n",
+            "اطبع(بتات_إزاحة_يسار(0، 5))",
+        ),
+        &["1", "2", "1024", "48", "0"],
+    );
+}
+
+/// `عدد` is signed, so a shift is not a multiplication once the bit reaches the
+/// sign position. Bit 63 is the boundary the guard has to admit — an
+/// off-by-one that rejected it would zero this line while every smaller amount
+/// still passed.
+#[test]
+fn test_left_shift_reaches_the_sign_bit_and_negative_operands() {
+    assert_prints(
+        "إزاحة_يسار_إشارة",
+        concat!(
+            "اطبع(بتات_إزاحة_يسار(1، 62))\n",
+            "اطبع(بتات_إزاحة_يسار(1، 63))\n",
+            "اطبع(بتات_إزاحة_يسار(-1، 4))\n",
+            "اطبع(بتات_إزاحة_يسار(-3، 2))",
+        ),
+        &["4611686018427387904", "-9223372036854775808", "-16", "-12"],
+    );
+}
+
+/// Below the overflow point a left shift *is* multiplication by a power of two,
+/// and saying so in the language pins the direction: a backend that shifted
+/// right instead would still print plausible integers.
+#[test]
+fn test_left_shift_agrees_with_multiplication_below_overflow() {
+    assert_prints(
+        "إزاحة_يسار_يطابق_الضرب",
+        concat!(
+            "اطبع(بتات_إزاحة_يسار(1، 8) == 1 * 2 ** 8)\n",
+            "اطبع(بتات_إزاحة_يسار(7، 5) == 7 * 2 ** 5)\n",
+            "اطبع(بتات_إزاحة_يسار(-6، 3) == -6 * 2 ** 3)",
+        ),
+        &["صحيح", "صحيح", "صحيح"],
+    );
+}
+
+/// The contract, and the reason this primitive lowers to a guarded chain rather
+/// than a bare `Shl`. Unguarded, this fixture would be a runtime error in the
+/// two interpreters, `1` from the constant folder natively, and poison natively
+/// once the amount stopped being a literal — the same call disagreeing with
+/// itself across backends, which is what §11 rule 4 gates.
+#[test]
+fn test_left_shift_is_total_outside_the_valid_range() {
+    assert_prints(
+        "إزاحة_يسار_خارج_النطاق",
+        concat!(
+            "اطبع(بتات_إزاحة_يسار(1، 64))\n",
+            "اطبع(بتات_إزاحة_يسار(1، 65))\n",
+            "اطبع(بتات_إزاحة_يسار(255، 1000))\n",
+            "اطبع(بتات_إزاحة_يسار(1، -1))\n",
+            "اطبع(بتات_إزاحة_يسار(-1، -64))",
+        ),
+        &["0", "0", "0", "0", "0"],
+    );
+}
+
+/// The literals above are folded away before native codegen ever sees a shift,
+/// so they exercise the constant folder and nothing else. A variable amount is
+/// the other half of the contract — it is the only path that reaches LLVM's
+/// `shl i64`, whose out-of-range result is poison.
+#[test]
+fn test_left_shift_guards_a_runtime_amount_too() {
+    assert_prints(
+        "إزاحة_يسار_مقدار_متغير",
+        concat!(
+            "متغير مقدار = 3\n",
+            "اطبع(بتات_إزاحة_يسار(5، مقدار))\n",
+            "مقدار = 64\n",
+            "اطبع(بتات_إزاحة_يسار(5، مقدار))\n",
+            "مقدار = -1\n",
+            "اطبع(بتات_إزاحة_يسار(5، مقدار))\n",
+            "دالة أزح(قيمة: عدد، ن: عدد) -> عدد {\n    أرجع بتات_إزاحة_يسار(قيمة، ن)\n}\n",
+            "اطبع(أزح(1، 4))\n",
+            "اطبع(أزح(1، 99))",
+        ),
+        &["40", "0", "0", "16", "0"],
+    );
+}
+
+/// The most extreme amount representable, reached by shifting rather than
+/// written as a literal — negating `9223372036854775808` would not fit an `عدد`.
+/// It is the one input where the guard's `٠ - (ن >> ٦)` could overflow if the
+/// chain subtracted the amount itself instead of its shifted quotient.
+#[test]
+fn test_left_shift_handles_the_most_negative_amount() {
+    assert_prints(
+        "إزاحة_يسار_أصغر_مقدار",
+        concat!(
+            "ثابت الأصغر = بتات_إزاحة_يسار(1، 63)\n",
+            "اطبع(الأصغر)\n",
+            "اطبع(بتات_إزاحة_يسار(1، الأصغر))\n",
+            "اطبع(بتات_إزاحة_يسار(255، بتات_نفي(الأصغر)))",
+        ),
+        &["-9223372036854775808", "0", "0"],
+    );
+}
+
+/// The chain ends in a `BitAnd`, so its destination is what types the call.
+/// Printing alone would not tell a real `عدد` from the `Ptr(Void)` sentinel a
+/// missing type registration leaves behind.
+#[test]
+fn test_left_shift_result_composes_as_an_integer() {
+    assert_prints(
+        "إزاحة_يسار_تركيب",
+        concat!(
+            "اطبع(نوع(بتات_إزاحة_يسار(1، 3)))\n",
+            "اطبع(بتات_إزاحة_يسار(1، 3) + 1)\n",
+            "اطبع(بتات_إزاحة_يسار(1، 3) == 8)\n",
+            "اطبع(بتات_و(بتات_إزاحة_يسار(1، 8)، 255))\n",
+            "دالة ضاعف(ن: عدد) -> عدد {\n    أرجع ن * 2\n}\n",
+            "اطبع(ضاعف(بتات_إزاحة_يسار(1، 3)))",
+        ),
+        &["عدد", "9", "صحيح", "0", "16"],
+    );
+}
+
+/// A narrowed optional is still a boxed pointer in codegen, so it is covered in
+/// both argument positions and in both at once. The amount position is the one
+/// that matters: the guard reads that operand twice, and codegen unboxes only a
+/// `VarId`'s first scalar use (#318) — which is why the lowering copies it once
+/// before the chain. Without that copy this fixture emitted `and i64 %ptr, …`
+/// and clang rejected the module, while the interpreter and JIT both answered
+/// correctly.
+#[test]
+fn test_left_shift_over_a_narrowed_optional() {
+    assert_prints(
+        "إزاحة_يسار_اختياري",
+        concat!(
+            "متغير س: عدد? = 5\n",
+            "إذا (س != لا_شيء) {\n",
+            "    اطبع(بتات_إزاحة_يسار(س، 3))\n",
+            "    اطبع(بتات_إزاحة_يسار(1، س))\n",
+            "    اطبع(بتات_إزاحة_يسار(س، س))\n",
+            "    اطبع(بتات_إزاحة_يسار(س، 3) + 1)\n",
+            "}",
+        ),
+        &["40", "32", "160", "41"],
+    );
+}
+
+/// Builtins are the last tier of the lookup order, so a user function of the
+/// same name must win — in every backend at once (#262).
+#[test]
+fn test_user_function_shadows_left_shift() {
+    assert_prints(
+        "إزاحة_يسار_مظلل",
+        "دالة بتات_إزاحة_يسار(س: عدد، ن: عدد) -> عدد {\n    أرجع 42\n}\nاطبع(بتات_إزاحة_يسار(1، 3))",
+        &["42"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // طول over a string — characters, not bytes (#185)
 // ---------------------------------------------------------------------------
 
@@ -1291,6 +1459,7 @@ fn test_every_core_builtin_agrees_across_backends() {
         ("بتات_أو", "اطبع(بتات_أو(12، 10))", &["14"]),
         ("بتات_أو_حصري", "اطبع(بتات_أو_حصري(12، 10))", &["6"]),
         ("بتات_نفي", "اطبع(بتات_نفي(255))", &["-256"]),
+        ("بتات_إزاحة_يسار", "اطبع(بتات_إزاحة_يسار(3، 4))", &["48"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
