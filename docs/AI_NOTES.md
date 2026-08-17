@@ -3259,3 +3259,116 @@ anything was written, and the chain folds to a constant when both arguments are 
 
 Verified in all four executing backends, DAP debug interpreter included
 (`printf 'r\nc\nq\n' | tarqeem debug FILE`).
+
+
+## #324 — حرف_إلى_رمز, and the first increment where the two-file estimate did not apply
+
+First name of Increment B, the character/byte bridge, and the first **new symbol-mapped** core
+builtin in the sequence. Signature `حرف_إلى_رمز(س: نص) -> عدد`: the Unicode scalar value of a
+string's first codepoint, `-1` when there is none.
+
+### The template changed, and the previous seven increments point at the wrong file
+
+Seven consecutive increments landed in two files, and `src/ir/builder/expr_builder.rs` was the
+whole native story for all of them. Here it needed **no** edit. A core builtin absent from
+`build_core_builtin_call` falls through to `Instruction::Call { func: FuncId(arabic_name) }` by
+itself, and that `FuncId` carries the *Arabic* name all the way to codegen — the `trq_*`
+substitution happens only inside `mangle_function_name`. Two consequences worth stating because
+both are easy to get backwards:
+
+- Both interpreters key their arms on `"حرف_إلى_رمز"`, not on `"trq_string_char_code"`. The
+  `trq_*` arms that `عدد` and `طول` carry exist only because the IR builder rewrites *their*
+  `FuncId` via `emit_call`; nothing rewrites this one.
+- `register_builtin_return_types` is the **only** thing that types the result. Unregistered it
+  takes the `Ptr(Void)` sentinel from `type_helpers.rs`, and codegen then emits `call ptr` against
+  a `declare i64` — the same defect the `جذر` comment beside it records.
+
+The working template is `توقف` / `تأكد`: core tier, symbol-mapped, native. Not `بتات_و`. Grepping
+every occurrence of `"توقف"` in `src/` produced exactly the site list this change needed and added
+nothing, which is a cheaper way to find the surfaces than reasoning about them.
+
+Nine sites, and the count in `docs/builtins-inventory.md` §0 was right all along — it just had
+never been paid, because every increment since it was written took the two-file path.
+
+### Three findings the plan did not contain
+
+**An un-narrowed optional reaches a concrete parameter.** `Type::compat` accepts
+`Optional(inner)` into `t` whenever `inner` is compatible, so `متغير س: نص? = لا_شيء` followed by
+`حرف_إلى_رمز(س)` type-checks. Native lowers it to `ptr null`, where the runtime's null guard
+answers `-1`; an interpreter arm keyed only on `Value::String` would have raised a type error and
+exited non-zero. Two ordinary lines, a silent cross-backend divergence, and nothing in the
+existing suite shape would have caught it — `assert_prints` compares stdout, and one side was
+going to abort. Both interpreters therefore carry `Value::Null => Ok(Value::Int(-1))`, which is the
+same "no first character" contract the native guard already implements.
+
+Generalisable: **any symbol-mapped primitive whose runtime function guards null needs a matching
+`Value::Null` arm in both interpreters.** The guard is not an implementation detail of the native
+leg; it is part of the contract, and the other backends have to honour it.
+
+**`as_str` trims.** `runtime-rs/src/string.rs`'s convenience accessor ends
+`.map(|text| text.trim())`, which is right for the number parsers it was written for and wrong for
+anything char-level: `حرف_إلى_رمز(" أ")` would have answered `1571` natively and `32` interpreted.
+The char-aware family's own convention — raw `from_raw_parts` plus the private `utf8_char_len` — is
+the one to follow, and reusing that helper also keeps the whole family agreeing on what "one
+character" means.
+
+**Decode the first character's bytes, not the buffer.** `std::str::from_utf8` over the whole slice
+fails when *any* later byte is invalid, which would discard a perfectly decodable first character.
+Since `ثنائي_إلى_نص` is specified *not* to validate, that input is coming. So the lowering takes
+`utf8_char_len(bytes[0]).min(bytes.len())` bytes and decodes only those — the `.min` is not
+defensive padding, it is what keeps a truncated multi-byte tail from panicking inside an
+`extern "C"` fn, which would abort the process rather than return.
+
+### `-1` had to break the family's convention
+
+`trq_string_len_chars` returns `0` for null and empty, and copying that would have been wrong here:
+U+0000 is a real codepoint, so `0` cannot distinguish "empty" from "the NUL character". One
+sentinel, `-1`, meaning "no first character" — and it covers an undecodable first character too,
+rather than inventing a second sentinel for a case unreachable from source today.
+
+Worth noting because the convention was the default and the default was wrong. A sentinel is
+only safe when it is outside the value domain, and for a codepoint accessor `0` is inside it.
+
+### `حرف_في` is the shape this deliberately is not
+
+`حرف_في` and `طول_حروف` are registered in `scope.rs` and `codegen.rs` and **nowhere else** — no
+interpreter arm, no debug arm, no test, no example. They are native-only, and the stdlib tier they
+sit in segfaults natively on import (#185). That is why this name went to the **core** tier even
+though `حرف_في` makes the `نص` tier look like the natural home: the core tier is the only one the
+registry guard and the cross-backend sweep police.
+
+The `نص`-tier registry is documented as having 78 names with no interpreter arm. `حرف_في` being
+two of six surfaces is not a new discovery, but it is the concrete instance next door to this
+change, and the reason not to copy it.
+
+### Verified in all four executing backends, and the fourth needed a new test
+
+`tests/builtins_execution_tests.rs` drives `run`, `run --jit` and `compile`; nothing in it reaches
+`src/debug/interpreter/`. So the debug arm got an assertion in that file's own `mod tests`, and
+unlike the existing `test_time_builtins_are_dispatchable` — whose doc comment claims both lists are
+checked while the body only checks `is_builtin` — it constructs a `DebugInterpreter` and calls
+`call_builtin`, covering the `Null` case as well. `DebugInterpreter::new(Module, DebugContext)` is
+cheap enough that the overstatement was never necessary.
+
+### The lexer check was run, and this time it needed nothing
+
+`حرف_إلى_رمز` embeds no keyword: `إلى`, `حرف` and `رمز` are absent from `keywords.rs`, only
+`وإلا`/`والا` exist, and the name contains no `و`, no `في`, no `ك` and no `منطقي`. So
+`test_identifier_containing_a_keyword_stays_one_token` was deliberately left alone, as in #317 and
+#320 rather than #322. Recorded because the check is per name and the answer has now gone both ways.
+
+### Criterion (a) was re-derived and held — the first time under #322's rule
+
+#322 ended with "re-derive criterion (a) at the start of each increment rather than reading it off
+§1.3", after two of the 21 `new` rows had it expire. This is the first application, and the claim
+**holds**: `نص_إلى_ثنائي` does not exist (**B9**), `س[i]` and `لكل ح في س` still yield an untyped
+`Ptr(Void)` (**B6**), and nothing turns a character into a number. The rule is not "the claim has
+always gone stale" — it is that the claim must be checked, and here the answer was different.
+
+### Small observation, not fixed
+
+`runtime-rs/src/lib.rs`'s `pub use string::{…}` block omits `trq_string_to_int_checked` and
+`trq_string_to_float_checked`; they link anyway, because `#[no_mangle] pub extern "C"` exports the
+symbol from the staticlib regardless of Rust-level visibility. `trq_string_char_code` was added to
+the block since a new export belongs in it, but the two older omissions were left alone rather than
+folded into an unrelated change.

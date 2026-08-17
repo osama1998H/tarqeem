@@ -302,6 +302,12 @@ impl IrBuilder {
         self.function_return_types
             .insert("جذر".to_string(), IrType::Float);
 
+        // حرف_إلى_رمز lowers to a plain call, so this is the only thing that
+        // types its result. Unregistered it would take the same `Ptr(Void)`
+        // sentinel as `جذر` above and emit `call ptr` against a `declare i64`.
+        self.function_return_types
+            .insert("حرف_إلى_رمز".to_string(), IrType::Int);
+
         // اقرأ_سطر (read_line) returns string
         self.function_return_types
             .insert("اقرأ_سطر".to_string(), IrType::String);

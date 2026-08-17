@@ -1407,6 +1407,121 @@ fn test_user_function_shadows_logical_right_shift() {
 }
 
 // ---------------------------------------------------------------------------
+// حرف_إلى_رمز — the codepoint accessor (#324)
+// ---------------------------------------------------------------------------
+
+/// One case per UTF-8 encoding width. The native leg reads the lead byte to
+/// decide how many bytes belong to the first character while both interpreters
+/// call `chars()`, so a width the byte walk gets wrong is the only way these two
+/// implementations can disagree — and the wrong answer would still print.
+#[test]
+fn test_char_code_decodes_every_utf8_width_in_every_backend() {
+    assert_prints(
+        "رمز_عروض",
+        concat!(
+            "اطبع(حرف_إلى_رمز(\"A\"))\n",
+            "اطبع(حرف_إلى_رمز(\"م\"))\n",
+            "اطبع(حرف_إلى_رمز(\"﷽\"))\n",
+            "اطبع(حرف_إلى_رمز(\"𞸀\"))\n",
+            "اطبع(حرف_إلى_رمز(\"\"))",
+        ),
+        &["65", "1605", "65021", "126464", "-1"],
+    );
+}
+
+/// A codepoint, not a grapheme: the fatha in "مَ" is a codepoint of its own and
+/// the *second* one, so a first-grapheme reading would still answer 1605 here
+/// but the bare-fatha line pins which unit is being counted.
+#[test]
+fn test_char_code_reads_the_first_codepoint_not_the_first_grapheme() {
+    assert_prints(
+        "رمز_تشكيل",
+        concat!(
+            "اطبع(حرف_إلى_رمز(\"مَرحبا\"))\n",
+            "اطبع(حرف_إلى_رمز(\"َ\"))\n",
+            "اطبع(حرف_إلى_رمز(\"مرحبا\"))",
+        ),
+        &["1605", "1614", "1605"],
+    );
+}
+
+/// The load-bearing test. `حرف_إلى_رمز` lowers to a plain call, so nothing but
+/// the `register_builtin_return_types` entry types its result; without it the
+/// result carries the `Ptr(Void)` sentinel, printing keeps working, and
+/// concatenation prints a pointer instead — which is exactly how
+/// `"X" + حرف_في(س،١)` printed `X4377631856` natively.
+#[test]
+fn test_char_code_result_composes_as_an_integer() {
+    assert_prints(
+        "رمز_تركيب",
+        concat!(
+            "اطبع(نوع(حرف_إلى_رمز(\"م\")))\n",
+            "اطبع(حرف_إلى_رمز(\"م\") + 1)\n",
+            "اطبع(حرف_إلى_رمز(\"م\") == 1605)\n",
+            "اطبع(\"الرمز: \" + حرف_إلى_رمز(\"ب\"))",
+        ),
+        &["عدد", "1606", "صحيح", "الرمز: 1576"],
+    );
+}
+
+/// A literal argument can fold at build time; a variable and a concatenation
+/// cannot, so these are the cases where the runtime call is actually made.
+#[test]
+fn test_char_code_over_a_computed_string() {
+    assert_prints(
+        "رمز_محسوب",
+        concat!(
+            "متغير كلمة = \"سلام\"\n",
+            "اطبع(حرف_إلى_رمز(كلمة))\n",
+            "اطبع(حرف_إلى_رمز(\"ن\" + \"ور\"))\n",
+            "دالة أول_رمز(س: نص) -> عدد {\n",
+            "    أرجع حرف_إلى_رمز(س)\n",
+            "}\n",
+            "اطبع(أول_رمز(\"دار\"))",
+        ),
+        &["1587", "1606", "1583"],
+    );
+}
+
+/// `Type::compat` lets an un-narrowed `نص?` into a `نص` parameter, and native
+/// lowers that to `ptr null` where the runtime's guard answers `-1`. Both
+/// interpreters therefore need a `Null` arm; keying only on `Value::String`
+/// would make them abort on source that native runs fine. The narrowed leg is
+/// the string analogue of #318 — a narrowed `نص?` stays a bare `TrqString*`,
+/// so it needs no unboxing.
+#[test]
+fn test_char_code_over_an_optional_string() {
+    assert_prints(
+        "رمز_اختياري",
+        concat!(
+            "متغير فارغ: نص? = لا_شيء\n",
+            "اطبع(حرف_إلى_رمز(فارغ))\n",
+            "متغير موجود: نص? = \"ه\"\n",
+            "إذا (موجود != لا_شيء) {\n",
+            "    اطبع(حرف_إلى_رمز(موجود))\n",
+            "    اطبع(حرف_إلى_رمز(موجود) + 1)\n",
+            "}",
+        ),
+        &["-1", "1607", "1608"],
+    );
+}
+
+/// Builtins are the last tier of the lookup order, so a user function of the
+/// same name must win — in every backend at once (#262). This is the first
+/// symbol-mapped core builtin, so the shadow has to survive two independent
+/// gates: `shadows_builtin` in the IR builder and the `user_functions` check in
+/// codegen's `mangle_function_name`, which would otherwise emit a call to
+/// `@trq_string_char_code` instead of the user's symbol.
+#[test]
+fn test_user_function_shadows_char_code() {
+    assert_prints(
+        "رمز_مظلل",
+        "دالة حرف_إلى_رمز(س: نص) -> عدد {\n    أرجع 42\n}\nاطبع(حرف_إلى_رمز(\"م\"))",
+        &["42"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // طول over a string — characters, not bytes (#185)
 // ---------------------------------------------------------------------------
 
@@ -1978,6 +2093,9 @@ fn test_every_core_builtin_agrees_across_backends() {
             "اطبع(بتات_إزاحة_يمين_منطقية(-1، 63))",
             &["1"],
         ),
+        // A two-byte Arabic letter, so this one line rejects both plausible
+        // degradations: a byte read gives 217 and a `طول`-style count gives 1.
+        ("حرف_إلى_رمز", "اطبع(حرف_إلى_رمز(\"مرحبا\"))", &["1605"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();

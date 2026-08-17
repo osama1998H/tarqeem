@@ -151,6 +151,7 @@ impl Interpreter {
                 | "وقت_الآن"
                 | "وقت_أداء"
                 // String functions
+                | "حرف_إلى_رمز"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
                 | "نص_ينتهي_بـ"
@@ -967,6 +968,24 @@ impl Interpreter {
                     .parse::<f64>()
                     .map(Value::Float)
                     .map_err(|_| RuntimeError::type_error("float input", "invalid input"))
+            }
+
+            "حرف_إلى_رمز" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("حرف_إلى_رمز() تتطلب معامل واحد")
+                })?;
+
+                match val {
+                    // `chars()`, so this is the first codepoint and not the first
+                    // grapheme: the fatha in "مَ" is the second one.
+                    Value::String(s) => Ok(Value::Int(s.chars().next().map_or(-1, |c| c as i64))),
+                    // An un-narrowed `نص؟` is accepted into a `نص` parameter by
+                    // `Type::compat`, and native lowers it to `ptr null`, where the
+                    // runtime's guard answers -1. Erroring here instead would make
+                    // the interpreter disagree with native on reachable source.
+                    Value::Null => Ok(Value::Int(-1)),
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
             }
 
             "نص_يحتوي" => {

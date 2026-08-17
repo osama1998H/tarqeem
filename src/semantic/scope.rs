@@ -181,6 +181,11 @@ impl Scope {
             // Arrays - دوال المصفوفات
             ("طول_مصفوفة", vec![Type::Any], Type::Int),
             ("الحق", vec![Type::Any, Type::Any], Type::Void),
+            // Strings - دوال النصوص
+            // The codepoint accessor: `-1` when there is no first character,
+            // since U+0000 is itself a codepoint. Takes `نص` rather than `أي`
+            // so it composes at a concrete type in every backend.
+            ("حرف_إلى_رمز", vec![Type::String], Type::Int),
             // Bitwise - عمليات البتات
             // Functions, not operators: there is no `&`/`|`/`^` token, and
             // `بتات_` opens the name because `و`/`أو` are keywords.
