@@ -260,6 +260,44 @@ pub extern "C" fn trq_string_len_chars(s: *const TrqString) -> i64 {
     }
 }
 
+/// Backs the core builtin `حرف_إلى_رمز`: the Unicode scalar value of the first
+/// codepoint, or `-1` when there is none.
+///
+/// `-1` rather than [`trq_string_len_chars`]'s `0`, because U+0000 is a real
+/// codepoint and `0` could not distinguish an empty string from a NUL character.
+///
+/// Only the first character's bytes are decoded, never the whole buffer: once
+/// `ثنائي_إلى_نص` lands it will round-trip arbitrary bytes by design, and
+/// validating the tail would then reject a perfectly good first character.
+///
+/// # Safety
+///
+/// - `s` must be a valid pointer to a `TrqString` or null.
+///
+/// # C Equivalent
+/// ```c
+/// int64_t trq_string_char_code(const TrqString* s);
+/// ```
+#[no_mangle]
+pub extern "C" fn trq_string_char_code(s: *const TrqString) -> i64 {
+    unsafe {
+        if s.is_null() || (*s).data.is_null() || (*s).len <= 0 {
+            return -1;
+        }
+
+        let bytes = std::slice::from_raw_parts((*s).data, (*s).len as usize);
+        let width = utf8_char_len(bytes[0]).min(bytes.len());
+
+        match std::str::from_utf8(&bytes[..width])
+            .ok()
+            .and_then(|text| text.chars().next())
+        {
+            Some(c) => c as i64,
+            None => -1,
+        }
+    }
+}
+
 /// Compare two strings
 ///
 /// # Arguments
@@ -1888,6 +1926,58 @@ mod tests {
         assert_eq!(trq_string_len(s), 10);
         assert_eq!(trq_string_len_chars(s), 5);
         unsafe {
+            crate::memory::trq_release(s as *mut u8);
+        }
+    }
+
+    /// One case per UTF-8 encoding width, because the function reads the lead
+    /// byte to decide how many bytes to decode and a width it gets wrong is the
+    /// only way this can be silently off.
+    #[test]
+    fn test_string_char_code_at_every_utf8_width() {
+        // 1 byte, 2 bytes (Arabic), 3 bytes (a presentation-form ligature),
+        // 4 bytes (Arabic Mathematical Alphabetic Symbols).
+        for (text, expected) in [
+            ("A", 65),
+            ("م", 1605),
+            ("﷽", 65021),
+            ("𞸀", 126464),
+            // Only the first codepoint, and it is a codepoint rather than a
+            // grapheme: the fatha in "مَ" is the second one.
+            ("مرحبا", 1605),
+            ("مَرحبا", 1605),
+            ("َ", 1614),
+        ] {
+            let s = trq_string_new(text.as_ptr(), text.len() as i64);
+            assert_eq!(trq_string_char_code(s), expected, "من «{}»", text);
+            crate::memory::trq_release(s as *mut u8);
+        }
+    }
+
+    #[test]
+    fn test_string_char_code_has_no_first_character() {
+        let empty = trq_string_new(ptr::null(), 0);
+        assert_eq!(trq_string_char_code(empty), -1);
+        crate::memory::trq_release(empty as *mut u8);
+
+        assert_eq!(trq_string_char_code(ptr::null()), -1);
+    }
+
+    /// A byte that begins no valid sequence yields the same `-1`, and — the part
+    /// worth pinning — an invalid byte *after* a good first character does not.
+    /// Decoding the whole buffer would fail here and lose a decodable answer.
+    #[test]
+    fn test_string_char_code_does_not_validate_the_tail() {
+        for (bytes, expected) in [
+            (&[0xFF, 0x41][..], -1),
+            // The one worth pinning: an invalid byte *after* a good first
+            // character. Decoding the whole buffer would fail here.
+            (&[0x41, 0xFF, 0xFE][..], 65),
+            // A lead byte promising more continuation bytes than the buffer holds.
+            (&[0xD9][..], -1),
+        ] {
+            let s = trq_string_new(bytes.as_ptr(), bytes.len() as i64);
+            assert_eq!(trq_string_char_code(s), expected, "من {:?}", bytes);
             crate::memory::trq_release(s as *mut u8);
         }
     }

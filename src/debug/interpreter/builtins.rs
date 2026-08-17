@@ -27,6 +27,7 @@ impl DebugInterpreter {
                 | "أرضية"
                 | "سقف"
                 | "قرب"
+                | "حرف_إلى_رمز"
                 // Runtime symbols the IR builder lowers core builtins to
                 // (#222). Without these, stepping through `عدد("٥")` or
                 // `تأكد(...)` aborts with "دالة غير معرّفة".
@@ -169,6 +170,20 @@ impl DebugInterpreter {
                     };
                 }
                 Ok(Value::Null)
+            }
+
+            // Must match `interpreter::executor::builtins` arm for arm, including
+            // the `Null` case: an un-narrowed `نص؟` reaches here as `Value::Null`
+            // and native answers -1 for it.
+            "حرف_إلى_رمز" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("حرف_إلى_رمز() تتطلب معامل واحد")
+                })?;
+                match val {
+                    Value::String(s) => Ok(Value::Int(s.chars().next().map_or(-1, |c| c as i64))),
+                    Value::Null => Ok(Value::Int(-1)),
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
             }
 
             "trq_string_len" => {
@@ -323,6 +338,36 @@ mod tests {
                 DebugInterpreter::is_builtin(name),
                 "{name} غير مُعرَّف كدالة مدمجة في مفسّر التنقيح"
             );
+        }
+    }
+
+    /// `tests/builtins_execution_tests.rs` drives `run`, `run --jit` and
+    /// `compile`; nothing there reaches this file, so a core builtin's debug arm
+    /// is only ever covered here. `حرف_إلى_رمز` is checked through
+    /// `call_builtin` rather than `is_builtin` alone, since the two are separate
+    /// lists and a name in one but not the other still aborts at run time.
+    #[test]
+    fn test_char_code_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("حرف_إلى_رمز"),
+            "حرف_إلى_رمز غير مُعرَّف كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        for (argument, expected) in [
+            (Value::string("أ"), 1571),
+            (Value::string("مَرحبا"), 1605),
+            (Value::string(""), -1),
+            (Value::Null, -1),
+        ] {
+            let result = interpreter
+                .call_builtin("حرف_إلى_رمز", vec![argument])
+                .expect("حرف_إلى_رمز أخفق في مفسّر التنقيح");
+            assert_eq!(result.as_int(), Some(expected));
         }
     }
 

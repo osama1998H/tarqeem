@@ -705,6 +705,7 @@ impl LlvmCodegen {
         emit!(self, "declare ptr @trq_string_substr(ptr, i64, i64)");
         emit!(self, "declare ptr @trq_string_substr_chars(ptr, i64, i64)");
         emit!(self, "declare ptr @trq_string_char_at(ptr, i64)");
+        emit!(self, "declare i64 @trq_string_char_code(ptr)");
         emit!(self, "declare i1 @trq_string_contains(ptr, ptr)");
         emit!(self, "declare i1 @trq_string_starts_with(ptr, ptr)");
         emit!(self, "declare i1 @trq_string_ends_with(ptr, ptr)");
@@ -2858,6 +2859,9 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "قص_نص" => Some("trq_string_substr"),
         "قص_حروف" => Some("trq_string_substr_chars"),
         "حرف_في" => Some("trq_string_char_at"),
+        // Core tier, unlike its neighbours here: reachable with no import, and
+        // its `IrType::Int` return type is registered in the IR builder.
+        "حرف_إلى_رمز" => Some("trq_string_char_code"),
         "يحتوي" => Some("trq_string_contains"),
         "يبدأ_بـ" => Some("trq_string_starts_with"),
         "ينتهي_بـ" => Some("trq_string_ends_with"),
