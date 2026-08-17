@@ -189,9 +189,12 @@ impl Scope {
             ("بتات_أو_حصري", vec![Type::Int, Type::Int], Type::Int),
             // Unary, and distinct from the logical `ليس`, which takes a `منطقي`.
             ("بتات_نفي", vec![Type::Int], Type::Int),
-            // Total: an amount outside 0-63 yields 0 rather than diverging by
-            // backend. See `build_core_builtin_call`.
+            // Total: an amount outside 0-63 is a complete shift rather than a
+            // per-backend divergence, so the vacated bits are filled the way
+            // each shift always fills them — zeros for يسار, the sign for
+            // يمين. See `build_core_builtin_call`.
             ("بتات_إزاحة_يسار", vec![Type::Int, Type::Int], Type::Int),
+            ("بتات_إزاحة_يمين", vec![Type::Int, Type::Int], Type::Int),
         ]
     }
 

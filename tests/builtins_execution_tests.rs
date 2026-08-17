@@ -900,6 +900,220 @@ fn test_user_function_shadows_left_shift() {
 }
 
 // ---------------------------------------------------------------------------
+// بتات_إزاحة_يمين — the arithmetic right shift (#320)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_right_shift_moves_bits_in_every_backend() {
+    assert_prints(
+        "إزاحة_يمين_ضم",
+        concat!(
+            "اطبع(بتات_إزاحة_يمين(8، 1))\n",
+            "اطبع(بتات_إزاحة_يمين(1، 0))\n",
+            "اطبع(بتات_إزاحة_يمين(1، 1))\n",
+            "اطبع(بتات_إزاحة_يمين(1024، 10))\n",
+            "اطبع(بتات_إزاحة_يمين(48، 4))\n",
+            "اطبع(بتات_إزاحة_يمين(0، 5))",
+        ),
+        &["4", "1", "0", "1", "3", "0"],
+    );
+}
+
+/// The one property that separates this name from the logical shift it will sit
+/// beside, and the only fixture that can catch a backend wired to `lshr`
+/// instead of `ashr`: every line here would print a large positive number, all
+/// of them plausible integers that no other fixture rejects.
+#[test]
+fn test_right_shift_propagates_the_sign() {
+    assert_prints(
+        "إزاحة_يمين_إشارة",
+        concat!(
+            "اطبع(بتات_إزاحة_يمين(-8، 1))\n",
+            "اطبع(بتات_إزاحة_يمين(-16، 4))\n",
+            "اطبع(بتات_إزاحة_يمين(-1، 1))\n",
+            "اطبع(بتات_إزاحة_يمين(-1، 63))\n",
+            "اطبع(بتات_إزاحة_يمين(بتات_إزاحة_يسار(1، 63)، 62))",
+        ),
+        &["-4", "-1", "-1", "-1", "-2"],
+    );
+}
+
+/// A right shift floors and `/` truncates, so on a negative operand they are
+/// genuinely different operations rather than two spellings of one. Pinning the
+/// disagreement is what stops a later "simplification" into a division.
+#[test]
+fn test_right_shift_floors_where_division_truncates() {
+    assert_prints(
+        "إزاحة_يمين_تقريب",
+        concat!(
+            "اطبع(بتات_إزاحة_يمين(-7، 1))\n",
+            "اطبع(-7 / 2)\n",
+            "اطبع(بتات_إزاحة_يمين(-7، 1) == -7 / 2)\n",
+            "اطبع(بتات_إزاحة_يمين(-1، 1))\n",
+            "اطبع(-1 / 2)",
+        ),
+        &["-4", "-3", "خطأ", "-1", "0"],
+    );
+}
+
+/// Where the operand is non-negative the two do agree, and saying so pins the
+/// direction: a backend that shifted left instead would still print plausible
+/// integers everywhere above.
+#[test]
+fn test_right_shift_agrees_with_division_when_non_negative() {
+    assert_prints(
+        "إزاحة_يمين_يطابق_القسمة",
+        concat!(
+            "اطبع(بتات_إزاحة_يمين(1024، 10) == 1024 / 2 ** 10)\n",
+            "اطبع(بتات_إزاحة_يمين(255، 4) == 255 / 2 ** 4)\n",
+            "اطبع(بتات_إزاحة_يمين(7، 5) == 7 / 2 ** 5)\n",
+            "اطبع(بتات_إزاحة_يمين(7، 1) == 7 / 2)",
+        ),
+        &["صحيح", "صحيح", "صحيح", "صحيح"],
+    );
+}
+
+/// The contract, and where it parts company with `بتات_إزاحة_يسار`. An
+/// arithmetic shift vacates the high end and refills it from the sign, so
+/// shifting everything out leaves the sign rather than zero. Zeroing instead
+/// would put a cliff between the last two lines of
+/// `test_right_shift_propagates_the_sign` and the first line here, with nothing
+/// about the operand having changed.
+#[test]
+fn test_right_shift_is_total_outside_the_valid_range() {
+    assert_prints(
+        "إزاحة_يمين_خارج_النطاق",
+        concat!(
+            "اطبع(بتات_إزاحة_يمين(-1، 64))\n",
+            "اطبع(بتات_إزاحة_يمين(-1، 65))\n",
+            "اطبع(بتات_إزاحة_يمين(-1، 1000))\n",
+            "اطبع(بتات_إزاحة_يمين(-1، -1))\n",
+            "اطبع(بتات_إزاحة_يمين(255، 64))\n",
+            "اطبع(بتات_إزاحة_يمين(255، -1))",
+        ),
+        &["-1", "-1", "-1", "-1", "0", "0"],
+    );
+}
+
+/// The literals above are folded away before native codegen ever sees a shift,
+/// so they exercise the constant folder and nothing else. A variable amount is
+/// the other half of the contract — it is the only path that reaches LLVM's
+/// `ashr i64`, whose out-of-range result is poison.
+#[test]
+fn test_right_shift_guards_a_runtime_amount_too() {
+    assert_prints(
+        "إزاحة_يمين_مقدار_متغير",
+        concat!(
+            "متغير مقدار = 2\n",
+            "اطبع(بتات_إزاحة_يمين(-100، مقدار))\n",
+            "مقدار = 64\n",
+            "اطبع(بتات_إزاحة_يمين(-100، مقدار))\n",
+            "اطبع(بتات_إزاحة_يمين(100، مقدار))\n",
+            "مقدار = -1\n",
+            "اطبع(بتات_إزاحة_يمين(-100، مقدار))\n",
+            "دالة أزح_يميناً(قيمة: عدد، ن: عدد) -> عدد {\n",
+            "    أرجع بتات_إزاحة_يمين(قيمة، ن)\n",
+            "}\n",
+            "اطبع(أزح_يميناً(-64، 3))\n",
+            "اطبع(أزح_يميناً(-64، 99))\n",
+            "اطبع(أزح_يميناً(64، 99))",
+        ),
+        &["-25", "-1", "0", "-1", "-8", "-1", "0"],
+    );
+}
+
+/// The most extreme amount representable, reached by shifting rather than
+/// written as a literal — negating `9223372036854775808` would not fit an `عدد`.
+/// It is the one input where the guard's `٠ - (ن >> ٦)` could overflow if the
+/// chain subtracted the amount itself instead of its shifted quotient. The last
+/// two lines use it as the *value* rather than the amount, where `٦٣` is the
+/// amount that saturation produces and so must already be correct.
+#[test]
+fn test_right_shift_handles_the_most_negative_amount() {
+    assert_prints(
+        "إزاحة_يمين_أصغر_مقدار",
+        concat!(
+            "ثابت الأصغر = بتات_إزاحة_يسار(1، 63)\n",
+            "اطبع(بتات_إزاحة_يمين(-1، الأصغر))\n",
+            "اطبع(بتات_إزاحة_يمين(255، الأصغر))\n",
+            "اطبع(بتات_إزاحة_يمين(الأصغر، 63))\n",
+            "اطبع(بتات_إزاحة_يمين(الأصغر، 62))",
+        ),
+        &["-1", "0", "-1", "-2"],
+    );
+}
+
+/// The chain ends in the shift itself, so its destination is what types the
+/// call. Printing alone would not tell a real `عدد` from the `Ptr(Void)`
+/// sentinel a missing type registration leaves behind.
+#[test]
+fn test_right_shift_result_composes_as_an_integer() {
+    assert_prints(
+        "إزاحة_يمين_تركيب",
+        concat!(
+            "اطبع(نوع(بتات_إزاحة_يمين(8، 1)))\n",
+            "اطبع(بتات_إزاحة_يمين(8، 1) + 1)\n",
+            "اطبع(بتات_إزاحة_يمين(8، 1) == 4)\n",
+            "اطبع(بتات_و(بتات_إزاحة_يمين(-1، 4)، 255))\n",
+            "دالة ضاعف(ن: عدد) -> عدد {\n    أرجع ن * 2\n}\n",
+            "اطبع(ضاعف(بتات_إزاحة_يمين(8، 1)))",
+        ),
+        &["عدد", "5", "صحيح", "255", "8"],
+    );
+}
+
+/// The two shifts against each other, which is how they are actually used: a
+/// left shift builds a mask at a position and a right shift brings the field it
+/// selects back down to its own value. A direction swap in either lowering
+/// breaks the round trip while leaving both names individually plausible.
+#[test]
+fn test_right_shift_undoes_the_left_shift() {
+    assert_prints(
+        "إزاحة_يمين_ذهاب_وإياب",
+        concat!(
+            "اطبع(بتات_إزاحة_يمين(بتات_إزاحة_يسار(1، 10)، 10))\n",
+            "اطبع(بتات_إزاحة_يمين(بتات_إزاحة_يسار(-3، 4)، 4))\n",
+            "اطبع(بتات_إزاحة_يمين(بتات_إزاحة_يسار(255، 8)، 8) == 255)\n",
+            "اطبع(بتات_إزاحة_يمين(بتات_و(4660، بتات_إزاحة_يسار(255، 8))، 8))",
+        ),
+        &["1", "-3", "صحيح", "18"],
+    );
+}
+
+/// A narrowed optional is still a boxed pointer in codegen, so it is covered in
+/// both argument positions and in both at once. The amount position is the one
+/// that matters: the guard reads that operand twice, and codegen unboxes only a
+/// `VarId`'s first scalar use (#318) — which is why the shared guard copies it
+/// once before the chain.
+#[test]
+fn test_right_shift_over_a_narrowed_optional() {
+    assert_prints(
+        "إزاحة_يمين_اختياري",
+        concat!(
+            "متغير س: عدد? = 5\n",
+            "إذا (س != لا_شيء) {\n",
+            "    اطبع(بتات_إزاحة_يمين(س، 1))\n",
+            "    اطبع(بتات_إزاحة_يمين(64، س))\n",
+            "    اطبع(بتات_إزاحة_يمين(س، س))\n",
+            "    اطبع(بتات_إزاحة_يمين(س، 1) + 1)\n",
+            "}",
+        ),
+        &["2", "2", "0", "3"],
+    );
+}
+
+/// Builtins are the last tier of the lookup order, so a user function of the
+/// same name must win — in every backend at once (#262).
+#[test]
+fn test_user_function_shadows_right_shift() {
+    assert_prints(
+        "إزاحة_يمين_مظلل",
+        "دالة بتات_إزاحة_يمين(س: عدد، ن: عدد) -> عدد {\n    أرجع 42\n}\nاطبع(بتات_إزاحة_يمين(8، 1))",
+        &["42"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // طول over a string — characters, not bytes (#185)
 // ---------------------------------------------------------------------------
 
@@ -1460,6 +1674,9 @@ fn test_every_core_builtin_agrees_across_backends() {
         ("بتات_أو_حصري", "اطبع(بتات_أو_حصري(12، 10))", &["6"]),
         ("بتات_نفي", "اطبع(بتات_نفي(255))", &["-256"]),
         ("بتات_إزاحة_يسار", "اطبع(بتات_إزاحة_يسار(3، 4))", &["48"]),
+        // Negative, so the sweep's one line already distinguishes the
+        // arithmetic shift from a logical one.
+        ("بتات_إزاحة_يمين", "اطبع(بتات_إزاحة_يمين(-48، 4))", &["-3"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();

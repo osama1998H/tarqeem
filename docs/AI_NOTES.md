@@ -3033,3 +3033,97 @@ to use.
 pinned in `test_identifier_containing_a_keyword_stays_one_token`. `بتات_إزاحة_يسار` embeds none,
 so adding it would have diluted what that test is for. Recorded here because "the previous four
 all touched it" is exactly the kind of pattern that gets copied without checking.
+
+---
+
+## #320 — بتات_إزاحة_يمين, and correcting a contract the family was told to inherit
+
+Branch `feature/320-bitwise-ashr-builtin`. Increment A of
+[`builtins-vs-stdlib.md`](builtins-vs-stdlib.md) §6.1, six names of seven.
+
+### The interesting part is not the code
+
+The lowering took three instructions beyond #317's and needed no new mechanism. What this change
+is actually about is that **#317 wrote its conclusion into the plan as a family-wide rule, and the
+conclusion did not generalise while its reasoning did.**
+
+#317's contract: *"an amount outside 0-63 yields `٠`, and the whole family inherits it verbatim."*
+Its justification, quoted from the issue: *"`٠` is the arithmetic answer, not a sentinel. Shifting
+a 64-bit value left by 64 or more moves every bit out; the low 64 bits are zero."* Both true, and
+the rejection of C's mask-mod-64 rested on the second sentence — `arabic-philosophy.md` rule 1,
+describe rather than transliterate.
+
+An **arithmetic** right shift refills the vacated high end from the sign, so shifting everything
+out leaves the sign rather than zero. Carrying the constant across would have produced:
+
+```
+بتات_إزاحة_يمين(-١، ٦٢)  → -١
+بتات_إزاحة_يمين(-١، ٦٣)  → -١
+بتات_إزاحة_يمين(-١، ٦٤)  → ٠     ← nothing about the operand changed
+```
+
+That cliff is precisely the sentinel #317 refused. So the number changed and the rule did not:
+
+> An amount outside 0-63 is a complete shift, and the vacated bits are filled the way that shift
+> always fills them.
+
+Zeros for `يسار` (#317 unchanged), the sign for `يمين`, zeros again for the pending
+`بتات_إزاحة_يمين_منطقية` — so **one of the three names moves and the seventh is pre-committed to
+nothing.** The generalisation also buys the right shift the counterpart of the identity the spec
+already documents for the left one: a left shift is multiplication by powers of two bounded by the
+sign bit, a right shift is *floor* division by them, and under the corrected rule that holds at
+every `ن ≥ ٠` rather than stopping at 64.
+
+**The lesson worth keeping is about the plan document, not about shifts.** A decision recorded as
+"the whole family inherits this" is safe only when what is inherited is the *reasoning*. #317
+recorded both, and the two diverged one name later. Where a future increment writes a rule for
+names it has not implemented, state the criterion, not the answer.
+
+### Floor versus truncation is the property the tests had to pin
+
+`/` truncates toward zero and this shifts toward negative infinity, so on negative operands they
+are different operations:
+
+```
+بتات_إزاحة_يمين(-٧، ١)  → -٤
+-٧ / ٢                   → -٣
+```
+
+`test_right_shift_floors_where_division_truncates` asserts the disagreement rather than only the
+agreement, which is what stops a later "simplification" into a division. The companion risk is a
+backend wired to `lshr` instead of `ashr`: every such fixture would print a large positive integer,
+plausible enough that no arithmetic assertion catches it, which is why
+`test_right_shift_propagates_the_sign` exists as its own case with negative operands only.
+
+### The guard is now shared, which is the whole diff in `expr_builder.rs`
+
+Both shifts need the same six-instruction range guard and differ only in the tail:
+
+- `يسار` masks the **result** to zero out of range — `shifted & keep`.
+- `يمين` saturates the **amount** to 63 — `guard.amount | (٦٣ & out_of_range)`, which needs no
+  select because the guard's masked amount already fits in those six bits, and 63 is exactly the
+  amount at which the value is already fully shifted out.
+
+Extracting `emit_shift_range_guard` was not tidying: the guard is subtle (a `-1/0` mask built
+without `BoolToInt`, which **neither JIT tier implements**, and without subtracting the amount
+itself, which would overflow at `i64::MIN`), and two copies of it would have been two places to
+get it wrong. The left shift's emitted instruction sequence is unchanged, which its nine existing
+fixtures verify.
+
+### The estimate held a sixth time, and that is now the finding
+
+Two source files, no `runtime-rs` work, no runtime symbol, no interpreter or debug-interpreter
+arm, no `register_builtin_return_types` entry. #312 had extended the estimate to `Unary` and #317
+to a multi-instruction chain; #320 exercised nothing new, which is the point — the interception
+path is now characterised rather than merely observed.
+
+`Shr` was verified arithmetic in all six consumers before anything was written: `ashr i64`
+(`codegen.rs:2626`), `sshr` (both Cranelift tiers), `*a >> *b` on `i64` (both interpreters), and
+`wrapping_shr` (`const_fold.rs:181`). Had any one of them been logical, this would have been a
+`runtime-rs` change instead.
+
+### The lexer test was checked and deliberately not extended, again
+
+`بتات_إزاحة_يمين` embeds no keyword — neither `إزاحة` nor `يمين` contains one — so
+`test_identifier_containing_a_keyword_stays_one_token` was left alone, for the same reason #317
+left it alone. Noted a second time because the trap is the pattern, not the name.

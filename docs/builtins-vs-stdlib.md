@@ -467,17 +467,18 @@ Not a migration. See §7. Nothing below may start until items B1-B5 are done.
 
 ### 6.1 Increment A — the seven bitwise primitives
 
-**Progress: 5 of 7 landed.** `بتات_و` (#302), `بتات_أو` (#306), `بتات_أو_حصري` (#309),
-`بتات_نفي` (#312) and `بتات_إزاحة_يسار` (#317) — a `Scope` entry each plus a
-`build_core_builtin_call` arm: one shared arm emitting `BinaryOp::BitAnd` / `BitOr` / `BitXor`
-over `IrType::Int`, a second for `UnaryOp::BitNot`, and a third for the guarded shift. The
-two-file cost estimate below held exactly, five times: no `runtime-rs` work, no runtime symbol,
-no interpreter or debug-interpreter arm (an intercepted builtin emits no `Call`), and no
-`register_builtin_return_types` entry (`var_types` carries `Int` directly). All five verified in
-all four executing backends — interpreter, JIT, native, and the DAP debug interpreter. #312
-extended the estimate to the `Unary` shape and #317 to a **multi-instruction chain**, which were
-the two untested assumptions in it. The remaining two are the right shifts;
-`بتات_إزاحة_يمين_منطقية` composes rather than emitting one op.
+**Progress: 6 of 7 landed.** `بتات_و` (#302), `بتات_أو` (#306), `بتات_أو_حصري` (#309),
+`بتات_نفي` (#312), `بتات_إزاحة_يسار` (#317) and `بتات_إزاحة_يمين` (#320) — a `Scope` entry each
+plus a `build_core_builtin_call` arm: one shared arm emitting `BinaryOp::BitAnd` / `BitOr` /
+`BitXor` over `IrType::Int`, a second for `UnaryOp::BitNot`, and one per shift over a shared
+range guard. The two-file cost estimate below held exactly, six times: no `runtime-rs` work, no
+runtime symbol, no interpreter or debug-interpreter arm (an intercepted builtin emits no `Call`),
+and no `register_builtin_return_types` entry (`var_types` carries `Int` directly). All six
+verified in all four executing backends — interpreter, JIT, native, and the DAP debug
+interpreter. #312 extended the estimate to the `Unary` shape and #317 to a **multi-instruction
+chain**, which were the two untested assumptions in it; #320 added nothing new to it, which is
+itself the result — the second shift cost three instructions and no new mechanism. The remaining
+one is `بتات_إزاحة_يمين_منطقية`, which composes rather than emitting one op.
 
 With XOR landed the three logic operations were complete, and with them the bitwise
 complement: `بتات_أو_حصري(س، -1)` flips every bit, which neither AND nor OR can do. `بتات_نفي`
@@ -486,18 +487,18 @@ therefore landed as a **spelling for an already-reachable operation**, not as a 
 assert agreement with the XOR form rather than treating it as independent. The verdict in
 §1.3 is unchanged; the justification recorded there is.
 
-One caveat found while landing #302 and confirmed unchanged by #306, #309, #312 and #317: an
-intercepted builtin **segfaults natively as an element of an array literal** (#304). It
-predates all five — the same call in any other position is correct in every backend, and
+One caveat found while landing #302 and confirmed unchanged by #306, #309, #312, #317 and #320:
+an intercepted builtin **segfaults natively as an element of an array literal** (#304). It
+predates all six — the same call in any other position is correct in every backend, and
 `طول_مصفوفة` reproduces it — so it gates nothing here, but self-hosted stdlib written on these
 primitives must avoid that shape until it is fixed.
 
 A second caveat, surfaced by #317 because its chain is the first lowering to read one operand
 **twice**: codegen unboxes a narrowed optional only on that operand's *first* scalar use, so the
 second emits the raw pointer and clang rejects the module (#318). Reachable from ordinary source
-as `س + س` inside `إذا (س != لا_شيء)`, so it predates the shift; #317 works around it by copying
-the amount once (`أ | ٠`). Any later lowering that reads an operand more than once must do the
-same until #318 is fixed.
+as `س + س` inside `إذا (س != لا_شيء)`, so it predates the shift; the workaround is to copy the
+amount once (`أ | ٠`), and since #320 it lives in the guard both shifts share. Any later lowering
+that reads an operand more than once must do the same until #318 is fixed.
 
 **Why first:** highest ratio of unblocking to risk in the whole plan. Two files
 (`scope.rs` + `expr_builder.rs`), zero backend work, zero `runtime-rs` work, zero migration — the IR
@@ -507,18 +508,46 @@ exist and are already unit-tested. It unblocks تشفير, ضغط, the RNG and h
 **Gate:** unit tests per name at all three backends, an `examples/` program exercising all seven that
 the CI backend-diff job runs, and explicit range-check documentation.
 
-**Range contract — decided in #317, and the whole family inherits it.** An amount outside 0-63
-yields **0**. Unguarded the divergence is four ways, not the three recorded here before: both
-interpreters raise «مقدار الإزاحة خارج النطاق», LLVM's `shl i64` is poison, Cranelift's `ishl`
-masks, and the constant folder's `wrapping_shl` masks — so native disagreed with the interpreter
-*and with itself*, depending on whether the amount was a literal. The IR builder therefore emits a
-guard chain (`ن >> ٦` is zero exactly on 0-63; `high | -high` spreads the sign to a -1/0 mask; the
-amount is masked to 0-63 before the shift), which costs no backend arm and leaves the interpreters'
-range errors unreachable from the builtin. `٠` is the arithmetic answer rather than a sentinel:
-shifting a 64-bit value by 64 or more moves every bit out. Masking the *amount* mod 64 — the C and
-Cranelift behaviour, under which `بتات_إزاحة_يسار(١، ٦٤) == ١` — was rejected as transliterated
-rather than described. The guard is branchless and uses only ops with arms in all six consumers;
-in particular it avoids `BoolToInt`, which **neither JIT tier implements**.
+**Range contract — decided in #317, amended in #320.** Unguarded the divergence is four ways, not
+the three recorded here before: both interpreters raise «مقدار الإزاحة خارج النطاق», LLVM's
+`shl i64` is poison, Cranelift's `ishl` masks, and the constant folder's `wrapping_shl` masks — so
+native disagreed with the interpreter *and with itself*, depending on whether the amount was a
+literal. The IR builder therefore emits a shared guard chain (`ن >> ٦` is zero exactly on 0-63;
+`high | -high` spreads the sign to a -1/0 mask; the amount is masked to 0-63 before the shift),
+which costs no backend arm and leaves the interpreters' range errors unreachable from the
+builtin. The guard is branchless and uses only ops with arms in all six consumers; in particular
+it avoids `BoolToInt`, which **neither JIT tier implements**.
+
+#317 stated the resulting contract as *"an amount outside 0-63 yields `٠`, and the whole family
+inherits it verbatim"*. **The number does not generalise; the reasoning does.** #317 chose `٠`
+because `٠` is what a left shift by 64 or more genuinely produces — every bit leaves the word and
+zeros fill behind it — and rejected masking the amount mod 64 (C's and Cranelift's behaviour,
+under which `بتات_إزاحة_يسار(١، ٦٤) == ١`) as transliterated rather than described. An
+**arithmetic** right shift refills from the sign, so shifting everything out leaves the sign, not
+zero. Carrying the constant across while dropping the reasoning would put a cliff between
+`بتات_إزاحة_يمين(-١، ٦٣) == -١` and `بتات_إزاحة_يمين(-١، ٦٤) == ٠`, which is exactly the sentinel
+#317 refused.
+
+So the contract is one clause, stated one level up:
+
+> **An amount outside 0-63 is a complete shift, and the vacated bits are filled the way that
+> shift always fills them.**
+
+Zeros for `بتات_إزاحة_يسار`, so `٠` — #317's behaviour is unchanged. The sign for
+`بتات_إزاحة_يمين`, so `٠` for a non-negative operand and `-١` for a negative one. Zeros again for
+`بتات_إزاحة_يمين_منطقية`, so `٠` — the amendment changes the behaviour of exactly one of the three
+names and pre-commits the seventh to nothing. Negative amounts fold into the same clause rather
+than getting a second one.
+
+It also gives the right shift the counterpart of the identity documented for the left one: a left
+shift is multiplication by powers of two bounded by the sign bit, and a right shift is **floor**
+division by powers of two — `بتات_إزاحة_يمين(س، ن) == floor(س / ٢**ن)` at every `ن ≥ ٠`, with no
+boundary at 64. Under the inherited wording that identity would hold to 63 and then stop.
+
+Implementation difference: the left shift masks the *result* to zero out of range, the right shift
+saturates the *amount* to 63. `guard.amount | (٦٣ & out_of_range)` saturates without a select,
+because the guard's masked amount already fits in those six bits. Three instructions, no new
+mechanism.
 
 **Lexer check — done (#309), and it passed.** `بتات_أو_حصري` lexes as **one identifier**: the
 greedy identifier scan neither stops at the embedded `أو` nor resumes after it. The mid-name
