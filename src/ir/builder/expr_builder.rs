@@ -39,6 +39,17 @@ fn unknown_member_error(class: &str, member: &str) -> IrError {
     ))
 }
 
+/// What `emit_shift_range_guard` yields for one shift amount.
+struct ShiftGuard {
+    /// The amount masked into 0-63, safe to hand to any backend's shift.
+    amount: VarId,
+    /// All ones when the original amount was outside 0-63, zero otherwise.
+    out_of_range: VarId,
+    /// The `٦٣` the guard masked with, so an arm needing that constant reuses
+    /// it rather than emitting a second one.
+    range_mask: VarId,
+}
+
 /// A `خاصية` that exists but does not declare the accessor this access needs:
 /// reading one that has only `عيّن`, or assigning to one that has only `احصل`.
 ///
@@ -683,51 +694,90 @@ impl IrBuilder {
             // one op. The chain is a range guard, and it is not optional: a bare
             // `Shl` makes an amount outside 0-63 a runtime error interpreted, a
             // masked result folded, and poison natively — the same call
-            // disagreeing with itself across backends. Guarded, the operation is
-            // total: an out-of-range amount yields 0 everywhere.
+            // disagreeing with itself across backends.
+            //
+            // Out of range every bit leaves the word and nothing fills it, so
+            // zeroing the result is the arithmetic answer.
             "بتات_إزاحة_يسار" => {
                 let Some(&amount) = args.get(1) else {
                     return Ok(None);
                 };
+                let guard = self.emit_shift_range_guard(amount);
 
-                let sixty_three = self.emit_int_const(63);
-                let zero = self.emit_int_const(0);
-
-                // Read the amount once, through the copy below, because the
-                // chain needs it twice and codegen unboxes a narrowed optional
-                // only on its *first* use as a scalar operand — the second
-                // would emit the raw pointer and clang would reject the module
-                // (#318). `أ | ٠` is free after either optimizer, but it is
-                // load-bearing: an `x | 0 => x` peephole would fold it away and
-                // silently restore that bug. `test_left_shift_over_a_narrowed_optional`
-                // is what catches that, natively.
-                let amount = self.emit_int_binary(BinaryOp::BitOr, amount, zero);
-
-                // `ن >> ٦` is zero exactly on 0-63 — a larger amount leaves a
-                // positive quotient, a negative one leaves a negative quotient.
-                // `high | -high` then carries the sign bit whenever `high` is
-                // non-zero, so an arithmetic shift by 63 spreads it to a full
-                // -1/0 mask without a branch or a Bool→Int widening (which the
-                // JIT tiers have no arm for).
-                let six = self.emit_int_const(6);
-                let high = self.emit_int_binary(BinaryOp::Shr, amount, six);
-                let negated = self.emit_int_binary(BinaryOp::Sub, zero, high);
-                let either_sign = self.emit_int_binary(BinaryOp::BitOr, high, negated);
-                let out_of_range = self.emit_int_binary(BinaryOp::Shr, either_sign, sixty_three);
-                let keep = self.emit_int_unary(UnaryOp::BitNot, out_of_range);
-
-                // Masking the amount keeps it inside the range every backend's
-                // own shift accepts, so the guard above is what decides the
-                // result rather than each backend's out-of-range behaviour.
-                let in_range_amount = self.emit_int_binary(BinaryOp::BitAnd, amount, sixty_three);
-                let shifted = self.emit_int_binary(BinaryOp::Shl, first, in_range_amount);
+                // Zeroing masks the *result*, so what this arm needs is the
+                // complement of the guard's flag.
+                let keep = self.emit_int_unary(UnaryOp::BitNot, guard.out_of_range);
+                let shifted = self.emit_int_binary(BinaryOp::Shl, first, guard.amount);
                 self.emit_int_binary(BinaryOp::BitAnd, shifted, keep)
+            }
+
+            // The same guard, with the opposite answer out of range: an
+            // arithmetic shift vacates the *high* end and refills it from the
+            // sign, so shifting everything out leaves the sign rather than zero
+            // — 0 for a non-negative operand and -1 for a negative one. Zeroing
+            // here would break at the boundary, since `بتات_إزاحة_يمين(-١، ٦٣)`
+            // is already -1.
+            "بتات_إزاحة_يمين" => {
+                let Some(&amount) = args.get(1) else {
+                    return Ok(None);
+                };
+                let guard = self.emit_shift_range_guard(amount);
+
+                // Saturating the amount to 63 is what produces that sign fill,
+                // 63 being the amount at which the value is already fully
+                // shifted out. `أ | ٦٣` saturates rather than needing a select
+                // because `guard.amount` is masked to those same six bits.
+                let saturate =
+                    self.emit_int_binary(BinaryOp::BitAnd, guard.range_mask, guard.out_of_range);
+                let clamped = self.emit_int_binary(BinaryOp::BitOr, guard.amount, saturate);
+                self.emit_int_binary(BinaryOp::Shr, first, clamped)
             }
 
             _ => return Ok(None),
         };
 
         Ok(Some(dest))
+    }
+
+    /// Brings an arbitrary shift amount into the range every backend accepts,
+    /// and reports whether it started there.
+    ///
+    /// No backend can be handed a raw amount: outside 0-63 both interpreters
+    /// raise «مقدار الإزاحة خارج النطاق», LLVM's shift is poison, and the
+    /// constant folder's `wrapping_*` masks — four answers to one call. So the
+    /// shift always sees `amount`, and `out_of_range` is what decides the
+    /// result instead. Each shift applies it differently: see its own arm.
+    fn emit_shift_range_guard(&mut self, raw_amount: VarId) -> ShiftGuard {
+        let sixty_three = self.emit_int_const(63);
+        let zero = self.emit_int_const(0);
+
+        // Read the amount once, through this copy, because the chain needs it
+        // twice and codegen unboxes a narrowed optional only on its *first* use
+        // as a scalar operand — the second would emit the raw pointer and clang
+        // would reject the module (#318). `أ | ٠` is free after either
+        // optimizer, but it is load-bearing: an `x | 0 => x` peephole would fold
+        // it away and silently restore that bug.
+        // `test_left_shift_over_a_narrowed_optional` is what catches that,
+        // natively.
+        let raw_amount = self.emit_int_binary(BinaryOp::BitOr, raw_amount, zero);
+
+        // `ن >> ٦` is zero exactly on 0-63 — a larger amount leaves a positive
+        // quotient, a negative one leaves a negative quotient. `high | -high`
+        // then carries the sign bit whenever `high` is non-zero, so an
+        // arithmetic shift by 63 spreads it to a full -1/0 mask without a branch
+        // or a Bool→Int widening (which the JIT tiers have no arm for).
+        let six = self.emit_int_const(6);
+        let high = self.emit_int_binary(BinaryOp::Shr, raw_amount, six);
+        let negated = self.emit_int_binary(BinaryOp::Sub, zero, high);
+        let either_sign = self.emit_int_binary(BinaryOp::BitOr, high, negated);
+        let out_of_range = self.emit_int_binary(BinaryOp::Shr, either_sign, sixty_three);
+        let amount = self.emit_int_binary(BinaryOp::BitAnd, raw_amount, sixty_three);
+
+        ShiftGuard {
+            amount,
+            out_of_range,
+            range_mask: sixty_three,
+        }
     }
 
     /// Whether a value of this type may hold a `نص` at runtime, and so can be
