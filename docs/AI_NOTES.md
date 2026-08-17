@@ -2805,3 +2805,64 @@ intercepted call inside an array literal until it is fixed.
 Interpreter, JIT, native and the DAP debug interpreter all produce byte-identical output for
 `examples/مدمجات.ترقيم`, and the regenerated `examples/متوقع/مدمجات.خرج` diff is purely
 additive — no other example's committed output moved.
+
+---
+
+## #309 — بتات_أو_حصري, the third bitwise primitive
+
+Branch `feature/309-bitwise-xor-builtin`. Increment A of
+[`builtins-vs-stdlib.md`](builtins-vs-stdlib.md) §6.1, three names of seven.
+
+### The estimate held a third time
+
+Same two source files as #302 and #306, and no third. `BinaryOp::BitXor` already had arms in
+the interpreter (`executor/mod.rs:981`), the debug interpreter
+(`debug/interpreter/operations.rs:117`), both JIT tiers (`bxor`), LLVM (`xor i64`), the
+constant folder and CSE. The shared arm became a three-way `match name`, and the outer
+pattern grew one alternative.
+
+### The mandated lexer check passed, and the risk was different from #302/#306
+
+§6.1 singled this name out. In the two earlier names the keyword was the **suffix**, so only
+a greedy scan was at issue. Here `أو` sits **mid-name**, where a split would not have failed
+loudly — `بتات_` `أو` `_حصري` is a well-formed logical-or between two identifiers, so it
+would have type-checked as `منطقي` and produced a confusing error far from the cause. The
+scan handles it, and the existing lexer test was widened (and renamed from `ending_in` to
+`containing`) to pin all three spellings.
+
+### Why XOR is a primitive and not a convenience
+
+It is not derivable from the two that landed: `أ ^ ب` = `(أ | ب) & ~(أ & ب)` needs a
+complement, and until this name there was none. Two properties earn it the slot:
+
+- **Self-inverse.** `بتات_أو_حصري(بتات_أو_حصري(س، ق)، ق) == س`. AND and OR are both
+  absorbing; neither can undo itself, so masking needed a saved copy to round-trip.
+- **`بتات_أو_حصري(س، -1)` is the bitwise complement.** `-1` is all-ones in a signed 64-bit
+  `عدد`. This retires the hand-written `-256` inverse mask that #306 left in the example with
+  a «إلى أن تصل بتات_نفي» note — the example now computes it as `متمم(255)` and asserts the
+  two agree.
+
+Consequence for the plan: `بتات_نفي` is now a *spelling* for an expressible operation, not a
+missing capability. It should still land for readability, but it no longer gates anything.
+
+### #304 reproduces here too, and is not this change's
+
+`ثابت م = [بتات_أو_حصري(12، 10)، 1]` prints `6` interpreted and exits 139 natively —
+identical to `بتات_و`, `بتات_أو` and `طول_مصفوفة`. Confirmed by running it rather than
+assumed, as #306 did. Nothing here touches it, and the example file avoids that shape.
+
+### One authoring trap worth recording
+
+The first draft of the example used `ثابت الأصل = 4660` and failed to parse with ب٠٢٠١.
+`الأصل` is the parent-class reference keyword. `.claude/rules` already warns off `ك` and `و`
+as loop identifiers; `الأصل` belongs on that list, and it is easy to reach for because it is
+the natural Arabic word for "the original" in a round-trip test.
+
+### Verification
+
+Interpreter, JIT, native and the DAP debug interpreter all produce byte-identical output for
+`examples/مدمجات.ترقيم`, and the regenerated `examples/متوقع/مدمجات.خرج` diff is purely
+additive — 25 insertions, no other example's committed output moved. The DAP leg was checked
+with `printf 'r\nc\nq\n' | tarqeem debug`, stripping the `ترقيم> ` prompt and `[DEBUG]`
+lines before comparing.
+

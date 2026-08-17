@@ -631,8 +631,8 @@ impl IrBuilder {
 
             // Lowered here rather than mapped to a runtime symbol: `BinaryOp` is
             // already implemented by every backend and the constant folder, so
-            // an `and`/`or i64` costs no `runtime-rs` work and no call.
-            "بتات_و" | "بتات_أو" => {
+            // an `and`/`or`/`xor i64` costs no `runtime-rs` work and no call.
+            "بتات_و" | "بتات_أو" | "بتات_أو_حصري" => {
                 let Some(&right) = args.get(1) else {
                     return Ok(None);
                 };
@@ -641,6 +641,7 @@ impl IrBuilder {
                 let op = match name {
                     "بتات_و" => BinaryOp::BitAnd,
                     "بتات_أو" => BinaryOp::BitOr,
+                    "بتات_أو_حصري" => BinaryOp::BitXor,
                     _ => return Ok(None),
                 };
                 let dest = self.new_var();
