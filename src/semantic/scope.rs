@@ -191,10 +191,17 @@ impl Scope {
             ("بتات_نفي", vec![Type::Int], Type::Int),
             // Total: an amount outside 0-63 is a complete shift rather than a
             // per-backend divergence, so the vacated bits are filled the way
-            // each shift always fills them — zeros for يسار, the sign for
-            // يمين. See `build_core_builtin_call`.
+            // each shift always fills them — zeros for يسار and
+            // يمين_منطقية, the sign for يمين. See `build_core_builtin_call`.
             ("بتات_إزاحة_يسار", vec![Type::Int, Type::Int], Type::Int),
             ("بتات_إزاحة_يمين", vec![Type::Int, Type::Int], Type::Int),
+            // `عدد` is signed and every backend's `Shr` is arithmetic, so zero
+            // fill is unreachable through يمين at any amount.
+            (
+                "بتات_إزاحة_يمين_منطقية",
+                vec![Type::Int, Type::Int],
+                Type::Int,
+            ),
         ]
     }
 

@@ -3136,3 +3136,126 @@ path is now characterised rather than merely observed.
 `بتات_إزاحة_يمين` embeds no keyword — neither `إزاحة` nor `يمين` contains one — so
 `test_identifier_containing_a_keyword_stays_one_token` was left alone, for the same reason #317
 left it alone. Noted a second time because the trap is the pattern, not the name.
+
+---
+
+## #322 — بتات_إزاحة_يمين_منطقية, and a justification that expired before it shipped
+
+Branch `feature/322-bitwise-lshr-builtin`. Increment A of
+[`builtins-vs-stdlib.md`](builtins-vs-stdlib.md) §6.1 — **seven of seven, complete**.
+
+### The finding is that the plan's own case for this name had gone stale
+
+§1.3 justifies `بتات_إزاحة_يمين_منطقية` under criterion (a), inexpressible: *"every backend's `Shr`
+is arithmetic, so a self-hosted xorshift64 or DEFLATE bit reader silently produces wrong numbers
+consistently across all three backends without it."* Every clause of that is still true. The
+conclusion is not — **#320 made the operation composable from the six names that already existed**:
+
+```tarqeem
+بتات_أو(
+    بتات_إزاحة_يمين(بتات_و(س، 9223372036854775807)، ن)،
+    بتات_و(بتات_إزاحة_يمين(س، 63)، بتات_إزاحة_يسار(1، 63 - ن)))
+```
+
+That is asserted rather than asserted-about, by
+`test_logical_right_shift_matches_the_composition_it_names`, including out of range where the
+composition's two inner guards happen to agree with the single guard.
+
+So the name shipped on different grounds than the ones written for it, and the honest grounds are
+worth stating because two of them are new:
+
+1. **`بتات_نفي`'s precedent (#312)** — call-site readability. That case is stronger here: the
+   composition rests on three separate non-obvious facts (that `9223372036854775807` is the
+   sign-cleared mask, that a non-negative operand makes an arithmetic shift behave logically, and
+   that `٦٣-ن` stays in range for every in-range `ن`). Getting any one wrong yields a plausible
+   large integer.
+2. **There was nowhere else to put it.** §5.2 keeps a no-import name a compiler builtin until the
+   linker treats prelude declarations as displaceable (**B12**), and this family is core tier. The
+   choice was primitive or nothing — which is *not* true of the names Increment C onward will move.
+
+**The generalisable part:** an inexpressibility claim is a statement about the language at the time
+of writing, and each landed increment changes what is expressible. Two of the 21 `new` rows have now
+had that claim expire under them, both inside one increment. Re-derive criterion (a) at the start of
+each increment rather than reading it off §1.3. The verdicts are still right; the *reasons* decay.
+
+### The range contract predicted this name and was not adjusted for it
+
+#320 replaced #317's constant with a criterion — *"an amount outside 0-63 is a complete shift, and
+the vacated bits are filled the way that shift always fills them"* — and wrote that it left the
+seventh name at `٠`, unchanged from #317's number. It shipped at `٠`, and that is the criterion's
+own test rather than a coincidence: it was written before the name it predicted, and it produces `٠`
+here for a **negative** operand where the sibling produces `-١`.
+
+```
+بتات_إزاحة_يمين(-١، ٦٤)          → -١
+بتات_إزاحة_يمين_منطقية(-١، ٦٤)   → ٠
+```
+
+The two right shifts agree on the rule and disagree on the number, out of range exactly as in
+range. A rule stated as a criterion survived one name further than the rule stated as an answer.
+
+### The plan's implementation sketch was wrong, and the correct shape is cheaper
+
+§1.3's cost note sketched `(أ >> ١) & 0x7FFF…FFFF` then `>> (ن-١)`, *"with `ن==٠` returning `أ`"*.
+That parenthetical is a select, and there is no `Select` in the IR — building one out of masks
+costs four instructions plus a zero-detect, on top of the guard. Separating the sign bit instead
+needs no special case at all:
+
+```
+keep  = ~oob                    the guard's flag, complemented
+value = س & keep                zero out of range — and the #318 copy, in one instruction
+low   = value & ٩٢٢٣٣٧٢٠٣٦٨٥٤٧٧٥٨٠٧
+lowsh = low >> amount           non-negative operand, so Shr behaves logically
+sign  = value >> ٦٣
+dest  = lowsh | (sign & (١ << (٦٣ - amount)))
+```
+
+Nine instructions over the shared six-op guard — the last line above is four of them, which is how
+the first draft of this entry came to call it eight. `ن = ٠` falls out: `١ << ٦٣` is `i64::MIN`,
+so the sign term restores the operand's top bit and `low` supplies the other 63 — which is why
+`بتات_إزاحة_يمين_منطقية(بتات_إزاحة_يسار(١، ٦٣)، ٠)` is `i64::MIN` and not `٠`. That input is the
+lowering's tightest spot, since clearing the sign bit leaves exactly zero and the entire answer
+comes from the sign term; it has its own fixture.
+
+`٦٣ - amount` reads the guard's **masked** amount, not the raw one, so it stays in `٠..٦٣` and
+cannot overflow — the same discipline #320 recorded for `٠ - (ن >> ٦)`.
+
+### Folding the #318 workaround into work the arm already does
+
+This is the first *shift* to read the **value** twice, so it needed the copy #317 introduced for
+the amount. It did not need a second `أ | ٠`: it also owed the out-of-range answer a zero, and
+`س & keep` is one instruction that does both — it is the value's first scalar use, which is where
+codegen unboxes a narrowed optional, and zeroing the value zeroes every term below it.
+
+Generalisable: where an arm already needs a mask or a copy, fold the #318 workaround into it rather
+than prepending `أ | ٠`. Either form is load-bearing and neither is an optimizable identity — a
+peephole for `x | 0` **or** `x & -1` would silently restore #318, natively only.
+
+Note where the mask goes differs across all three shifts, and each position is forced: `يسار` masks
+the *result*, `يمين` saturates the *amount* to 63, and this one masks the *value*. Only the third
+position both zeroes the answer and unboxes the operand.
+
+### The lexer test was extended this time, and that is the point
+
+#317 and #320 each recorded that they checked
+`test_identifier_containing_a_keyword_stays_one_token` and deliberately left it alone, because
+neither `إزاحة` nor `يمين` nor `يسار` contains a keyword. `منطقية` does — `منطقي` is the `منطقي`
+type keyword — and it sits there in a shape none of the four existing cases covers: followed by a
+*letter* (`ة`) rather than by `_` or the end of the name, so a scan resuming after a keyword match
+would split a word rather than a separator.
+
+Recorded because two consecutive entries reached the opposite conclusion, which is exactly how a
+"we already checked this" pattern gets copied without checking. The check is per name; the answer
+changed on the seventh.
+
+### The estimate held a seventh time, over the longest tail yet
+
+Two source files, no `runtime-rs` work, no runtime symbol, no interpreter or debug-interpreter arm,
+no `register_builtin_return_types` entry. #312 extended the estimate to `Unary`, #317 to a
+multi-instruction chain, #320 to a second chain over a shared helper; #322 is the longest tail of
+the three (nine ops versus three) and still added no mechanism. Every op used — `Shr`, `Shl`,
+`Sub`, `BitAnd`, `BitOr`, `BitNot` — was confirmed to have an arm in all six consumers before
+anything was written, and the chain folds to a constant when both arguments are literals.
+
+Verified in all four executing backends, DAP debug interpreter included
+(`printf 'r\nc\nq\n' | tarqeem debug FILE`).
