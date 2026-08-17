@@ -498,7 +498,7 @@ all four executing backends — interpreter, JIT, native, and the DAP debug inte
 extended the estimate to the `Unary` shape and #317 to a **multi-instruction chain**, which were
 the two untested assumptions in it; #320 added nothing new to it, which is itself the result — the
 second shift cost no new mechanism and, after the guard was shared, no extra instruction either:
-both tails are three ops over the same six-op guard. #322's tail is eight ops over that same
+both tails are three ops over the same six-op guard. #322's tail is nine ops over that same
 guard, the longest of the three and still no new mechanism, so the estimate now covers the whole
 range of shapes the family has.
 
@@ -598,10 +598,11 @@ The logical right shift masks the **value** instead, which is the only one of th
 that works for it: it needs a zero result out of range like `يسار`, but it reads the value twice,
 so zeroing the value zeroes every term below *and* serves as the #318 copy. Its tail is `س & keep`,
 then the sign bit separated (`& ٩٢٢٣٣٧٢٠٣٦٨٥٤٧٧٥٨٠٧`) and shifted, then re-placed at `٦٣-ن` —
-eight instructions, and `٦٣-ن` reads the guard's *masked* amount so it too stays in range.
+nine instructions, and `٦٣-ن` reads the guard's *masked* amount so it too stays in range.
 
-**Lexer check — done (#309), extended (#322), and it passed both times.** `بتات_أو_حصري` lexes as **one identifier**: the
-greedy identifier scan neither stops at the embedded `أو` nor resumes after it. The mid-name
+**Lexer check — done (#309), extended (#322), and it passed both times.** `بتات_أو_حصري` lexes as
+**one identifier**: the greedy identifier scan neither stops at the embedded `أو` nor resumes after
+it. The mid-name
 position was the harder shape — a split there would have parsed as a logical-or between
 `بتات_` and `_حصري` rather than failing outright. Pinned by
 `lexer::tests::test_identifier_containing_a_keyword_stays_one_token`, which covers all five

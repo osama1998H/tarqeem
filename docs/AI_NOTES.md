@@ -3210,8 +3210,9 @@ sign  = value >> ٦٣
 dest  = lowsh | (sign & (١ << (٦٣ - amount)))
 ```
 
-Eight instructions over the shared six-op guard. `ن = ٠` falls out: `١ << ٦٣` is `i64::MIN`, so the
-sign term restores the operand's top bit and `low` supplies the other 63 — which is why
+Nine instructions over the shared six-op guard — the last line above is four of them, which is how
+the first draft of this entry came to call it eight. `ن = ٠` falls out: `١ << ٦٣` is `i64::MIN`,
+so the sign term restores the operand's top bit and `low` supplies the other 63 — which is why
 `بتات_إزاحة_يمين_منطقية(بتات_إزاحة_يسار(١، ٦٣)، ٠)` is `i64::MIN` and not `٠`. That input is the
 lowering's tightest spot, since clearing the sign bit leaves exactly zero and the entire answer
 comes from the sign term; it has its own fixture.
@@ -3252,7 +3253,7 @@ changed on the seventh.
 Two source files, no `runtime-rs` work, no runtime symbol, no interpreter or debug-interpreter arm,
 no `register_builtin_return_types` entry. #312 extended the estimate to `Unary`, #317 to a
 multi-instruction chain, #320 to a second chain over a shared helper; #322 is the longest tail of
-the three (eight ops versus three) and still added no mechanism. Every op used — `Shr`, `Shl`,
+the three (nine ops versus three) and still added no mechanism. Every op used — `Shr`, `Shl`,
 `Sub`, `BitAnd`, `BitOr`, `BitNot` — was confirmed to have an arm in all six consumers before
 anything was written, and the chain folds to a constant when both arguments are literals.
 
