@@ -673,30 +673,11 @@ impl IrBuilder {
                     "بتات_أو_حصري" => BinaryOp::BitXor,
                     _ => return Ok(None),
                 };
-                let dest = self.new_var();
-                self.emit(Instruction::Binary {
-                    dest,
-                    op,
-                    left: first,
-                    right,
-                    ty: IrType::Int,
-                });
-                self.var_types.insert(dest.0, IrType::Int);
-                dest
+                self.emit_int_binary(op, first, right)
             }
 
             // The family's only unary member, so it cannot share the arm above.
-            "بتات_نفي" => {
-                let dest = self.new_var();
-                self.emit(Instruction::Unary {
-                    dest,
-                    op: UnaryOp::BitNot,
-                    operand: first,
-                    ty: IrType::Int,
-                });
-                self.var_types.insert(dest.0, IrType::Int);
-                dest
-            }
+            "بتات_نفي" => self.emit_int_unary(UnaryOp::BitNot, first),
 
             // The first shift, so the first lowering that is a chain rather than
             // one op. The chain is a range guard, and it is not optional: a bare
@@ -716,7 +697,10 @@ impl IrBuilder {
                 // chain needs it twice and codegen unboxes a narrowed optional
                 // only on its *first* use as a scalar operand — the second
                 // would emit the raw pointer and clang would reject the module
-                // (#318). `أ | ٠` is free after either optimizer.
+                // (#318). `أ | ٠` is free after either optimizer, but it is
+                // load-bearing: an `x | 0 => x` peephole would fold it away and
+                // silently restore that bug. `test_left_shift_over_a_narrowed_optional`
+                // is what catches that, natively.
                 let amount = self.emit_int_binary(BinaryOp::BitOr, amount, zero);
 
                 // `ن >> ٦` is zero exactly on 0-63 — a larger amount leaves a
