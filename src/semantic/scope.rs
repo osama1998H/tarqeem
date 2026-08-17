@@ -189,6 +189,9 @@ impl Scope {
             ("بتات_أو_حصري", vec![Type::Int, Type::Int], Type::Int),
             // Unary, and distinct from the logical `ليس`, which takes a `منطقي`.
             ("بتات_نفي", vec![Type::Int], Type::Int),
+            // Total: an amount outside 0-63 yields 0 rather than diverging by
+            // backend. See `build_core_builtin_call`.
+            ("بتات_إزاحة_يسار", vec![Type::Int, Type::Int], Type::Int),
         ]
     }
 

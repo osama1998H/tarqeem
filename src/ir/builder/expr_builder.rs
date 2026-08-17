@@ -448,6 +448,35 @@ impl IrBuilder {
         self.emit_const(Constant::Null, IrType::Void)
     }
 
+    fn emit_int_const(&mut self, value: i64) -> VarId {
+        self.emit_const(Constant::Int(value), IrType::Int)
+    }
+
+    fn emit_int_binary(&mut self, op: BinaryOp, left: VarId, right: VarId) -> VarId {
+        let dest = self.new_var();
+        self.emit(Instruction::Binary {
+            dest,
+            op,
+            left,
+            right,
+            ty: IrType::Int,
+        });
+        self.var_types.insert(dest.0, IrType::Int);
+        dest
+    }
+
+    fn emit_int_unary(&mut self, op: UnaryOp, operand: VarId) -> VarId {
+        let dest = self.new_var();
+        self.emit(Instruction::Unary {
+            dest,
+            op,
+            operand,
+            ty: IrType::Int,
+        });
+        self.var_types.insert(dest.0, IrType::Int);
+        dest
+    }
+
     fn emit_call(&mut self, symbol: &str, args: Vec<VarId>, ret_ty: IrType) -> VarId {
         let dest = self.new_var();
         self.emit(Instruction::Call {
@@ -667,6 +696,48 @@ impl IrBuilder {
                 });
                 self.var_types.insert(dest.0, IrType::Int);
                 dest
+            }
+
+            // The first shift, so the first lowering that is a chain rather than
+            // one op. The chain is a range guard, and it is not optional: a bare
+            // `Shl` makes an amount outside 0-63 a runtime error interpreted, a
+            // masked result folded, and poison natively — the same call
+            // disagreeing with itself across backends. Guarded, the operation is
+            // total: an out-of-range amount yields 0 everywhere.
+            "بتات_إزاحة_يسار" => {
+                let Some(&amount) = args.get(1) else {
+                    return Ok(None);
+                };
+
+                let sixty_three = self.emit_int_const(63);
+                let zero = self.emit_int_const(0);
+
+                // Read the amount once, through the copy below, because the
+                // chain needs it twice and codegen unboxes a narrowed optional
+                // only on its *first* use as a scalar operand — the second
+                // would emit the raw pointer and clang would reject the module
+                // (#318). `أ | ٠` is free after either optimizer.
+                let amount = self.emit_int_binary(BinaryOp::BitOr, amount, zero);
+
+                // `ن >> ٦` is zero exactly on 0-63 — a larger amount leaves a
+                // positive quotient, a negative one leaves a negative quotient.
+                // `high | -high` then carries the sign bit whenever `high` is
+                // non-zero, so an arithmetic shift by 63 spreads it to a full
+                // -1/0 mask without a branch or a Bool→Int widening (which the
+                // JIT tiers have no arm for).
+                let six = self.emit_int_const(6);
+                let high = self.emit_int_binary(BinaryOp::Shr, amount, six);
+                let negated = self.emit_int_binary(BinaryOp::Sub, zero, high);
+                let either_sign = self.emit_int_binary(BinaryOp::BitOr, high, negated);
+                let out_of_range = self.emit_int_binary(BinaryOp::Shr, either_sign, sixty_three);
+                let keep = self.emit_int_unary(UnaryOp::BitNot, out_of_range);
+
+                // Masking the amount keeps it inside the range every backend's
+                // own shift accepts, so the guard above is what decides the
+                // result rather than each backend's out-of-range behaviour.
+                let in_range_amount = self.emit_int_binary(BinaryOp::BitAnd, amount, sixty_three);
+                let shifted = self.emit_int_binary(BinaryOp::Shl, first, in_range_amount);
+                self.emit_int_binary(BinaryOp::BitAnd, shifted, keep)
             }
 
             _ => return Ok(None),
