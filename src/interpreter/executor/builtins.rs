@@ -153,6 +153,7 @@ impl Interpreter {
                 // String functions
                 | "حرف_إلى_رمز"
                 | "رمز_إلى_حرف"
+                | "نص_إلى_ثنائي"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
                 | "نص_ينتهي_بـ"
@@ -1010,6 +1011,27 @@ impl Interpreter {
                             .map_or(String::new(), |c| c.to_string()),
                     )),
                     _ => Err(RuntimeError::type_error("عدد", val.type_name())),
+                }
+            }
+
+            "نص_إلى_ثنائي" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("نص_إلى_ثنائي() تتطلب معامل واحد")
+                })?;
+
+                match val {
+                    // `bytes()`, not `chars()`: this is the one primitive whose
+                    // unit is the octet, which is why `طول` of its result
+                    // disagrees with `طول` of the string it came from.
+                    Value::String(s) => Ok(Value::array_from(
+                        s.bytes().map(|b| Value::Int(b as i64)).collect(),
+                    )),
+                    // Unlike `رمز_إلى_حرف`, the parameter here is a pointer: an
+                    // un-narrowed `نص؟` lowers to `ptr null` and the runtime
+                    // guard answers an empty array, so erroring instead would
+                    // abort on source native runs fine.
+                    Value::Null => Ok(Value::array()),
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
                 }
             }
 

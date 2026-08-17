@@ -189,6 +189,14 @@ impl Scope {
             // Its inverse, and `""` where the accessor answers `-1`, so the two
             // are total in both directions.
             ("رمز_إلى_حرف", vec![Type::Int], Type::String),
+            // The byte bridge. `مصفوفة<عدد>` rather than `أي` — the only core
+            // entry with a concrete array type, and it is what types the
+            // element for `س[ي]`; `طول_مصفوفة`/`الحق` take `أي` and cannot.
+            (
+                "نص_إلى_ثنائي",
+                vec![Type::String],
+                Type::Array(Box::new(Type::Int)),
+            ),
             // Bitwise - عمليات البتات
             // Functions, not operators: there is no `&`/`|`/`^` token, and
             // `بتات_` opens the name because `و`/`أو` are keywords.

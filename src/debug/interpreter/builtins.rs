@@ -29,6 +29,7 @@ impl DebugInterpreter {
                 | "قرب"
                 | "حرف_إلى_رمز"
                 | "رمز_إلى_حرف"
+                | "نص_إلى_ثنائي"
                 // Runtime symbols the IR builder lowers core builtins to
                 // (#222). Without these, stepping through `عدد("٥")` or
                 // `تأكد(...)` aborts with "دالة غير معرّفة".
@@ -201,6 +202,22 @@ impl DebugInterpreter {
                             .map_or(String::new(), |c| c.to_string()),
                     )),
                     _ => Err(RuntimeError::type_error("عدد", val.type_name())),
+                }
+            }
+
+            // Mirrors `interpreter::executor::builtins`, `Null` arm included —
+            // there the parameter is a pointer, so the empty array is a designed
+            // answer rather than #327's artifact.
+            "نص_إلى_ثنائي" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("نص_إلى_ثنائي() تتطلب معامل واحد")
+                })?;
+                match val {
+                    Value::String(s) => Ok(Value::array_from(
+                        s.bytes().map(|b| Value::Int(b as i64)).collect(),
+                    )),
+                    Value::Null => Ok(Value::array()),
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
                 }
             }
 
@@ -421,6 +438,43 @@ mod tests {
                 .call_builtin("رمز_إلى_حرف", vec![Value::Int(code)])
                 .expect("رمز_إلى_حرف أخفق في مفسّر التنقيح");
             assert_eq!(built.as_string(), Some(""), "من {code}");
+        }
+    }
+
+    /// Same reasoning as the two above, and this is the **first** array-returning
+    /// arm in this file — every other one here only ever reads an array. The
+    /// element values are checked, not just the count: a count alone would pass
+    /// on an arm that returned characters rather than octets for ASCII input.
+    #[test]
+    fn test_string_to_bytes_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("نص_إلى_ثنائي"),
+            "نص_إلى_ثنائي غير مُعرَّف كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        for (argument, expected) in [
+            (Value::string("A"), vec![65]),
+            (Value::string("م"), vec![0xD9, 0x85]),
+            (Value::string("hi"), vec![104, 105]),
+            (Value::string(""), vec![]),
+            // An un-narrowed `نص؟` arrives as `Value::Null`, and native answers
+            // an empty array for it — see the arm's own note.
+            (Value::Null, vec![]),
+        ] {
+            let result = interpreter
+                .call_builtin("نص_إلى_ثنائي", vec![argument])
+                .expect("نص_إلى_ثنائي أخفق في مفسّر التنقيح");
+
+            let Value::Array(bytes) = result else {
+                panic!("نص_إلى_ثنائي لم تُرجع مصفوفة");
+            };
+            let actual: Vec<i64> = bytes.borrow().iter().filter_map(|v| v.as_int()).collect();
+            assert_eq!(actual, expected);
         }
     }
 

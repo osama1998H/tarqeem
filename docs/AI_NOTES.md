@@ -3467,3 +3467,124 @@ gone both ways twice.
 `لكل ح في س` are still `Ptr(Void)` (**B6**); and `حرف_في` reads a character out of a string that
 already exists rather than making one. With this name **B9** is half-closed the other way round:
 char↔code works in both directions, and only the string↔bytes bridge remains.
+
+---
+
+## #330 — نص_إلى_ثنائي, and a "first" that was only a first for its tier
+
+Increment B's third name (3 of 5), and the string→bytes half of the byte bridge: `(نص) -> مصفوفة<عدد>`,
+the UTF-8 octets of a string, one element per byte. `ثنائي_إلى_نص` and `قص_حروف`'s repair (**B7**)
+remain.
+
+### The expensive-looking part was already paid for
+
+This was expected to be the costly name in the increment, because no **core** builtin had ever
+returned an array — `طول_مصفوفة` and `الحق` are both declared over `أي`, so this is the first core
+entry using `Type::Array` at all. In fact it cost the same nine sites as #324 and #326, plus one
+lexer test, and **zero new mechanism**.
+
+The reason is that the *stdlib* tier had already paid for array returns and nothing about the
+mechanism is tier-specific: `اضغط` is `(نص) -> مصفوفة<عدد>` — this name's exact signature — with
+`IrType::Array(Box::new(IrType::Int), 0)` registered since #241, and `examples/تشفير_وضغط.ترقيم`
+composes such a result with `طول` and arithmetic across all three backends in CI today. Four
+stdlib names register that same return type.
+
+Generalisable, and the mirror image of Increment A's lesson: **when something looks like a first,
+check whether it is a first for the *mechanism* or only for the *tier*.** Here it was only the
+tier, and the whole cost estimate followed from that one distinction. The check is cheap — grep the
+return-type map for the shape before budgeting for it.
+
+### A missing return type is quieter for an array than for a scalar
+
+§1.1 rule 5 and `register_builtin_return_types`' own `جذر` note describe the consequence of a
+missing entry as a **signature mismatch** — `call ptr` emitted against a `declare i64`, which fails
+loudly. That description does not hold for an array return, and the difference is not academic.
+
+`IrType::Ptr(Void)` and `IrType::Array(..)` both map to LLVM `ptr`, so there is no mismatch to
+catch: the module is valid, links, and runs.
+
+Verified by deleting the entry and running the suite. Indexing still answered `65`, arithmetic still
+answered `66`, `==` still answered `صحيح`, and `اطبع` still printed `[104، 105]`. The **only**
+assertion that failed was `نوع(…)`, which returned `مؤشر` instead of `عدد`. So four of the five
+lines in the composition test would have passed on a broken build.
+
+That is why the test asserts `نوع` at all, and it is worth stating because a composition test
+written without it — printing, concatenating, comparing — would have looked thorough and caught
+nothing. For a scalar return the mismatch fails at clang; for an array the type map is the *only*
+witness.
+
+### `نص(<array>)` — a source trace that was wrong in the direction that matters
+
+The plan carried a warning, derived from reading `convert_to_string`, that `نص(نص_إلى_ثنائي(س))`
+would **fail native compilation** while both interpreters printed `[104، 105]`. The reasoning was
+sound: there is no `Array` arm, so the argument falls through to `trq_int_to_string`, whose declare
+takes `i64` while the argument lowers to `ptr`.
+
+Measured, it is the reverse. Both interpreters raise «خطأ في النوع: متوقع عدد، وُجد array», and
+**native compiles, runs, prints `4353416272` and exits 0.** clang accepts the module because the
+`ptr` is simply dropped into the `i64` slot — `runtime_scalar_param`'s unboxing fires only for
+`Ptr(Int)` — so the pointer is formatted as a decimal integer.
+
+So the divergence is real but it is the *silent* kind, which is strictly worse than the predicted
+build failure, and the mitigation is the same either way: nothing in the tests or the example uses
+`نص` on an array. Filed as **#331** and documented as a current limitation in `LANGUAGE_SPEC.md`
+§8.6, with the note corrected in `docs/builtins-vs-stdlib.md` §6.2.
+
+Method note, since this cost nothing to catch and would have shipped a wrong claim in the language
+spec: **a source trace is a hypothesis about behaviour, not a record of it.** Running this took one
+three-line file and three commands. Trace to form the hypothesis; run to write it down.
+
+### The `Value::Null` arm was required, and #326's narrowing predicted it
+
+#324 stated the rule broadly, #326 narrowed it to *pointer* parameters whose runtime guard is a
+designed answer. This name is the first test of the narrowed form, and it lands on the **yes** side:
+the parameter is `نص`, so an un-narrowed `نص?` lowers to `ptr null` and the runtime answers an empty
+array.
+
+With `Value::Null => Ok(Value::array())` in both interpreters, all three backends print `0` and exit
+0. Without it they would abort where native succeeds — the exact shape #324 found.
+
+One deviation from the plan, in the safe direction: the plan confined the `لا_شيء` contract to unit
+tests, citing #327. But #327 is about **narrowed** optionals, and the un-narrowed shape was measured
+to agree in all three backends, so it is covered cross-backend instead
+(`test_string_to_bytes_accepts_an_absent_optional_in_every_backend`). The narrowed shape is still
+untested and still #327.
+
+### The keyword-embedding check gave a third distinct answer
+
+`نص_إلى_ثنائي` is the first name in either family whose embedded keyword **opens** the name: `نص` is
+`TokenKind::TypeString`. Every case already in `test_identifier_containing_a_keyword_stays_one_token`
+has the keyword in suffix position (`بتات_و`, `بتات_نفي`) or mid-name (`بتات_أو_حصري`,
+`بتات_إزاحة_يمين_منطقية`).
+
+The leading position is its own shape because of how it would fail. A scan preferring the longest
+keyword prefix would emit `TypeString` followed by the identifier `_إلى_ثنائي` — a *plausible* token
+pair, since a type name followed by a name is ordinary syntax. It would not fail at the name; it
+would fail somewhere later, with a message pointing at the wrong place.
+
+The test was extended. Three consecutive names, three different answers: #317/#320 needed nothing,
+#322 extended it for a keyword followed by a letter, #330 for a keyword in leading position. "The
+last one needed nothing" remains worthless as evidence.
+
+### The contract, and why the empty array is not a sentinel
+
+`""` and `لا_شيء` both answer an **empty array**. Unlike `حرف_إلى_رمز`, which needed `-1` because
+`0` is a real codepoint and could not distinguish "empty" from "the NUL character", there is nothing
+here for a sentinel to disambiguate: a string with no bytes has exactly one encoding, and the empty
+array *is* it. Raw null stays reserved for allocation failure, as in every other constructor in
+`string.rs`.
+
+Bytes are copied verbatim with no validation — `س` is UTF-8 by construction, and `ثنائي_إلى_نص` is
+specified to round-trip arbitrary bytes, so rejecting anything here would break a round trip that is
+meant to hold.
+
+### Criterion (a) re-derived, and it held a third time
+
+Encoding a string byte-by-byte in Tarqeem requires reaching the i-th character, and no
+backend-portable way to do that exists: `قص_حروف` has no interpreter arm and no registered return
+type (**B7**, open), `حرف_في` is native-only, `حرف_إلى_رمز` reads the first codepoint only, and
+`س[i]` / `لكل ح في س` are still `Ptr(Void)` (**B6**). Even with the whole bitwise family landed the
+operation is unreachable from source.
+
+**B9** is now closed in one direction: a string's octets can be read, but not assembled back into a
+string. That waits on `ثنائي_إلى_نص`.

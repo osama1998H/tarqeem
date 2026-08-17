@@ -172,9 +172,10 @@ fn test_global_scope_has_core_builtins() {
     assert!(scope.lookup("بتات_إزاحة_يمين").is_some());
     assert!(scope.lookup("بتات_إزاحة_يمين_منطقية").is_some());
 
-    // Strings (2)
+    // Strings (3)
     assert!(scope.lookup("حرف_إلى_رمز").is_some());
     assert!(scope.lookup("رمز_إلى_حرف").is_some());
+    assert!(scope.lookup("نص_إلى_ثنائي").is_some());
 
     // Verify stdlib functions are NOT in global scope
     assert!(scope.lookup("مطلق").is_none());
