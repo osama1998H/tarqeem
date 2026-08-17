@@ -31,6 +31,15 @@ impl Formatter {
             p.newline();
         }
 
+        // The blank line after a file doc comment is required, not cosmetic:
+        // scan_doc_comment merges a contiguous `///` run into one token, so
+        // without it the file doc and the first declaration's doc fuse into a
+        // single comment when the formatted output is read back.
+        if let Some(doc) = &ast.module_doc {
+            self.format_doc_comment(doc, p);
+            p.blank_lines(1);
+        }
+
         let mut prev_was_import = false;
         let mut first = true;
 
@@ -65,15 +74,30 @@ impl Formatter {
     }
 
     fn format_stmt(&self, stmt: &Stmt, p: &mut Printer) {
-        // Output leading line comments
+        self.format_leading_trivia(stmt, p);
+        self.format_stmt_no_leading_trivia(stmt, p);
+    }
+
+    /// Emits the comments that must sit on their own lines above a statement.
+    ///
+    /// Split out from `format_stmt` so a statement rendered mid-line (an
+    /// exported declaration after `صدّر`, a `لكل` initializer) can skip it: a
+    /// `//` or `///` emitted mid-line comments out the rest of that line, and
+    /// the formatter's output would no longer parse.
+    fn format_leading_trivia(&self, stmt: &Stmt, p: &mut Printer) {
         for comment in &stmt.leading_comments {
-            p.write("//");
-            p.write(comment);
+            // Routed through write_comment_lines rather than a bare `//` +
+            // text: a doc comment the parser could not attach is demoted to a
+            // leading comment (decl_parser.rs), and a multi-line `/** */` would
+            // otherwise leave its continuation lines as bare code.
+            self.write_comment_lines(comment, p);
             p.newline();
         }
 
         self.format_doc_comment_for_stmt(&stmt.kind, p);
+    }
 
+    fn format_stmt_no_leading_trivia(&self, stmt: &Stmt, p: &mut Printer) {
         match &stmt.kind {
             StmtKind::VarDecl {
                 name,
@@ -416,6 +440,19 @@ impl Formatter {
 
             StmtKind::Export(export_items) => {
                 use crate::parser::ExportItems;
+
+                // The exported declaration's comments belong above `صدّر`, and
+                // must be emitted here: the inner declaration is rendered
+                // mid-line, where a `//` or `///` would comment out the
+                // declaration itself. `leading_comments` are hoisted too, not
+                // just the doc — the recursive `parse_declaration_with_doc`
+                // runs its own `collect_line_comments()` after `صدّر` is
+                // consumed, so `صدّر // تعليق` ⏎ `دالة س()` does put a comment
+                // on the inner statement, and skipping it deleted the text.
+                if let ExportItems::Declaration(inner) = export_items {
+                    self.format_leading_trivia(inner, p);
+                }
+
                 p.write("صدّر");
                 match export_items {
                     ExportItems::Declaration(inner) => {
@@ -537,7 +574,9 @@ impl Formatter {
                 self.format_expr(expr, p);
             }
             _ => {
-                self.format_stmt(stmt, p);
+                // Leading trivia is the caller's job here — this statement is
+                // being rendered mid-line, where a comment would swallow it.
+                self.format_stmt_no_leading_trivia(stmt, p);
             }
         }
     }
@@ -770,7 +809,11 @@ impl Formatter {
     fn format_literal(&self, lit: &Literal, p: &mut Printer) {
         match lit {
             Literal::Int(n) => p.write(&n.to_string()),
-            Literal::Float(f) => p.write(&f.to_string()),
+            // `{:?}` rather than `to_string()`: Display expands a large float to
+            // its full decimal form, so `1.7976931348623157e308` came back as 309
+            // digits that re-parse as an out-of-range *integer*. Debug keeps the
+            // shortest round-tripping form, which is also what the author wrote.
+            Literal::Float(f) => p.write(&format!("{f:?}")),
             Literal::String(s) => {
                 p.write_char('"');
                 for c in s.chars() {
@@ -827,8 +870,12 @@ impl Formatter {
                         self.format_type(param, p);
                     }
                 });
-                p.write_arrow();
-                self.format_type(return_type, p);
+                // Bare `()` has no return type and must print as `()` —
+                // there is no surface spelling for "returns nothing".
+                if let Some(rt) = return_type {
+                    p.write_arrow();
+                    self.format_type(rt, p);
+                }
             }
             TypeKind::Generic { base, args } => {
                 p.write(base);
@@ -1133,8 +1180,18 @@ impl Formatter {
     }
 
     fn format_match_arm(&self, arm: &MatchArm, p: &mut Printer) {
-        p.write("حالة");
-        p.write_space();
+        // `غير_ذلك` is its own arm production, not a pattern introduced by
+        // `حالة` (LANGUAGE_SPEC §15.6: ذراع_تطابق := 'حالة' تعبير … | 'غير_ذلك'
+        // '=>' …). Writing `حالة` unconditionally produced `حالة غير_ذلك`, which
+        // the parser rejects with `رمز غير متوقع: Default` (ب٠٠٠١) — output the
+        // formatter itself could not re-read.
+        let is_wildcard_arm =
+            arm.patterns.len() == 1 && matches!(arm.patterns[0].kind, PatternKind::Wildcard);
+
+        if !is_wildcard_arm {
+            p.write("حالة");
+            p.write_space();
+        }
 
         for (i, pattern) in arm.patterns.iter().enumerate() {
             if i > 0 {
@@ -1233,39 +1290,61 @@ impl Formatter {
         }
     }
 
-    /// Writes `text` as `//` comment lines, re-prefixing every continuation line.
-    /// A multi-line `/** */` (scan_block_doc_comment, lexer.rs:458-471) joins its
-    /// lines with embedded `\n`; a single `// ` prefix would leave continuation
-    /// lines as bare code that fails to re-parse. Emits no leading/trailing
-    /// newline — the caller owns those.
-    fn write_comment_lines(&self, text: &str, p: &mut Printer) {
+    /// Writes `text` as comment lines prefixed with `marker`, re-prefixing every
+    /// line. A multi-line `/** */` (scan_block_doc_comment, lexer.rs) joins its
+    /// lines with embedded `\n`; prefixing only the first would leave the rest as
+    /// bare code that fails to re-parse. Emits no leading/trailing newline — the
+    /// caller owns those.
+    ///
+    /// `keep_line_indent` distinguishes the two comment kinds. Doc comments must
+    /// survive verbatim: the lexer strips exactly one leading space per `///`
+    /// line, so indentation *inside* a doc block is content, not layout, and
+    /// trimming line starts would silently flatten an indented example — the same
+    /// data loss this re-prefixing exists to prevent. Emitting `marker` + one
+    /// space + the line then round-trips exactly, since the re-lex strips that
+    /// one space back off. Trailing `//` comments have no such content to protect
+    /// and are fully trimmed so both comment kinds normalize to a single space.
+    fn write_comment_lines_with(
+        &self,
+        text: &str,
+        marker: &str,
+        keep_line_indent: bool,
+        p: &mut Printer,
+    ) {
         let mut wrote_any = false;
         for line in text.lines() {
             if wrote_any {
                 p.newline();
             }
-            let line = line.trim();
-            if line.is_empty() {
-                p.write("//");
+            let line = if keep_line_indent {
+                line.trim_end()
             } else {
-                p.write("// ");
+                line.trim()
+            };
+            p.write(marker);
+            if !line.is_empty() {
+                p.write_char(' ');
                 p.write(line);
             }
             wrote_any = true;
         }
         if !wrote_any {
-            p.write("//"); // /** */ lexes to BlockDocComment("")
+            p.write(marker); // /** */ lexes to BlockDocComment("")
         }
     }
 
+    fn write_comment_lines(&self, text: &str, p: &mut Printer) {
+        self.write_comment_lines_with(text, "//", false, p);
+    }
+
+    /// Emits a declaration's doc comment as `///` lines, one per line of `doc`,
+    /// followed by the newline every call site expects before the declaration.
+    ///
+    /// The `///` marker is not decoration: without it the doc text is emitted as
+    /// bare words and the formatter's own output no longer parses (issue #201).
     fn format_doc_comment(&self, doc: &str, p: &mut Printer) {
-        for line in doc.lines() {
-            if !line.is_empty() {
-                p.write_space();
-                p.write(line);
-            }
-            p.newline();
-        }
+        self.write_comment_lines_with(doc, "///", true, p);
+        p.newline();
     }
 
     fn format_doc_comment_for_stmt(&self, kind: &StmtKind, p: &mut Printer) {
@@ -1545,7 +1624,7 @@ mod tests {
         // into that member's body (or past it).
         let source = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/stdlib_trq/مجموعات/مكدس.ترقيم"
+            "/stdlib/مجموعات/مكدس.ترقيم"
         ));
         let result = format_raw(source);
 
@@ -1560,5 +1639,477 @@ mod tests {
             banner_pos < method_pos,
             "banner comment must stay above 'دالة ادفع', not be relocated into its body"
         );
+    }
+
+    // Function-type annotation formatting (issue #180): the formatter's
+    // `TypeKind::Function` arm must produce output that re-parses —
+    // including the bare-`()` sugar, which has no return type to print.
+
+    #[test]
+    fn test_format_function_type_annotation() {
+        let result = format("ثابت جمع: (عدد, عدد) -> عدد = (أ, ب) => أ + ب;");
+        // ASCII comma: FormatConfig::default() has arabic_comma = false.
+        assert!(
+            result.contains("(عدد, عدد) -> عدد"),
+            "expected function-type annotation in output:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_format_function_type_annotation_is_idempotent() {
+        let once = format("ثابت جمع: (عدد, عدد) -> عدد = (أ, ب) => أ + ب;");
+        let twice = format_raw(&once);
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn test_format_bare_unit_function_type_round_trips() {
+        // A `return_type: None` prints as bare `()` — there is no surface
+        // spelling for "returns nothing", so emitting any `-> X` here would
+        // produce output that fails to re-parse (an issue-#201-class
+        // regression).
+        let once = format("متغير ف: ();");
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("formatted output must re-parse");
+    }
+
+    #[test]
+    fn test_format_curried_function_type_is_idempotent() {
+        let once = format("متغير ف: (عدد) -> (عدد) -> عدد;");
+        let twice = format_raw(&once);
+        assert_eq!(once, twice);
+    }
+
+    // Regression tests for #201 / #204. Every pre-existing doc-comment test
+    // above covers a *trailing* `///`/`/** */`, which routes through
+    // `write_comment_lines`; nothing exercised a *leading* doc comment, which is
+    // how #201 shipped. Asserting the marker is present is the whole point —
+    // without it the doc text is emitted as bare words and the output is no
+    // longer a program.
+
+    /// Every line of a doc comment must carry its own `///`. The lexer merges a
+    /// consecutive `///` run into one token joined by `\n`, so a single prefix
+    /// would leave line 2 onward as bare text.
+    #[test]
+    fn test_format_leading_doc_comment_keeps_marker_on_every_line() {
+        let result = format("/// وثيقة الدالة\n/// سطر ثان\nدالة س() {}");
+        assert!(result.contains("/// وثيقة الدالة"));
+        assert!(result.contains("/// سطر ثان"));
+        assert!(
+            !result.contains("\nوثيقة الدالة"),
+            "doc text must never appear unprefixed: {result}"
+        );
+        assert!(
+            !result.contains("\nسطر ثان"),
+            "continuation line must be re-prefixed: {result}"
+        );
+    }
+
+    /// The exact repro from issue #201's body.
+    #[test]
+    fn test_format_leading_doc_comment_output_reparses() {
+        let once = format("/// وثيقة الدالة\n/// سطر ثان\nدالة س() {}");
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed (was خطأ[ب٠١٠١] 'متوقع ؛')");
+    }
+
+    #[test]
+    fn test_format_leading_doc_comment_is_idempotent() {
+        let once = format("/// وثيقة الدالة\n/// سطر ثان\nدالة س() {}");
+        let twice = format_raw(&once);
+        assert_eq!(once, twice);
+    }
+
+    /// Indentation *inside* a doc block is content, not layout: the lexer strips
+    /// exactly one leading space per line, so trimming line starts here would
+    /// silently flatten an indented example. Hence `trim_end` only.
+    #[test]
+    fn test_format_leading_doc_comment_preserves_interior_indentation() {
+        let once = format("/// مثال:\n///     س = ٥\nدالة س() {}");
+        assert!(
+            once.contains("///     س = ٥"),
+            "interior indentation must survive verbatim: {once}"
+        );
+        // Round-trips exactly: the emitted `/// ` re-lexes back to the same
+        // content, so the indentation cannot erode over repeated formatting.
+        assert_eq!(once, format_raw(&once));
+    }
+
+    /// A blank `///` line inside a doc block stays a `///` line rather than
+    /// becoming a genuinely empty line.
+    #[test]
+    fn test_format_leading_doc_comment_blank_line_keeps_marker() {
+        let once = format("/// أول\n///\n/// ثالث\nدالة س() {}");
+        assert!(once.contains("/// أول"));
+        assert!(once.contains("/// ثالث"));
+        assert_eq!(once, format_raw(&once));
+    }
+
+    /// The second half of #201: a `/** */` before a declaration used to be a
+    /// hard parse error. It is now attached and normalized to `///`, matching
+    /// the existing precedent that a trailing `/** */` normalizes to `//`.
+    #[test]
+    fn test_format_leading_block_doc_comment_normalized_to_slashes() {
+        let once = format("/** وثيقة */\nدالة س() {}");
+        assert!(once.contains("/// وثيقة"), "got: {once}");
+        assert!(!once.contains("/**"));
+        assert_eq!(once, format_raw(&once));
+    }
+
+    #[test]
+    fn test_format_leading_multiline_block_doc_comment_reparses() {
+        let once = format("/** سطر واحد\nسطر آخر */\nدالة س() {}");
+        assert!(once.contains("/// سطر واحد"));
+        assert!(once.contains("/// سطر آخر"));
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+    }
+
+    /// `/** */` lexes to `BlockDocComment("")`; emitting nothing would silently
+    /// delete it, so an empty doc still produces a bare `///`.
+    #[test]
+    fn test_format_empty_block_doc_comment_is_not_dropped() {
+        let once = format("/** */\nدالة س() {}");
+        assert!(once.contains("///"), "empty doc must not vanish: {once}");
+        assert_eq!(once, format_raw(&once));
+    }
+
+    #[test]
+    fn test_format_class_member_doc_comments_keep_markers() {
+        let once = format(
+            "صنف ش {\n\
+             /// وثيقة الحقل\n\
+             خاص اسم: نص\n\
+             /// وثيقة المنشئ\n\
+             منشئ() {}\n\
+             /// وثيقة الدالة\n\
+             عام دالة تحية() {}\n\
+             }",
+        );
+        assert!(once.contains("/// وثيقة الحقل"), "got: {once}");
+        assert!(once.contains("/// وثيقة المنشئ"), "got: {once}");
+        assert!(once.contains("/// وثيقة الدالة"), "got: {once}");
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+        assert_eq!(once, format_raw(&once));
+    }
+
+    #[test]
+    fn test_format_interface_method_doc_comment_keeps_marker() {
+        let once = format("ميثاق م {\n/// وثيقة الدالة\nدالة تحية()\n}");
+        assert!(once.contains("/// وثيقة الدالة"), "got: {once}");
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+        assert_eq!(once, format_raw(&once));
+    }
+
+    #[test]
+    fn test_format_enum_variant_doc_comment_keeps_marker() {
+        let once = format("تعداد ل {\n/// وثيقة الحالة\nأحمر\n}");
+        assert!(once.contains("/// وثيقة الحالة"), "got: {once}");
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+        assert_eq!(once, format_raw(&once));
+    }
+
+    /// #204: the doc belongs to the exported declaration but must be printed
+    /// *above* `صدّر`. Emitting it after `صدّر` would comment out the
+    /// declaration itself.
+    #[test]
+    fn test_format_exported_declaration_doc_comment_sits_above_export_keyword() {
+        for source in [
+            "/// وثيقة\nصدّر دالة س() {}",
+            "/// وثيقة\nصدّر صنف ن { عام س: عدد }",
+            "/// وثيقة\nصدّر ثابت الإصدار = \"١.٠.٠\"",
+        ] {
+            let once = format(source);
+            let doc_pos = once
+                .find("/// وثيقة")
+                .unwrap_or_else(|| panic!("doc comment must survive: {once}"));
+            let export_pos = once.find("صدّر").expect("صدّر must be present");
+            assert!(
+                doc_pos < export_pos,
+                "doc must precede صدّر, not sit mid-line after it: {once}"
+            );
+            crate::parser::Parser::new(&once)
+                .parse()
+                .expect("re-parse must succeed");
+            assert_eq!(once, format_raw(&once));
+        }
+    }
+
+    /// `غير_ذلك` is its own arm production (LANGUAGE_SPEC §15.6); prefixing it
+    /// with `حالة` produced `حالة غير_ذلك`, rejected as `رمز غير متوقع: Default`.
+    #[test]
+    fn test_format_match_wildcard_arm_has_no_case_keyword() {
+        let once = format("تطابق (س) {\nحالة ١ => اطبع(\"واحد\")\nغير_ذلك => اطبع(\"آخر\")\n}");
+        assert!(
+            !once.contains("حالة غير_ذلك"),
+            "wildcard arm must not be prefixed with حالة: {once}"
+        );
+        assert!(once.contains("غير_ذلك"), "got: {once}");
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+        assert_eq!(once, format_raw(&once));
+    }
+
+    // Regression tests for the code-review findings on the #201 fix. Each was
+    // verified against a merge-base build of 832cb64 before being fixed, so each
+    // pins a behaviour that regressed rather than a hypothetical.
+
+    /// A `/** */` the parser cannot attach (no `doc_comment` field on the
+    /// statement) must survive as a comment. Accepting `BlockDocComment` without
+    /// this made `fmt -w` erase the text: it parsed, so the re-parse guard could
+    /// not catch it.
+    #[test]
+    fn test_format_block_doc_comment_before_expression_statement_is_preserved() {
+        let once = format("/** ملاحظة مهمة */\nاطبع(\"س\")");
+        assert!(
+            once.contains("ملاحظة مهمة"),
+            "an unattachable doc comment must not be deleted: {once}"
+        );
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+        assert_eq!(once, format_raw(&once));
+    }
+
+    /// Demoting a multi-line `/** */` to a leading comment must re-prefix every
+    /// line, or the continuation lines land as bare code.
+    #[test]
+    fn test_format_demoted_multiline_block_doc_comment_prefixes_every_line() {
+        let once = format("/** سطر أول\nسطر ثان */\nاطبع(\"س\")");
+        assert!(once.contains("// سطر أول"), "got: {once}");
+        assert!(once.contains("// سطر ثان"), "got: {once}");
+        assert!(
+            !once.contains("\nسطر ثان"),
+            "continuation line must be prefixed: {once}"
+        );
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+        assert_eq!(once, format_raw(&once));
+    }
+
+    /// A `//` comment between `صدّر` and its declaration lands on the *inner*
+    /// statement, because the recursive `parse_declaration_with_doc` collects it
+    /// after `صدّر` is consumed. Routing the inline path past leading trivia
+    /// without hoisting it here deleted the text.
+    #[test]
+    fn test_format_comment_between_export_and_declaration_is_preserved() {
+        let once = format("صدّر // تعليق داخلي\nدالة س() {}");
+        assert!(
+            once.contains("تعليق داخلي"),
+            "comment between صدّر and its declaration must survive: {once}"
+        );
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+        assert_eq!(once, format_raw(&once));
+    }
+
+    /// A doc comment trailing `صدّر` on the same line must not be left
+    /// unconsumed — that turned previously-compiling source into a parse error.
+    #[test]
+    fn test_format_doc_comment_trailing_export_keyword_still_parses() {
+        let once = format("/// خارجي\nصدّر /// داخلي\nدالة س() {}");
+        assert!(once.contains("خارجي"), "outer doc must survive: {once}");
+        assert!(once.contains("داخلي"), "inner note must survive: {once}");
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("re-parse must succeed");
+        assert_eq!(once, format_raw(&once));
+    }
+
+    /// The guard must name `brace_style` rather than reporting a bare internal
+    /// bug, and must not leak a `{:?}` Debug dump of the diagnostic.
+    #[test]
+    fn test_next_line_brace_style_error_names_the_option() {
+        let config = FormatConfig {
+            brace_style: crate::fmt::BraceStyle::NextLine,
+            ..FormatConfig::default()
+        };
+        let source = wrap_with_markers("دالة س() { أرجع 1 }");
+        let err = crate::fmt::format_source(&source, &config)
+            .expect_err("next_line braces produce unparseable output (issue #226)");
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("brace_style"),
+            "error must name the offending option: {rendered}"
+        );
+        assert!(
+            !rendered.contains("Diagnostic {"),
+            "error must not leak a Debug dump: {rendered}"
+        );
+    }
+
+    /// Corpus guard: `fmt` must never produce output it cannot read back, and
+    /// must be a fixed point, across every real program in the repo. Walks the
+    /// tree at runtime rather than `include_str!`ing a single file, so new
+    /// stdlib/example files are covered automatically.
+    #[test]
+    fn test_format_repo_corpus_is_reparsable_and_idempotent() {
+        fn collect(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    collect(&path, out);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("ترقيم") {
+                    out.push(path);
+                }
+            }
+        }
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut files = Vec::new();
+        collect(&root.join("stdlib"), &mut files);
+        collect(&root.join("examples"), &mut files);
+        files.sort();
+
+        // Files that do not parse as *input* are a separate concern
+        // (#197/#202/#203) and are skipped, not asserted on — but the skip set is
+        // pinned rather than counted. This guard used to assert a bare
+        // `parseable >= 66`, which says nothing about *which* files parse and
+        // needs re-baselining whenever the corpus legitimately changes size:
+        // deleting four example files is what last broke it, long after the
+        // number stopped describing anything. An exact set still catches the
+        // case that matters — a parser regression hiding behind the skip branch.
+        //
+        // Mirrors KNOWN_UNPARSEABLE in tests/integration_tests.rs and the
+        // allowlist in .github/workflows/examples.yml. All three may only shrink.
+        const KNOWN_UNPARSEABLE: &[&str] = &[
+            // #243 — declares `صنف خطأ`; needs the استثناء redesign.
+            "stdlib/أخطاء/فهرس.ترقيم",
+        ];
+
+        let config = FormatConfig::default();
+        let mut parseable = 0;
+        let mut unparseable = Vec::new();
+        let mut failures = Vec::new();
+
+        for path in &files {
+            let Ok(source) = std::fs::read_to_string(path) else {
+                continue;
+            };
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(path)
+                .display()
+                .to_string()
+                .replace('\\', "/");
+            if crate::parser::Parser::new(&source).parse().is_err() {
+                unparseable.push(rel);
+                continue;
+            }
+            parseable += 1;
+
+            let once = match crate::fmt::format_source(&source, &config) {
+                Ok(once) => once,
+                Err(e) => {
+                    failures.push(format!("{rel}: first pass failed: {e}"));
+                    continue;
+                }
+            };
+            match crate::fmt::format_source(&once, &config) {
+                Ok(twice) if twice == once => {}
+                Ok(_) => failures.push(format!("{rel}: fmt(fmt(x)) != fmt(x)")),
+                Err(e) => failures.push(format!("{rel}: second pass failed: {e}")),
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "{} of {parseable} parseable corpus files are not fmt-stable:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+
+        unparseable.sort();
+        assert_eq!(
+            unparseable,
+            KNOWN_UNPARSEABLE,
+            "the set of corpus files that fail to parse changed ({} of {} files parse). \
+             An unexpected entry is a parser regression hiding behind the skip branch — \
+             fix it rather than listing it here. A missing entry parses now: drop it from \
+             KNOWN_UNPARSEABLE here, in tests/integration_tests.rs, and in \
+             .github/workflows/examples.yml",
+            parseable,
+            files.len()
+        );
+    }
+
+    /// A file's own doc comment must keep its `///` marker. Routing it through
+    /// `leading_comments` instead would re-emit it as `//`, which is how
+    /// `fmt -w` silently downgraded 22 stdlib module headers.
+    #[test]
+    fn test_format_module_doc_keeps_marker_and_blank_line() {
+        let once = format("/// وحدة الرياضيات\n\n// ═══\n\n/// وثيقة الدالة\nدالة س() {}");
+
+        assert!(
+            once.contains("/// وحدة الرياضيات"),
+            "the file doc must stay a doc comment: {once}"
+        );
+        assert!(
+            !once.lines().any(|line| line.trim() == "// وحدة الرياضيات"),
+            "…and must not be demoted to a line comment: {once}"
+        );
+        assert!(
+            once.contains("/// وحدة الرياضيات\n\n"),
+            "a blank line must follow it, or the lexer merges it into the next \
+             doc block on re-parse: {once}"
+        );
+    }
+
+    /// `scan_doc_comment` merges a contiguous `///` run into a single token, so
+    /// without the blank line after the file doc it fuses with the following
+    /// declaration's doc — text mangling that only shows up on a re-parse.
+    #[test]
+    fn test_format_module_doc_output_reparses_with_doc_still_separate() {
+        let once = format("/// وحدة الرياضيات\n\n// ═══\n\n/// وثيقة الدالة\nدالة س() {}");
+        let ast = crate::parser::Parser::new(&once)
+            .parse()
+            .expect("formatted output must re-parse");
+
+        assert_eq!(ast.module_doc.as_deref(), Some("وحدة الرياضيات"));
+        match &ast.statements[0].kind {
+            StmtKind::FuncDecl { doc_comment, .. } => {
+                assert_eq!(doc_comment.as_deref(), Some("وثيقة الدالة"));
+            }
+            other => panic!("Expected FuncDecl, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_format_module_doc_is_idempotent() {
+        let once = format("/// وحدة الرياضيات\n\n// ═══\n\n/// وثيقة الدالة\nدالة س() {}");
+        let twice = format_raw(&once);
+        assert_eq!(once, twice);
+    }
+
+    /// f64::MAX printed via Display is 309 digits with no decimal point in the
+    /// mantissa, so the formatted file came back as an out-of-range *integer*
+    /// literal. stdlib/رياضيات/ثوابت.ترقيم defines exactly that constant.
+    #[test]
+    fn test_format_extreme_float_round_trips() {
+        let once = format("ثابت اقصى: عدد_عشري = 1.7976931348623157e308");
+
+        assert!(
+            once.contains("1.7976931348623157e308"),
+            "the shortest round-tripping form must survive: {once}"
+        );
+        crate::parser::Parser::new(&once)
+            .parse()
+            .expect("formatted output must re-parse");
+        assert_eq!(format_raw(&once), once);
     }
 }

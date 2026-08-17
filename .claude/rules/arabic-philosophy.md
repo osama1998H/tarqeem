@@ -238,10 +238,14 @@ fn test_normalization() {
     assert_eq!(normalize(a), normalize(b));
 }
 
+// Latin identifiers are REJECTED at lex time — Tarqeem is Arabic-only.
+// (Real behavior, mirrors src/lexer/lexer.rs::test_english_identifiers_produce_errors)
 #[test]
-fn test_mixed_direction() {
-    let source = r#"متغير x = 5"#;  // Mixed Arabic/English
-    assert!(parse(source).is_ok());
+fn test_english_identifiers_produce_errors() {
+    let source = r#"متغير userName = "أحمد""#;
+    let tokens: Vec<_> = Lexer::new(source).tokenize();
+    assert_eq!(tokens[0].kind, TokenKind::Let);
+    assert!(matches!(&tokens[1].kind, TokenKind::Error(msg) if msg.contains("English")));
 }
 ```
 

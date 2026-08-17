@@ -40,7 +40,7 @@ impl CompilationTiming {
     }
 }
 
-use super::{configure_analyzer, find_runtime, find_wasm_runtime, warn_invalid_extension};
+use super::{analyzer_file_path, configure_analyzer, warn_invalid_extension};
 
 /// Arguments for the compile command
 pub struct CompileArgs {
@@ -115,7 +115,7 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
 
     // Semantic analysis timing
     let semantic_start = Instant::now();
-    let mut analyzer = Analyzer::new();
+    let mut analyzer = Analyzer::for_file(analyzer_file_path(&args.file));
     configure_analyzer(&mut analyzer, args.verbose);
     if let Err(diagnostics) = analyzer.analyze(&ast) {
         for diag in &diagnostics {
@@ -134,9 +134,24 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
 
     // IR generation timing
     let ir_start = Instant::now();
-    let ir_builder = IrBuilder::new(module_name);
+    // Imported module bodies only reach codegen through this merge; the IR
+    // builder itself accepts a single Ast and drops `استورد`.
+    let mut link_warnings = Vec::new();
+    let linked = analyzer
+        .linked_ast(&ast, &mut link_warnings)
+        .map_err(|diagnostics| {
+            for diag in &diagnostics {
+                diag.emit(&source, &filename, lang);
+            }
+            format!("وُجد {} خطأ/أخطاء", diagnostics.len())
+        })?;
+    for diag in &link_warnings {
+        diag.emit(&source, &filename, lang);
+    }
+
+    let ir_builder = IrBuilder::new(module_name).with_visible_names(analyzer.visible_names());
     let mut ir_module = ir_builder
-        .build(&ast)
+        .build(&linked)
         .map_err(|e| format!("خطأ في توليد التمثيل الوسيط: {}", e.message))?;
     timing.ir_build = ir_start.elapsed();
 
@@ -183,9 +198,13 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
     // Code generation timing
     let codegen_start = Instant::now();
     let mut codegen = LlvmCodegen::new(target_config.clone());
-    let llvm_ir = codegen
-        .generate(&ir_module)
-        .map_err(|e| format!("خطأ في توليد الكود: {}", e.message))?;
+    // `CodegenError` has carried a code since ت٠٣٠١ but the CLI dropped it, so
+    // no codegen code was ever printed — and one the user cannot see is one they
+    // cannot pass to `tarqeem اشرح`.
+    let llvm_ir = codegen.generate(&ir_module).map_err(|e| match &e.code {
+        Some(code) => format!("خطأ في توليد الكود [{}]: {}", code, e.message),
+        None => format!("خطأ في توليد الكود: {}", e.message),
+    })?;
     timing.codegen = codegen_start.elapsed();
 
     let output_path = args.output.unwrap_or_else(|| {
@@ -264,12 +283,9 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
             return Err("ترجمة WebAssembly غير متاحة. ثبّت LLVM مع دعم WebAssembly.".to_string());
         }
 
-        // Find WASM runtime if available
-        let wasm_runtime = find_wasm_runtime();
-
         linker
-            .compile_to_wasm(&llvm_ir, &output_path, wasm_runtime.as_deref())
-            .map_err(|e| format!(" ترجمة WebAssembly: {}", e.message))?;
+            .compile_to_wasm(&llvm_ir, &output_path, None)
+            .map_err(|e| format!(" ترجمة WebAssembly: {}", e))?;
 
         println!(
             "{}",
@@ -298,14 +314,11 @@ pub fn compile(args: CompileArgs, lang: Language) -> Result<(), String> {
             .verbose(args.verbose);
 
         if linker.is_available() {
-            let runtime_path = find_runtime();
-            if runtime_path.is_none() && args.verbose {
-                eprintln!("{}", "تحذير: لم يتم العثور على مكتبة التشغيل.".yellow());
-            }
-
+            // Discovery, the verbose report, and the ت٠١٠٢ refusal all live in
+            // the linker, so there is one search rather than two disagreeing ones.
             linker
-                .compile_to_executable(&llvm_ir, &output_path, runtime_path.as_deref())
-                .map_err(|e| format!("فشل الربط: {}", e.message))?;
+                .compile_to_executable(&llvm_ir, &output_path, None)
+                .map_err(|e| e.to_string())?;
             println!(
                 "{}",
                 format!(" إنشاء الملف التنفيذي: {}", output_path.display(),).green()

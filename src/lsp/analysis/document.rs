@@ -5,7 +5,9 @@
 use crate::error::codes::ERR_ENTRY_POINT_CONFLICT;
 use crate::error::{Diagnostic, DiagnosticLevel, Language, Span};
 use crate::lexer::{Lexer, Token, TokenKind};
-use crate::parser::{Ast, ClassMember, Parser, StmtKind, TypeAnnotation, TypeKind};
+use crate::parser::{
+    Ast, ClassMember, ExportItems, Parser, Stmt, StmtKind, TypeAnnotation, TypeKind,
+};
 use crate::semantic::{Analyzer, Type};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::Url;
@@ -150,7 +152,13 @@ impl DocumentState {
         };
 
         if let Some(ref ast) = ast {
-            let mut analyzer = Analyzer::new();
+            // Relative imports (`./وحدة`) resolve against the importing file's
+            // directory, so the analyzer needs this document's path. Non-file
+            // URIs (untitled buffers) have no directory to resolve against.
+            let mut analyzer = match self.uri.to_file_path() {
+                Ok(path) => Analyzer::for_file(path),
+                Err(_) => Analyzer::new(),
+            };
 
             self.collect_symbols(ast, &mut symbols);
 
@@ -159,6 +167,18 @@ impl DocumentState {
                     diagnostics.push(err);
                 }
                 has_errors = true;
+            } else {
+                // Cross-module defects — a top-level name defined by two merged
+                // modules (و٠١٠١) above all — are only found by the link step,
+                // which `check` and `run` both run. Without it the editor
+                // showed a clean file that the CLI then rejected. The merged
+                // AST is discarded: the LSP builds no IR.
+                let mut link_warnings = Vec::new();
+                if let Err(errs) = analyzer.linked_ast(ast, &mut link_warnings) {
+                    diagnostics.extend(errs);
+                    has_errors = true;
+                }
+                diagnostics.extend(link_warnings);
             }
 
             // Check for entry point mode conflict (Script mode vs Program mode)
@@ -177,13 +197,26 @@ impl DocumentState {
         }
     }
 
+    /// Unwraps `صدّر <declaration>` to the declaration it exports.
+    ///
+    /// Duplicated from `ir::builder::as_top_level_decl` rather than shared:
+    /// the LSP layer must not reach into the IR layer. Both classifications
+    /// of "top-level executable code" must stay in step, or the editor and
+    /// the compiler disagree about ت٠٢٠١.
+    fn unwrap_exported_decl(stmt: &Stmt) -> &Stmt {
+        match &stmt.kind {
+            StmtKind::Export(ExportItems::Declaration(inner)) => inner,
+            _ => stmt,
+        }
+    }
+
     /// Check for entry point mode conflict (Script mode vs Program mode).
     /// Returns an error diagnostic if both top-level executable statements
     /// AND دالة رئيسية() exist in the same file.
     fn check_entry_point_conflict(&self, ast: &Ast) -> Option<Diagnostic> {
         // Find دالة رئيسية() declaration (Program mode entry point)
         let main_func_span = ast.statements.iter().find_map(|stmt| {
-            if let StmtKind::FuncDecl { name, .. } = &stmt.kind {
+            if let StmtKind::FuncDecl { name, .. } = &Self::unwrap_exported_decl(stmt).kind {
                 if name == "رئيسية" {
                     return Some(stmt.span);
                 }
@@ -196,13 +229,16 @@ impl DocumentState {
         // Everything else is executable code
         let first_executable_span = ast.statements.iter().find_map(|stmt| {
             if !matches!(
-                &stmt.kind,
+                &Self::unwrap_exported_decl(stmt).kind,
                 StmtKind::FuncDecl { .. }
                     | StmtKind::ClassDecl { .. }
                     | StmtKind::InterfaceDecl { .. }
                     | StmtKind::EnumDecl { .. }
                     | StmtKind::VarDecl { .. }
                     | StmtKind::Import { .. }
+                    // Named/wildcard/re-exports survive the unwrapping above;
+                    // all are module metadata, never executable code.
+                    | StmtKind::Export(..)
             ) {
                 return Some(stmt.span);
             }
@@ -236,7 +272,13 @@ impl DocumentState {
 
     fn collect_symbols(&self, ast: &Ast, symbols: &mut HashMap<String, SymbolInfo>) {
         for stmt in &ast.statements {
-            match &stmt.kind {
+            // `صدّر صنف س` defines `س` exactly as `صنف س` does. While this
+            // matched the raw statement, every exported declaration was absent
+            // from the symbol table — so hover, go-to-definition and member
+            // lookup went silent on precisely the declarations a library
+            // publishes (issue #259). `definition_span` stays `stmt.span`, which
+            // spans the whole `صدّر …` declaration.
+            match &Self::unwrap_exported_decl(stmt).kind {
                 StmtKind::VarDecl {
                     name,
                     mutable,
@@ -303,16 +345,24 @@ impl DocumentState {
                             .map(|t| self.resolve_type_annotation(t))
                             .unwrap_or(Type::Unknown);
 
-                        symbols.insert(
-                            param.name.clone(),
-                            SymbolInfo {
+                        // `or_insert`, not `insert`: this map is flat and
+                        // unscoped, so an unconditional write let a parameter
+                        // displace a same-named top-level declaration. Harmless
+                        // while exported declarations were skipped entirely;
+                        // once they are collected, every function in an
+                        // all-exported module (i.e. every stdlib module)
+                        // contributes its parameters, and hover/go-to-definition
+                        // would answer with a parameter where a global was
+                        // asked for. A real top-level symbol always wins.
+                        symbols
+                            .entry(param.name.clone())
+                            .or_insert_with(|| SymbolInfo {
                                 ty: param_type,
                                 definition_span: param.span,
                                 kind: SymbolKind::Parameter,
                                 mutable: true,
                                 doc: None,
-                            },
-                        );
+                            });
                     }
                 }
 
@@ -486,7 +536,13 @@ impl DocumentState {
                     .iter()
                     .map(|p| self.resolve_type_annotation(p))
                     .collect(),
-                return_type: Box::new(self.resolve_type_annotation(return_type)),
+                // Bare `()` carries no return type at all.
+                return_type: Box::new(
+                    return_type
+                        .as_ref()
+                        .map(|t| self.resolve_type_annotation(t))
+                        .unwrap_or(Type::Void),
+                ),
             },
             TypeKind::Generic { base, args: _ } => self.parse_type_name(base),
             TypeKind::Optional(inner) => {
@@ -496,16 +552,10 @@ impl DocumentState {
     }
 
     fn parse_type_name(&self, name: &str) -> Type {
-        // Arabic-only: ترقيم لغة برمجة عربية
-        match name {
-            "عدد" => Type::Int,
-            "عدد_عشري" => Type::Float,
-            "نص" => Type::String,
-            "منطقي" => Type::Bool,
-            "لا_شيء" => Type::Null,
-            "أي" | "اي" => Type::Any,
-            _ => Type::Class(name.to_string()),
-        }
+        // Single source of truth for the name→type mapping — a private
+        // copy here would silently drift the next time a builtin type is
+        // added (LSP may import semantic per the layering table).
+        crate::semantic::parse_type_name(name)
     }
 
     pub fn find_symbol_at(
@@ -591,6 +641,56 @@ mod tests {
         assert!(analysis.symbols.contains_key("جمع"));
     }
 
+    /// `صدّر` must not hide a declaration from the symbol table (issue #259).
+    ///
+    /// `collect_symbols` matched the raw statement, so an exported class, its
+    /// members, and an exported enum's variants were all missing — no hover, no
+    /// go-to-definition, no member lookup on exactly the declarations a library
+    /// publishes. Every existing fixture here declares un-exported symbols, so
+    /// nothing noticed.
+    #[test]
+    fn test_exported_declarations_reach_the_symbol_table() {
+        let content = wrap_with_markers(
+            r#"
+صدّر صنف نقطة {
+    عام س: عدد
+    منشئ(س: عدد) {
+        هذا.س = س
+    }
+    عام دالة اقرأ() -> عدد {
+        أرجع هذا.س
+    }
+}
+
+صدّر تعداد لون {
+    أحمر،
+    أزرق
+}
+
+صدّر دالة جمع(أ: عدد، ب: عدد) -> عدد {
+    أرجع أ + ب
+}
+"#,
+        );
+        let mut doc = DocumentState::new(test_uri(), 1, content);
+
+        let analysis = doc.get_analysis(Language::Arabic);
+        let symbols = &analysis.symbols;
+
+        assert!(symbols.contains_key("نقطة"), "الصنف المصدَّر مفقود");
+        assert!(symbols.contains_key("نقطة.س"), "حقل الصنف المصدَّر مفقود");
+        assert!(
+            symbols.contains_key("نقطة.اقرأ"),
+            "دالة الصنف المصدَّر مفقودة"
+        );
+        assert!(symbols.contains_key("لون"), "التعداد المصدَّر مفقود");
+        assert!(
+            symbols.contains_key("لون::أحمر"),
+            "حالة التعداد المصدَّر مفقودة"
+        );
+        assert!(symbols.contains_key("جمع"), "الدالة المصدَّرة مفقودة");
+    }
+
     #[test]
     fn test_symbol_with_doc_comment() {
         let content = wrap_with_markers(
@@ -664,6 +764,75 @@ mod tests {
         assert!(
             arabic.contains("خطأ معجمي"),
             "Unknown errors should have Arabic prefix"
+        );
+    }
+
+    /// A top-level name defined by two merged modules (و٠١٠١) is found only by
+    /// the link step. The editor skipped it, so a file that `check` and `run`
+    /// both reject showed clean in VS Code.
+    #[test]
+    fn test_cross_module_collision_is_reported_to_the_editor() {
+        let dir = tempfile::TempDir::new().unwrap();
+
+        for (name, value) in [("ك1.ترقيم", "1"), ("ك2.ترقيم", "2")] {
+            let body = format!("صدّر دالة مكرر() -> عدد {{\n أرجع {}\n}}", value);
+            std::fs::write(dir.path().join(name), wrap_with_markers(&body)).unwrap();
+        }
+
+        let content = wrap_with_markers(
+            "استورد { مكرر } من \"./ك1\"\n\
+             استورد { مكرر كـ مكرر2 } من \"./ك2\"\n\
+             اطبع(مكرر())",
+        );
+        let main_path = dir.path().join("رئيسي.ترقيم");
+        std::fs::write(&main_path, &content).unwrap();
+
+        let mut doc =
+            DocumentState::new(Url::from_file_path(&main_path).unwrap(), 1, content.clone());
+        let analysis = doc.get_analysis(Language::Arabic);
+
+        assert!(analysis.has_errors, "the collision must fail the document");
+        assert!(
+            analysis
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("تعريف علوي مكرر")),
+            "expected a link-stage collision diagnostic, got {:?}",
+            analysis
+                .diagnostics
+                .iter()
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// The link step must stay silent on a program that links cleanly.
+    #[test]
+    fn test_valid_cross_module_program_stays_clean_in_the_editor() {
+        let dir = tempfile::TempDir::new().unwrap();
+
+        std::fs::write(
+            dir.path().join("أدوات.ترقيم"),
+            wrap_with_markers("صدّر دالة جمع(أ: عدد، ب: عدد) -> عدد {\n أرجع أ + ب\n}"),
+        )
+        .unwrap();
+
+        let content = wrap_with_markers("استورد { جمع } من \"./أدوات\"\nاطبع(جمع(2، 3))");
+        let main_path = dir.path().join("رئيسي.ترقيم");
+        std::fs::write(&main_path, &content).unwrap();
+
+        let mut doc =
+            DocumentState::new(Url::from_file_path(&main_path).unwrap(), 1, content.clone());
+        let analysis = doc.get_analysis(Language::Arabic);
+
+        assert!(
+            !analysis.has_errors,
+            "expected a clean document, got {:?}",
+            analysis
+                .diagnostics
+                .iter()
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
         );
     }
 }

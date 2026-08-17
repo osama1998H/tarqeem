@@ -3,18 +3,21 @@
 //! This module implements the IR interpreter that executes Tarqeem programs
 //! by walking through IR instructions and maintaining execution state.
 
-mod builtins;
+pub(crate) mod builtins;
 
 use std::collections::HashMap;
 use std::io::{self, Write};
 
 use crate::ir::{
-    BasicBlock, BinaryOp, BlockId, Constant, FuncId, Function, Instruction, IrType, Module,
-    UnaryOp, VarId,
+    BasicBlock, BinaryOp, BlockId, Constant, FuncId, Function, Instruction, IrType, MethodId,
+    Module, UnaryOp, VarId,
 };
 
-use super::error::{RuntimeError, RuntimeResult};
+use super::error::{ErrorKind, RuntimeError, RuntimeResult};
 use super::value::Value;
+// A forward dependency in pipeline order (semantic precedes ir, which precedes
+// execution): the exception field name has to match what the prelude declares.
+use crate::semantic::EXCEPTION_MESSAGE_FIELD;
 
 const MAX_STACK_DEPTH: usize = 1000;
 
@@ -49,6 +52,11 @@ pub struct Interpreter {
     current_exception: Option<Value>,
     pub(crate) output: Vec<String>,
     pub(crate) capture_output: bool,
+    /// Memoizes `resolve_virtual_method`'s runtime-class walk, keyed by
+    /// (runtime class, method name) — every instance method call in the
+    /// interpreter's hot path goes through that walk once per inheritance
+    /// level, otherwise.
+    virtual_method_cache: HashMap<(String, String), FuncId>,
 }
 
 impl Interpreter {
@@ -60,6 +68,7 @@ impl Interpreter {
             current_exception: None,
             output: Vec::new(),
             capture_output: false,
+            virtual_method_cache: HashMap::new(),
         }
     }
 
@@ -111,6 +120,43 @@ impl Interpreter {
         }
 
         Err(RuntimeError::undefined_function("main/رئيسي/رئيسية"))
+    }
+
+    /// Resolve a virtual method call against the object's *runtime* class,
+    /// walking `Class.parent` upward until a matching function is found.
+    ///
+    /// This is what makes an inherited (non-overridden) call succeed and an
+    /// overridden call dispatch to the override, even when the receiver was
+    /// accessed through a supertype-typed variable or parameter: the search
+    /// starts at the concrete class the object was constructed with, not at
+    /// the statically-declared `method.class`.
+    fn resolve_virtual_method(&mut self, obj_val: &Value, method: &MethodId) -> FuncId {
+        if let Value::Object(obj) = obj_val {
+            let runtime_class = obj.borrow().class_id.clone();
+            let cache_key = (runtime_class.0.clone(), method.name.clone());
+            if let Some(cached) = self.virtual_method_cache.get(&cache_key) {
+                return cached.clone();
+            }
+
+            let mut current = Some(runtime_class);
+            let mut visited = std::collections::HashSet::new();
+            while let Some(class_id) = current {
+                if !visited.insert(class_id.0.clone()) {
+                    break; // cyclic inheritance is rejected by semantic analysis; don't hang here
+                }
+                let candidate = FuncId(format!("{}::{}", class_id.0, method.name));
+                if self.module.get_function(&candidate).is_some() {
+                    self.virtual_method_cache
+                        .insert(cache_key, candidate.clone());
+                    return candidate;
+                }
+                current = self
+                    .module
+                    .get_class(&class_id)
+                    .and_then(|c| c.parent.clone());
+            }
+        }
+        FuncId(format!("{}::{}", method.class.0, method.name))
     }
 
     pub fn call_function(&mut self, func_id: &FuncId, args: Vec<Value>) -> RuntimeResult<Value> {
@@ -172,11 +218,72 @@ impl Interpreter {
                         self.current_exception = Some(exception);
                         block_idx = self.find_block_index(func, catch_block)?;
                     } else {
-                        let msg = exception.to_display_string();
+                        // No handler in *this* frame. The payload is parked so
+                        // the caller's `Call` site can turn this `Err` back into
+                        // a throw against its own handler stack; without that,
+                        // `?` carried it past every enclosing `حاول` and one
+                        // call level was enough to defeat `التقط` (issue #181).
+                        let msg = Self::exception_message(&exception);
+                        self.current_exception = Some(exception);
                         return Err(RuntimeError::unhandled_exception(&msg));
                     }
                 }
             }
+        }
+    }
+
+    /// What to print when an exception reaches the top uncaught.
+    ///
+    /// `Value::to_display_string` renders an object as `<اسم_الصنف>`, which told
+    /// the user only that *something* was thrown. Every `استثناء` carries the
+    /// reason in `رسالة`, so read that when it is there.
+    fn exception_message(exception: &Value) -> String {
+        if let Value::Object(obj) = exception {
+            if let Some(message) = obj.borrow().fields.get(EXCEPTION_MESSAGE_FIELD) {
+                return message.to_display_string();
+            }
+        }
+
+        exception.to_display_string()
+    }
+
+    /// Bind a callee's result, or turn a throw the callee did not handle into
+    /// one this frame's `try_stack` can catch.
+    ///
+    /// Every call instruction routes through here. `try_stack` lives on the
+    /// `CallFrame`, so a callee that runs out of handlers can only report an
+    /// `Err`; propagating that with `?` skipped the caller's own `حاول`
+    /// entirely, which is why `التقط` never caught anything thrown one call
+    /// deep (issue #181).
+    fn finish_call(
+        &mut self,
+        outcome: RuntimeResult<Value>,
+        dest: Option<&VarId>,
+    ) -> RuntimeResult<InstructionResult> {
+        match outcome {
+            Ok(result) => {
+                if let Some(d) = dest {
+                    self.set_local(*d, result);
+                }
+                Ok(InstructionResult::Continue)
+            }
+            Err(err) => match self.take_propagating_exception(&err) {
+                Some(exception) => Ok(InstructionResult::Throw(exception)),
+                None => Err(err),
+            },
+        }
+    }
+
+    /// The value `execute_function` parked when it ran out of handlers, if
+    /// `err` is that unhandled throw and not a genuine interpreter failure.
+    ///
+    /// Falls back to `None` when the slot is empty, so an `UnhandledException`
+    /// with no payload still surfaces as an error rather than being swallowed.
+    fn take_propagating_exception(&mut self, err: &RuntimeError) -> Option<Value> {
+        if err.kind == ErrorKind::UnhandledException {
+            self.current_exception.take()
+        } else {
+            None
         }
     }
 
@@ -250,6 +357,13 @@ impl Interpreter {
                     Value::Float(f) => Value::Float(f),
                     _ => return Err(RuntimeError::type_error("int", val.type_name())),
                 };
+                self.set_local(*dest, result);
+                Ok(InstructionResult::Continue)
+            }
+
+            Instruction::BoolToInt { dest, src } => {
+                let val = self.get_local(*src)?;
+                let result = Value::Int(if val.is_truthy() { 1 } else { 0 });
                 self.set_local(*dest, result);
                 Ok(InstructionResult::Continue)
             }
@@ -375,16 +489,17 @@ impl Interpreter {
                     .map(|v| self.get_local(*v))
                     .collect::<RuntimeResult<Vec<_>>>()?;
 
-                let result = if self.is_builtin(&func.0) {
-                    self.call_builtin(&func.0, arg_values)?
+                // A declared function of the same name wins: built-ins are the
+                // last tier of the lookup order (#262). The answer is decided by the IR
+                // builder, not recomputed here — `get_function` would also match a
+                // module declaration the program never imported.
+                let outcome = if self.is_builtin(&func.0) && !self.module.shadows_builtin(&func.0) {
+                    self.call_builtin(&func.0, arg_values)
                 } else {
-                    self.call_function(func, arg_values)?
+                    self.call_function(func, arg_values)
                 };
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::CallIndirect {
@@ -404,12 +519,9 @@ impl Interpreter {
                     .map(|v| self.get_local(*v))
                     .collect::<RuntimeResult<Vec<_>>>()?;
 
-                let result = self.call_function(&FuncId(func_name), arg_values)?;
+                let outcome = self.call_function(&FuncId(func_name), arg_values);
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::NewObject { dest, class } => {
@@ -469,6 +581,7 @@ impl Interpreter {
                 object,
                 method,
                 args,
+                virtual_dispatch,
                 ..
             } => {
                 let obj_val = self.get_local(*object)?;
@@ -478,14 +591,15 @@ impl Interpreter {
                     arg_values.push(self.get_local(*arg)?);
                 }
 
-                let method_func_id = FuncId(format!("{}::{}", method.class.0, method.name));
+                let method_func_id = if *virtual_dispatch {
+                    self.resolve_virtual_method(&obj_val, method)
+                } else {
+                    FuncId(format!("{}::{}", method.class.0, method.name))
+                };
 
-                let result = self.call_function(&method_func_id, arg_values)?;
+                let outcome = self.call_function(&method_func_id, arg_values);
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::CallVirtual {
@@ -526,12 +640,9 @@ impl Interpreter {
                 }
 
                 let method_func_id = FuncId(format!("{}::{}", method_id.class.0, method_id.name));
-                let result = self.call_function(&method_func_id, arg_values)?;
+                let outcome = self.call_function(&method_func_id, arg_values);
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::NewArray { dest, elements, .. } => {
@@ -925,6 +1036,7 @@ impl Interpreter {
                 let s = self.module.strings.get(*idx).unwrap_or("").to_string();
                 Value::string(s)
             }
+            Constant::Function(name) => Value::Function(name.clone()),
         }
     }
 

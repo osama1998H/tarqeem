@@ -22,6 +22,11 @@ use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
+/// Stands in for the source file a REPL line does not have, both as the name
+/// diagnostics render against and as the anchor relative `استورد` specifiers
+/// resolve from.
+pub(super) const REPL_PSEUDO_FILE: &str = "<repl>";
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -40,150 +45,62 @@ pub(super) fn warn_invalid_extension(file: &Path) {
     }
 }
 
-pub(super) fn find_runtime() -> Option<PathBuf> {
-    // Build search paths in priority order
-    let mut search_paths: Vec<PathBuf> = Vec::new();
-
-    // 1. TARQEEM_HOME environment variable (highest priority)
-    if let Ok(tarqeem_home) = std::env::var("TARQEEM_HOME") {
-        search_paths.push(PathBuf::from(&tarqeem_home).join("lib/libtrq.a"));
-    }
-
-    // 2. Relative to executable (for development)
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            search_paths.push(parent.join("runtime/libtrq.a"));
-            search_paths.push(parent.join("../runtime/libtrq.a"));
-            // Also check lib/ next to executable (installed layout)
-            search_paths.push(parent.join("../lib/libtrq.a"));
-        }
-    }
-
-    // 3. Relative to current directory (for development)
-    search_paths.push(PathBuf::from("runtime/libtrq.a"));
-
-    // 4. User-local path (~/.tarqeem/lib/libtrq.a)
-    if let Some(home) = dirs::home_dir() {
-        search_paths.push(home.join(".tarqeem/lib/libtrq.a"));
-    }
-
-    // 5. System paths (Unix)
-    #[cfg(unix)]
-    {
-        search_paths.push(PathBuf::from("/usr/local/lib/tarqeem/libtrq.a"));
-        search_paths.push(PathBuf::from("/usr/lib/tarqeem/libtrq.a"));
-    }
-
-    // 5. System paths (Windows)
-    #[cfg(windows)]
-    {
-        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-            search_paths.push(PathBuf::from(&local_app_data).join("Tarqeem/lib/libtrq.a"));
-        }
-        search_paths.push(PathBuf::from("C:/Program Files/Tarqeem/lib/libtrq.a"));
-    }
-
-    for path in &search_paths {
-        if path.exists() {
-            return Some(path.clone());
-        }
-    }
-
-    None
-}
-
-/// Find the WebAssembly runtime library
-pub(super) fn find_wasm_runtime() -> Option<PathBuf> {
-    let mut search_paths: Vec<PathBuf> = Vec::new();
-
-    // 1. TARQEEM_HOME environment variable (highest priority)
-    if let Ok(tarqeem_home) = std::env::var("TARQEEM_HOME") {
-        search_paths.push(PathBuf::from(&tarqeem_home).join("lib/libtrq_wasm.a"));
-    }
-
-    // 2. Relative to executable
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            search_paths.push(parent.join("runtime/wasm/libtrq_wasm.a"));
-            if let Some(grandparent) = parent.parent() {
-                search_paths.push(grandparent.join("runtime/wasm/libtrq_wasm.a"));
-                search_paths.push(grandparent.join("lib/libtrq_wasm.a"));
-            }
-        }
-    }
-
-    // 3. Relative to current directory
-    search_paths.push(PathBuf::from("runtime/wasm/libtrq_wasm.a"));
-
-    // 4. User-local path
-    if let Some(home) = dirs::home_dir() {
-        search_paths.push(home.join(".tarqeem/lib/libtrq_wasm.a"));
-    }
-
-    // 5. System paths (Unix)
-    #[cfg(unix)]
-    {
-        search_paths.push(PathBuf::from("/usr/local/lib/tarqeem/libtrq_wasm.a"));
-        search_paths.push(PathBuf::from("/usr/lib/tarqeem/libtrq_wasm.a"));
-    }
-
-    // 5. System paths (Windows)
-    #[cfg(windows)]
-    {
-        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-            search_paths.push(PathBuf::from(&local_app_data).join("Tarqeem/lib/libtrq_wasm.a"));
-        }
-        search_paths.push(PathBuf::from("C:/Program Files/Tarqeem/lib/libtrq_wasm.a"));
-    }
-
-    search_paths.into_iter().find(|path| path.exists())
-}
-
 fn find_stdlib_path() -> Option<PathBuf> {
     let mut search_paths: Vec<PathBuf> = Vec::new();
 
     // 1. TARQEEM_HOME environment variable (highest priority)
     if let Ok(tarqeem_home) = std::env::var("TARQEEM_HOME") {
-        search_paths.push(PathBuf::from(&tarqeem_home).join("stdlib_trq"));
+        search_paths.push(PathBuf::from(&tarqeem_home).join("stdlib"));
     }
 
     // 2. Relative to executable
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            search_paths.push(parent.join("stdlib_trq"));
+            search_paths.push(parent.join("stdlib"));
             if let Some(grandparent) = parent.parent() {
-                search_paths.push(grandparent.join("stdlib_trq"));
+                search_paths.push(grandparent.join("stdlib"));
             }
         }
     }
 
     // 3. Relative to current directory
-    search_paths.push(PathBuf::from("stdlib_trq"));
+    search_paths.push(PathBuf::from("stdlib"));
 
     // 4. User-local path
     if let Some(home) = dirs::home_dir() {
-        search_paths.push(home.join(".tarqeem/stdlib_trq"));
+        search_paths.push(home.join(".tarqeem/stdlib"));
     }
 
     // 5. System paths (Unix)
     #[cfg(unix)]
     {
-        search_paths.push(PathBuf::from("/usr/local/lib/tarqeem/stdlib_trq"));
-        search_paths.push(PathBuf::from("/usr/lib/tarqeem/stdlib_trq"));
+        search_paths.push(PathBuf::from("/usr/local/lib/tarqeem/stdlib"));
+        search_paths.push(PathBuf::from("/usr/lib/tarqeem/stdlib"));
     }
 
     // 5. System paths (Windows)
     #[cfg(windows)]
     {
         if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-            search_paths.push(PathBuf::from(&local_app_data).join("Tarqeem/stdlib_trq"));
+            search_paths.push(PathBuf::from(&local_app_data).join("Tarqeem/stdlib"));
         }
-        search_paths.push(PathBuf::from("C:/Program Files/Tarqeem/stdlib_trq"));
+        search_paths.push(PathBuf::from("C:/Program Files/Tarqeem/stdlib"));
     }
 
     search_paths
         .into_iter()
         .find(|path| path.exists() && path.is_dir())
+}
+
+/// Absolute path to hand `Analyzer::for_file`.
+///
+/// Relative imports resolve against `path.parent()`, which is `""` — not the
+/// file's directory — for a bare `برنامج.ترقيم` argument, so the path must be
+/// made absolute first. Canonicalization can only fail on a file we already
+/// read successfully (races, permissions); the raw path is then no worse than
+/// the pre-existing behaviour of no path at all.
+pub(super) fn analyzer_file_path(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
 pub(super) fn configure_analyzer(analyzer: &mut Analyzer, verbose: bool) {
@@ -503,7 +420,7 @@ fn run_command(
         "خطأ في التحليل".to_string()
     })?;
 
-    let mut analyzer = Analyzer::new();
+    let mut analyzer = Analyzer::for_file(analyzer_file_path(&file));
     configure_analyzer(&mut analyzer, verbose);
     if let Err(diagnostics) = analyzer.analyze(&ast) {
         for diag in &diagnostics {
@@ -516,8 +433,27 @@ fn run_command(
         ));
     }
 
-    let ir_builder = IrBuilder::new(filename.clone());
-    let ir_module = ir_builder.build(&ast).map_err(|e| {
+    // Imported module bodies only reach the backends through this merge; the IR
+    // builder itself accepts a single Ast and drops `استورد`.
+    let mut link_warnings = Vec::new();
+    let linked = analyzer
+        .linked_ast(&ast, &mut link_warnings)
+        .map_err(|diagnostics| {
+            for diag in &diagnostics {
+                diag.emit(&source, &filename, lang);
+            }
+            format!(
+                "{} error(s) found / وُجد {} خطأ/أخطاء",
+                diagnostics.len(),
+                diagnostics.len()
+            )
+        })?;
+    for diag in &link_warnings {
+        diag.emit(&source, &filename, lang);
+    }
+
+    let ir_builder = IrBuilder::new(filename.clone()).with_visible_names(analyzer.visible_names());
+    let ir_module = ir_builder.build(&linked).map_err(|e| {
         format!(
             "IR build error: {} / خطأ بناء التمثيل الوسيط: {}",
             e.message, e.message
@@ -603,7 +539,7 @@ fn check_command(file: PathBuf, verbose: bool, lang: Language) -> Result<(), Str
         "خطأ في التحليل".to_string()
     })?;
 
-    let mut analyzer = Analyzer::new();
+    let mut analyzer = Analyzer::for_file(analyzer_file_path(&file));
     configure_analyzer(&mut analyzer, verbose);
     if let Err(diagnostics) = analyzer.analyze(&ast) {
         for diag in &diagnostics {
@@ -616,12 +552,81 @@ fn check_command(file: PathBuf, verbose: bool, lang: Language) -> Result<(), Str
         ));
     }
 
+    // `analyze` returns Ok when only warnings were raised, so a warnings-only
+    // run reported success while silently discarding them — the module
+    // not-found warning in particular was invisible. Warnings still must not
+    // fail `check`.
+    for diag in analyzer.diagnostics() {
+        diag.emit(&source, &filename, lang);
+    }
+
+    // A top-level name collision between two merged modules is only detected
+    // by the link step, so without running it `check` reported success on a
+    // program that both `run` and `compile` reject (issue #182). The merged
+    // AST itself is not needed here — `check` builds no IR.
+    let mut link_warnings = Vec::new();
+    analyzer
+        .linked_ast(&ast, &mut link_warnings)
+        .map_err(|diagnostics| {
+            for diag in &diagnostics {
+                diag.emit(&source, &filename, lang);
+            }
+            format!(
+                "{} error(s) found / وُجد {} خطأ/أخطاء",
+                diagnostics.len(),
+                diagnostics.len()
+            )
+        })?;
+    for diag in &link_warnings {
+        diag.emit(&source, &filename, lang);
+    }
+
     println!(
         "{}",
         "No errors found! / لم يتم العثور على أخطاء!".green().bold()
     );
 
     Ok(())
+}
+
+/// Analyze one REPL line and fold every module it imports into a single `Ast`.
+///
+/// Split out of `repl_command` because the REPL was the one pipeline entry
+/// point that never ran the linker: it handed the raw AST straight to the IR
+/// builder, so an imported function had a symbol-table entry but no body and
+/// calling it failed at run time with `دالة غير معرّفة` — the exact issue #182
+/// symptom (`run`, `compile`, `check` and the debugger were all wired).
+/// A terminal session is not reachable from a test; this is.
+///
+/// `current_file` is what relative `استورد` specifiers resolve against. A REPL
+/// line has no file of its own, so the caller names one in the working
+/// directory. `warnings` is an out-parameter, matching `Analyzer::linked_ast`.
+/// Did the build produce something to run?
+///
+/// Both entry-point modes converge on `__main__`: script mode synthesizes it,
+/// program mode renames `دالة رئيسية()` to it. A module without one declares
+/// and nothing more.
+pub(super) fn has_entry_point(module: &crate::ir::Module) -> bool {
+    module
+        .get_function(&crate::ir::FuncId("__main__".to_string()))
+        .is_some()
+}
+
+/// Returns the linked AST together with the names the semantic layer resolved
+/// to user declarations, which `IrBuilder::with_visible_names` needs to tell a
+/// real shadow from a merged-but-unimported module declaration.
+pub(super) fn link_repl_line(
+    ast: &crate::parser::Ast,
+    current_file: PathBuf,
+    verbose: bool,
+    warnings: &mut Vec<crate::error::Diagnostic>,
+) -> Result<(crate::parser::Ast, std::collections::HashSet<String>), Vec<crate::error::Diagnostic>>
+{
+    let mut analyzer = Analyzer::for_file(current_file);
+    configure_analyzer(&mut analyzer, verbose);
+    analyzer.analyze(ast)?;
+    let linked = analyzer.linked_ast(ast, warnings)?;
+    Ok((linked, analyzer.visible_names()))
 }
 
 fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
@@ -636,6 +641,13 @@ fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     let mut line_count = 0u32;
+
+    // Relative imports resolve against the working directory, as they did when
+    // the REPL passed no file at all; naming a file inside it just states that
+    // explicitly, since module resolution works from a file's parent directory.
+    let repl_file = std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(REPL_PSEUDO_FILE);
 
     // Create compiler context - reused across all REPL lines for deduplication
     let mut _ctx = CompilerContext::new();
@@ -668,41 +680,66 @@ fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
                 let mut parser = Parser::new(&source);
                 match parser.parse() {
                     Ok(ast) => {
-                        let mut analyzer = Analyzer::new();
-                        configure_analyzer(&mut analyzer, verbose);
-                        if let Err(diagnostics) = analyzer.analyze(&ast) {
-                            for diag in &diagnostics {
-                                diag.emit(&source, "<repl>", lang);
+                        let mut link_warnings = Vec::new();
+                        // A rejected line must not end the session, so the
+                        // diagnostics are printed here rather than propagated
+                        // the way `run_command` propagates them.
+                        match link_repl_line(&ast, repl_file.clone(), verbose, &mut link_warnings) {
+                            Err(diagnostics) => {
+                                for diag in &diagnostics {
+                                    diag.emit(&source, REPL_PSEUDO_FILE, lang);
+                                }
                             }
-                        } else {
-                            let module_name = format!("<repl:{}>", line_count);
-                            let ir_builder = IrBuilder::new(module_name);
-                            match ir_builder.build(&ast) {
-                                Ok(ir_module) => {
-                                    let mut interpreter = Interpreter::new(ir_module);
-                                    match interpreter.run() {
-                                        Ok(result) => {
-                                            if verbose {
-                                                println!(
+                            Ok((linked, visible)) => {
+                                for diag in &link_warnings {
+                                    diag.emit(&source, REPL_PSEUDO_FILE, lang);
+                                }
+
+                                let module_name = format!("<repl:{}>", line_count);
+                                let ir_builder =
+                                    IrBuilder::new(module_name).with_visible_names(visible);
+                                // A line that only declares (`متغير س = ٥`) is a
+                                // library, not a program: `build` would reject
+                                // it for having no entry point (ت٠٢٠٢).
+                                match ir_builder.build_library(&linked) {
+                                    Ok(ir_module) if !has_entry_point(&ir_module) => {
+                                        // Nothing to execute, so executing
+                                        // anything would be wrong: the
+                                        // interpreter's fallback runs whatever
+                                        // function it finds first, which for
+                                        // `دالة ف(س)` means calling it with no
+                                        // arguments. A declaration is silent.
+                                    }
+                                    Ok(ir_module) => {
+                                        let mut interpreter = Interpreter::new(ir_module);
+                                        match interpreter.run() {
+                                            Ok(result) => {
+                                                if verbose {
+                                                    println!(
+                                                        "{} {}",
+                                                        "=>".cyan(),
+                                                        format!("{}", result).yellow()
+                                                    );
+                                                }
+                                            }
+                                            Err(e) => {
+                                                eprintln!(
                                                     "{} {}",
-                                                    "=>".cyan(),
-                                                    format!("{}", result).yellow()
+                                                    "Runtime error:".red().bold(),
+                                                    e
                                                 );
                                             }
                                         }
-                                        Err(e) => {
-                                            eprintln!("{} {}", "Runtime error:".red().bold(), e);
-                                        }
                                     }
-                                }
-                                Err(e) => {
-                                    eprintln!("{} {}", "IR error:".red().bold(), e);
+                                    Err(e) => {
+                                        eprintln!("{} {}", "IR error:".red().bold(), e);
+                                    }
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        e.emit(&source, "<repl>", lang);
+                        e.emit(&source, REPL_PSEUDO_FILE, lang);
                     }
                 }
             }
@@ -786,9 +823,7 @@ fn fmt_command(
                 println!("{}", format!("--- {} (original)", file.display()).red());
                 println!("{}", format!("+++ {} (formatted)", file.display()).green());
 
-                let diff_output =
-                    fmt::show_diff(&source, &format_config).map_err(|e| format!("{}", e))?;
-                println!("{}", diff_output);
+                println!("{}", fmt::diff_of(&source, &formatted));
             }
         } else if write {
             if is_changed {
@@ -1162,5 +1197,95 @@ mod tests {
         let wrapped = wrap_repl_input("متغير س = ٥");
         let mut parser = Parser::new(&wrapped);
         assert!(parser.parse().is_ok());
+    }
+
+    /// Lower one REPL line exactly as `repl_command` does, against a scratch
+    /// directory standing in for the working directory.
+    ///
+    /// The `TempDir` travels back in the tuple because dropping it deletes the
+    /// module fixtures the linker is about to read.
+    fn lower_repl_line(
+        modules: &[(&str, &str)],
+        line: &str,
+    ) -> (Result<crate::ir::Module, String>, tempfile::TempDir) {
+        let dir = tempfile::TempDir::new().unwrap();
+
+        for (name, body) in modules {
+            let wrapped = format!("بسم_الله\n{}\nالحمد_لله", body.trim());
+            fs::write(dir.path().join(name), wrapped).unwrap();
+        }
+
+        let source = wrap_repl_input(line);
+        let ast = Parser::new(&source).parse().expect("REPL line must parse");
+
+        let mut warnings = Vec::new();
+        let result = link_repl_line(
+            &ast,
+            dir.path().join(REPL_PSEUDO_FILE),
+            false,
+            &mut warnings,
+        )
+        .map_err(|diagnostics| {
+            diagnostics
+                .iter()
+                .map(|d| d.message.clone())
+                .collect::<Vec<_>>()
+                .join("; ")
+        })
+        .and_then(|(linked, visible)| {
+            IrBuilder::new("<repl:1>".to_string())
+                .with_visible_names(visible)
+                .build_library(&linked)
+                .map_err(|e| e.message)
+        });
+
+        (result, dir)
+    }
+
+    /// The REPL was the one pipeline entry point that never ran the linker, so
+    /// an imported function reached the interpreter as a name with no body and
+    /// calling it failed with `دالة غير معرّفة` (issue #182).
+    #[test]
+    fn test_repl_line_links_the_body_of_an_imported_function() {
+        let (result, _dir) = lower_repl_line(
+            &[(
+                "أدوات.ترقيم",
+                "صدّر دالة جمع(أ: عدد، ب: عدد) -> عدد {\n أرجع أ + ب\n}",
+            )],
+            "استورد { جمع } من \"./أدوات\"؛ اطبع(جمع(2، 3))",
+        );
+
+        let module = result.expect("REPL line importing a module must lower");
+        assert!(
+            module
+                .functions
+                .iter()
+                .any(|f| f.name.contains("جمع") || f.id.0.contains("جمع")),
+            "the imported function's body must reach the IR, got {:?}",
+            module.functions.iter().map(|f| &f.name).collect::<Vec<_>>()
+        );
+    }
+
+    /// A REPL line that only declares is a library, not a program: `build`
+    /// rejects it for having no entry point (ت٠٢٠٢), which turned a previously
+    /// silent line into an error. It must lower — and then not be run, or the
+    /// interpreter reports the entry point it cannot find instead.
+    #[test]
+    fn test_repl_line_declaring_only_a_variable_lowers_and_is_not_run() {
+        let (result, _dir) = lower_repl_line(&[], "متغير س = ٥");
+
+        let module = result.expect("a declaration-only REPL line must lower");
+        assert!(
+            !has_entry_point(&module),
+            "a declaration is not a program and must not be executed"
+        );
+    }
+
+    #[test]
+    fn test_repl_line_with_top_level_code_still_has_an_entry_point() {
+        let (result, _dir) = lower_repl_line(&[], "اطبع(٥)");
+
+        let module = result.expect("an executable REPL line must lower");
+        assert!(has_entry_point(&module), "top-level code must still be run");
     }
 }

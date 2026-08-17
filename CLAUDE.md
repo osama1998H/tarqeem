@@ -2,6 +2,11 @@
 
 This document provides context and guidelines for Claude (AI assistant) when working on the Tarqeem project.
 
+
+# important notes hard line dont cross
+
+- dont leave any claude marks in github issues / PR like this "🤖 Generated with Claude Code" or mention the model name i paid for claude subscription so its my work
+
 ## Imports
 
 See @ARCHITECTURE.md for detailed technical architecture.
@@ -111,16 +116,16 @@ src/
 └── utils/               # String interning, extensions
 
 runtime-rs/              # Rust runtime library (memory, string, array, I/O, crypto, network)
-stdlib_trq/              # Standard library (Tarqeem source)
+stdlib/              # Standard library (Tarqeem source)
 tests/                   # Integration tests
 benches/                 # Criterion benchmarks
-examples/                # 17 example programs
+examples/                # 10 example programs (one per language area)
 docs/                    # Project documentation
 ```
 
 ### Compiler Pipeline (Layer Ordering)
 
-```
+```plain
 Source → Lexer → Parser → Semantic → IR → Codegen → Binary
                     ↓
               Interpreter (for debugging/REPL)
@@ -170,7 +175,10 @@ See `.claude/rules/00-operating-procedure.md` for complete workflow.
 | `testing.md` | Testing requirements |
 | `rust-style.md` | Rust coding standards |
 | `arabic-philosophy.md` | Arabic language philosophy, Unicode handling, and keyword design |
-| `comments.md` | Comment guidelines |
+| `comments.md` | Comment budget; when to file a `code-quality` issue instead of fixing inline |
+| `bug-tracking.md` | Issue creation and the Beta Roadmap board planning gate |
+| `error-codes.md` | Arabic error code system (ق، ب، د، ن، ص، و، ت، ح، م) |
+| `diagrams.md` | When a mermaid diagram is worth drawing, and how small |
 
 ---
 
@@ -178,11 +186,16 @@ See `.claude/rules/00-operating-procedure.md` for complete workflow.
 
 | Command | Purpose |
 |---------|---------|
-| `/project:safe-change <task>` | Full safe change workflow |
-| `/project:explore <topic>` | Read-only codebase exploration |
-| `/project:fix-issue <issue>` | Bug fix workflow |
-| `/project:add-feature <feature>` | New feature workflow |
-| `/project:review-code <code>` | Code review checklist |
+| `/roadmap` | Pick work from the board: shortlist five if `Planning` is empty, else start the most impactful planned issue |
+| `/roadmap <n>` | Skip selection and start issue `<n>` directly |
+
+---
+
+## Skills (.claude/skills/)
+
+| Skill | Purpose |
+|-------|---------|
+| `mermaid` | Mermaid syntax reference per diagram type (vendored, see `VENDORED.md`) |
 
 ---
 
@@ -406,7 +419,7 @@ This project uses **Gitflow** as the branching strategy. Claude must follow thes
 1. Implement in Rust in `runtime-rs/src/` (for native functions)
 2. Export with `#[no_mangle] extern "C"` for C ABI compatibility
 3. Re-export from `runtime-rs/src/lib.rs`
-4. Create Tarqeem wrapper in `stdlib_trq/`
+4. Create Tarqeem wrapper in `stdlib/`
 5. Register in `src/semantic/scope.rs` for type checking
 6. Add codegen mapping if needed
 7. Add documentation
@@ -596,8 +609,6 @@ cargo run -- run examples/مرحبا.ترقيم
 | `README.md` | User documentation and examples |
 | `GETTING_STARTED.md` | Quick start guide |
 | `docs/AI_NOTES.md` | AI implementation decisions log |
-| `docs/ROADMAP_V1.1-V1.5.md` | Quality hardening roadmap |
-| `docs/PROFILING.md` | Performance profiling guide |
 
 ---
 

@@ -2,13 +2,17 @@
 //!
 //! This module handles type inference and semantic analysis of expressions.
 
+use std::path::PathBuf;
+
 use super::super::generics::GenericParam;
 use super::super::method_resolver::{MemberResolution, MethodResolver};
-use super::super::scope::Symbol;
+use super::super::modules::ExportKind;
+use super::super::scope::{Scope, ScopeKind, Symbol, SymbolKind};
 use super::super::types::Type;
 use super::Analyzer;
 use crate::error::codes::{
-    ERR_CONST_ASSIGNMENT, ERR_PRIVATE_ACCESS, ERR_PROPERTY_NOT_FOUND, ERR_PROTECTED_ACCESS,
+    ERR_CONST_ASSIGNMENT, ERR_LAMBDA_CAPTURE, ERR_NONSTATIC_VIA_CLASS, ERR_NOT_EXPORTED,
+    ERR_PRIVATE_ACCESS, ERR_PROPERTY_NOT_FOUND, ERR_PROTECTED_ACCESS, ERR_STATIC_VIA_INSTANCE,
     ERR_SUPER_OUTSIDE_CLASS, ERR_THIS_OUTSIDE_CLASS, ERR_TYPE_MISMATCH, ERR_UNDEFINED_CLASS,
     ERR_UNDEFINED_VARIABLE,
 };
@@ -35,8 +39,14 @@ impl Analyzer {
             ExprKind::Identifier(name) => {
                 // Mark the symbol as used for unused variable warnings
                 self.scope.mark_used(name);
+                self.check_no_capture(name, expr.span);
                 if let Some(symbol) = self.scope.lookup(name) {
-                    symbol.ty.clone()
+                    let ty = symbol.ty.clone();
+                    if matches!(ty, Type::Module(_)) {
+                        self.namespace_as_value_error(name, expr.span);
+                        return Type::Error;
+                    }
+                    ty
                 } else {
                     let similar_names = self.find_similar_names(name, 3);
                     self.undefined_error(
@@ -59,8 +69,9 @@ impl Analyzer {
             ExprKind::Call { callee, args } => self.infer_call_expr(callee, args, expr.span),
 
             ExprKind::Member { object, property } => {
-                let object_type = self.infer_type(object);
-                self.resolve_member_type(&object_type, property, expr.span)
+                let object_type = self.infer_receiver_type(object);
+                let receiver_is_class = self.receiver_is_class_name(object);
+                self.resolve_member_type(&object_type, property, expr.span, receiver_is_class)
             }
 
             ExprKind::Index { object, index } => self.infer_index_expr(object, index, expr.span),
@@ -102,11 +113,26 @@ impl Analyzer {
             ExprKind::Grouping(inner) => self.infer_type(inner),
 
             ExprKind::This => {
+                // Order matters: "no enclosing class at all" (د٠٣٠٤) is the
+                // more accurate diagnosis and must win, or a stray `هذا` at
+                // module level would be told to "pass the receiver as a
+                // parameter" when there is no receiver to pass.
                 if !self.scope.is_in_class() {
                     self.error_with_code(
                         "'هذا' يمكن استخدامها فقط داخل صنف",
                         expr.span,
                         &ERR_THIS_OUTSIDE_CLASS.to_string(),
+                    );
+                    Type::Error
+                } else if self.scope.in_lambda_body() {
+                    // A lambda is lifted into a standalone function with no
+                    // receiver, so `هذا` inside one is a capture in disguise —
+                    // reject it here (د٠٣٠٦) or the IR builder dies later with
+                    // a span-less internal error.
+                    self.error_with_code(
+                        "لا يمكن استخدام 'هذا' داخل دالة سهمية (الالتقاط غير مدعوم بعد): مرّر القيمة المطلوبة كمعامل بدلاً من ذلك",
+                        expr.span,
+                        &ERR_LAMBDA_CAPTURE.to_string(),
                     );
                     Type::Error
                 } else if let Some(ref class_name) = self.current_class {
@@ -116,7 +142,23 @@ impl Analyzer {
                 }
             }
 
-            ExprKind::Super => self.infer_super_expr(expr.span),
+            ExprKind::Super => {
+                // `infer_super_expr` owns the د٠٣٠٥ / "class has no parent"
+                // diagnoses; run it first so the lambda restriction only
+                // fires for an otherwise-valid `الأصل`.
+                let ty = self.infer_super_expr(expr.span);
+                if matches!(ty, Type::Error) || !self.scope.in_lambda_body() {
+                    ty
+                } else {
+                    // Same receiver-capture restriction as `هذا` above.
+                    self.error_with_code(
+                        "لا يمكن استخدام 'الأصل' داخل دالة سهمية (الالتقاط غير مدعوم بعد)",
+                        expr.span,
+                        &ERR_LAMBDA_CAPTURE.to_string(),
+                    );
+                    Type::Error
+                }
+            }
 
             ExprKind::EnumVariant {
                 enum_name,
@@ -212,8 +254,9 @@ impl Analyzer {
                 }
 
                 for (i, (arg, param_type)) in args.iter().zip(params.iter()).enumerate() {
-                    let arg_type = self.infer_type(arg);
-                    if !arg_type.is_compatible_with(param_type) {
+                    let arg_type =
+                        self.with_expected(Some(param_type.clone()), |a| a.infer_type(arg));
+                    if !self.is_assignable(&arg_type, param_type) {
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
@@ -288,6 +331,7 @@ impl Analyzer {
 
         match &target.kind {
             ExprKind::Identifier(name) => {
+                self.check_no_capture(name, target.span);
                 let symbol_info = self.scope.lookup(name).map(|s| (s.mutable, s.ty.clone()));
 
                 if let Some((mutable, ty)) = symbol_info {
@@ -298,7 +342,7 @@ impl Analyzer {
                             &ERR_CONST_ASSIGNMENT.to_string(),
                         );
                     }
-                    if !value_type.is_compatible_with(&ty) {
+                    if !self.is_assignable(&value_type, &ty) {
                         self.type_mismatch_error(
                             &ty,
                             &value_type,
@@ -318,7 +362,13 @@ impl Analyzer {
                     );
                 }
             }
-            ExprKind::Member { object, .. } | ExprKind::Index { object, .. } => {
+            ExprKind::Member { object, property } => {
+                let object_type = self.infer_receiver_type(object);
+                if let Type::Module(specifier) = &object_type {
+                    self.check_module_member_assignable(specifier, property, target.span);
+                }
+            }
+            ExprKind::Index { object, .. } => {
                 self.infer_type(object);
             }
             _ => {
@@ -327,6 +377,62 @@ impl Analyzer {
         }
 
         value_type
+    }
+
+    /// Reject `اسم_الوحدة.ثابت = قيمة`.
+    ///
+    /// The linker merges a module's `صدّر ثابت` into the program as a global
+    /// constant, so the IR builder const-folds every read of it while still
+    /// emitting the store: the assignment became a silent no-op that printed
+    /// the old value and exited 0. `check` agreed it was fine. A const
+    /// assignment through a named import (`استورد { الحد }`) already failed
+    /// here — the symbol carries `mutable: false` — so only the wildcard form
+    /// escaped, because its members live in the module's export table rather
+    /// than in scope.
+    fn check_module_member_assignable(&mut self, specifier: &str, property: &str, span: Span) {
+        let is_constant = match self.module_constant(specifier, property) {
+            Some(is_constant) => is_constant,
+            // Nothing to say about a member that does not exist. A target that
+            // is also read is already reported by `resolve_module_member`; one
+            // that is only written to is not reported at all, which is the
+            // pre-existing state of every assignment target here — a hole to
+            // close on its own terms, not by guessing at it from const-ness.
+            None => return,
+        };
+
+        if is_constant {
+            self.error_with_code(
+                &format!("لا يمكن تعيين قيمة لمتغير ثابت '{}'", property),
+                span,
+                &ERR_CONST_ASSIGNMENT.to_string(),
+            );
+        }
+    }
+
+    /// Was `specifier.property` exported as `ثابت`? `None` when the export
+    /// cannot be found at all.
+    fn module_constant(&self, specifier: &str, property: &str) -> Option<bool> {
+        // A stdlib specifier is never read from disk; its members come from the
+        // builtin table, which carries the same mutability flag.
+        if Scope::get_stdlib_modules().contains(&specifier) {
+            return Scope::get_stdlib_builtin(specifier, property).map(|symbol| !symbol.mutable);
+        }
+
+        // The same `current_file` fallback `preload_imported_modules` and
+        // `analyze_import` use — all three must resolve a specifier to the very
+        // same file, or this would consult a different copy of the module.
+        let current_file = self
+            .current_file
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
+        let path = self.module_loader.resolve_path(&current_file, specifier)?;
+        let exported = self
+            .module_loader
+            .get_module(&path)?
+            .exports
+            .get(property)?;
+
+        Some(matches!(exported.kind, ExportKind::Constant(_)))
     }
 
     /// Infer array expression type.
@@ -338,12 +444,20 @@ impl Analyzer {
                 Type::Array(Box::new(Type::Unknown))
             }
         } else {
-            let first_type = self.infer_type(&elements[0]);
+            // Fold to the widest type seen so far rather than anchoring on
+            // the first element — otherwise `[جديد مربع()، جديد شكل()]`
+            // (subclass listed before its ancestor) is rejected while the
+            // reverse order compiles, purely because of element order.
+            let mut widest_type = self.infer_type(&elements[0]);
             for elem in elements.iter().skip(1) {
                 let elem_type = self.infer_type(elem);
-                if !elem_type.is_compatible_with(&first_type) {
+                if self.is_assignable(&elem_type, &widest_type) {
+                    // Already fits — keep the current widest type.
+                } else if self.is_assignable(&widest_type, &elem_type) {
+                    widest_type = elem_type;
+                } else {
                     self.type_mismatch_error(
-                        &first_type,
+                        &widest_type,
                         &elem_type,
                         elem.span,
                         "عنصر المصفوفة",
@@ -351,7 +465,7 @@ impl Analyzer {
                     );
                 }
             }
-            Type::Array(Box::new(first_type))
+            Type::Array(Box::new(widest_type))
         }
     }
 
@@ -364,19 +478,25 @@ impl Analyzer {
                 Type::Map(Box::new(Type::String), Box::new(Type::Any))
             }
         } else {
-            let first_value_type = self.infer_type(&pairs[0].1);
-
-            let mut all_same = true;
+            // Same order-independent widening fold as infer_array_expr, so
+            // an ancestor-typed value listed after a subclass value doesn't
+            // spuriously fall back to `أي` just because of pair order.
+            let mut widest_type = self.infer_type(&pairs[0].1);
+            let mut all_compatible = true;
             for (_, value) in pairs.iter().skip(1) {
                 let value_type = self.infer_type(value);
-                if !value_type.is_compatible_with(&first_value_type) {
-                    all_same = false;
+                if self.is_assignable(&value_type, &widest_type) {
+                    // Already fits — keep the current widest type.
+                } else if self.is_assignable(&widest_type, &value_type) {
+                    widest_type = value_type;
+                } else {
+                    all_compatible = false;
                     break;
                 }
             }
 
-            if all_same {
-                Type::Map(Box::new(Type::String), Box::new(first_value_type))
+            if all_compatible {
+                Type::Map(Box::new(Type::String), Box::new(widest_type))
             } else {
                 Type::Map(Box::new(Type::String), Box::new(Type::Any))
             }
@@ -385,8 +505,9 @@ impl Analyzer {
 
     /// Infer lambda expression type.
     fn infer_lambda_expr(&mut self, params: &[Param], body: &LambdaBody) -> Type {
-        self.push_function_scope(Type::Any);
-
+        // Read the contextual expectation (from a call argument or a typed
+        // var-decl initializer, via `with_expected`) before pushing the
+        // lambda's own scope replaces it.
         let expected_param_types: Option<Vec<Type>> = match &self.expected_type {
             Some(Type::Function {
                 params: expected_params,
@@ -394,6 +515,12 @@ impl Analyzer {
             }) => Some(expected_params.clone()),
             _ => None,
         };
+        let expected_return_type: Option<Type> = match &self.expected_type {
+            Some(Type::Function { return_type, .. }) => Some((**return_type).clone()),
+            _ => None,
+        };
+
+        self.push_lambda_scope(expected_return_type.unwrap_or(Type::Any));
 
         let param_types: Vec<Type> = params
             .iter()
@@ -413,15 +540,18 @@ impl Analyzer {
             })
             .collect();
 
-        let return_type = match body {
-            LambdaBody::Expr(expr) => self.infer_type(expr),
+        // A nested lambda/array/map literal inside this body must not
+        // inherit the outer function-type expectation used above.
+        let return_type = self.with_expected(None, |a| match body {
+            LambdaBody::Expr(expr) => a.infer_type(expr),
             LambdaBody::Block(block) => {
                 for stmt in &block.statements {
-                    self.analyze_stmt(stmt);
+                    a.analyze_stmt(stmt);
                 }
-                Type::Void
+                let inferred_returns = a.scope.take_inferred_returns();
+                a.fold_inferred_return_types(inferred_returns)
             }
-        };
+        });
 
         self.pop_scope();
 
@@ -429,6 +559,62 @@ impl Analyzer {
             params: param_types,
             return_type: Box::new(return_type),
         }
+    }
+
+    /// Folds a block-bodied lambda's collected `أرجع` types into a single
+    /// return type: `Void` for no returns, the widened common type when they
+    /// agree, or `Any` on incompatibility. `Any` is deliberate, not an
+    /// error — mixing `أرجع؛` (early exit) and `أرجع ٥؛` in the same lambda is
+    /// legal early-return code, not a type error to surface here.
+    fn fold_inferred_return_types(&self, types: Vec<Type>) -> Type {
+        let mut iter = types.into_iter();
+        let Some(mut widest) = iter.next() else {
+            return Type::Void;
+        };
+        for ty in iter {
+            if self.is_assignable(&ty, &widest) {
+                // Already fits — keep the current widest type.
+            } else if self.is_assignable(&widest, &ty) {
+                widest = ty;
+            } else {
+                return Type::Any;
+            }
+        }
+        widest
+    }
+
+    /// Reports د٠٣٠٦ if `name` resolves to an outer local variable or
+    /// parameter reached across a lambda boundary — non-capturing lambdas
+    /// only (issue #180); closures are a follow-up. Globals, class members,
+    /// declared functions, and a lambda's own params/locals are never
+    /// flagged.
+    fn check_no_capture(&mut self, name: &str, span: Span) {
+        if !self.scope.in_lambda_body() {
+            return;
+        }
+        if self.scope.lookup_in_current_function(name).is_some() {
+            return;
+        }
+        let Some(scope_kind) = self.scope.defining_scope_kind(name) else {
+            return;
+        };
+        if matches!(scope_kind, ScopeKind::Global | ScopeKind::Class) {
+            return;
+        }
+        let Some(sym_kind) = self.scope.lookup(name).map(|s| s.kind.clone()) else {
+            return;
+        };
+        if !matches!(sym_kind, SymbolKind::Variable | SymbolKind::Parameter) {
+            return;
+        }
+        self.error_with_code(
+            &format!(
+                "لا يمكن التقاط المتغير الخارجي '{}' داخل دالة سهمية (غير مدعوم بعد)",
+                name
+            ),
+            span,
+            &ERR_LAMBDA_CAPTURE.to_string(),
+        );
     }
 
     /// Infer new expression type.
@@ -440,7 +626,7 @@ impl Analyzer {
         span: Span,
     ) -> Type {
         let class_name = match &class.kind {
-            ExprKind::Identifier(name) => name.clone(),
+            ExprKind::Identifier(name) => self.resolve_class_alias(name),
             _ => {
                 self.error("تعبير جديد يتطلب اسم صنف", class.span);
                 return Type::Error;
@@ -511,7 +697,7 @@ impl Analyzer {
                     args.iter().zip(expected_params.iter()).enumerate()
                 {
                     let arg_type = self.infer_type(arg);
-                    if !arg_type.is_compatible_with(param_type) {
+                    if !self.is_assignable(&arg_type, param_type) {
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
@@ -566,8 +752,14 @@ impl Analyzer {
         let then_type = self.infer_type(then_expr);
         let else_type = self.infer_type(else_expr);
 
-        if then_type.is_compatible_with(&else_type) {
-            then_type
+        // Widen to whichever branch's type the other is assignable to
+        // (rather than always taking then_type), so e.g. a مربع/شكل ternary
+        // types as شكل — the supertype — not the more specific subtype one
+        // branch happens to produce.
+        let joined = if self.is_assignable(&then_type, &else_type) {
+            else_type.clone()
+        } else if self.is_assignable(&else_type, &then_type) {
+            then_type.clone()
         } else {
             self.error(
                 &format!(
@@ -577,7 +769,21 @@ impl Analyzer {
                 ),
                 span,
             );
-            Type::Error
+            return Type::Error;
+        };
+
+        // `is_assignable` unwraps `?` in either direction (a plain value fits
+        // an Optional slot, and vice versa), so it alone can't tell "join is
+        // Optional" from "join is plain" — pick whichever branch happens to
+        // satisfy the assignability check first, which may drop the other
+        // branch's nullability. Re-add it explicitly: if either branch could
+        // be لا_شيء, the ternary as a whole can still evaluate to لا_شيء.
+        let either_optional =
+            matches!(then_type, Type::Optional(_)) || matches!(else_type, Type::Optional(_));
+        if either_optional && !matches!(joined, Type::Optional(_)) {
+            Type::Optional(Box::new(joined))
+        } else {
+            joined
         }
     }
 
@@ -638,7 +844,7 @@ impl Analyzer {
                     for (i, (arg_ty, expected_ty)) in
                         arg_types.iter().zip(&variant.fields).enumerate()
                     {
-                        if !arg_ty.is_compatible_with(expected_ty) {
+                        if !self.is_assignable(arg_ty, expected_ty) {
                             self.type_mismatch_error(
                                 expected_ty,
                                 arg_ty,
@@ -673,13 +879,91 @@ impl Analyzer {
         }
     }
 
+    /// The class-hierarchy name `اسم` denotes in `جديد اسم(...)`.
+    ///
+    /// Usually `اسم` itself. `استورد { نقطة كـ إحداثية }` is the exception: the
+    /// module's class is registered under `نقطة`, the name it was declared
+    /// with, while the alias exists only as a scope symbol typed
+    /// `Type::Class("نقطة")` — so `جديد إحداثية()` was rejected as an unknown
+    /// class (د٠٠٠٣) while the byte-identical program without `كـ` compiled.
+    ///
+    /// Redirecting at lookup rather than registering a second class under the
+    /// alias is deliberate: imports are analyzed in the third pass, after
+    /// members are attached and vtables built, so a class registered here would
+    /// be an empty shell and `جديد إحداثية(7)` would fail for having no
+    /// constructor instead. It also mirrors how the IR builder resolves an
+    /// aliased import — one hop to the name the linker merged the body under.
+    fn resolve_class_alias(&self, name: &str) -> String {
+        if self.class_resolver.get_class(name).is_some() {
+            return name.to_string();
+        }
+
+        match self.scope.lookup(name) {
+            Some(Symbol {
+                kind: SymbolKind::Import,
+                ty: Type::Class(original),
+                ..
+            }) => original.clone(),
+            _ => name.to_string(),
+        }
+    }
+
+    /// Type of `object` in `object.عضو` position.
+    ///
+    /// Identical to `infer_type` except that an alias bound by `استورد * كـ`
+    /// keeps its `Type::Module`. That type denotes a compile-time qualifier,
+    /// never a value: the IR builder records the alias in `namespace_aliases`
+    /// and emits nothing for it, so anywhere else it would type-check here and
+    /// then abort the build with `معرّف غير معرّف`. Member access is the one
+    /// position where it is meaningful, so it is the one position that admits
+    /// it — `infer_type` rejects it everywhere else.
+    fn infer_receiver_type(&mut self, object: &Expr) -> Type {
+        if let ExprKind::Identifier(name) = &object.kind {
+            let module_type = self
+                .scope
+                .lookup(name)
+                .map(|symbol| symbol.ty.clone())
+                .filter(|ty| matches!(ty, Type::Module(_)));
+            if let Some(ty) = module_type {
+                self.scope.mark_used(name);
+                return ty;
+            }
+        }
+        self.infer_type(object)
+    }
+
+    fn namespace_as_value_error(&mut self, name: &str, span: Span) {
+        self.error(
+            &format!(
+                "'{}' اسم وحدة لا قيمة؛ لا يصلح إلا مؤهِّلاً لعضو ({}.عضو)",
+                name, name
+            ),
+            span,
+        );
+    }
+
     /// Resolve member type from an object.
+    /// Is `object` a bare identifier naming a declared class (`اسم_الصنف.عضو`
+    /// form), as opposed to an instance? Used to reject `ClassName.member`
+    /// for non-static members and `instance.member` for static ones —
+    /// otherwise a `مشترك` member would silently behave like an instance one
+    /// (or vice versa) instead of raising a clear diagnostic.
+    fn receiver_is_class_name(&mut self, object: &Expr) -> bool {
+        matches!(&object.kind, ExprKind::Identifier(name)
+            if self.scope.lookup(name).map(|s| s.kind == SymbolKind::Class).unwrap_or(false))
+    }
+
     pub(crate) fn resolve_member_type(
         &mut self,
         object_type: &Type,
         property: &str,
         span: Span,
+        receiver_is_class: bool,
     ) -> Type {
+        if let Type::Module(specifier) = object_type {
+            return self.resolve_module_member(specifier, property, span);
+        }
+
         let mut method_resolver = MethodResolver::new(&self.class_resolver);
 
         match method_resolver.resolve_member(object_type, property) {
@@ -687,6 +971,9 @@ impl Analyzer {
                 field,
                 defining_class,
             } => {
+                if !self.check_static_access(receiver_is_class, field.is_static, property, span) {
+                    return Type::Error;
+                }
                 // Check visibility for field access using the defining class
                 if !self.check_member_visibility(&defining_class, field.visibility, property, span)
                 {
@@ -698,6 +985,9 @@ impl Analyzer {
                 method,
                 defining_class,
             } => {
+                if !self.check_static_access(receiver_is_class, method.is_static, property, span) {
+                    return Type::Error;
+                }
                 // Check visibility for method access using the defining class
                 if !self.check_member_visibility(&defining_class, method.visibility, property, span)
                 {
@@ -725,6 +1015,70 @@ impl Analyzer {
                 Type::Any
             }
         }
+    }
+
+    /// Resolve `اسم.عضو` where `اسم` is an alias bound by `استورد * كـ`.
+    ///
+    /// A miss is an error rather than `أي`: the alias stands for a fixed set of
+    /// exports, so a name outside them can never resolve at run time — catching
+    /// that is the whole point of typing the alias as a module.
+    fn resolve_module_member(&mut self, specifier: &str, property: &str, span: Span) -> Type {
+        let member = self
+            .module_namespaces
+            .get(specifier)
+            .and_then(|members| members.get(property).cloned())
+            // A stdlib specifier never reaches `module_namespaces`; its members
+            // live in the builtin table and are looked up one at a time.
+            .or_else(|| Scope::get_stdlib_builtin(specifier, property).map(|symbol| symbol.ty));
+
+        match member {
+            Some(ty) => ty,
+            None => {
+                self.error_with_code(
+                    &format!(
+                        "الوحدة '{}' لا تحتوي على تصدير باسم '{}'",
+                        specifier, property
+                    ),
+                    span,
+                    &ERR_NOT_EXPORTED.to_string(),
+                );
+                Type::Error
+            }
+        }
+    }
+
+    /// Rejects the mismatched access forms: a non-static member reached
+    /// through a class name (`ClassName.field`), or a static (`مشترك`)
+    /// member reached through an instance (`instance.staticField`). Checked
+    /// before visibility, since "wrong access form" is the more actionable
+    /// diagnostic when both would otherwise apply.
+    fn check_static_access(
+        &mut self,
+        receiver_is_class: bool,
+        member_is_static: bool,
+        property: &str,
+        span: Span,
+    ) -> bool {
+        if receiver_is_class && !member_is_static {
+            self.error_with_code(
+                &format!(
+                    "لا يمكن الوصول للعضو '{}' عبر اسم الصنف؛ العضو ليس مشتركاً (مشترك)",
+                    property
+                ),
+                span,
+                &ERR_NONSTATIC_VIA_CLASS.to_string(),
+            );
+            return false;
+        }
+        if !receiver_is_class && member_is_static {
+            self.error_with_code(
+                &format!("العضو '{}' مشترك؛ يُستخدم عبر اسم الصنف مباشرة", property),
+                span,
+                &ERR_STATIC_VIA_INSTANCE.to_string(),
+            );
+            return false;
+        }
+        true
     }
 
     /// Check if member access is allowed based on visibility rules.
@@ -784,5 +1138,189 @@ impl Analyzer {
                 false
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::codes::ERR_CONST_ASSIGNMENT;
+    use crate::error::Diagnostic;
+    use crate::parser::Parser;
+    use tempfile::TempDir;
+
+    /// Analyze `main` as a file on disk alongside `modules`, so a relative
+    /// `استورد` resolves the way it does for a real program.
+    ///
+    /// A near-twin of `analyzer::tests::analyze_project`, which is private to
+    /// that file's test module; these cases all concern expression analysis and
+    /// belong next to the code they cover.
+    ///
+    /// The `TempDir` travels back in the tuple because dropping it deletes the
+    /// fixtures; a caller that discards it would race its own analysis.
+    fn analyze_project(
+        modules: &[(&str, &str)],
+        main: &str,
+    ) -> (Result<(), Vec<Diagnostic>>, TempDir) {
+        let dir = TempDir::new().unwrap();
+
+        let wrap = |body: &str| format!("بسم_الله\n{}\nالحمد_لله", body.trim());
+
+        for (name, body) in modules {
+            std::fs::write(dir.path().join(name), wrap(body)).unwrap();
+        }
+
+        let source = wrap(main);
+        let main_path = dir.path().join("رئيسي.ترقيم");
+        std::fs::write(&main_path, &source).unwrap();
+
+        let ast = Parser::new(&source).parse().expect("main must parse");
+        let mut analyzer = Analyzer::for_file(main_path);
+        let result = analyzer.analyze(&ast);
+
+        (result, dir)
+    }
+
+    fn errors(result: &Result<(), Vec<Diagnostic>>) -> Vec<String> {
+        match result {
+            Ok(()) => Vec::new(),
+            Err(diagnostics) => diagnostics.iter().map(|d| d.message.clone()).collect(),
+        }
+    }
+
+    const CONSTANT_MODULE: (&str, &str) = ("م.ترقيم", "صدّر ثابت الحد = 7");
+    const FUNCTION_MODULE: (&str, &str) = (
+        "أدوات.ترقيم",
+        "صدّر دالة جمع(أ: عدد، ب: عدد) -> عدد {\n أرجع أ + ب\n}",
+    );
+    const CLASS_MODULE: (&str, &str) = (
+        "أشكال.ترقيم",
+        "صدّر صنف نقطة {\n عام س: عدد\n منشئ(س: عدد) { هذا.س = س }\n}",
+    );
+
+    /// Assigning through a wildcard alias used to type-check, and then be
+    /// discarded: the store reached the merged global while every read was
+    /// const-folded, so the program printed the old value and exited 0.
+    #[test]
+    fn test_assigning_to_an_imported_constant_through_a_namespace_is_rejected() {
+        let (result, _dir) = analyze_project(
+            &[CONSTANT_MODULE],
+            "استورد * كـ ث من \"./م\"\nاطبع(ث.الحد)\nث.الحد = 99",
+        );
+
+        let messages = errors(&result);
+        assert!(
+            messages.iter().any(|m| m.contains("ثابت")),
+            "expected a const-assignment error, got {:?}",
+            messages
+        );
+        let codes = match &result {
+            Err(diagnostics) => diagnostics
+                .iter()
+                .filter_map(|d| d.code.clone())
+                .collect::<Vec<_>>(),
+            Ok(()) => Vec::new(),
+        };
+        assert!(
+            codes.contains(&ERR_CONST_ASSIGNMENT.to_string()),
+            "expected {} , got codes {:?}",
+            ERR_CONST_ASSIGNMENT,
+            codes
+        );
+    }
+
+    /// The mutable counterpart must keep working — the rejection is about
+    /// const-ness, not about assigning through a namespace at all.
+    #[test]
+    fn test_assigning_to_an_imported_variable_through_a_namespace_is_allowed() {
+        let (result, _dir) = analyze_project(
+            &[("م.ترقيم", "صدّر متغير عداد = 0")],
+            "استورد * كـ ث من \"./م\"\nث.عداد = 99\nاطبع(ث.عداد)",
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected no errors, got {:?}",
+            errors(&result)
+        );
+    }
+
+    /// A namespace alias names no value: the IR builder records it as a
+    /// qualifier and emits nothing for it, so using it as one passed `check`
+    /// and then aborted the build with `معرّف غير معرّف`.
+    #[test]
+    fn test_namespace_alias_used_as_a_value_is_rejected() {
+        let (result, _dir) = analyze_project(
+            &[FUNCTION_MODULE],
+            "استورد * كـ أدوات من \"./أدوات\"\nمتغير مرجع = أدوات",
+        );
+
+        let messages = errors(&result);
+        assert!(
+            messages.iter().any(|m| m.contains("اسم وحدة لا قيمة")),
+            "expected a namespace-as-value error, got {:?}",
+            messages
+        );
+    }
+
+    #[test]
+    fn test_namespace_alias_passed_as_an_argument_is_rejected() {
+        let (result, _dir) = analyze_project(
+            &[FUNCTION_MODULE],
+            "استورد * كـ أدوات من \"./أدوات\"\nاطبع(أدوات)",
+        );
+
+        let messages = errors(&result);
+        assert!(
+            messages.iter().any(|m| m.contains("اسم وحدة لا قيمة")),
+            "expected a namespace-as-value error, got {:?}",
+            messages
+        );
+    }
+
+    /// The receiver position stays legal — that is the whole point of the type.
+    #[test]
+    fn test_namespace_alias_as_a_member_receiver_still_resolves() {
+        let (result, _dir) = analyze_project(
+            &[FUNCTION_MODULE],
+            "استورد * كـ أدوات من \"./أدوات\"\nمتغير س: عدد = أدوات.جمع(2، 3)",
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected no errors, got {:?}",
+            errors(&result)
+        );
+    }
+
+    /// `جديد إحداثية()` used to fail with د٠٠٠٣ while the byte-identical
+    /// program without `كـ` compiled: the alias binds to `Type::Class(نقطة)`
+    /// but nothing registers the module's class under the alias name.
+    #[test]
+    fn test_aliased_imported_class_can_be_constructed() {
+        let (result, _dir) = analyze_project(
+            &[CLASS_MODULE],
+            "استورد { نقطة كـ إحداثية } من \"./أشكال\"\nمتغير ن = جديد إحداثية(7)\nاطبع(ن.س)",
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected no errors, got {:?}",
+            errors(&result)
+        );
+    }
+
+    /// The redirect must not invent classes: a name that is neither a class nor
+    /// a class-typed import is still an unknown class.
+    #[test]
+    fn test_unknown_class_name_is_still_rejected() {
+        let (result, _dir) = analyze_project(&[CLASS_MODULE], "متغير ن = جديد لا_وجود_له(7)");
+
+        let messages = errors(&result);
+        assert!(
+            messages.iter().any(|m| m.contains("صنف غير معروف")),
+            "expected an unknown-class error, got {:?}",
+            messages
+        );
     }
 }

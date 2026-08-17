@@ -206,7 +206,8 @@ pub enum TokenKind {
 
 ### Scanner Algorithm
 
-1. Skip whitespace (preserving newlines for statement termination)
+1. Skip whitespace (preserving newlines for statement termination — the parser
+   ignores them while a `(`/`[` is still open, see `Parser::bracket_depth`)
 2. Identify token start character
 3. Dispatch to appropriate handler (number, string, identifier, operator)
 4. Return token with span information
@@ -476,21 +477,35 @@ Code generation (`src/codegen/`) produces LLVM IR using the `inkwell` crate.
 
 ### Class Layout
 
-Classes use a vtable-based dispatch:
+A class instance carries a vtable pointer at word 0, followed by its fields —
+inherited ones first, then its own. Reference counting lives in the allocation
+header `trq_alloc` prepends, *outside* the object pointer, so it is not a struct
+field:
 
 ```
-// Memory layout for class instance
-struct Object {
-    vtable: *VTable,
-    ref_count: i64,
-    // fields...
-}
+// trq_alloc returns a pointer past its own header
+[ refcount: i64 | size: i64 ]   <- allocation header (runtime-rs/src/memory.rs)
+┌──────────────────────────────┐ <- the object pointer
+│ vtable: ptr                  │    word 0
+│ inherited fields...          │
+│ own fields...                │
+└──────────────────────────────┘
 
-struct VTable {
-    type_info: *TypeInfo,
-    methods: [*fn; N],
-}
+@vtable.<Class> = internal constant [N x ptr] [ptr @<Class>::<method>, ...]
 ```
+
+A subclass's vtable extends its parent's as a **prefix**: an override replaces the
+inherited entry in place, and new members are appended. So a member's slot index
+is the same in a class and all its descendants, which lets codegen take the index
+from the receiver's static class and still call the runtime class's
+implementation.
+
+Classes with no virtually dispatchable member emit no vtable global; word 0 stays
+zero and is never loaded. Object literals (`__anonymous__`) have no vtable slot at
+all — they resolve fields by name and are never method receivers.
+
+`الأصل.method()` is compiled as a direct call, not a vtable load: an override that
+super-calls must reach the parent's body rather than resolving back into itself.
 
 ### Runtime Functions
 
@@ -621,7 +636,7 @@ Large modules are split into submodules:
 2. Declare in `src/codegen/llvm/runtime.rs`
 3. Register type in `src/semantic/scope.rs`
 4. Add interpreter implementation in `src/interpreter/builtins.rs`
-5. Create Tarqeem wrapper in `stdlib_trq/`
+5. Create Tarqeem wrapper in `stdlib/`
 6. Add documentation and tests
 
 ### Adding an Optimization Pass

@@ -3,9 +3,10 @@
 use super::types::Type;
 use crate::error::Span;
 use indexmap::IndexMap;
+use std::collections::HashSet;
 use unicode_normalization::UnicodeNormalization;
 
-fn normalize_name(name: &str) -> String {
+pub(crate) fn normalize_name(name: &str) -> String {
     name.nfc().collect()
 }
 
@@ -98,9 +99,19 @@ pub enum SymbolKind {
 #[derive(Debug)]
 pub struct Scope {
     symbols: IndexMap<String, Symbol>,
+    /// The subset of `symbols` registered by `register_builtins`. Built-ins are
+    /// the last tier of the lookup order, so a user declaration displaces one
+    /// rather than colliding with it (#262). Not inferable from
+    /// `span == Span::default()` — `هذا` shares that span and must stay fixed.
+    builtin_names: HashSet<String>,
     parent: Option<Box<Scope>>,
     kind: ScopeKind,
     return_type: Option<Type>,
+    /// Return-expression types collected while analyzing a `Function`/
+    /// `Lambda` scope's own body, so a block-bodied lambda's return type can
+    /// be inferred from its `أرجع` statements (declared functions never read
+    /// this back; only lambdas lack a declared return type to check against).
+    inferred_returns: Vec<Type>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -110,15 +121,22 @@ pub enum ScopeKind {
     Block,
     Class,
     Loop,
+    /// An arrow lambda's body. Distinct from `Function` so capture detection
+    /// (issue #180) can tell "crossed into a nested lambda" apart from
+    /// "crossed into a nested declared function" while both still count as
+    /// function boundaries for `أرجع`/return-type purposes.
+    Lambda,
 }
 
 impl Scope {
     pub fn new_global() -> Self {
         let mut scope = Self {
             symbols: IndexMap::new(),
+            builtin_names: HashSet::new(),
             parent: None,
             kind: ScopeKind::Global,
             return_type: None,
+            inferred_returns: Vec::new(),
         };
 
         Self::register_builtins(&mut scope);
@@ -130,56 +148,88 @@ impl Scope {
         Self::register_core_builtins(scope);
     }
 
-    /// Registers only the 18 core built-in functions that are available globally
-    /// without requiring an import. All other functions require explicit imports
-    /// from stdlib modules.
+    /// The core built-in functions available globally without an import, as
+    /// (name, parameter types, return type).
+    ///
+    /// This is a list rather than a run of `scope.define` calls so the set can
+    /// be enumerated by tests. Each of these must reach a real implementation in
+    /// *both* the interpreter and native codegen; six of them silently reached
+    /// neither (#222), and nothing could detect that while the names existed
+    /// only as straight-line statements.
+    fn core_builtins() -> Vec<(&'static str, Vec<Type>, Type)> {
+        vec![
+            // I/O - دوال الإدخال والإخراج
+            ("اطبع", vec![Type::Any], Type::Void),
+            ("طباعة", vec![Type::Any], Type::Void),
+            ("اطبع_سطر", vec![Type::Any], Type::Void),
+            ("اطبع_خطأ", vec![Type::Any], Type::Void),
+            ("ادخل", vec![], Type::String),
+            ("ادخل_رسالة", vec![Type::String], Type::String),
+            // Type introspection - دوال فحص الأنماط
+            ("طول", vec![Type::Any], Type::Int),
+            ("نوع", vec![Type::Any], Type::String),
+            // Type conversion - دوال تحويل الأنماط
+            ("عدد", vec![Type::Any], Type::Int),
+            ("عدد_عشري", vec![Type::Any], Type::Float),
+            ("نص", vec![Type::Any], Type::String),
+            ("منطقي", vec![Type::Any], Type::Bool),
+            // Control - دوال التحكم
+            ("تأكد", vec![Type::Bool], Type::Void),
+            ("تأكد_رسالة", vec![Type::Bool, Type::String], Type::Void),
+            ("توقف", vec![Type::String], Type::Void),
+            ("نم", vec![Type::Int], Type::Void),
+            // Arrays - دوال المصفوفات
+            ("طول_مصفوفة", vec![Type::Any], Type::Int),
+            ("الحق", vec![Type::Any, Type::Any], Type::Void),
+            // Strings - دوال النصوص
+            // The codepoint accessor: `-1` when there is no first character,
+            // since U+0000 is itself a codepoint. Takes `نص` rather than `أي`
+            // so it composes at a concrete type in every backend.
+            ("حرف_إلى_رمز", vec![Type::String], Type::Int),
+            // Its inverse, and `""` where the accessor answers `-1`, so the two
+            // are total in both directions.
+            ("رمز_إلى_حرف", vec![Type::Int], Type::String),
+            // Bitwise - عمليات البتات
+            // Functions, not operators: there is no `&`/`|`/`^` token, and
+            // `بتات_` opens the name because `و`/`أو` are keywords.
+            ("بتات_و", vec![Type::Int, Type::Int], Type::Int),
+            ("بتات_أو", vec![Type::Int, Type::Int], Type::Int),
+            ("بتات_أو_حصري", vec![Type::Int, Type::Int], Type::Int),
+            // Unary, and distinct from the logical `ليس`, which takes a `منطقي`.
+            ("بتات_نفي", vec![Type::Int], Type::Int),
+            // Total: an amount outside 0-63 is a complete shift rather than a
+            // per-backend divergence, so the vacated bits are filled the way
+            // each shift always fills them — zeros for يسار and
+            // يمين_منطقية, the sign for يمين. See `build_core_builtin_call`.
+            ("بتات_إزاحة_يسار", vec![Type::Int, Type::Int], Type::Int),
+            ("بتات_إزاحة_يمين", vec![Type::Int, Type::Int], Type::Int),
+            // `عدد` is signed and every backend's `Shr` is arithmetic, so zero
+            // fill is unreachable through يمين at any amount.
+            (
+                "بتات_إزاحة_يمين_منطقية",
+                vec![Type::Int, Type::Int],
+                Type::Int,
+            ),
+        ]
+    }
+
+    /// The names of the core built-ins, for tests that assert every one of them
+    /// is executable in every backend.
+    pub fn core_builtin_names() -> Vec<&'static str> {
+        Self::core_builtins()
+            .into_iter()
+            .map(|(name, _, _)| name)
+            .collect()
+    }
+
+    /// Registers the core built-in functions that are available globally without
+    /// requiring an import. All other functions require explicit imports from
+    /// stdlib modules.
     fn register_core_builtins(scope: &mut Scope) {
-        // Helper for creating builtin function symbols (no source location)
-        fn builtin(name: &str, params: Vec<Type>, return_type: Type) -> Symbol {
-            Symbol::function(name, params, return_type, Span::default())
+        for (name, params, return_type) in Self::core_builtins() {
+            scope.define(Symbol::function(name, params, return_type, Span::default()));
+            scope.builtin_names.insert(normalize_name(name));
         }
-
-        // =======================================================================
-        // I/O Functions (6) - دوال الإدخال والإخراج
-        // =======================================================================
-        scope.define(builtin("اطبع", vec![Type::Any], Type::Void));
-        scope.define(builtin("طباعة", vec![Type::Any], Type::Void));
-        scope.define(builtin("اطبع_سطر", vec![Type::Any], Type::Void));
-        scope.define(builtin("اطبع_خطأ", vec![Type::Any], Type::Void));
-        scope.define(builtin("ادخل", vec![], Type::String));
-        scope.define(builtin("ادخل_رسالة", vec![Type::String], Type::String));
-
-        // =======================================================================
-        // Type Introspection (2) - دوال فحص الأنماط
-        // =======================================================================
-        scope.define(builtin("طول", vec![Type::Any], Type::Int));
-        scope.define(builtin("نوع", vec![Type::Any], Type::String));
-
-        // =======================================================================
-        // Type Conversion (4) - دوال تحويل الأنماط
-        // =======================================================================
-        scope.define(builtin("عدد", vec![Type::Any], Type::Int));
-        scope.define(builtin("عدد_عشري", vec![Type::Any], Type::Float));
-        scope.define(builtin("نص", vec![Type::Any], Type::String));
-        scope.define(builtin("منطقي", vec![Type::Any], Type::Bool));
-
-        // =======================================================================
-        // Control Functions (4) - دوال التحكم
-        // =======================================================================
-        scope.define(builtin("تأكد", vec![Type::Bool], Type::Void));
-        scope.define(builtin(
-            "تأكد_رسالة",
-            vec![Type::Bool, Type::String],
-            Type::Void,
-        ));
-        scope.define(builtin("توقف", vec![Type::String], Type::Void));
-        scope.define(builtin("نم", vec![Type::Int], Type::Void));
-
-        // =======================================================================
-        // Array Functions (2) - دوال المصفوفات
-        // =======================================================================
-        scope.define(builtin("طول_مصفوفة", vec![Type::Any], Type::Int));
-        scope.define(builtin("الحق", vec![Type::Any, Type::Any], Type::Void));
     }
 
     /// Returns the type signature for a stdlib builtin function.
@@ -927,18 +977,36 @@ impl Scope {
     pub fn new_child(parent: Scope, kind: ScopeKind) -> Self {
         Self {
             symbols: IndexMap::new(),
+            builtin_names: HashSet::new(),
             parent: Some(Box::new(parent)),
             kind,
             return_type: None,
+            inferred_returns: Vec::new(),
         }
     }
 
     pub fn new_function(parent: Scope, ret_type: Type) -> Self {
         Self {
             symbols: IndexMap::new(),
+            builtin_names: HashSet::new(),
             parent: Some(Box::new(parent)),
             kind: ScopeKind::Function,
             return_type: Some(ret_type),
+            inferred_returns: Vec::new(),
+        }
+    }
+
+    /// Mirrors `new_function`, but tags the scope `Lambda` so capture
+    /// detection and return-type inference (issue #180) can distinguish an
+    /// arrow lambda's body from a declared function's.
+    pub fn new_lambda(parent: Scope, ret_type: Type) -> Self {
+        Self {
+            symbols: IndexMap::new(),
+            builtin_names: HashSet::new(),
+            parent: Some(Box::new(parent)),
+            kind: ScopeKind::Lambda,
+            return_type: Some(ret_type),
+            inferred_returns: Vec::new(),
         }
     }
 
@@ -948,14 +1016,13 @@ impl Scope {
 
     pub fn define(&mut self, symbol: Symbol) -> bool {
         let normalized = normalize_name(&symbol.name);
-        if self.symbols.contains_key(&normalized) {
-            false
-        } else {
-            let mut symbol = symbol;
-            symbol.name = normalized.clone();
-            self.symbols.insert(normalized, symbol);
-            true
+        if self.symbols.contains_key(&normalized) && !self.builtin_names.remove(&normalized) {
+            return false;
         }
+        let mut symbol = symbol;
+        symbol.name = normalized.clone();
+        self.symbols.insert(normalized, symbol);
+        true
     }
 
     pub fn lookup(&self, name: &str) -> Option<&Symbol> {
@@ -999,9 +1066,88 @@ impl Scope {
         }
     }
 
+    /// Records a `أرجع` expression's type at the nearest enclosing
+    /// `Function`/`Lambda` scope. Silently drops the type if called with no
+    /// such enclosing scope — callers are expected to have already checked
+    /// `is_in_function()` before reaching this point.
+    pub fn record_return(&mut self, ty: Type) {
+        if matches!(self.kind, ScopeKind::Function | ScopeKind::Lambda) {
+            self.inferred_returns.push(ty);
+        } else if let Some(parent) = &mut self.parent {
+            parent.record_return(ty);
+        }
+    }
+
+    /// Drains the return types collected for the nearest enclosing
+    /// `Function`/`Lambda` scope. Used by block-bodied lambda inference to
+    /// fold `أرجع` statement types into the lambda's overall return type.
+    pub fn take_inferred_returns(&mut self) -> Vec<Type> {
+        if matches!(self.kind, ScopeKind::Function | ScopeKind::Lambda) {
+            std::mem::take(&mut self.inferred_returns)
+        } else if let Some(parent) = &mut self.parent {
+            parent.take_inferred_returns()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Looks up `name`, but stops at the nearest enclosing `Function`/
+    /// `Lambda` boundary instead of continuing past it. Used by capture
+    /// detection (issue #180) to tell a lambda's own params/locals (visible
+    /// without crossing a function boundary) apart from an outer local that
+    /// would have to be captured across one.
+    pub fn lookup_in_current_function(&self, name: &str) -> Option<&Symbol> {
+        let normalized = normalize_name(name);
+        if let Some(symbol) = self.symbols.get(&normalized) {
+            Some(symbol)
+        } else if matches!(self.kind, ScopeKind::Function | ScopeKind::Lambda) {
+            None
+        } else if let Some(parent) = &self.parent {
+            parent.lookup_in_current_function(name)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the `ScopeKind` of whichever scope in the chain first defines
+    /// `name`, without regard for function boundaries. Used alongside
+    /// `lookup_in_current_function` to classify a capture: a name defined at
+    /// `Global` or `Class` scope is never a capture (issue #180).
+    pub fn defining_scope_kind(&self, name: &str) -> Option<ScopeKind> {
+        let normalized = normalize_name(name);
+        if self.symbols.contains_key(&normalized) {
+            Some(self.kind)
+        } else if let Some(parent) = &self.parent {
+            parent.defining_scope_kind(name)
+        } else {
+            None
+        }
+    }
+
+    /// Whether the current scope is (transitively) inside an arrow lambda's
+    /// body, stopping the moment a declared function's own body is reached —
+    /// so a `دالة` declared inside a lambda's body is not itself considered
+    /// "inside a lambda" for capture-detection purposes.
+    pub fn in_lambda_body(&self) -> bool {
+        match self.kind {
+            ScopeKind::Lambda => true,
+            ScopeKind::Function => false,
+            _ => self
+                .parent
+                .as_ref()
+                .is_some_and(|parent| parent.in_lambda_body()),
+        }
+    }
+
     pub fn is_in_loop(&self) -> bool {
         if self.kind == ScopeKind::Loop {
             true
+        } else if matches!(self.kind, ScopeKind::Function | ScopeKind::Lambda) {
+            // `أوقف`/`استمر` can only break a loop in the same function
+            // frame — a loop outside the enclosing function/lambda body is
+            // not a valid target (the IR builder isolates its loop_stack
+            // across function boundaries for the same reason).
+            false
         } else if let Some(parent) = &self.parent {
             parent.is_in_loop()
         } else {
@@ -1010,7 +1156,7 @@ impl Scope {
     }
 
     pub fn is_in_function(&self) -> bool {
-        if self.kind == ScopeKind::Function {
+        if matches!(self.kind, ScopeKind::Function | ScopeKind::Lambda) {
             true
         } else if let Some(parent) = &self.parent {
             parent.is_in_function()
@@ -1030,7 +1176,7 @@ impl Scope {
     }
 
     pub fn get_function_return_type(&self) -> Option<Type> {
-        if self.kind == ScopeKind::Function {
+        if matches!(self.kind, ScopeKind::Function | ScopeKind::Lambda) {
             self.return_type.clone()
         } else if let Some(parent) = &self.parent {
             parent.get_function_return_type()
@@ -1054,6 +1200,27 @@ impl Scope {
             all.extend(parent.all_symbols());
         }
         all
+    }
+
+    /// Names this scope chain resolves to a *user* declaration rather than a
+    /// built-in — main's own declarations plus whatever it imported.
+    ///
+    /// This is the visibility the IR builder must agree with. It sees the
+    /// linked AST, which carries every merged module declaration under its bare
+    /// name whether or not it was imported, so re-deriving "is this declared?"
+    /// from that AST makes a module's private `اطبع` outrank the built-in in a
+    /// program that never imported it.
+    pub fn user_defined_names(&self) -> HashSet<String> {
+        let mut names: HashSet<String> = self
+            .symbols
+            .keys()
+            .filter(|name| !self.builtin_names.contains(*name))
+            .cloned()
+            .collect();
+        if let Some(ref parent) = self.parent {
+            names.extend(parent.user_defined_names());
+        }
+        names
     }
 }
 

@@ -2,7 +2,8 @@
 //!
 //! Measures time per optimization pass and overall optimization effectiveness.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use std::hint::black_box;
 use tarqeem::ir::{OptLevel, Optimizer};
 use tarqeem::{Analyzer, IrBuilder, Parser};
 
@@ -113,7 +114,11 @@ fn build_ir_module(source: &str) -> tarqeem::ir::Module {
     analyzer.analyze(&ast).expect("Analysis should succeed");
 
     let ir_builder = IrBuilder::new("benchmark".to_string());
-    ir_builder.build(&ast).expect("IR build should succeed")
+    // Corpora here are declaration-only; they measure lowering throughput,
+    // not entry-point policy, so they lower as library modules.
+    ir_builder
+        .build_library(&ast)
+        .expect("IR build should succeed")
 }
 
 fn optimizer_o0(c: &mut Criterion) {

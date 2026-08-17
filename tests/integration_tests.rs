@@ -29,7 +29,7 @@ fn interpret_source(source: &str) -> Result<String, String> {
     let ast = parser.parse().map_err(|e| e.message)?;
 
     let mut analyzer = Analyzer::new();
-    let stdlib_path = project_root().join("stdlib_trq");
+    let stdlib_path = project_root().join("stdlib");
     if stdlib_path.exists() {
         analyzer.add_search_path(stdlib_path);
     }
@@ -76,7 +76,7 @@ fn analyzes_ok(source: &str) -> bool {
     };
 
     let mut analyzer = Analyzer::new();
-    let stdlib_path = project_root().join("stdlib_trq");
+    let stdlib_path = project_root().join("stdlib");
     if stdlib_path.exists() {
         analyzer.add_search_path(stdlib_path);
     }
@@ -331,55 +331,58 @@ mod builtins {
     }
 }
 
+/// Every example must parse, and the corpus is walked rather than listed.
+///
+/// This replaced four hand-listed tests that each named one file and wrapped it
+/// in `if path.exists()`. That guard made deletion invisible: renaming or
+/// removing an example turned its test into a silent no-op instead of a failure,
+/// and the other seventeen examples were never covered here at all. Walking the
+/// directory means a new example is covered the moment it lands, and a rename
+/// cannot quietly reduce coverage.
 mod examples {
     use super::*;
 
     #[test]
-    fn test_example_hello_world() {
-        let path = project_root().join("examples/مرحبا.ترقيم");
-        if path.exists() {
-            let source = fs::read_to_string(&path).expect("Failed to read example file");
-            assert!(
-                parses_ok_with_markers(&source),
-                "Example file مرحبا.ترقيم failed to parse"
-            );
-        }
-    }
+    fn test_every_example_parses() {
+        let dir = project_root().join("examples");
+        let mut files: Vec<std::path::PathBuf> = fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("failed to read {}: {}", dir.display(), e))
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("ترقيم"))
+            .collect();
+        files.sort();
 
-    #[test]
-    fn test_example_basic_test() {
-        let path = project_root().join("examples/اختبار_بسيط.ترقيم");
-        if path.exists() {
-            let source = fs::read_to_string(&path).expect("Failed to read example file");
-            assert!(
-                parses_ok_with_markers(&source),
-                "Example file اختبار_بسيط.ترقيم failed to parse"
-            );
-        }
-    }
+        // Without this the walk could go vacuous the same way the old
+        // `if path.exists()` guards did, just one level up.
+        assert!(
+            !files.is_empty(),
+            "no .ترقيم files found in {} — the walk would assert nothing",
+            dir.display()
+        );
 
-    #[test]
-    fn test_example_variables() {
-        let path = project_root().join("examples/متغيرات.ترقيم");
-        if path.exists() {
-            let source = fs::read_to_string(&path).expect("Failed to read example file");
-            assert!(
-                parses_ok_with_markers(&source),
-                "Example file متغيرات.ترقيم failed to parse"
-            );
-        }
-    }
+        let failures: Vec<String> = files
+            .iter()
+            .filter(|path| {
+                let source = fs::read_to_string(path)
+                    .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e));
+                !parses_ok_with_markers(&source)
+            })
+            .map(|path| {
+                path.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into()
+            })
+            .collect();
 
-    #[test]
-    fn test_example_collections() {
-        let path = project_root().join("examples/اختبار_مجموعات.ترقيم");
-        if path.exists() {
-            let source = fs::read_to_string(&path).expect("Failed to read example file");
-            assert!(
-                parses_ok_with_markers(&source),
-                "Example file اختبار_مجموعات.ترقيم failed to parse"
-            );
-        }
+        assert!(
+            failures.is_empty(),
+            "{} of {} examples failed to parse: {}",
+            failures.len(),
+            files.len(),
+            failures.join("، ")
+        );
     }
 }
 
@@ -534,23 +537,18 @@ mod contextual_keywords_183 {
     use super::*;
 
     /// stdlib files previously killed by the keyword collision must parse.
-    /// (نتائج.ترقيم / http.ترقيم / مشغل.ترقيم still have independent,
-    /// out-of-scope parse blockers, verified individually via `tarqeem parse`:
-    /// نتائج.ترقيم — enum variant named خطأ (#196); http.ترقيم — a top-level
-    /// `//` banner following a `///` doc block, which parse_declaration()
-    /// never re-collects (separate follow-up; منشئ_كامل, #197, sits later in
-    /// the same file and is masked by this earlier error); مشغل.ترقيم — a
-    /// method named `عدد`, a type keyword rejected by expect_identifier
-    /// (separate follow-up extending #183's contextual-keyword pattern to
-    /// type keywords — comment-only function bodies, #198, no longer block
-    /// this file).
+    /// The independent blockers this comment used to list — نتائج.ترقيم's `خطأ`
+    /// variant (#196), http.ترقيم's banner-after-doc-block (#203) and
+    /// `منشئ_كامل` (#197), مشغل.ترقيم's method named `عدد` (#202) — are all
+    /// resolved; `test_every_stdlib_file_parses` below now covers the whole
+    /// tree rather than a hand-picked pair.
     #[test]
     fn test_stdlib_collections_parse_with_contextual_keywords() {
         use tarqeem::parser::Parser;
 
         for file in ["مجموعات/قائمة.ترقيم", "مجموعات/قاموس.ترقيم"]
         {
-            let path = project_root().join("stdlib_trq").join(file);
+            let path = project_root().join("stdlib").join(file);
             let source = fs::read_to_string(&path)
                 .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e));
             let mut parser = Parser::new(&source);
@@ -585,7 +583,7 @@ mod contextual_keywords_183 {
         let ast = parser.parse().expect("import program should parse");
 
         let mut analyzer = Analyzer::new();
-        analyzer.add_search_path(project_root().join("stdlib_trq"));
+        analyzer.add_search_path(project_root().join("stdlib"));
 
         let diagnostics = match analyzer.analyze(&ast) {
             Ok(()) => Vec::new(),
@@ -635,5 +633,127 @@ mod contextual_keywords_183 {
         "#;
         let result = interpret_source(source);
         assert_eq!(result, Ok("5".to_string()));
+    }
+}
+
+/// Regression gate for issue #228: 33 of the 43 files in `stdlib/` did not
+/// parse, and nothing noticed. The only stdlib parse coverage was two hard-coded
+/// collection files, and the fmt corpus guard skips whatever fails to parse — so
+/// the standard library could ship syntax its own compiler rejects.
+///
+/// Walks the tree at runtime so a new stdlib file is covered the moment it is
+/// added. `KNOWN_UNPARSEABLE` may only ever shrink; each entry must name the
+/// issue that will remove it.
+mod stdlib_parses_228 {
+    use super::*;
+
+    /// (file, issue) pairs. Not a place to park new breakage.
+    const KNOWN_UNPARSEABLE: &[(&str, &str)] = &[(
+        "أخطاء/فهرس.ترقيم",
+        "#243 — declares `صنف خطأ`; needs the استثناء redesign",
+    )];
+
+    fn collect(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect(&path, out);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("ترقيم") {
+                out.push(path);
+            }
+        }
+    }
+
+    /// Parsing is not enough for the one stdlib file this work rewrote from the
+    /// inside. `رياضيات/اساسي.ترقيم` repoints its calls at the runtime's Arabic
+    /// names, which are only in scope through an explicit
+    /// `استورد … من "رياضيات"` — so a missing entry there resolves to nothing and
+    /// the module type-checks with د٠٠٠١/ن٠٠٠١ errors while still parsing fine.
+    #[test]
+    fn test_math_module_analyzes_cleanly() {
+        let path = project_root()
+            .join("stdlib")
+            .join("رياضيات")
+            .join("اساسي.ترقيم");
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e));
+
+        let mut parser = tarqeem::parser::Parser::new(&source);
+        let ast = parser
+            .parse()
+            .unwrap_or_else(|d| panic!("رياضيات/اساسي.ترقيم must parse: {}", d.message));
+
+        let mut analyzer = tarqeem::semantic::Analyzer::new();
+        analyzer.add_search_path(project_root().join("stdlib"));
+
+        let errors: Vec<String> = match analyzer.analyze(&ast) {
+            Ok(()) => Vec::new(),
+            Err(diagnostics) => diagnostics.iter().map(|d| d.message.clone()).collect(),
+        };
+
+        assert!(
+            errors.is_empty(),
+            "رياضيات/اساسي.ترقيم must analyze cleanly, got {} error(s):\n{}",
+            errors.len(),
+            errors.join("\n")
+        );
+    }
+
+    #[test]
+    fn test_every_stdlib_file_parses() {
+        use tarqeem::parser::Parser;
+
+        let root = project_root().join("stdlib");
+        let mut files = Vec::new();
+        collect(&root, &mut files);
+        files.sort();
+        assert!(
+            files.len() >= 43,
+            "expected at least 43 stdlib files, found {} — is the tree in place?",
+            files.len()
+        );
+
+        let mut unexpected_failures = Vec::new();
+        let mut unexpected_successes = Vec::new();
+
+        for path in &files {
+            let rel = path
+                .strip_prefix(&root)
+                .unwrap_or(path)
+                .display()
+                .to_string();
+            let known = KNOWN_UNPARSEABLE.iter().find(|(name, _)| *name == rel);
+
+            let Ok(source) = fs::read_to_string(path) else {
+                continue;
+            };
+            match Parser::new(&source).parse() {
+                Ok(_) => {
+                    if let Some((name, issue)) = known {
+                        unexpected_successes.push(format!("{name} ({issue})"));
+                    }
+                }
+                Err(diagnostic) => {
+                    if known.is_none() {
+                        unexpected_failures.push(format!("{rel}: {}", diagnostic.message));
+                    }
+                }
+            }
+        }
+
+        assert!(
+            unexpected_failures.is_empty(),
+            "{} stdlib file(s) no longer parse:\n{}",
+            unexpected_failures.len(),
+            unexpected_failures.join("\n")
+        );
+        assert!(
+            unexpected_successes.is_empty(),
+            "these files parse now — remove them from KNOWN_UNPARSEABLE:\n{}",
+            unexpected_successes.join("\n")
+        );
     }
 }

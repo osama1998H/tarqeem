@@ -32,14 +32,23 @@ src/
 └── codegen/
     └── llvm/codegen.rs   # Unit tests
 
-tests/                     # Integration tests
-├── lexer_tests.rs
-├── parser_tests.rs
-├── type_tests.rs
-├── codegen_tests.rs
-└── integration/
-    └── *.ترقيم             # End-to-end tests
+tests/                          # Integration tests
+├── integration_tests.rs        # Full-pipeline compilation
+├── error_codes_test.rs         # Arabic error code system
+├── phase3_criteria_tests.rs
+├── dap_integration_tests.rs    # Debugger
+├── runtime_rs_e2e_tests.rs     # runtime-rs across the FFI boundary
+└── *_execution_tests.rs        # Per-feature execution:
+                                # exception, inheritance, lambda,
+                                # module, oop, property
+
+examples/                       # End-to-end .ترقيم programs,
+└── *.ترقيم                      # run by .github/workflows/examples.yml
 ```
+
+Add a new `tests/<feature>_execution_tests.rs` when a language feature needs
+end-to-end coverage across interpreter, JIT, and native. Do not invent a new
+directory layout.
 
 ## Test Patterns
 
@@ -56,18 +65,37 @@ fn test_arabic_variable() {
 }
 ```
 
-### Mixed Language Tests
+### Arabic-Only Syntax Tests
 
-Test both Arabic and English keywords:
+Tarqeem syntax is Arabic. English may appear **only inside string literal content** —
+never as a keyword, identifier, or alias. See `.claude/rules/arabic-philosophy.md`.
+
+Every lexer or parser feature needs both halves: the Arabic form is accepted, and the
+Latin form is rejected.
 
 ```rust
 #[test]
-fn test_bilingual_keywords() {
-    // Arabic
+fn test_arabic_keyword_accepted() {
     assert_tokens("متغير", &[TokenKind::Let]);
+}
 
-    // English alias
-    assert_tokens("let", &[TokenKind::Let]);
+// Latin identifiers are rejected at lex time.
+// Mirrors src/lexer/lexer.rs::test_english_identifiers_produce_errors
+#[test]
+fn test_english_identifiers_produce_errors() {
+    let source = r#"متغير userName = "أحمد""#;
+    let tokens: Vec<_> = Lexer::new(source).tokenize();
+    assert_eq!(tokens[0].kind, TokenKind::Let);
+    assert!(matches!(&tokens[1].kind, TokenKind::Error(msg) if msg.contains("English")));
+}
+```
+
+English inside a string is fine — it is data, not syntax:
+
+```rust
+#[test]
+fn test_english_string_content_is_allowed() {
+    assert!(parse(r#"اطبع("hello")"#).is_ok());
 }
 ```
 
@@ -149,16 +177,23 @@ fn test_type_checker_mismatched_types_fails() { }
 
 ## Integration Test Pattern
 
-For `.ترقيم` files in `tests/integration/`:
+End-to-end `.ترقيم` programs live in `examples/` and are executed by
+`.github/workflows/examples.yml`. A program that must behave identically across
+backends belongs there, because the workflow diffs interpreter, JIT, and native
+output — this project's recurring failure mode is silent wrong output, where one
+backend disagrees with another without erroring.
 
 ```rust
 #[test]
 fn test_integration_hello_world() {
-    let result = compile_and_run("tests/integration/مرحبا.ترقيم");
+    let result = compile_and_run("examples/مرحبا.ترقيم");
     assert_eq!(result.stdout, "مرحباً بالعالم!\n");
     assert_eq!(result.exit_code, 0);
 }
 ```
+
+Inline source in a `tests/*_execution_tests.rs` file suits a narrow feature; an
+`examples/` program suits anything worth showing a user.
 
 ## What NOT to Test
 

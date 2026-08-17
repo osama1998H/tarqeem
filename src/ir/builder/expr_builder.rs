@@ -7,12 +7,69 @@ use crate::parser::{
 };
 
 use super::super::{
-    BinaryOp, ClassId, Constant, EnumId, FieldId, FuncId, Instruction, IrType, MethodId, UnaryOp,
-    VarId, VariantId,
+    BinaryOp, ClassId, Constant, EnumId, FieldId, FuncId, Instruction, IrType, MethodId,
+    NativeBlock, UnaryOp, VarId, VariantId,
 };
 use super::{IrBuilder, IrError, Result};
 
 use unicode_normalization::UnicodeNormalization;
+
+/// `الأصل.method()` must stay bound to the parent's implementation: since
+/// `الأصل` resolves to the same `هذا` value, dispatching it dynamically on
+/// the runtime object would call straight back into the overriding method
+/// and recurse forever.
+fn is_super_receiver(object: &Expr) -> bool {
+    matches!(object.kind, ExprKind::Super)
+}
+
+/// A member that resolves to neither a field nor a property on a class whose
+/// layout the builder knows — nor on any of its ancestors.
+///
+/// This used to be a silent fallback to `index: 0` with type `ptr`, which
+/// codegen turned into an out-of-bounds GEP or a `trq_print(ptr)` against an
+/// integer (issue #249). Semantic analysis rejects unknown members before the IR
+/// builder runs, so reaching this means the analyzer and `collect_class` disagree
+/// about a class's shape: an internal invariant, not a user diagnostic, hence no
+/// ت/د error code — but still bilingual, since a contributor reading it is
+/// exactly who it is for. Same reasoning as `backing_field_index`.
+fn unknown_member_error(class: &str, member: &str) -> IrError {
+    IrError::new(format!(
+        "العضو '{member}' غير موجود في تخطيط الصنف '{class}' ولا في أي من أصوله \
+         / member '{member}' is missing from the layout of class '{class}' and all of its ancestors"
+    ))
+}
+
+/// What `emit_shift_range_guard` yields for one shift amount.
+struct ShiftGuard {
+    /// The amount masked into 0-63, safe to hand to any backend's shift.
+    amount: VarId,
+    /// All ones when the original amount was outside 0-63, zero otherwise.
+    out_of_range: VarId,
+    /// The `٦٣` the guard masked with, so an arm needing that constant reuses
+    /// it rather than emitting a second one.
+    range_mask: VarId,
+}
+
+/// A `خاصية` that exists but does not declare the accessor this access needs:
+/// reading one that has only `عيّن`, or assigning to one that has only `احصل`.
+///
+/// Unlike `unknown_member_error` this *is* user-reachable — semantic analysis
+/// does not yet reject either direction — so it must name what actually went
+/// wrong rather than claim the member is missing from the layout. It stays an
+/// `IrError` without a ص code because that check belongs in the analyzer, where
+/// a span is still available; this is the backstop that keeps the builder from
+/// silently reading slot 0 (or, before it errored at all, corrupting it).
+fn missing_accessor_error(class: &str, member: &str, reading: bool) -> IrError {
+    let (accessor, ar_action, en_action) = if reading {
+        ("احصل", "قراءة", "read")
+    } else {
+        ("عيّن", "التعيين إلى", "assign to")
+    };
+    IrError::new(format!(
+        "لا يمكن {ar_action} الخاصية '{member}' في الصنف '{class}': لا تملك مُلحق '{accessor}' \
+         / cannot {en_action} property '{member}' on class '{class}': it declares no '{accessor}' accessor"
+    ))
+}
 
 impl IrBuilder {
     /// Build IR for an expression.
@@ -106,8 +163,85 @@ impl IrBuilder {
         Ok(dest)
     }
 
+    /// Does a real declaration — a local, a global or a function — already
+    /// claim `name`?
+    ///
+    /// Import naming (a wildcard namespace or a named-import alias) is
+    /// compile-time-only sugar layered over the AST the linker merged, so any
+    /// such declaration in the importing file must win over it. Guarding on
+    /// locals alone let `استورد { ضاعف كـ اضعف }` silently hijack a `دالة
+    /// اضعف` declared in the importing file — no diagnostic, just the wrong
+    /// function called.
+    fn is_declared_name(&self, name: &str) -> bool {
+        self.lookup_var(name).is_some()
+            || self.global_variables.contains(name)
+            || self.function_names.contains(name)
+    }
+
+    /// Is `expr` a bare identifier naming a wildcard-import namespace
+    /// (`استورد * كـ رياض`)? A declaration of the same name shadows it,
+    /// mirroring the precedence `class_name_receiver` already applies to
+    /// `ClassName.member`.
+    fn is_namespace_receiver(&self, expr: &Expr) -> bool {
+        let ExprKind::Identifier(name) = &expr.kind else {
+            return false;
+        };
+        !self.is_declared_name(name) && self.namespace_aliases.contains(name)
+    }
+
+    /// The bare name a named-import alias redirects to (`اضعف` → `ضاعف`), or
+    /// `None` when `name` is not an alias or a declaration of its own shadows
+    /// it.
+    fn alias_target(&self, name: &str) -> Option<String> {
+        if self.is_declared_name(name) {
+            return None;
+        }
+        self.import_aliases.get(name).cloned()
+    }
+
+    /// The class a `جديد <name>` refers to. `استورد { نقطة كـ إحداثية }` merges
+    /// the class under `نقطة`, so the alias has to reach it; a class of the
+    /// alias's own name shadows the import.
+    ///
+    /// Both the instantiation site and `infer_expr_type` must agree, or the
+    /// object is allocated as one struct and its fields read through another —
+    /// which codegen emits as a `getelementptr` on an undefined LLVM type.
+    pub(super) fn resolve_class_name(&self, name: &str) -> String {
+        if self.class_names.contains(name) {
+            return name.to_string();
+        }
+        self.alias_target(name).unwrap_or_else(|| name.to_string())
+    }
+
+    /// Rewrites a reference that names an import binding to the bare name the
+    /// linker merged the declaration under: a wildcard-namespace member
+    /// (`رياض.جذر` → `جذر`) or a named-import alias (`اضعف` → `ضاعف`).
+    /// `None` means `expr` is not such a reference and must be built as
+    /// written.
+    ///
+    /// Resolution is a single hop, deliberately never chased transitively:
+    /// two files that alias each other's names (`{ أ كـ ب }` in one and
+    /// `{ ب كـ أ }` in the other) would otherwise loop the builder forever.
+    fn resolve_import_ref(&self, expr: &Expr) -> Option<Expr> {
+        let resolved = match &expr.kind {
+            ExprKind::Member { object, property } if self.is_namespace_receiver(object) => {
+                property.clone()
+            }
+            ExprKind::Identifier(name) => self.alias_target(name)?,
+            _ => return None,
+        };
+        Some(Expr::new(ExprKind::Identifier(resolved), expr.span))
+    }
+
     /// Build IR for an identifier reference.
     pub(crate) fn build_identifier(&mut self, name: &str) -> Result<VarId> {
+        // An aliased named import declares nothing of its own: `استورد
+        // { ضاعف كـ اضعف }` leaves the body merged under `ضاعف`, so the alias
+        // has to reach it. A declaration of the same name still shadows the
+        // import, matching the semantic analyzer's scoping.
+        let alias_target = self.alias_target(name);
+        let name = alias_target.as_deref().unwrap_or(name);
+
         if let Some(var_id) = self.lookup_var(name) {
             if self.parameters.contains(&var_id.0) {
                 return Ok(var_id);
@@ -130,12 +264,31 @@ impl IrBuilder {
 
             Ok(dest)
         } else if self.function_names.contains(name) {
+            // A bare reference to a declared function's name used as a
+            // value (e.g. `ثابت ف = مربع؛`) — mirrors build_lambda's
+            // Constant::Function so a named function is just as usable as a
+            // lambda via CallIndirect (issue #180).
+            let params = self
+                .function_param_types
+                .get(name)
+                .cloned()
+                .unwrap_or_default();
+            let ret = self
+                .function_return_types
+                .get(name)
+                .cloned()
+                .unwrap_or(IrType::Void);
+            let fn_ty = IrType::Function {
+                params,
+                ret: Box::new(ret),
+            };
             let dest = self.new_var();
             self.emit(Instruction::Const {
                 dest,
-                value: Constant::Null, // Will be replaced with actual function pointer in codegen
-                ty: IrType::Ptr(Box::new(IrType::Void)),
+                value: Constant::Function(name.to_string()),
+                ty: fn_ty.clone(),
             });
+            self.var_types.insert(dest.0, fn_ty);
             Ok(dest)
         } else if let Some((const_val, const_ty)) = self.global_constants.get(name).cloned() {
             let dest = self.new_var();
@@ -284,6 +437,477 @@ impl IrBuilder {
         Ok(dest)
     }
 
+    /// The type of `var` as recorded during building, defaulting to `Int` like
+    /// the other builtin lowerings do.
+    fn arg_type(&self, var: VarId) -> IrType {
+        self.var_types.get(&var.0).cloned().unwrap_or(IrType::Int)
+    }
+
+    fn emit_const(&mut self, value: Constant, ty: IrType) -> VarId {
+        let dest = self.new_var();
+        self.emit(Instruction::Const {
+            dest,
+            value,
+            ty: ty.clone(),
+        });
+        self.var_types.insert(dest.0, ty);
+        dest
+    }
+
+    /// A `void`-typed result, for builtins called as statements.
+    fn emit_void(&mut self) -> VarId {
+        self.emit_const(Constant::Null, IrType::Void)
+    }
+
+    fn emit_int_const(&mut self, value: i64) -> VarId {
+        self.emit_const(Constant::Int(value), IrType::Int)
+    }
+
+    fn emit_int_binary(&mut self, op: BinaryOp, left: VarId, right: VarId) -> VarId {
+        let dest = self.new_var();
+        self.emit(Instruction::Binary {
+            dest,
+            op,
+            left,
+            right,
+            ty: IrType::Int,
+        });
+        self.var_types.insert(dest.0, IrType::Int);
+        dest
+    }
+
+    fn emit_int_unary(&mut self, op: UnaryOp, operand: VarId) -> VarId {
+        let dest = self.new_var();
+        self.emit(Instruction::Unary {
+            dest,
+            op,
+            operand,
+            ty: IrType::Int,
+        });
+        self.var_types.insert(dest.0, IrType::Int);
+        dest
+    }
+
+    fn emit_call(&mut self, symbol: &str, args: Vec<VarId>, ret_ty: IrType) -> VarId {
+        let dest = self.new_var();
+        self.emit(Instruction::Call {
+            dest: Some(dest),
+            func: FuncId(symbol.to_string()),
+            args,
+            ret_ty: ret_ty.clone(),
+        });
+        self.var_types.insert(dest.0, ret_ty);
+        dest
+    }
+
+    /// The Arabic type name `نوع` reports, mirroring `Value::type_name_ar` in
+    /// the interpreter.
+    fn type_name_ar(ty: &IrType) -> &'static str {
+        match ty {
+            IrType::Bool => "منطقي",
+            IrType::Int => "عدد",
+            IrType::Float => "عدد_عشري",
+            IrType::String => "نص",
+            IrType::Array(_, _) => "مصفوفة",
+            IrType::Struct(_) => "كائن",
+            IrType::Enum(_) => "تعداد",
+            IrType::Function { .. } => "دالة",
+            IrType::Void => "لا_شيء",
+            IrType::Ptr(_) => "مؤشر",
+        }
+    }
+
+    /// Lowers a core builtin that cannot be expressed as a name→symbol mapping.
+    ///
+    /// The conversion builtins are declared over `أي`, so the callee depends on
+    /// the argument's type; `نوع` is answerable at build time because `IrType`
+    /// has no dynamic variant; and `تأكد` needs a message operand its call site
+    /// never supplies. Codegen's table is name-only and can express none of
+    /// that, so an unmapped name used to fall through to a mangled Arabic symbol
+    /// that nothing defined (#222).
+    ///
+    /// Returns `None` for anything that is not one of these, leaving the normal
+    /// call path to handle it. Interception is deliberately unconditional — see
+    /// the note at the call site on why a shadowing guard is wrong here.
+    ///
+    /// `arg_exprs` is the unlowered argument list: `نوع` answers from `IrType`,
+    /// which cannot tell `لا_شيء` from any other untyped pointer, so the literal
+    /// is read back off the AST.
+    fn build_core_builtin_call(
+        &mut self,
+        name: &str,
+        args: &[VarId],
+        arg_exprs: &[Expr],
+    ) -> Result<Option<VarId>> {
+        let Some(&first) = args.first() else {
+            return Ok(None);
+        };
+        let arg_ty = self.arg_type(first);
+
+        let dest = match name {
+            // `اطبع_سطر` shares the arm because the interpreter prints all three
+            // with `println!`; codegen's table maps it to the newline-less
+            // `trq_print`, which printed `أب` natively for two calls that give
+            // `أ\nب\n` interpreted.
+            "اطبع" | "طباعة" | "اطبع_سطر" => {
+                self.emit(Instruction::Print { value: first });
+                self.emit_void()
+            }
+
+            "طول" | "طول_مصفوفة" => {
+                let dest = self.new_var();
+                self.emit(Instruction::ArrayLen { dest, array: first });
+                self.var_types.insert(dest.0, IrType::Int);
+                dest
+            }
+
+            // A value already of type `نص` is its own conversion:
+            // `convert_to_string` has no `String` arm and would fall through to
+            // `trq_int_to_string`, printing the pointer as a decimal number.
+            "نص" if arg_ty == IrType::String => first,
+            "نص" => self.convert_to_string(first, &arg_ty)?,
+
+            "نوع" => {
+                let name_ar = match arg_exprs.first().map(|e| &e.kind) {
+                    Some(ExprKind::Literal(Literal::Null)) => "لا_شيء",
+                    _ => Self::type_name_ar(&arg_ty),
+                };
+                let idx = self.add_string(name_ar.to_string());
+                self.emit_const(Constant::String(idx), IrType::String)
+            }
+
+            "عدد" => match arg_ty {
+                IrType::Int => first,
+                IrType::Bool => {
+                    // صحيح/خطأ become 1/0, as the interpreter's `عدد` does.
+                    let dest = self.new_var();
+                    self.emit(Instruction::BoolToInt { dest, src: first });
+                    self.var_types.insert(dest.0, IrType::Int);
+                    dest
+                }
+                IrType::Float => {
+                    let dest = self.new_var();
+                    self.emit(Instruction::FloatToInt { dest, src: first });
+                    self.var_types.insert(dest.0, IrType::Int);
+                    dest
+                }
+                ref ty if Self::may_be_string(ty) => {
+                    self.emit_call("trq_string_to_int_checked", vec![first], IrType::Int)
+                }
+                ref ty => return Err(Self::unconvertible(ty, "عدد")),
+            },
+
+            "عدد_عشري" => match arg_ty {
+                IrType::Float => first,
+                IrType::Int | IrType::Bool => {
+                    // A bool widens through i64 first: `sitofp` takes an i64,
+                    // and the interpreter's IntToFloat likewise rejects a bool.
+                    let widened = if arg_ty == IrType::Bool {
+                        let dest = self.new_var();
+                        self.emit(Instruction::BoolToInt { dest, src: first });
+                        self.var_types.insert(dest.0, IrType::Int);
+                        dest
+                    } else {
+                        first
+                    };
+                    let dest = self.new_var();
+                    self.emit(Instruction::IntToFloat { dest, src: widened });
+                    self.var_types.insert(dest.0, IrType::Float);
+                    dest
+                }
+                ref ty if Self::may_be_string(ty) => {
+                    self.emit_call("trq_string_to_float_checked", vec![first], IrType::Float)
+                }
+                ref ty => return Err(Self::unconvertible(ty, "عدد_عشري")),
+            },
+
+            "منطقي" => self.build_truthiness(first, &arg_ty),
+
+            "تأكد" | "تأكد_رسالة" => {
+                // `trq_assert` treats a null message as "فشل التأكيد", which is
+                // exactly what the interpreter reports for the one-argument form.
+                let message = match args.get(1) {
+                    Some(&msg) => msg,
+                    None => self.emit_const(Constant::Null, IrType::Ptr(Box::new(IrType::Void))),
+                };
+                self.emit(Instruction::Call {
+                    dest: None,
+                    func: FuncId("trq_assert".to_string()),
+                    args: vec![first, message],
+                    ret_ty: IrType::Void,
+                });
+                self.emit_void()
+            }
+
+            "الحق" => {
+                let Some(&value) = args.get(1) else {
+                    return Ok(None);
+                };
+                // The array's element type wins over the pushed value's, as the
+                // `ألحق` member path below does: pushing `2` into `[1.5]` with
+                // `elem_ty: Int` stores an i64 bit pattern the reader decodes as
+                // a double.
+                let elem_ty = match &arg_ty {
+                    IrType::Array(elem, _) => (**elem).clone(),
+                    IrType::Ptr(inner) => match inner.as_ref() {
+                        IrType::Array(elem, _) => (**elem).clone(),
+                        _ => self.arg_type(value),
+                    },
+                    _ => self.arg_type(value),
+                };
+                // …and the value is widened to it, the same عدد → عدد_عشري
+                // coercion call arguments get: storing a raw i64 into a
+                // `double` slot is an LLVM type error.
+                let value = self
+                    .coerce_args_to_params(vec![value], std::slice::from_ref(&elem_ty))
+                    .remove(0);
+                self.emit(Instruction::ArrayPush {
+                    array: first,
+                    value,
+                    elem_ty,
+                });
+                self.emit_void()
+            }
+
+            // Lowered here rather than mapped to a runtime symbol: `BinaryOp` is
+            // already implemented by every backend and the constant folder, so
+            // an `and`/`or`/`xor i64` costs no `runtime-rs` work and no call.
+            "بتات_و" | "بتات_أو" | "بتات_أو_حصري" => {
+                let Some(&right) = args.get(1) else {
+                    return Ok(None);
+                };
+                // Exhaustive by name: a sibling added to the pattern above but
+                // not here falls through uncalled instead of silently emitting OR.
+                let op = match name {
+                    "بتات_و" => BinaryOp::BitAnd,
+                    "بتات_أو" => BinaryOp::BitOr,
+                    "بتات_أو_حصري" => BinaryOp::BitXor,
+                    _ => return Ok(None),
+                };
+                self.emit_int_binary(op, first, right)
+            }
+
+            // The family's only unary member, so it cannot share the arm above.
+            "بتات_نفي" => self.emit_int_unary(UnaryOp::BitNot, first),
+
+            // The first shift, so the first lowering that is a chain rather than
+            // one op. The chain is a range guard, and it is not optional: a bare
+            // `Shl` makes an amount outside 0-63 a runtime error interpreted, a
+            // masked result folded, and poison natively — the same call
+            // disagreeing with itself across backends.
+            //
+            // Out of range every bit leaves the word and nothing fills it, so
+            // zeroing the result is the arithmetic answer.
+            "بتات_إزاحة_يسار" => {
+                let Some(&amount) = args.get(1) else {
+                    return Ok(None);
+                };
+                let guard = self.emit_shift_range_guard(amount);
+
+                // Zeroing masks the *result*, so what this arm needs is the
+                // complement of the guard's flag.
+                let keep = self.emit_int_unary(UnaryOp::BitNot, guard.out_of_range);
+                let shifted = self.emit_int_binary(BinaryOp::Shl, first, guard.amount);
+                self.emit_int_binary(BinaryOp::BitAnd, shifted, keep)
+            }
+
+            // The same guard, with the opposite answer out of range: an
+            // arithmetic shift vacates the *high* end and refills it from the
+            // sign, so shifting everything out leaves the sign rather than zero
+            // — 0 for a non-negative operand and -1 for a negative one. Zeroing
+            // here would break at the boundary, since `بتات_إزاحة_يمين(-١، ٦٣)`
+            // is already -1.
+            "بتات_إزاحة_يمين" => {
+                let Some(&amount) = args.get(1) else {
+                    return Ok(None);
+                };
+                let guard = self.emit_shift_range_guard(amount);
+
+                // Saturating the amount to 63 is what produces that sign fill,
+                // 63 being the amount at which the value is already fully
+                // shifted out. `أ | ٦٣` saturates rather than needing a select
+                // because `guard.amount` is masked to those same six bits.
+                let saturate =
+                    self.emit_int_binary(BinaryOp::BitAnd, guard.range_mask, guard.out_of_range);
+                let clamped = self.emit_int_binary(BinaryOp::BitOr, guard.amount, saturate);
+                self.emit_int_binary(BinaryOp::Shr, first, clamped)
+            }
+
+            // The zero-filling counterpart: `عدد` is signed and every backend's
+            // `Shr` is arithmetic, so يمين refills from the sign at every
+            // amount and no spelling of it fills with zeros.
+            //
+            // Separating the sign bit is what makes an arithmetic shift behave
+            // logically — the remaining 63 bits are non-negative — and the bit
+            // is then placed at its new position rather than dropped. That
+            // needs no `ن == ٠` special case, unlike the sketch in §1.3.
+            "بتات_إزاحة_يمين_منطقية" => {
+                let Some(&amount) = args.get(1) else {
+                    return Ok(None);
+                };
+                let guard = self.emit_shift_range_guard(amount);
+
+                // Out of range every bit leaves the word and zeros fill behind
+                // it, so zeroing the *value* zeroes every term below. Folding
+                // that into one instruction also makes this the value's first
+                // scalar use, which is where codegen unboxes a narrowed
+                // optional (#318) — `keep` being a bare `Int` is what makes it
+                // fire. An `x & -1 => x` peephole would silently restore that
+                // bug; `test_logical_right_shift_over_a_narrowed_optional`
+                // catches it, natively.
+                let keep = self.emit_int_unary(UnaryOp::BitNot, guard.out_of_range);
+                let value = self.emit_int_binary(BinaryOp::BitAnd, first, keep);
+
+                let sign_cleared = self.emit_int_const(i64::MAX);
+                let low = self.emit_int_binary(BinaryOp::BitAnd, value, sign_cleared);
+                let shifted = self.emit_int_binary(BinaryOp::Shr, low, guard.amount);
+
+                // `٦٣ - المقدار` reads the guard's *masked* amount, so it stays
+                // in 0-63 and cannot overflow at `i64::MIN`.
+                let sign = self.emit_int_binary(BinaryOp::Shr, value, guard.range_mask);
+                let sign_position =
+                    self.emit_int_binary(BinaryOp::Sub, guard.range_mask, guard.amount);
+                let one = self.emit_int_const(1);
+                let bit = self.emit_int_binary(BinaryOp::Shl, one, sign_position);
+                let moved_sign = self.emit_int_binary(BinaryOp::BitAnd, sign, bit);
+
+                self.emit_int_binary(BinaryOp::BitOr, shifted, moved_sign)
+            }
+
+            _ => return Ok(None),
+        };
+
+        Ok(Some(dest))
+    }
+
+    /// Brings an arbitrary shift amount into the range every backend accepts,
+    /// and reports whether it started there.
+    ///
+    /// No backend can be handed a raw amount: outside 0-63 both interpreters
+    /// raise «مقدار الإزاحة خارج النطاق», LLVM's shift is poison, and the
+    /// constant folder's `wrapping_*` masks — four answers to one call. So the
+    /// shift always sees `amount`, and `out_of_range` is what decides the
+    /// result instead. Each shift applies it differently: see its own arm.
+    fn emit_shift_range_guard(&mut self, raw_amount: VarId) -> ShiftGuard {
+        let sixty_three = self.emit_int_const(63);
+        let zero = self.emit_int_const(0);
+
+        // Read the amount once, through this copy, because the chain needs it
+        // twice and codegen unboxes a narrowed optional only on its *first* use
+        // as a scalar operand — the second would emit the raw pointer and clang
+        // would reject the module (#318). `أ | ٠` is free after either
+        // optimizer, but it is load-bearing: an `x | 0 => x` peephole would fold
+        // it away and silently restore that bug.
+        // `test_left_shift_over_a_narrowed_optional` is what catches that,
+        // natively.
+        let raw_amount = self.emit_int_binary(BinaryOp::BitOr, raw_amount, zero);
+
+        // `ن >> ٦` is zero exactly on 0-63 — a larger amount leaves a positive
+        // quotient, a negative one leaves a negative quotient. `high | -high`
+        // then carries the sign bit whenever `high` is non-zero, so an
+        // arithmetic shift by 63 spreads it to a full -1/0 mask without a branch
+        // or a Bool→Int widening (which the JIT tiers have no arm for).
+        let six = self.emit_int_const(6);
+        let high = self.emit_int_binary(BinaryOp::Shr, raw_amount, six);
+        let negated = self.emit_int_binary(BinaryOp::Sub, zero, high);
+        let either_sign = self.emit_int_binary(BinaryOp::BitOr, high, negated);
+        let out_of_range = self.emit_int_binary(BinaryOp::Shr, either_sign, sixty_three);
+        let amount = self.emit_int_binary(BinaryOp::BitAnd, raw_amount, sixty_three);
+
+        ShiftGuard {
+            amount,
+            out_of_range,
+            range_mask: sixty_three,
+        }
+    }
+
+    /// Whether a value of this type may hold a `نص` at runtime, and so can be
+    /// handed to the checked string parsers.
+    ///
+    /// `Ptr(Void)` is the builder's "unknown" — a lambda parameter or an
+    /// untyped local. The reference types below are known *not* to be strings,
+    /// and passing one to `trq_string_to_int_checked` reads a foreign pointer
+    /// as a `TrqString`, which segfaults natively where the interpreter reports
+    /// a type error.
+    fn may_be_string(ty: &IrType) -> bool {
+        !matches!(
+            ty,
+            IrType::Array(_, _)
+                | IrType::Struct(_)
+                | IrType::Enum(_)
+                | IrType::Function { .. }
+                | IrType::Void
+        )
+    }
+
+    fn unconvertible(ty: &IrType, target: &str) -> IrError {
+        IrError::new(format!(
+            "لا يمكن تحويل قيمة من نوع '{}' إلى '{}' / cannot convert a value of type '{}' to '{}'",
+            Self::type_name_ar(ty),
+            target,
+            Self::type_name_ar(ty),
+            target
+        ))
+    }
+
+    /// `منطقي` follows the interpreter's `Value::is_truthy`: zero, an empty
+    /// string and an empty array are false; everything else is true.
+    fn build_truthiness(&mut self, var: VarId, ty: &IrType) -> VarId {
+        let ptr_ty = IrType::Ptr(Box::new(IrType::Void));
+
+        let (measured, zero, cmp_ty) = match ty {
+            IrType::Bool => return var,
+            IrType::Float => (
+                var,
+                self.emit_const(Constant::Float(0.0), IrType::Float),
+                IrType::Float,
+            ),
+            IrType::String => {
+                let len = self.emit_call("trq_string_len", vec![var], IrType::Int);
+                (
+                    len,
+                    self.emit_const(Constant::Int(0), IrType::Int),
+                    IrType::Int,
+                )
+            }
+            IrType::Array(_, _) => {
+                let len = self.new_var();
+                self.emit(Instruction::ArrayLen {
+                    dest: len,
+                    array: var,
+                });
+                self.var_types.insert(len.0, IrType::Int);
+                (
+                    len,
+                    self.emit_const(Constant::Int(0), IrType::Int),
+                    IrType::Int,
+                )
+            }
+            // Reference types compare against a null *pointer*, not `0`: an
+            // object is truthy and `لا_شيء` is not, and an `i64 0` operand made
+            // codegen emit `icmp ne ptr %a, %b` with mismatched operand types.
+            IrType::Ptr(_) | IrType::Struct(_) | IrType::Function { .. } | IrType::Void => {
+                (var, self.emit_const(Constant::Null, ptr_ty.clone()), ptr_ty)
+            }
+            _ => (
+                var,
+                self.emit_const(Constant::Int(0), IrType::Int),
+                IrType::Int,
+            ),
+        };
+
+        let dest = self.new_var();
+        self.emit(Instruction::Binary {
+            dest,
+            op: BinaryOp::Ne,
+            left: measured,
+            right: zero,
+            ty: cmp_ty,
+        });
+        self.var_types.insert(dest.0, IrType::Bool);
+        dest
+    }
+
     /// Build IR for a unary operation.
     pub(crate) fn build_unary(&mut self, op: AstUnaryOp, operand: &Expr) -> Result<VarId> {
         match op {
@@ -331,6 +955,12 @@ impl IrBuilder {
         is_increment: bool,
         is_prefix: bool,
     ) -> Result<VarId> {
+        // `ع++` on an import binding names the merged declaration, exactly as
+        // `ع = ع + ١` and `ع += ١` already do — without this rewrite the alias
+        // reached the read-modify-write path unresolved and failed there.
+        let resolved_operand = self.resolve_import_ref(operand);
+        let operand = resolved_operand.as_ref().unwrap_or(operand);
+
         let name = match &operand.kind {
             ExprKind::Identifier(name) => name.clone(),
             _ => return Err(IrError::new("الزيادة/النقصان تتطلب متغيراً")),
@@ -430,51 +1060,99 @@ impl IrBuilder {
             return self.build_super_constructor_call(args);
         }
 
-        let arg_vars: Vec<VarId> = args
-            .iter()
-            .map(|a| self.build_expr(a))
-            .collect::<Result<Vec<_>>>()?;
+        // Import naming is resolved before any dispatch decision, so
+        // `رياض.جذر(...)` becomes a plain call to `جذر` rather than a method
+        // dispatch, and an alias calls the original name — the linker merged
+        // every imported declaration under its bare, unmangled name. This
+        // deliberately runs before the `ClassName.member` static-call case,
+        // so a namespace wins over a class of the same name.
+        let resolved_callee = self.resolve_import_ref(callee);
+        let callee = resolved_callee.as_ref().unwrap_or(callee);
 
+        // Callee parameter types, resolved *before* the arguments are
+        // built, so a lambda literal passed as an argument picks up its
+        // param types from the callee's signature — the same contextual
+        // inference the semantic layer performs via `expected_type`.
+        // Without this, `طبق((س) => س * ٢، ٥)` lifts the lambda with
+        // untyped (`Ptr(Void)`) params and native compilation rejects
+        // spec-legal code with ت٠٣٠١.
+        let expected_params: Option<Vec<IrType>> = match &callee.kind {
+            ExprKind::Identifier(name) => self.callee_param_types(name),
+            _ => None,
+        };
+
+        let arg_vars = self.build_call_args(args, expected_params.as_deref())?;
+        let arg_vars = match expected_params.as_deref() {
+            Some(params) => self.coerce_args_to_params(arg_vars, params),
+            None => arg_vars,
+        };
+
+        // The core builtins below are lowered here rather than mapped by name in
+        // codegen, because they take `أي` and so need the argument's type (or,
+        // for `تأكد`, an argument codegen cannot synthesise).
+        //
+        // Any nearer binding of the same name suppresses the interception:
+        // built-ins are the last tier of the lookup order (#262). The guard must
+        // stay in step with the interpreter, the debug interpreter and codegen —
+        // an earlier attempt changed only this site, so native called the user's
+        // function while the interpreter still ran the builtin.
         if let ExprKind::Identifier(name) = &callee.kind {
-            if name == "اطبع" {
-                if let Some(arg) = arg_vars.first() {
-                    self.emit(Instruction::Print { value: *arg });
-                }
-                let dest = self.new_var();
-                self.emit(Instruction::Const {
-                    dest,
-                    value: Constant::Null,
-                    ty: IrType::Void,
-                });
-                self.var_types.insert(dest.0, IrType::Void);
-                return Ok(dest);
-            }
+            // `name` may be a local/global variable holding a function
+            // value (a lambda, or a named function used as a value) rather
+            // than a directly-callable declared function — dispatch through
+            // CallIndirect in that case (issue #180). An untyped local still
+            // counts as a function value as long as no *declared* function
+            // of the same name exists, preserving today's behavior when a
+            // local merely shadows an unrelated function name.
+            let local_var = self.lookup_var(name);
+            let local_ty = local_var.and_then(|v| self.var_types.get(&v.0).cloned());
 
-            // Handle طول (length) as a function call - generates ArrayLen instruction
-            if name == "طول" {
-                if let Some(array_var) = arg_vars.first() {
-                    let dest = self.new_var();
-                    self.emit(Instruction::ArrayLen {
-                        dest,
-                        array: *array_var,
-                    });
-                    self.var_types.insert(dest.0, IrType::Int);
+            // A variable *known* to hold a function is tier 1/3 and outranks a
+            // built-in as much as a declared function does; `ثابت طول = (س:
+            // نص) => ٤٢` type-checks since #262 and must not still lower to
+            // `ArrayLen`. Only the function-typed case counts here — an
+            // untyped or non-function binding is a semantic error at the call,
+            // and treating it as a shadow would hide the built-in behind it.
+            let holds_function_value = matches!(local_ty, Some(IrType::Function { .. }))
+                || (local_var.is_none()
+                    && self.global_variables.contains(name)
+                    && matches!(
+                        self.global_var_types.get(name),
+                        Some(IrType::Function { .. })
+                    ));
+
+            if !self.shadows_builtin(name) && !holds_function_value {
+                if let Some(dest) = self.build_core_builtin_call(name, &arg_vars, args)? {
                     return Ok(dest);
                 }
             }
 
-            // Handle نص (to-string conversion) with type dispatch
-            // This function accepts Type::Any but needs to dispatch to the correct
-            // runtime function based on the actual argument type
-            if name == "نص" {
-                if let Some(arg_var) = arg_vars.first() {
-                    let arg_ty = self
-                        .var_types
-                        .get(&arg_var.0)
-                        .cloned()
-                        .unwrap_or(IrType::Int);
-                    return self.convert_to_string(*arg_var, &arg_ty);
-                }
+            let is_callable_value = if local_var.is_some() {
+                matches!(local_ty, Some(IrType::Function { .. }))
+                    || !self.function_names.contains(name)
+            } else if self.global_variables.contains(name) {
+                let global_ty = self.global_var_types.get(name).cloned();
+                matches!(global_ty, Some(IrType::Function { .. }))
+                    || !self.function_names.contains(name)
+            } else {
+                false
+            };
+
+            if is_callable_value {
+                let callee_var = self.build_identifier(name)?;
+                let ret_ty = match self.var_types.get(&callee_var.0) {
+                    Some(IrType::Function { ret, .. }) => (**ret).clone(),
+                    _ => IrType::Ptr(Box::new(IrType::Void)),
+                };
+                let dest = self.new_var();
+                self.emit(Instruction::CallIndirect {
+                    dest: Some(dest),
+                    func_ptr: callee_var,
+                    args: arg_vars,
+                    ret_ty: ret_ty.clone(),
+                });
+                self.var_types.insert(dest.0, ret_ty);
+                return Ok(dest);
             }
 
             let ret_ty = self.get_function_return_type(name);
@@ -491,6 +1169,29 @@ impl IrBuilder {
         }
 
         if let ExprKind::Member { object, property } = &callee.kind {
+            if let Some(class) = self.class_name_receiver(object) {
+                if let Some(full) = self.resolve_static_method(&class, property) {
+                    let ret_ty = self
+                        .method_return_types
+                        .get(&full)
+                        .cloned()
+                        .unwrap_or(IrType::Void);
+                    let dest = self.new_var();
+                    self.emit(Instruction::Call {
+                        dest: Some(dest),
+                        func: FuncId(full),
+                        args: arg_vars,
+                        ret_ty: ret_ty.clone(),
+                    });
+                    self.var_types.insert(dest.0, ret_ty);
+                    return Ok(dest);
+                }
+                return Err(IrError::new(format!(
+                    "الدالة '{}' ليست دالة مشتركة في الصنف '{}'",
+                    property, class
+                )));
+            }
+
             let obj_type = self.infer_expr_type(object);
             let obj_var = self.build_expr(object)?;
 
@@ -554,30 +1255,38 @@ impl IrBuilder {
                 _ => ClassId("".to_string()),
             };
 
-            let full_method_name = format!("{}::{}", class_id.0, property);
-            let ret_ty = self
-                .method_return_types
-                .get(&full_method_name)
-                .cloned()
-                .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+            // One lookup for both, so the declaring class and the return type
+            // cannot disagree (issue #253). A miss keeps the receiver's own
+            // class: this branch also carries `أي`-typed, interface-typed and
+            // anonymous receivers, which have no entry to find.
+            let (method_class, ret_ty) = self
+                .resolve_instance_method(&class_id.0, property)
+                .unwrap_or_else(|| (class_id.clone(), IrType::Ptr(Box::new(IrType::Void))));
 
             let dest = self.new_var();
             self.emit(Instruction::CallMethod {
                 dest: Some(dest),
                 object: obj_var,
                 method: MethodId {
-                    class: class_id,
+                    class: method_class,
                     name: property.clone(),
                 },
                 args: arg_vars,
                 ret_ty: ret_ty.clone(),
+                virtual_dispatch: !is_super_receiver(object),
             });
             self.var_types.insert(dest.0, ret_ty);
             return Ok(dest);
         }
 
         let callee_var = self.build_expr(callee)?;
-        let ret_ty = IrType::Ptr(Box::new(IrType::Void));
+        let (arg_vars, ret_ty) = match self.var_types.get(&callee_var.0).cloned() {
+            Some(IrType::Function { params, ret }) => (
+                self.coerce_args_to_params(arg_vars, &params),
+                (*ret).clone(),
+            ),
+            _ => (arg_vars, IrType::Ptr(Box::new(IrType::Void))),
+        };
         let dest = self.new_var();
         self.emit(Instruction::CallIndirect {
             dest: Some(dest),
@@ -589,8 +1298,113 @@ impl IrBuilder {
         Ok(dest)
     }
 
+    /// The callee's parameter types when statically known — from a
+    /// function-typed local/global variable (indirect call) or a declared
+    /// function's collected signature (direct call). `None` when the callee
+    /// has no recoverable signature (builtins, untyped values).
+    fn callee_param_types(&self, name: &str) -> Option<Vec<IrType>> {
+        if let Some(v) = self.lookup_var(name) {
+            return match self.var_types.get(&v.0) {
+                Some(IrType::Function { params, .. }) => Some(params.clone()),
+                // An untyped local shadowing a declared function name still
+                // dispatches to the declared function (see build_call's
+                // shadowing rule), so its signature applies.
+                _ if self.function_names.contains(name) => {
+                    self.function_param_types.get(name).cloned()
+                }
+                _ => None,
+            };
+        }
+        if let Some(IrType::Function { params, .. }) = self.global_var_types.get(name) {
+            return Some(params.clone());
+        }
+        self.function_param_types.get(name).cloned()
+    }
+
+    /// Builds call arguments, threading the callee's parameter type as a
+    /// hint into any bare lambda literal argument (mirrors what
+    /// `build_init_expr` does for annotated variable declarations).
+    fn build_call_args(
+        &mut self,
+        args: &[Expr],
+        expected: Option<&[IrType]>,
+    ) -> Result<Vec<VarId>> {
+        args.iter()
+            .enumerate()
+            .map(|(i, a)| {
+                if let ExprKind::Lambda { params, body } = &a.kind {
+                    if let Some(hint @ IrType::Function { .. }) = expected.and_then(|e| e.get(i)) {
+                        return self.build_lambda_with_hint(params, body, Some(hint));
+                    }
+                }
+                self.build_expr(a)
+            })
+            .collect()
+    }
+
+    /// Implicit عدد → عدد_عشري coercion (spec §5.6) at call arguments:
+    /// passing an integer where the callee's signature expects a float must
+    /// go through `IntToFloat`, or native codegen emits a call whose raw
+    /// i64 bit pattern the callee reinterprets as a double.
+    fn coerce_args_to_params(&mut self, arg_vars: Vec<VarId>, params: &[IrType]) -> Vec<VarId> {
+        arg_vars
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| {
+                if params.get(i) == Some(&IrType::Float)
+                    && self.var_types.get(&v.0) == Some(&IrType::Int)
+                {
+                    let coerced = self.new_var();
+                    self.emit(Instruction::IntToFloat {
+                        dest: coerced,
+                        src: v,
+                    });
+                    self.var_types.insert(coerced.0, IrType::Float);
+                    coerced
+                } else {
+                    v
+                }
+            })
+            .collect()
+    }
+
     /// Build IR for a member access.
     pub(crate) fn build_member(&mut self, object: &Expr, property: &str) -> Result<VarId> {
+        // A wildcard namespace holds no value to read a field out of:
+        // `رياض.ط` is the bare `ط` the linker merged (or, for stdlib, the
+        // builtin already registered under that bare name).
+        if self.is_namespace_receiver(object) {
+            return self.build_identifier(property);
+        }
+
+        if let Some(class) = self.class_name_receiver(object) {
+            if let Some((key, ty)) = self.resolve_static_field(&class, property) {
+                let dest = self.new_var();
+                self.emit(Instruction::GlobalLoad {
+                    dest,
+                    name: key,
+                    ty: ty.clone(),
+                });
+                self.var_types.insert(dest.0, ty);
+                return Ok(dest);
+            }
+            if let Some((getter, ty)) = self.resolve_static_property(&class, property) {
+                let dest = self.new_var();
+                self.emit(Instruction::Call {
+                    dest: Some(dest),
+                    func: FuncId(getter),
+                    args: vec![],
+                    ret_ty: ty.clone(),
+                });
+                self.var_types.insert(dest.0, ty);
+                return Ok(dest);
+            }
+            return Err(IrError::new(format!(
+                "العضو '{}' ليس عضواً مشتركاً في الصنف '{}'",
+                property, class
+            )));
+        }
+
         let obj_type = self.infer_expr_type(object);
         let obj_var = self.build_expr(object)?;
         let dest = self.new_var();
@@ -607,26 +1421,24 @@ impl IrBuilder {
             _ => None,
         };
 
-        // Check if this is a property with a getter
+        // A property is read through its accessor. The accessor may be declared
+        // on an ancestor, and then it is the *ancestor* that must be named: both
+        // backends mint the callee symbol from `MethodId.class`, and
+        // `{subclass}::__احصل_{prop}` is never synthesized.
         if let Some(ref class_id) = class_id_opt {
-            let prop_key = format!("{}::{}", class_id.0, property);
-            if let Some((getter_name, prop_type)) = self.property_getters.get(&prop_key).cloned() {
-                // Extract just the method name part (e.g., "__احصل_اسم" from "شخص::__احصل_اسم")
-                let method_name_only = getter_name
-                    .split("::")
-                    .last()
-                    .unwrap_or(&getter_name)
-                    .to_string();
-                // Emit a method call to the getter instead of GetField
+            if let Some((defining_class, getter_name, prop_type)) =
+                self.resolve_instance_property(&class_id.0, property)
+            {
                 self.emit(Instruction::CallMethod {
                     dest: Some(dest),
                     object: obj_var,
                     method: MethodId {
-                        class: class_id.clone(),
-                        name: method_name_only,
+                        class: defining_class,
+                        name: getter_name,
                     },
                     args: vec![],
                     ret_ty: prop_type.clone(),
+                    virtual_dispatch: !is_super_receiver(object),
                 });
                 self.var_types.insert(dest.0, prop_type);
                 return Ok(dest);
@@ -634,10 +1446,17 @@ impl IrBuilder {
         }
 
         let (field_ty, field_index, class_id) = if let Some(class_id) = class_id_opt {
-            if let Some((idx, ty)) = self.get_field_info(&class_id.0, property) {
-                (ty, idx, class_id)
-            } else {
-                (IrType::Ptr(Box::new(IrType::Void)), 0, class_id)
+            match self.resolve_instance_field(&class_id.0, property) {
+                Some((defining_class, idx, ty)) => (ty, idx, ClassId(defining_class)),
+                None if self.declares_instance_property(&class_id.0, property) => {
+                    return Err(missing_accessor_error(&class_id.0, property, true));
+                }
+                None if self.has_field_layout(&class_id.0) => {
+                    return Err(unknown_member_error(&class_id.0, property));
+                }
+                // No layout to check against: `__anonymous__` object literals,
+                // whose fields codegen resolves by name. Stay lenient.
+                None => (IrType::Ptr(Box::new(IrType::Void)), 0, class_id),
             }
         } else {
             (
@@ -688,7 +1507,27 @@ impl IrBuilder {
 
     /// Build IR for an assignment expression.
     pub(crate) fn build_assignment(&mut self, target: &Expr, value: &Expr) -> Result<VarId> {
-        let value_var = self.build_expr(value)?;
+        // Writing through an import binding (`أدوات.عداد = ٥`, or an aliased
+        // `اضعف = ...`) targets the merged declaration's bare name, exactly
+        // as reading through one does.
+        let resolved_target = self.resolve_import_ref(target);
+        let target = resolved_target.as_ref().unwrap_or(target);
+
+        // Assigning a bare lambda to an already-annotated function-typed
+        // slot must thread that slot's signature in as a hint, exactly as a
+        // declaration does — otherwise the lambda lifts with untyped params
+        // and native codegen rejects code whose type the user *did* declare.
+        let value_var = match (&target.kind, &value.kind) {
+            (ExprKind::Identifier(name), ExprKind::Lambda { params, body }) => {
+                let slot_ty = self.callee_value_type(name);
+                if matches!(slot_ty, Some(IrType::Function { .. })) {
+                    self.build_lambda_with_hint(params, body, slot_ty.as_ref())?
+                } else {
+                    self.build_expr(value)?
+                }
+            }
+            _ => self.build_expr(value)?,
+        };
 
         match &target.kind {
             ExprKind::Identifier(name) => {
@@ -710,65 +1549,7 @@ impl IrBuilder {
                 }
             }
             ExprKind::Member { object, property } => {
-                let obj_type = self.infer_expr_type(object);
-                let obj_var = self.build_expr(object)?;
-
-                let class_id_opt = match &obj_type {
-                    IrType::Struct(class_id) => Some(class_id.clone()),
-                    IrType::Ptr(inner) => {
-                        if let IrType::Struct(class_id) = inner.as_ref() {
-                            Some(class_id.clone())
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
-
-                // Check if this is a property with a setter
-                if let Some(ref class_id) = class_id_opt {
-                    let prop_key = format!("{}::{}", class_id.0, property);
-                    if let Some(setter_name) = self.property_setters.get(&prop_key).cloned() {
-                        // Extract just the method name part (e.g., "__عيّن_اسم" from "شخص::__عيّن_اسم")
-                        let method_name_only = setter_name
-                            .split("::")
-                            .last()
-                            .unwrap_or(&setter_name)
-                            .to_string();
-                        // Emit a method call to the setter instead of SetField
-                        self.emit(Instruction::CallMethod {
-                            dest: None,
-                            object: obj_var,
-                            method: MethodId {
-                                class: class_id.clone(),
-                                name: method_name_only,
-                            },
-                            args: vec![value_var],
-                            ret_ty: IrType::Void,
-                        });
-                        return Ok(value_var);
-                    }
-                }
-
-                let (class_id, field_index) = if let Some(class_id) = class_id_opt {
-                    let index = self
-                        .get_field_info(&class_id.0, property)
-                        .map(|(idx, _)| idx)
-                        .unwrap_or(0);
-                    (class_id, index)
-                } else {
-                    (ClassId("".to_string()), 0)
-                };
-
-                self.emit(Instruction::SetField {
-                    object: obj_var,
-                    field: FieldId {
-                        class: class_id,
-                        name: property.clone(),
-                        index: field_index,
-                    },
-                    value: value_var,
-                });
+                self.store_to_member(object, property, value_var)?;
             }
             ExprKind::Index { object, index } => {
                 let obj_var = self.build_expr(object)?;
@@ -787,6 +1568,101 @@ impl IrBuilder {
         Ok(value_var)
     }
 
+    /// Stores `value` into `object.property`, routing through a property setter
+    /// when the property has one and resolving a plain field's slot by name.
+    ///
+    /// Shared by plain and compound assignment. The compound path used to
+    /// duplicate this with a bare `SetField` carrying an empty class, the
+    /// property's own name rather than its `_`-prefixed backing field, and a
+    /// hardcoded `index: 0` — so `ن.ص += 1` dropped the write silently in the
+    /// interpreter (it stored a by-name field no getter reads) and corrupted
+    /// slot 0 natively. That is the #239 defect one layer up, which is why the
+    /// two paths are now one.
+    fn store_to_member(&mut self, object: &Expr, property: &str, value: VarId) -> Result<()> {
+        if let Some(class) = self.class_name_receiver(object) {
+            if let Some((key, _)) = self.resolve_static_field(&class, property) {
+                self.emit(Instruction::GlobalStore { name: key, value });
+                return Ok(());
+            }
+            if let Some(setter) = self.resolve_static_property_setter(&class, property) {
+                self.emit(Instruction::Call {
+                    dest: None,
+                    func: FuncId(setter),
+                    args: vec![value],
+                    ret_ty: IrType::Void,
+                });
+                return Ok(());
+            }
+            return Err(IrError::new(format!(
+                "العضو '{}' ليس عضواً مشتركاً في الصنف '{}'",
+                property, class
+            )));
+        }
+
+        let obj_type = self.infer_expr_type(object);
+        let obj_var = self.build_expr(object)?;
+
+        let class_id_opt = match &obj_type {
+            IrType::Struct(class_id) => Some(class_id.clone()),
+            IrType::Ptr(inner) => {
+                if let IrType::Struct(class_id) = inner.as_ref() {
+                    Some(class_id.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        // Mirrors the read path in `build_member`: the setter may be inherited,
+        // and then `MethodId.class` must name the class that declares it.
+        if let Some(ref class_id) = class_id_opt {
+            if let Some((defining_class, setter_name)) =
+                self.resolve_instance_property_setter(&class_id.0, property)
+            {
+                self.emit(Instruction::CallMethod {
+                    dest: None,
+                    object: obj_var,
+                    method: MethodId {
+                        class: defining_class,
+                        name: setter_name,
+                    },
+                    args: vec![value],
+                    ret_ty: IrType::Void,
+                    virtual_dispatch: !is_super_receiver(object),
+                });
+                return Ok(());
+            }
+        }
+
+        let (class_id, field_index) = if let Some(class_id) = class_id_opt {
+            match self.resolve_instance_field(&class_id.0, property) {
+                Some((defining_class, index, _)) => (ClassId(defining_class), index),
+                None if self.declares_instance_property(&class_id.0, property) => {
+                    return Err(missing_accessor_error(&class_id.0, property, false));
+                }
+                None if self.has_field_layout(&class_id.0) => {
+                    return Err(unknown_member_error(&class_id.0, property));
+                }
+                None => (class_id, 0),
+            }
+        } else {
+            (ClassId("".to_string()), 0)
+        };
+
+        self.emit(Instruction::SetField {
+            object: obj_var,
+            field: FieldId {
+                class: class_id,
+                name: property.to_string(),
+                index: field_index,
+            },
+            value,
+        });
+
+        Ok(())
+    }
+
     /// Build IR for a compound assignment (+=, -=, etc.).
     pub(crate) fn build_compound_assignment(
         &mut self,
@@ -794,6 +1670,11 @@ impl IrBuilder {
         op: AstBinaryOp,
         value: &Expr,
     ) -> Result<VarId> {
+        // See `build_assignment`: an import binding on the left of `+=` names
+        // the merged declaration, not a member of a namespace object.
+        let resolved_target = self.resolve_import_ref(target);
+        let target = resolved_target.as_ref().unwrap_or(target);
+
         let current = self.build_expr(target)?;
         let increment = self.build_expr(value)?;
 
@@ -832,16 +1713,7 @@ impl IrBuilder {
                 }
             }
             ExprKind::Member { object, property } => {
-                let obj_var = self.build_expr(object)?;
-                self.emit(Instruction::SetField {
-                    object: obj_var,
-                    field: FieldId {
-                        class: ClassId("".to_string()),
-                        name: property.clone(),
-                        index: 0,
-                    },
-                    value: result,
-                });
+                self.store_to_member(object, property, result)?;
             }
             ExprKind::Index { object, index } => {
                 let obj_var = self.build_expr(object)?;
@@ -911,11 +1783,50 @@ impl IrBuilder {
         Ok(dest)
     }
 
-    /// Build IR for a lambda expression.
+    /// Build IR for a lambda expression with no type hint from context.
     pub(crate) fn build_lambda(&mut self, params: &[Param], body: &LambdaBody) -> Result<VarId> {
+        self.build_lambda_with_hint(params, body, None)
+    }
+
+    /// Build IR for a lambda expression, optionally hinted by a declared
+    /// function type from context (e.g. `ثابت ف: (عدد) -> عدد = (س) => ...`).
+    /// The hint fills in a concrete type for any unannotated parameter that
+    /// would otherwise default to `Ptr(Void)`.
+    ///
+    /// Lifts the body into a real module-level function (`__lambda_N`) and
+    /// leaves behind a `Constant::Function` value referencing it by name —
+    /// the missing piece that made lambdas type-check but never execute
+    /// (issue #180).
+    pub(crate) fn build_lambda_with_hint(
+        &mut self,
+        params: &[Param],
+        body: &LambdaBody,
+        hint: Option<&IrType>,
+    ) -> Result<VarId> {
         use super::super::Parameter;
 
-        let lambda_name = format!("__lambda_{}", self.var_counter);
+        let hint_params: &[IrType] = match hint {
+            Some(IrType::Function { params, .. }) => params.as_slice(),
+            _ => &[],
+        };
+
+        let lambda_name = format!("__lambda_{}", self.lambda_counter);
+        self.lambda_counter += 1;
+
+        // Defense in depth: the module-scoped counter above should make a
+        // collision unreachable, but a user program can't otherwise declare
+        // a function named `__lambda_N`, so this is a one-line guard rather
+        // than a real expected path.
+        if self
+            .module
+            .get_function(&FuncId(lambda_name.clone()))
+            .is_some()
+        {
+            return Err(IrError::new(format!(
+                "الدالة الداخلية '{}' معرّفة مسبقاً",
+                lambda_name
+            )));
+        }
 
         let ir_params: Vec<Parameter> = params
             .iter()
@@ -924,6 +1835,7 @@ impl IrBuilder {
                 let ty =
                     p.ty.as_ref()
                         .map(|t| self.convert_type(t))
+                        .or_else(|| hint_params.get(i).cloned())
                         .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                 Parameter {
                     id: VarId(i as u32),
@@ -932,59 +1844,237 @@ impl IrBuilder {
                 }
             })
             .collect();
+        let real_param_tys: Vec<IrType> = ir_params.iter().map(|p| p.ty.clone()).collect();
 
-        let saved_function = self.current_function.take();
-        let saved_variables = self.variables.clone();
+        let saved = self.suspend_function_context();
+        // A lifted lambda is the one nested build that also needs its own
+        // `parameters`/`var_types`: it re-numbers its parameters from zero, so
+        // the enclosing function's entries for those same ids would otherwise
+        // describe the lambda's slots. Declaration builds must NOT isolate
+        // these — `build_func_decl` has always let them accumulate, and enum
+        // payload types registered while lowering one function are read back
+        // while lowering the next.
+        let saved_parameters = std::mem::take(&mut self.parameters);
+        let saved_var_types = std::mem::take(&mut self.var_types);
 
+        let unlowerable = self.unlowerable_param_names(params, hint_params);
         self.begin_function(
             lambda_name.clone(),
             ir_params,
-            IrType::Ptr(Box::new(IrType::Void)),
+            IrType::Ptr(Box::new(IrType::Void)), // provisional; patched below
         )?;
+        if let Some(name) = unlowerable.first() {
+            self.block_native_lowering(NativeBlock::untyped(Self::untyped_param_reason(name)));
+        }
 
-        match body {
+        // Read whatever the lambda's own build produces (return type) from
+        // its own var_types/current_function *before* the outer state below
+        // is restored.
+        let real_ret_ty = match body {
             LambdaBody::Expr(expr) => {
-                let result = self.build_expr(expr)?;
-                self.emit(Instruction::Return {
-                    value: Some(result),
-                });
+                // A curried lambda (`(أ) => (ب) => ...`, spec §5.3) must pass
+                // the outer hint's *return* signature down, or the inner
+                // lambda's params stay untyped and native codegen rejects the
+                // very syntax the annotation spelled out.
+                let inner_hint = match (&expr.kind, hint) {
+                    (ExprKind::Lambda { .. }, Some(IrType::Function { ret, .. }))
+                        if matches!(**ret, IrType::Function { .. }) =>
+                    {
+                        Some((**ret).clone())
+                    }
+                    _ => None,
+                };
+                let result = match (&expr.kind, &inner_hint) {
+                    (ExprKind::Lambda { params, body }, Some(h)) => {
+                        self.build_lambda_with_hint(params, body, Some(h))?
+                    }
+                    _ => self.build_expr(expr)?,
+                };
+                let ret_ty = self
+                    .var_types
+                    .get(&result.0)
+                    .cloned()
+                    .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+                // A Void-valued body (`(س) => اطبع(س)` — an idiomatic
+                // callback) has no value to return: `ret void %v` is invalid
+                // LLVM, and a void `Call` never even names a dest for `%v`
+                // to refer to.
+                if ret_ty == IrType::Void {
+                    self.emit(Instruction::Return { value: None });
+                } else {
+                    self.emit(Instruction::Return {
+                        value: Some(result),
+                    });
+                }
+                ret_ty
             }
             LambdaBody::Block(block) => {
                 for stmt in &block.statements {
                     self.build_stmt(stmt)?;
                 }
-                if let Some(ref func) = self.current_function {
-                    if let Some(blk) = func.blocks.last() {
-                        if !blk.has_terminator() {
-                            self.emit(Instruction::Return { value: None });
-                        }
-                    }
+
+                // Scan ALL returns, not just the first: semantic analysis
+                // accepts mixed bare/valued and عدد/عدد_عشري returns (folded
+                // to أي), so the lifted function must be patched to one
+                // consistent return type or native codegen emits invalid
+                // LLVM IR (`ret void` inside `define i64`, or `ret i64` of
+                // a double).
+                let valued: Vec<IrType> = self
+                    .current_function
+                    .as_ref()
+                    .map(|func| {
+                        func.blocks
+                            .iter()
+                            .flat_map(|b| &b.instructions)
+                            .filter_map(|inst| match inst {
+                                Instruction::Return { value: Some(v) } => Some(
+                                    self.var_types
+                                        .get(&v.0)
+                                        .cloned()
+                                        .unwrap_or(IrType::Ptr(Box::new(IrType::Void))),
+                                ),
+                                _ => None,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let ret_ty = if valued.is_empty() {
+                    IrType::Void
+                } else if valued.iter().all(|t| *t == valued[0]) {
+                    valued[0].clone()
+                } else if valued
+                    .iter()
+                    .all(|t| matches!(t, IrType::Int | IrType::Float))
+                {
+                    // Mixed عدد/عدد_عشري returns widen to عدد_عشري
+                    // (spec §5.6's implicit coercion, applied per-return in
+                    // the patch pass below).
+                    IrType::Float
+                } else {
+                    // Non-unifiable mix (e.g. `أرجع "نص"` and `أرجع ١` in one
+                    // lambda) — semantic analysis folds this to `أي` and the
+                    // interpreter dispatches on runtime values, but native
+                    // code needs one concrete ABI. Keep the first type so the
+                    // IR stays well-formed for the interpreter, and block
+                    // native lowering so the user gets a Tarqeem diagnostic
+                    // instead of a leaked clang type error.
+                    self.block_native_lowering(NativeBlock::untyped(
+                        "قيم الإرجاع في الدالة السهمية ذات أنواع غير متوافقة",
+                    ));
+                    valued[0].clone()
+                };
+
+                if ret_ty != IrType::Void {
+                    self.patch_block_lambda_returns(&ret_ty);
                 }
+
+                self.emit_implicit_return(&ret_ty);
+
+                ret_ty
             }
+        };
+
+        if let Some(ref mut func) = self.current_function {
+            func.return_type = real_ret_ty.clone();
         }
 
         self.end_function()?;
 
-        self.current_function = saved_function;
-        self.variables = saved_variables;
+        self.resume_function_context(saved);
+        self.parameters = saved_parameters;
+        self.var_types = saved_var_types;
+
+        self.function_param_types
+            .insert(lambda_name.clone(), real_param_tys.clone());
+        self.function_return_types
+            .insert(lambda_name.clone(), real_ret_ty.clone());
+
+        let fn_ty = IrType::Function {
+            params: real_param_tys,
+            ret: Box::new(real_ret_ty),
+        };
 
         let dest = self.new_var();
         self.emit(Instruction::Const {
             dest,
-            value: Constant::Null, // Will be replaced with function pointer
-            ty: IrType::Function {
-                params: vec![],
-                ret: Box::new(IrType::Void),
-            },
+            value: Constant::Function(lambda_name),
+            ty: fn_ty.clone(),
         });
+        self.var_types.insert(dest.0, fn_ty);
 
         Ok(dest)
+    }
+
+    /// Rewrites every `أرجع` in the (still-current) lifted lambda to match
+    /// the unified non-void return type: bare `Return {None}` becomes a
+    /// zero-of-type return, and an `Int`-valued return in a `Float`-typed
+    /// lambda gains an `IntToFloat` (spec §5.6). Without this, mixed
+    /// returns — legal early-return code the semantic layer folds to أي —
+    /// lower to invalid LLVM IR (`ret void` inside `define i64`).
+    fn patch_block_lambda_returns(&mut self, ret_ty: &IrType) {
+        // Plan first (immutable scan), then apply — each patch allocates a
+        // fresh VarId, which needs `&mut self`.
+        let mut plan: Vec<(usize, usize, Option<VarId>)> = Vec::new();
+        let Some(func) = self.current_function.as_ref() else {
+            return;
+        };
+        for (bi, blk) in func.blocks.iter().enumerate() {
+            for (ii, inst) in blk.instructions.iter().enumerate() {
+                match inst {
+                    Instruction::Return { value: None } => plan.push((bi, ii, None)),
+                    Instruction::Return { value: Some(v) }
+                        if *ret_ty == IrType::Float
+                            && self.var_types.get(&v.0) == Some(&IrType::Int) =>
+                    {
+                        plan.push((bi, ii, Some(*v)));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Reverse order keeps earlier indices valid while each patch
+        // replaces one instruction with two.
+        for (bi, ii, src) in plan.into_iter().rev() {
+            let dest = self.new_var();
+            let (replacement, dest_ty) = match src {
+                None => {
+                    let zero = match ret_ty {
+                        IrType::Float => Constant::Float(0.0),
+                        IrType::Bool => Constant::Bool(false),
+                        IrType::Int => Constant::Int(0),
+                        _ => Constant::Null,
+                    };
+                    (
+                        vec![
+                            Instruction::Const {
+                                dest,
+                                value: zero,
+                                ty: ret_ty.clone(),
+                            },
+                            Instruction::Return { value: Some(dest) },
+                        ],
+                        ret_ty.clone(),
+                    )
+                }
+                Some(v) => (
+                    vec![
+                        Instruction::IntToFloat { dest, src: v },
+                        Instruction::Return { value: Some(dest) },
+                    ],
+                    IrType::Float,
+                ),
+            };
+            self.var_types.insert(dest.0, dest_ty);
+            if let Some(func) = self.current_function.as_mut() {
+                func.blocks[bi].instructions.splice(ii..=ii, replacement);
+            }
+        }
     }
 
     /// Build IR for a new object instantiation.
     pub(crate) fn build_new(&mut self, class: &Expr, args: &[Expr]) -> Result<VarId> {
         let class_name = if let ExprKind::Identifier(name) = &class.kind {
-            name.clone()
+            self.resolve_class_name(name)
         } else {
             "__dynamic__".to_string()
         };

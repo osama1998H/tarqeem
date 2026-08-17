@@ -4,7 +4,10 @@
 //! by the Tarqeem compiler. The IR is a three-address code in SSA (Static Single
 //! Assignment) form, designed to be lowered to LLVM IR or interpreted directly.
 
+use std::collections::HashSet;
 use std::fmt;
+
+use crate::error::codes::{ErrorCode, ERR_UNTYPED_LAMBDA_PARAM};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VarId(pub u32);
@@ -139,6 +142,11 @@ pub enum Constant {
     Int(i64),
     Float(f64),
     String(u32), // index into string table
+    /// A reference to a function by name — a bare function *value*, mirroring
+    /// the interpreter's `Value::Function(String)` exactly. This is what a
+    /// lambda expression (or a named function used as a value) evaluates to,
+    /// consumed by `Instruction::CallIndirect` (see issue #180).
+    Function(String),
 }
 
 impl fmt::Display for Constant {
@@ -149,6 +157,7 @@ impl fmt::Display for Constant {
             Constant::Int(i) => write!(f, "{}", i),
             Constant::Float(fl) => write!(f, "{:.6}", fl),
             Constant::String(idx) => write!(f, "str#{}", idx),
+            Constant::Function(name) => write!(f, "@{}", name),
         }
     }
 }
@@ -250,6 +259,12 @@ pub enum Instruction {
         dest: VarId,
         src: VarId,
     },
+    /// Widen a boolean to an integer, as `عدد(صحيح)` does. Distinct from
+    /// `Bitcast`, which codegen emits only for pointers.
+    BoolToInt {
+        dest: VarId,
+        src: VarId,
+    },
     ToString {
         dest: VarId,
         src: VarId,
@@ -345,6 +360,11 @@ pub enum Instruction {
         method: MethodId,
         args: Vec<VarId>,
         ret_ty: IrType,
+        /// True for ordinary member calls (dispatch on the object's runtime
+        /// class); false for `الأصل.method()` super calls, which must stay
+        /// bound to `method.class` or an override calling its super would
+        /// recurse into itself forever.
+        virtual_dispatch: bool,
     },
 
     CallVirtual {
@@ -470,6 +490,9 @@ impl fmt::Display for Instruction {
             Instruction::FloatToInt { dest, src } => {
                 write!(f, "{}: i64 = float_to_int {}", dest, src)
             }
+            Instruction::BoolToInt { dest, src } => {
+                write!(f, "{}: i64 = bool_to_int {}", dest, src)
+            }
             Instruction::ToString { dest, src } => {
                 write!(f, "{}: str = to_string {}", dest, src)
             }
@@ -573,11 +596,17 @@ impl fmt::Display for Instruction {
                 method,
                 args,
                 ret_ty,
+                virtual_dispatch,
             } => {
                 if let Some(d) = dest {
                     write!(f, "{}: {} = ", d, ret_ty)?;
                 }
-                write!(f, "call_method {}, {}(", object, method)?;
+                let mnemonic = if *virtual_dispatch {
+                    "call_method_virtual"
+                } else {
+                    "call_method"
+                };
+                write!(f, "{} {}, {}(", mnemonic, object, method)?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -794,6 +823,55 @@ pub struct Parameter {
     pub ty: IrType,
 }
 
+/// A function's refusal to be lowered to native code, carrying the diagnostic
+/// verbatim so codegen reports the right advice for the right cause.
+///
+/// The two constructors differ in more than wording: an untyped parameter is
+/// something the *user* can fix by annotating, while an unsupported construct
+/// can only be worked around by choosing another backend.
+#[derive(Debug, Clone)]
+pub struct NativeBlock {
+    pub message: String,
+    pub code: String,
+    /// An unsupported *construct* outranks an untyped *type*: no annotation
+    /// fixes `ارمِ`, so reporting ت٠٣٠١'s "declare concrete types" for a
+    /// function that has both sends the user to annotate parameters, recompile,
+    /// and hit the same wall (issue #181).
+    pub overrides_types: bool,
+}
+
+impl NativeBlock {
+    /// A type native codegen cannot pick an ABI for. `detail` names what.
+    pub fn untyped(detail: impl fmt::Display) -> Self {
+        Self {
+            message: format!(
+                "الترجمة الأصلية غير مدعومة هنا بعد: {} — صرّح بالأنواع المحددة أو شغّل البرنامج بالمفسّر (tarqeem run). / \
+                 Native compilation is not supported here yet: {} — declare \
+                 concrete types, or run the program with the interpreter \
+                 (tarqeem run).",
+                detail, detail
+            ),
+            code: ERR_UNTYPED_LAMBDA_PARAM.to_string(),
+            overrides_types: false,
+        }
+    }
+
+    /// A construct with no native lowering at all, whatever its types. No
+    /// annotation helps, so the advice is to pick a backend that supports it.
+    pub fn unsupported(detail: impl fmt::Display, code: &ErrorCode) -> Self {
+        Self {
+            message: format!(
+                "{} غير مدعوم في الترجمة الأصلية بعد — شغّل البرنامج بالمفسّر (tarqeem run) أو بالترجمة الفورية (tarqeem run --jit). / \
+                 {} is not supported in native compilation yet — run the program \
+                 with the interpreter (tarqeem run) or the JIT (tarqeem run --jit).",
+                detail, detail
+            ),
+            code: code.to_string(),
+            overrides_types: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Function {
     pub id: FuncId,
@@ -804,6 +882,15 @@ pub struct Function {
     pub var_counter: u32,
     pub block_counter: u32,
     pub is_async: bool,
+    /// Why this function cannot be lowered to native code, if it can't — an
+    /// unannotated (or `أي`) parameter, returns whose types don't unify, or a
+    /// construct with no native lowering such as `ارمِ`. A parameter's `IrType`
+    /// alone cannot carry the first case: an unannotated parameter and an
+    /// explicitly-annotated `قاموس<…>` both lower to `Ptr(Void)`, so the
+    /// distinction has to be recorded when it is still known. `None` for every
+    /// natively-lowerable function; the interpreter ignores this entirely
+    /// (see ت٠٣٠١، ت٠٣٠٢، ت٠٣٠٣).
+    pub native_block: Option<NativeBlock>,
 }
 
 impl Function {
@@ -817,6 +904,7 @@ impl Function {
             var_counter: 0,
             block_counter: 0,
             is_async: false,
+            native_block: None,
         }
     }
 
@@ -928,6 +1016,14 @@ pub struct Module {
     pub classes: Vec<Class>,
     pub functions: Vec<Function>,
     pub globals: Vec<(String, IrType, Option<Constant>)>,
+    /// Names that outrank a same-named built-in, decided once by the IR builder
+    /// from the semantic layer's visibility rather than re-derived per backend.
+    ///
+    /// `functions` is not that answer: it also holds every declaration the
+    /// linker merged from an imported module, including ones the program never
+    /// imported, so a module's private `اطبع` would otherwise capture a call
+    /// that `analyze` bound to the built-in (#262).
+    pub shadowing_names: HashSet<String>,
 }
 
 impl Module {
@@ -938,7 +1034,13 @@ impl Module {
             classes: Vec::new(),
             functions: Vec::new(),
             globals: Vec::new(),
+            shadowing_names: HashSet::new(),
         }
+    }
+
+    /// Whether `name` resolves to a user declaration rather than a built-in.
+    pub fn shadows_builtin(&self, name: &str) -> bool {
+        self.shadowing_names.contains(name)
     }
 
     pub fn get_function(&self, id: &FuncId) -> Option<&Function> {

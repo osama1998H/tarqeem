@@ -4,15 +4,18 @@
 //! declarations, function declarations, class declarations, control flow, etc.
 
 use super::super::modules::ExportKind;
+use super::super::prelude;
 use super::super::scope::{Scope, ScopeKind, Symbol, SymbolKind};
 use super::super::types::Type;
 use super::{Analyzer, EnumInfo, EnumVariantInfo};
 use crate::error::codes::{
     ERR_BREAK_OUTSIDE_LOOP, ERR_CLASS_NOT_FOUND, ERR_CONTINUE_OUTSIDE_LOOP, ERR_NOT_EXPORTED,
-    ERR_RETURN_OUTSIDE_FUNCTION, ERR_TYPE_MISMATCH, ERR_UNDEFINED_CLASS, ERR_VARIABLE_REDEFINITION,
+    ERR_RETURN_OUTSIDE_FUNCTION, ERR_THROW_NON_EXCEPTION, ERR_TYPE_MISMATCH, ERR_UNDEFINED_CLASS,
+    ERR_VARIABLE_REDEFINITION,
 };
 use crate::error::Span;
 use crate::parser::*;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 impl Analyzer {
@@ -190,11 +193,9 @@ impl Analyzer {
         };
 
         if let (Some(init_expr), Some(ref expected)) = (init, &declared_type) {
-            self.expected_type = Some(expected.clone());
-            let init_type = self.infer_type(init_expr);
-            self.expected_type = None;
+            let init_type = self.with_expected(Some(expected.clone()), |a| a.infer_type(init_expr));
 
-            if !init_type.is_compatible_with(expected) {
+            if !self.is_assignable(&init_type, expected) {
                 self.type_mismatch_error(
                     expected,
                     &init_type,
@@ -415,7 +416,7 @@ impl Analyzer {
 
                 if let Some(init_expr) = init {
                     let init_type = self.infer_type(init_expr);
-                    if !init_type.is_compatible_with(&field_type) {
+                    if !self.is_assignable(&init_type, &field_type) {
                         self.type_mismatch_error(
                             &field_type,
                             &init_type,
@@ -496,7 +497,7 @@ impl Analyzer {
 
         if let Some(init_expr) = default_value {
             let init_type = self.infer_type(init_expr);
-            if !init_type.is_compatible_with(&prop_type) {
+            if !self.is_assignable(&init_type, &prop_type) {
                 self.type_mismatch_error(
                     &prop_type,
                     &init_type,
@@ -519,7 +520,7 @@ impl Analyzer {
                         }
                         PropertyAccessorBody::Expr(expr) => {
                             let expr_type = self.infer_type(expr);
-                            if !expr_type.is_compatible_with(&prop_type) {
+                            if !self.is_assignable(&expr_type, &prop_type) {
                                 self.type_mismatch_error(
                                     &prop_type,
                                     &expr_type,
@@ -703,6 +704,89 @@ impl Analyzer {
         }
     }
 
+    /// The variable an `X != لا_شيء` / `X == لا_شيء` test proves non-null, and
+    /// which branch it is proven in.
+    ///
+    /// Returns `(name, true)` when the *then* branch is the narrowed one — the
+    /// `!=` spelling — and `(name, false)` for `==`, where the *else* branch is.
+    /// Both operand orders are accepted, since `لا_شيء != س` reads as naturally
+    /// in Arabic as the reverse.
+    fn null_check_target(condition: &Expr) -> Option<(String, bool)> {
+        let ExprKind::Binary { left, op, right } = &condition.kind else {
+            return None;
+        };
+        let narrowed_in_then = match op {
+            BinaryOp::NotEq => true,
+            BinaryOp::Eq => false,
+            _ => return None,
+        };
+
+        let is_null = |e: &Expr| matches!(&e.kind, ExprKind::Literal(Literal::Null));
+        let name_of = |e: &Expr| match &e.kind {
+            ExprKind::Identifier(name) => Some(name.clone()),
+            _ => None,
+        };
+
+        let name = if is_null(right) {
+            name_of(left)
+        } else if is_null(left) {
+            name_of(right)
+        } else {
+            None
+        }?;
+
+        Some((name, narrowed_in_then))
+    }
+
+    /// Whether `block` assigns to `name` anywhere within it.
+    ///
+    /// Narrowing is withdrawn entirely when it does. Tracking the point at which
+    /// an assignment invalidates the proof needs a flow pass this analyzer does
+    /// not have, and narrowing a variable that the branch then sets to `لا_شيء`
+    /// would be unsound — so the conservative answer is to narrow nothing.
+    fn block_assigns_to(block: &Block, name: &str) -> bool {
+        fn expr_assigns(expr: &Expr, name: &str) -> bool {
+            match &expr.kind {
+                ExprKind::Assignment { target, value, .. } => {
+                    matches!(&target.kind, ExprKind::Identifier(n) if n == name)
+                        || expr_assigns(target, name)
+                        || expr_assigns(value, name)
+                }
+                ExprKind::Binary { left, right, .. } => {
+                    expr_assigns(left, name) || expr_assigns(right, name)
+                }
+                ExprKind::Unary { operand, .. } => expr_assigns(operand, name),
+                ExprKind::Call { callee, args } => {
+                    expr_assigns(callee, name) || args.iter().any(|a| expr_assigns(a, name))
+                }
+                _ => false,
+            }
+        }
+
+        fn stmt_assigns(stmt: &Stmt, name: &str) -> bool {
+            match &stmt.kind {
+                StmtKind::Expr(expr) => expr_assigns(expr, name),
+                StmtKind::Block(inner) => inner.statements.iter().any(|s| stmt_assigns(s, name)),
+                StmtKind::If {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    then_branch.statements.iter().any(|s| stmt_assigns(s, name))
+                        || else_branch
+                            .as_ref()
+                            .is_some_and(|b| b.statements.iter().any(|s| stmt_assigns(s, name)))
+                }
+                StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => {
+                    body.statements.iter().any(|s| stmt_assigns(s, name))
+                }
+                _ => true, // Unknown shape: assume it might assign, and do not narrow.
+            }
+        }
+
+        block.statements.iter().any(|s| stmt_assigns(s, name))
+    }
+
     /// Analyze an if statement.
     pub(crate) fn analyze_if(
         &mut self,
@@ -712,11 +796,60 @@ impl Analyzer {
     ) {
         self.check_condition_type(condition);
 
-        self.analyze_block(then_branch, ScopeKind::Block);
+        // After `إذا (س != لا_شيء)` the value is known to be present, so the
+        // branch sees `س` at its unwrapped type and arithmetic on it type-checks
+        // (LANGUAGE_SPEC §13.4). Implemented by shadowing the symbol inside the
+        // branch scope, which unwinds with the scope.
+        let narrowing = Self::null_check_target(condition).and_then(|(name, in_then)| {
+            match self.scope.lookup(&name).map(|s| s.ty.clone()) {
+                Some(Type::Optional(inner)) => Some((name, in_then, *inner)),
+                _ => None,
+            }
+        });
 
-        if let Some(else_block) = else_branch {
-            self.analyze_block(else_block, ScopeKind::Block);
+        match &narrowing {
+            Some((name, true, inner)) if !Self::block_assigns_to(then_branch, name) => {
+                self.analyze_block_narrowing(then_branch, Some((name.clone(), inner.clone())));
+                if let Some(else_block) = else_branch {
+                    self.analyze_block(else_block, ScopeKind::Block);
+                }
+            }
+            Some((name, false, inner))
+                if else_branch.is_some_and(|b| !Self::block_assigns_to(b, name)) =>
+            {
+                self.analyze_block(then_branch, ScopeKind::Block);
+                self.analyze_block_narrowing(
+                    else_branch.expect("checked above"),
+                    Some((name.clone(), inner.clone())),
+                );
+            }
+            _ => {
+                self.analyze_block(then_branch, ScopeKind::Block);
+                if let Some(else_block) = else_branch {
+                    self.analyze_block(else_block, ScopeKind::Block);
+                }
+            }
         }
+    }
+
+    /// Analyze a block with one symbol shadowed at a narrowed type.
+    fn analyze_block_narrowing(&mut self, block: &Block, narrowed: Option<(String, Type)>) {
+        self.push_scope(ScopeKind::Block);
+
+        if let Some((name, ty)) = narrowed {
+            if let Some(original) = self.scope.lookup(&name).cloned() {
+                let mut shadow = original;
+                shadow.ty = ty;
+                shadow.used = true; // The outer binding was read by the null test.
+                self.scope.define(shadow);
+            }
+        }
+
+        for stmt in &block.statements {
+            self.analyze_stmt(stmt);
+        }
+
+        self.pop_scope();
     }
 
     /// Analyze a while loop.
@@ -909,9 +1042,14 @@ impl Analyzer {
             return;
         }
 
-        if let Some(expr) = value {
-            self.analyze_expr(expr);
-        }
+        let return_type = if let Some(expr) = value {
+            self.analyze_expr(expr)
+        } else {
+            Type::Void
+        };
+        // Feeds block-bodied lambda return-type inference (issue #180); a
+        // no-op for declared functions, which never read this back.
+        self.scope.record_return(return_type);
     }
 
     /// Analyze a try-catch-finally statement.
@@ -946,16 +1084,33 @@ impl Analyzer {
     }
 
     /// Analyze a throw statement.
+    ///
+    /// The message names `استثناء`, not `خطأ`: `خطأ` is the boolean-false
+    /// literal, and calling it the base class is what sent readers looking for
+    /// a class they could never declare (issue #181).
     pub(crate) fn analyze_throw(&mut self, expr: &Expr, span: Span) {
         let expr_type = self.analyze_expr(expr);
 
+        // `Type::Error` means the operand was already diagnosed. Reporting it
+        // again renders as `'خطأ'` — `Type::Error::arabic_name()` — reading as
+        // if the user had thrown a boolean.
+        if expr_type == Type::Error {
+            return;
+        }
+
         if !self.is_error_type(&expr_type) {
-            self.error(
+            self.error_with_code(
                 &format!(
-                    "لا يمكن رمي نوع غير خطأ '{}'. يمكن رمي كائنات الخطأ (خطأ أو أصنافه الفرعية) فقط",
-                    expr_type.arabic_name()
+                    "لا يمكن رمي '{}': «ارمِ» تقبل نسخة من «{}» أو أحد أصنافه الفرعية فقط. / \
+                     Cannot throw '{}': «ارمِ» accepts only an instance of «{}» \
+                     or one of its subclasses.",
+                    expr_type.arabic_name(),
+                    prelude::EXCEPTION_CLASS,
+                    expr_type.arabic_name(),
+                    prelude::EXCEPTION_CLASS
                 ),
                 span,
+                &ERR_THROW_NON_EXCEPTION.to_string(),
             );
         }
     }
@@ -1037,10 +1192,21 @@ impl Analyzer {
                 }
             }
             ImportItems::Wildcard(alias) => {
+                let members: HashMap<String, Type> = module_exports
+                    .iter()
+                    .map(|(name, exported)| {
+                        (name.clone(), self.export_kind_to_type(&exported.kind, name))
+                    })
+                    .collect();
+                self.module_namespaces.insert(from.to_string(), members);
+
                 self.scope.define(Symbol {
                     name: alias.clone(),
                     kind: SymbolKind::Import,
-                    ty: Type::Any,
+                    // Typing the alias `أي` made `أدوات.غير_موجود` type-check
+                    // silently; `Type::Module` routes member access through the
+                    // exports recorded above instead.
+                    ty: Type::Module(from.to_string()),
                     mutable: false,
                     defined: true,
                     used: false,
@@ -1079,6 +1245,11 @@ impl Analyzer {
     }
 
     /// Register imports as Any type when module is not found.
+    ///
+    /// The wildcard arm deliberately stays `أي` instead of `Type::Module`: with
+    /// no exports to check against, every member access through the alias would
+    /// become an error. Most of `stdlib/` does not parse yet, so tightening
+    /// this would turn silent degradation into a wall of diagnostics.
     fn register_imports_as_any(&mut self, items: &ImportItems, span: Span) {
         match items {
             ImportItems::Named(imports) => {
@@ -1188,12 +1359,13 @@ impl Analyzer {
                 }
             }
             ImportItems::Wildcard(alias) => {
-                // For wildcard imports, register all exports from the stdlib module
-                // We define the alias as a namespace-like symbol
                 self.scope.define(Symbol {
                     name: alias.clone(),
                     kind: SymbolKind::Import,
-                    ty: Type::Any, // Namespace type would be better, but Any works for now
+                    // No `module_namespaces` entry: a stdlib module has no AST
+                    // to enumerate, so `resolve_member_type` asks
+                    // `Scope::get_stdlib_builtin` for each member by name.
+                    ty: Type::Module(module.to_string()),
                     mutable: false,
                     defined: true,
                     used: false,
@@ -1222,13 +1394,16 @@ impl Analyzer {
     /// Convert export kind to type.
     fn export_kind_to_type(&self, kind: &ExportKind, name: &str) -> Type {
         match kind {
-            ExportKind::Function => Type::Function {
-                params: vec![],
-                return_type: Box::new(Type::Any),
+            ExportKind::Function {
+                params,
+                return_type,
+            } => Type::Function {
+                params: params.clone(),
+                return_type: Box::new(return_type.clone()),
             },
             ExportKind::Class => Type::Class(name.to_string()),
             ExportKind::Interface => Type::Interface(name.to_string()),
-            ExportKind::Variable | ExportKind::Constant => Type::Any,
+            ExportKind::Variable(ty) | ExportKind::Constant(ty) => ty.clone(),
         }
     }
 
@@ -1297,7 +1472,7 @@ impl Analyzer {
                     args.iter().zip(params.iter()).enumerate()
                 {
                     let arg_type = self.infer_type(arg);
-                    if !arg_type.is_compatible_with(param_type) {
+                    if !self.is_assignable(&arg_type, param_type) {
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,

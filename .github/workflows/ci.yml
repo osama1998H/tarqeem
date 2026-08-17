@@ -88,6 +88,12 @@ jobs:
       - name: Build
         run: cargo build --verbose
 
+      # libtrq.a lives in the separate `tarqeem-runtime` crate, which the
+      # default member set of this workspace excludes. Tests that link native
+      # binaries (tests/module_execution_tests.rs) fail without it.
+      - name: Build runtime library
+        run: cargo build -p tarqeem-runtime --verbose
+
       - name: Run ${{ matrix.module }} tests
         run: |
           case "${{ matrix.module }}" in
@@ -159,6 +165,11 @@ jobs:
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@v2
 
+      # See the note in test-modules: native linking needs libtrq.a, and
+      # `cargo test` alone never builds the tarqeem-runtime crate.
+      - name: Build runtime library
+        run: cargo build -p tarqeem-runtime --verbose
+
       - name: Run all tests
         run: cargo test --all-features --verbose
 
@@ -180,6 +191,10 @@ jobs:
 
       - name: Install tarpaulin
         run: cargo install cargo-tarpaulin
+
+      # Tarpaulin runs the whole suite, native-linking tests included.
+      - name: Build runtime library
+        run: cargo build -p tarqeem-runtime --verbose
 
       - name: Generate coverage report
         run: cargo tarpaulin --out xml --out html --output-dir coverage

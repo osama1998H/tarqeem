@@ -13,7 +13,7 @@ use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
-use super::{configure_analyzer, warn_invalid_extension};
+use super::{analyzer_file_path, configure_analyzer, warn_invalid_extension};
 
 /// Arguments for the debug command
 pub struct DebugArgs {
@@ -43,7 +43,7 @@ pub fn debug(args: DebugArgs, lang: Language) -> Result<(), String> {
         "خطأ في التحليل".to_string()
     })?;
 
-    let mut analyzer = Analyzer::new();
+    let mut analyzer = Analyzer::for_file(analyzer_file_path(&args.file));
     configure_analyzer(&mut analyzer, args.verbose);
     if let Err(diagnostics) = analyzer.analyze(&ast) {
         for diag in &diagnostics {
@@ -52,9 +52,24 @@ pub fn debug(args: DebugArgs, lang: Language) -> Result<(), String> {
         return Err(format!("وُجد {} خطأ/أخطاء", diagnostics.len()));
     }
 
-    let ir_builder = IrBuilder::new(filename.clone());
+    // Imported module bodies only reach the debug interpreter through this
+    // merge; the IR builder itself accepts a single Ast and drops `استورد`.
+    let mut link_warnings = Vec::new();
+    let linked = analyzer
+        .linked_ast(&ast, &mut link_warnings)
+        .map_err(|diagnostics| {
+            for diag in &diagnostics {
+                diag.emit(&source, &filename, lang);
+            }
+            format!("وُجد {} خطأ/أخطاء", diagnostics.len())
+        })?;
+    for diag in &link_warnings {
+        diag.emit(&source, &filename, lang);
+    }
+
+    let ir_builder = IrBuilder::new(filename.clone()).with_visible_names(analyzer.visible_names());
     let ir_module = ir_builder
-        .build(&ast)
+        .build(&linked)
         .map_err(|e| format!("خطأ بناء التمثيل الوسيط: {}", e.message))?;
 
     if args.dap_stdio || args.dap_port.is_some() {

@@ -2,14 +2,16 @@
 //!
 //! This module handles conversion of AST statements to IR instructions.
 
+use crate::error::codes::ERR_NATIVE_EXCEPTIONS;
 use crate::parser::{
-    Block, CatchClause, ClassMember, Expr, MatchArm, Param, Pattern, PatternKind, Stmt, StmtKind,
-    TypeAnnotation,
+    Block, CatchClause, ClassMember, Expr, ExprKind, MatchArm, Param, Pattern, PatternKind, Stmt,
+    StmtKind, TypeAnnotation,
 };
+use crate::semantic::EXCEPTION_CLASS;
 
 use super::super::{
-    BinaryOp, BlockId, ClassId, Constant, EnumId, FieldId, Instruction, IrType, Parameter, VarId,
-    VariantId,
+    BinaryOp, BlockId, ClassId, Constant, EnumId, FieldId, Instruction, IrType, NativeBlock,
+    Parameter, VarId, VariantId,
 };
 use super::{IrBuilder, IrError, Result};
 
@@ -111,14 +113,13 @@ impl IrBuilder {
     ) -> Result<()> {
         if self.global_variables.contains(name) {
             if let Some(init_expr) = init {
-                if self.try_evaluate_const(init_expr).is_none() {
-                    let value = self.build_expr(init_expr)?;
-                    let global_ty = self.global_var_types.get(name).cloned();
-                    let value = self.coerce_int_to_float(value, global_ty.as_ref(), init_expr);
-                    self.emit(Instruction::GlobalStore {
-                        name: name.to_string(),
-                        value,
-                    });
+                // Program mode: top-level initializers were already emitted
+                // into __global_init__; the fourth pass revisits this decl
+                // *outside* any function, so re-building it here would only
+                // lift an orphaned duplicate lambda and drop the store on
+                // the floor (`emit` has no current function to write to).
+                if self.try_evaluate_const(init_expr).is_none() && self.current_function.is_some() {
+                    self.build_global_initializer(name, init_expr)?;
                 }
             }
             return Ok(());
@@ -141,7 +142,17 @@ impl IrBuilder {
         self.var_types.insert(ptr.0, ir_type.clone());
 
         if let Some(init_expr) = init {
-            let value = self.build_expr(init_expr)?;
+            let value = self.build_init_expr(init_expr, Some(&ir_type))?;
+            // See the identical correction in `build_global_initializer`.
+            // The already-emitted `Alloca` keeps the provisional type, which
+            // is harmless: every type this can re-tag is pointer-width, so
+            // the slot is correctly sized either way, and `Load`/`Store` read
+            // their type from `var_types` rather than from the `Alloca`.
+            if Self::is_unknown_ir_type(Some(&ir_type)) {
+                if let Some(real_ty) = self.var_types.get(&value.0).cloned() {
+                    self.var_types.insert(ptr.0, real_ty);
+                }
+            }
             let value = self.coerce_int_to_float(value, Some(&ir_type), init_expr);
             self.emit(Instruction::Store { ptr, value });
         }
@@ -149,6 +160,75 @@ impl IrBuilder {
         self.variables.insert(name.to_string(), ptr);
 
         Ok(())
+    }
+
+    /// Emits the `GlobalStore` for one non-const global initializer,
+    /// threading the registered global type as a lambda hint and correcting
+    /// a provisionally-typed lambda global afterward. Shared by
+    /// `build_var_decl` (script mode) and the program-mode
+    /// `__global_init__`/`__main__` static-initializer loops in
+    /// `IrBuilder::build` — the program-mode path previously used a bare
+    /// `build_expr`, so a fully annotated global lambda still lifted with
+    /// untyped params.
+    pub(crate) fn build_global_initializer(&mut self, name: &str, init_expr: &Expr) -> Result<()> {
+        let global_ty = self.global_var_types.get(name).cloned();
+        let value = self.build_init_expr(init_expr, global_ty.as_ref())?;
+        // An unannotated global's registered type is only a provisional
+        // `infer_expr_type` guess made before any body was built, and that
+        // pass has no arm for a lambda literal (nor for a call through one),
+        // so it lands on the `Ptr(Void)` unknown sentinel. Now that the
+        // initializer is actually built, its real type is known — adopt it,
+        // or every later `GlobalLoad` reads the slot at the wrong type
+        // (`load ptr` from an `i64` slot, which `اطبع` then dereferences and
+        // segfaults natively; the interpreter is dynamically typed and
+        // unaffected either way).
+        if Self::is_unknown_ir_type(global_ty.as_ref()) {
+            if let Some(real_ty) = self.var_types.get(&value.0).cloned() {
+                self.set_global_type(name, real_ty);
+            }
+        }
+        let value = self.coerce_int_to_float(value, global_ty.as_ref(), init_expr);
+        self.emit(Instruction::GlobalStore {
+            name: name.to_string(),
+            value,
+        });
+        Ok(())
+    }
+
+    /// `Ptr(Void)` is the builder's "type not known yet" sentinel (see
+    /// `infer_expr_type`'s fallthrough); a slot carrying it may be safely
+    /// re-typed once the real value has been built.
+    pub(crate) fn is_unknown_ir_type(ty: Option<&IrType>) -> bool {
+        match ty {
+            None => true,
+            Some(IrType::Ptr(inner)) => **inner == IrType::Void,
+            Some(_) => false,
+        }
+    }
+
+    /// Re-type a global in both places the type is recorded: the builder's
+    /// lookup table (read by `build_identifier` for `GlobalLoad`) and the
+    /// module's global list (which codegen emits `@g = global <ty>` from).
+    fn set_global_type(&mut self, name: &str, ty: IrType) {
+        self.global_var_types.insert(name.to_string(), ty.clone());
+        if let Some(entry) = self.module.globals.iter_mut().find(|(n, _, _)| n == name) {
+            entry.1 = ty;
+        }
+    }
+
+    /// Builds a variable's initializer expression, threading a declared
+    /// function-type annotation through to `build_lambda_with_hint` when the
+    /// initializer is a bare lambda literal (e.g.
+    /// `ثابت جمع: (عدد، عدد) -> عدد = (أ، ب) => أ + ب؛`) — this is what lets
+    /// an unannotated lambda param pick up a concrete type from the
+    /// surrounding declaration instead of defaulting to `Ptr(Void)`.
+    fn build_init_expr(&mut self, init_expr: &Expr, declared_ty: Option<&IrType>) -> Result<VarId> {
+        if let ExprKind::Lambda { params, body } = &init_expr.kind {
+            if matches!(declared_ty, Some(IrType::Function { .. })) {
+                return self.build_lambda_with_hint(params, body, declared_ty);
+            }
+        }
+        self.build_expr(init_expr)
     }
 
     /// Implicit عدد → عدد_عشري conversion (spec §5.6): storing an integer
@@ -203,13 +283,17 @@ impl IrBuilder {
             .unwrap_or(IrType::Void);
         let is_void_function = ret_type == IrType::Void;
 
-        let saved_function = self.current_function.take();
-        let saved_block = self.current_block;
-        let saved_var_counter = self.var_counter;
-        let saved_block_counter = self.block_counter;
-        let saved_variables = self.variables.clone();
+        let saved = self.suspend_function_context();
 
+        let unlowerable = self.unlowerable_param_names(params, &[]);
         self.begin_function(name.to_string(), ir_params, ret_type)?;
+        // A declared function's unannotated parameter lowers to `Ptr(Void)`
+        // exactly as a lambda's does, so it is the same native ABI hazard —
+        // record it here too rather than keying the codegen guard on the
+        // `__lambda_` name prefix.
+        if let Some(p) = unlowerable.first() {
+            self.block_native_lowering(NativeBlock::untyped(Self::untyped_param_reason(p)));
+        }
 
         if let Some(ref mut func) = self.current_function {
             func.is_async = is_async;
@@ -239,11 +323,7 @@ impl IrBuilder {
 
         self.end_function()?;
 
-        self.current_function = saved_function;
-        self.current_block = saved_block;
-        self.var_counter = saved_var_counter;
-        self.block_counter = saved_block_counter;
-        self.variables = saved_variables;
+        self.resume_function_context(saved);
 
         Ok(())
     }
@@ -256,6 +336,15 @@ impl IrBuilder {
         _implements: &[String],
         members: &[ClassMember],
     ) -> Result<()> {
+        // A class declared inside a function or block never reaches the
+        // collection pass, which walks top-level statements only
+        // (`IrBuilder::build`). Collect it on demand so its field layout — and
+        // its entry in `module.classes` — exist before any member is lowered.
+        // Without this, `backing_field_index` has no layout to consult.
+        if !self.class_fields.contains_key(name) {
+            self.collect_class(name, extends, members)?;
+        }
+
         if let Some(parent) = extends {
             for class in &mut self.module.classes {
                 if class.name == name {
@@ -272,16 +361,25 @@ impl IrBuilder {
                     params,
                     return_type,
                     body,
+                    is_static,
                     is_async,
                     ..
                 } => {
                     let mangled_name = format!("{}::{}", name, method_name);
 
-                    let mut method_params: Vec<Parameter> = vec![Parameter {
-                        id: VarId(0),
-                        name: "هذا".to_string(), // "this" in Arabic
-                        ty: IrType::Struct(ClassId(name.to_string())),
-                    }];
+                    // مشترك methods have no receiver: omit هذا entirely rather
+                    // than binding it to a parameter the caller never passes
+                    // (mirrors the static branch of build_property_getter/setter).
+                    let mut method_params: Vec<Parameter> = if *is_static {
+                        Vec::new()
+                    } else {
+                        vec![Parameter {
+                            id: VarId(0),
+                            name: "هذا".to_string(), // "this" in Arabic
+                            ty: IrType::Struct(ClassId(name.to_string())),
+                        }]
+                    };
+                    let base_index = method_params.len() as u32;
 
                     for (i, p) in params.iter().enumerate() {
                         let ty =
@@ -289,7 +387,7 @@ impl IrBuilder {
                                 .map(|t| self.convert_type(t))
                                 .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
                         method_params.push(Parameter {
-                            id: VarId((i + 1) as u32),
+                            id: VarId(base_index + i as u32),
                             name: p.name.clone(),
                             ty,
                         });
@@ -300,34 +398,28 @@ impl IrBuilder {
                         .map(|t| self.convert_type(t))
                         .unwrap_or(IrType::Void);
 
-                    let saved_function = self.current_function.take();
-                    let saved_variables = self.variables.clone();
+                    let saved = self.suspend_function_context();
 
-                    self.begin_function(mangled_name, method_params, ret_type)?;
+                    self.begin_function(mangled_name, method_params, ret_type.clone())?;
 
                     if let Some(ref mut func) = self.current_function {
                         func.is_async = *is_async;
                     }
 
-                    self.variables.insert("هذا".to_string(), VarId(0));
-                    self.variables.insert("this".to_string(), VarId(0));
+                    if !*is_static {
+                        self.variables.insert("هذا".to_string(), VarId(0));
+                        self.variables.insert("this".to_string(), VarId(0));
+                    }
 
                     for stmt in &body.statements {
                         self.build_stmt(stmt)?;
                     }
 
-                    if let Some(ref func) = self.current_function {
-                        if let Some(block) = func.blocks.last() {
-                            if !block.has_terminator() {
-                                self.emit(Instruction::Return { value: None });
-                            }
-                        }
-                    }
+                    self.emit_implicit_return(&ret_type);
 
                     self.end_function()?;
 
-                    self.current_function = saved_function;
-                    self.variables = saved_variables;
+                    self.resume_function_context(saved);
                 }
                 ClassMember::Constructor { params, body, .. } => {
                     let mangled_name = format!("{}::منشئ", name);
@@ -350,8 +442,7 @@ impl IrBuilder {
                         });
                     }
 
-                    let saved_function = self.current_function.take();
-                    let saved_variables = self.variables.clone();
+                    let saved = self.suspend_function_context();
 
                     self.begin_function(mangled_name, ctor_params, IrType::Void)?;
 
@@ -362,18 +453,11 @@ impl IrBuilder {
                         self.build_stmt(stmt)?;
                     }
 
-                    if let Some(ref func) = self.current_function {
-                        if let Some(block) = func.blocks.last() {
-                            if !block.has_terminator() {
-                                self.emit(Instruction::Return { value: None });
-                            }
-                        }
-                    }
+                    self.emit_implicit_return(&IrType::Void);
 
                     self.end_function()?;
 
-                    self.current_function = saved_function;
-                    self.variables = saved_variables;
+                    self.resume_function_context(saved);
                 }
                 ClassMember::Field { .. } => {}
 
@@ -412,6 +496,36 @@ impl IrBuilder {
         Ok(())
     }
 
+    /// Slot of an auto-property's backing field inside its declaring class.
+    ///
+    /// `collect_class` pushes `_{prop}` into `class_fields` in declaration
+    /// order and never merges parent fields, so the index this returns is
+    /// own-class-relative — the convention codegen expects before it adds
+    /// `inherited_field_count`.
+    ///
+    /// Both accessor sites used to hardcode `0` (issue #239). Because the
+    /// interpreter resolves `GetField`/`SetField` by name and drops the index,
+    /// only natively compiled code noticed: every auto-property on a class
+    /// shared slot 0, so they aliased each other *and* a write through one
+    /// overwrote whatever real field occupied that slot. A missing backing
+    /// field is an error rather than a fallback to 0 — falling back is the bug.
+    ///
+    /// Reaching the error means `collect_class` and this synthesis disagree
+    /// about the class's layout, which no source program should be able to
+    /// cause: it is an internal invariant, not a user diagnostic, so it carries
+    /// no ت/د error code — but it is still bilingual, since a contributor
+    /// reading it is exactly who it is for.
+    fn backing_field_index(&self, class_name: &str, backing_field: &str) -> Result<u32> {
+        self.get_field_info(class_name, backing_field)
+            .map(|(index, _)| index)
+            .ok_or_else(|| {
+                IrError::new(format!(
+                    "الحقل الداعم '{backing_field}' للخاصية غير موجود في تخطيط الصنف '{class_name}' \
+                     / property backing field '{backing_field}' is missing from the layout of class '{class_name}'"
+                ))
+            })
+    }
+
     /// Build IR for a property getter.
     fn build_property_getter(
         &mut self,
@@ -432,8 +546,7 @@ impl IrBuilder {
             }]
         };
 
-        let saved_function = self.current_function.take();
-        let saved_variables = std::mem::take(&mut self.variables);
+        let saved = self.suspend_function_context();
 
         self.begin_function(getter_name, getter_params, prop_type.clone())?;
 
@@ -461,19 +574,30 @@ impl IrBuilder {
         }
 
         if accessors.is_empty() {
-            let this_var = VarId(0);
-            let backing_field = format!("_{}", prop_name);
             let result = self.new_var();
-            self.emit(Instruction::GetField {
-                dest: result,
-                object: this_var,
-                field: FieldId {
-                    class: ClassId(class_name.to_string()),
-                    name: backing_field,
-                    index: 0,
-                },
-                ty: prop_type.clone(),
-            });
+            if is_static {
+                // مشترك خاصية has no هذا: the backing field lives as a
+                // global, not an instance slot (see register_static_global).
+                self.emit(Instruction::GlobalLoad {
+                    dest: result,
+                    name: format!("{}::_{}", class_name, prop_name),
+                    ty: prop_type.clone(),
+                });
+            } else {
+                let this_var = VarId(0);
+                let backing_field = format!("_{}", prop_name);
+                let index = self.backing_field_index(class_name, &backing_field)?;
+                self.emit(Instruction::GetField {
+                    dest: result,
+                    object: this_var,
+                    field: FieldId {
+                        class: ClassId(class_name.to_string()),
+                        name: backing_field,
+                        index,
+                    },
+                    ty: prop_type.clone(),
+                });
+            }
             self.emit(Instruction::Return {
                 value: Some(result),
             });
@@ -481,8 +605,7 @@ impl IrBuilder {
 
         self.end_function()?;
 
-        self.current_function = saved_function;
-        self.variables = saved_variables;
+        self.resume_function_context(saved);
 
         Ok(())
     }
@@ -512,8 +635,7 @@ impl IrBuilder {
             ty: prop_type.clone(),
         });
 
-        let saved_function = self.current_function.take();
-        let saved_variables = std::mem::take(&mut self.variables);
+        let saved = self.suspend_function_context();
 
         self.begin_function(setter_name, setter_params, IrType::Void)?;
 
@@ -539,25 +661,33 @@ impl IrBuilder {
         }
 
         if accessors.is_empty() {
-            let this_var = VarId(0);
-            let value_var = VarId(1);
-            let backing_field = format!("_{}", prop_name);
-            self.emit(Instruction::SetField {
-                object: this_var,
-                field: FieldId {
-                    class: ClassId(class_name.to_string()),
-                    name: backing_field,
-                    index: 0,
-                },
-                value: value_var,
-            });
+            if is_static {
+                // See build_property_getter: the backing field is a global.
+                self.emit(Instruction::GlobalStore {
+                    name: format!("{}::_{}", class_name, prop_name),
+                    value: VarId(0), // قيمة is the only (and first) parameter
+                });
+            } else {
+                let this_var = VarId(0);
+                let value_var = VarId(1);
+                let backing_field = format!("_{}", prop_name);
+                let index = self.backing_field_index(class_name, &backing_field)?;
+                self.emit(Instruction::SetField {
+                    object: this_var,
+                    field: FieldId {
+                        class: ClassId(class_name.to_string()),
+                        name: backing_field,
+                        index,
+                    },
+                    value: value_var,
+                });
+            }
         }
 
         self.emit(Instruction::Return { value: None });
         self.end_function()?;
 
-        self.current_function = saved_function;
-        self.variables = saved_variables;
+        self.resume_function_context(saved);
 
         Ok(())
     }
@@ -1148,11 +1278,21 @@ impl IrBuilder {
         catch: Option<&CatchClause>,
         finally: Option<&Block>,
     ) -> Result<()> {
-        let catch_block = self.new_block(Some("catch".to_string()));
-        let finally_block = self.new_block(Some("finally".to_string()));
+        // Blocks exist only for the clauses that were written. A `حاول` with no
+        // `التقط` used to get a catch block anyway, whose whole body was a jump
+        // past the exception — so `TryBegin` registered a handler that silently
+        // discarded whatever was thrown. With no handler pushed, the throw
+        // propagates instead (issue #181). The unconditional `finally` block was
+        // likewise emitted empty and terminator-less, which LLVM rejects.
+        let catch_block = catch.map(|_| self.new_block(Some("catch".to_string())));
+        let finally_block = finally.map(|_| self.new_block(Some("finally".to_string())));
         let exit_block = self.new_block(Some("try.exit".to_string()));
 
-        self.emit(Instruction::TryBegin { catch_block });
+        let after_clause = finally_block.unwrap_or(exit_block);
+
+        if let Some(catch_block) = catch_block {
+            self.emit(Instruction::TryBegin { catch_block });
+        }
 
         self.push_scope();
         for stmt in &body.statements {
@@ -1160,18 +1300,22 @@ impl IrBuilder {
         }
         self.pop_scope();
 
-        self.emit(Instruction::TryEnd);
-
-        if finally.is_some() {
+        // `ارمِ` is a terminator (`Instruction::has_terminator`), so a body
+        // ending in one must not be followed by `TryEnd` and a jump: the
+        // interpreter never reaches them and native codegen emits instructions
+        // after a terminator. The handler also has to stay pushed for the throw
+        // that just happened to find it.
+        if self.current_block_needs_terminator() {
+            if catch_block.is_some() {
+                self.emit(Instruction::TryEnd);
+            }
             self.emit(Instruction::Jump {
-                target: finally_block,
+                target: after_clause,
             });
-        } else {
-            self.emit(Instruction::Jump { target: exit_block });
         }
 
-        self.switch_to_block(catch_block);
-        if let Some(catch_clause) = catch {
+        if let (Some(catch_block), Some(catch_clause)) = (catch_block, catch) {
+            self.switch_to_block(catch_block);
             self.push_scope();
 
             let exception_var = self.new_var();
@@ -1180,29 +1324,44 @@ impl IrBuilder {
             });
             self.variables
                 .insert(catch_clause.param.clone(), exception_var);
+            // `GetException` writes the exception itself, not a slot holding it.
+            // Without this the name resolves as an alloca and every use of the
+            // catch parameter lowers to a `Load` of a non-pointer, failing with
+            // `متوقع ptr، وُجد object` (issue #181). Same reason
+            // `add_pattern_bindings` marks its `تطابق` bindings.
+            self.parameters.insert(exception_var.0);
+            // The analyzer types the catch parameter as `استثناء`; the IR needs
+            // the same, or member access falls into the unknown-class branch of
+            // `build_member` and `خ.رسالة` comes back as `Ptr(Void)` — enough to
+            // make `"…" + خ.رسالة` lower to integer addition.
+            self.var_types.insert(
+                exception_var.0,
+                IrType::Struct(ClassId(EXCEPTION_CLASS.to_string())),
+            );
 
             for stmt in &catch_clause.body.statements {
                 self.build_stmt(stmt)?;
             }
             self.pop_scope();
+
+            if self.current_block_needs_terminator() {
+                self.emit(Instruction::Jump {
+                    target: after_clause,
+                });
+            }
         }
 
-        if finally.is_some() {
-            self.emit(Instruction::Jump {
-                target: finally_block,
-            });
-        } else {
-            self.emit(Instruction::Jump { target: exit_block });
-        }
-
-        if let Some(finally_body) = finally {
+        if let (Some(finally_block), Some(finally_body)) = (finally_block, finally) {
             self.switch_to_block(finally_block);
             self.push_scope();
             for stmt in &finally_body.statements {
                 self.build_stmt(stmt)?;
             }
             self.pop_scope();
-            self.emit(Instruction::Jump { target: exit_block });
+
+            if self.current_block_needs_terminator() {
+                self.emit(Instruction::Jump { target: exit_block });
+            }
         }
 
         self.switch_to_block(exit_block);
@@ -1213,6 +1372,18 @@ impl IrBuilder {
     pub(crate) fn build_throw(&mut self, expr: &Expr) -> Result<()> {
         let exception = self.build_expr(expr)?;
         self.emit(Instruction::Throw { exception });
+
+        // Native codegen has no unwinding strategy: it lowers `TryBegin` to a
+        // comment, leaves the catch block without a predecessor, and calls a
+        // `@trq_throw` the runtime never defines — so this used to surface as an
+        // undefined-symbol link error naming an internal symbol. Refuse here
+        // instead, and only for `ارمِ`: a `حاول`/`التقط` that never throws
+        // lowers correctly today and must keep compiling (issue #181).
+        self.block_native_lowering(NativeBlock::unsupported(
+            "رمي الاستثناءات بـ «ارمِ»",
+            &ERR_NATIVE_EXCEPTIONS,
+        ));
+
         Ok(())
     }
 

@@ -1,40 +1,26 @@
-//! Array operations for Tarqeem runtime
+//! Array operations for the Tarqeem runtime.
 //!
-//! Implements dynamic arrays with reference counting.
-//! This module provides all array manipulation functions needed by
-//! compiled, JIT, and interpreted Tarqeem programs.
+//! Implements dynamic arrays for compiled, JIT, and interpreted programs.
 //!
-//! # Memory Management Model
+//! # Memory Management
 //!
-//! This module uses a **two-level allocation** pattern that matches the C runtime:
+//! Each `TrqArray` is reference-counted and allocated with `trq_alloc()`,
+//! while its data buffer is allocated with `libc::malloc()`. The mixed
+//! allocation model is intentional: it preserves C ABI compatibility and
+//! allows direct `libc::realloc()` for array growth.
 //!
-//! - **TrqArray struct**: Allocated via `trq_alloc()` (reference-counted)
-//! - **Data buffer**: Allocated via `libc::malloc()` (NOT reference-counted)
+//! A `TrqArray` exclusively owns its data buffer. Use `trq_array_clone()`
+//! when an independent copy is required, and free the buffer with
+//! `trq_array_free_data()` before releasing the array.
 //!
-//! This design is intentional for C ABI compatibility and matches the original
-//! C runtime implementation. The data buffer's lifetime is tied to the TrqArray
-//! struct's lifecycle, not its reference count.
+//! # Safety
 //!
-//! ## Ownership Rules
+//! Pointers returned by `trq_array_get()` and `trq_array_pop()` are borrowed
+//! and become invalid after array modification or deallocation. Do not free
+//! the data while such pointers are still in use.
 //!
-//! 1. **Single owner**: Each TrqArray owns its data buffer exclusively
-//! 2. **Clone for sharing**: Use `trq_array_clone()` to create independent copies
-//! 3. **Cleanup**: Call `trq_array_free_data()` before `trq_release()` to avoid leaks
-//!
-//! ## Why Mixed Allocators?
-//!
-//! Using `libc::malloc()` for data buffers allows:
-//! - Direct `libc::realloc()` for efficient array growth
-//! - C ABI compatibility with code that may pass arrays to C libraries
-//! - Consistent behavior with the original C runtime
-//!
-//! # Safety Notes for Callers
-//!
-//! - Pointers returned by `trq_array_get()` and `trq_array_pop()` are **borrowed**
-//!   and become invalid after any array modification (push, pop, resize, free)
-//! - Do NOT call `trq_array_free_data()` while other code holds element pointers
-//! - When using `trq_retain()`, each reference should call `trq_release()` but
-//!   only the **last** release should call `trq_array_free_data()` first
+//! When using `trq_retain()`/`trq_release()`, only the final release should
+//! free the array's data buffer.
 
 use crate::memory::trq_alloc;
 use crate::types::TrqArray;

@@ -269,6 +269,8 @@ fn compile_instruction(
                     // For now, just use a placeholder
                     builder.ins().iconst(types::I64, 0)
                 }
+                // TODO(#180): JIT does not yet support function values; delegated to the interpreter.
+                Constant::Function(_) => builder.ins().iconst(types::I64, 0),
             };
 
             builder.def_var(var, val);
@@ -456,8 +458,10 @@ fn compile_instruction(
             args: _,
             ret_ty,
         } => {
-            // TODO: Implement function calls
-            // For now, just define a zero value for the destination
+            // TODO: Implement function calls. Whoever does must resolve a
+            // declared function before a same-named builtin (#262) — every
+            // other backend does, and this tier silently returning 0 is the
+            // only reason the divergence is invisible today.
             let cranelift_ty = ir_type_to_cranelift(ret_ty)?;
             let dest_var = get_or_create_var(builder, d.0, cranelift_ty, var_map);
             let zero = builder.ins().iconst(types::I64, 0);
@@ -466,6 +470,17 @@ fn compile_instruction(
 
         Instruction::Call { dest: None, .. } => {
             // Function call with no destination - nothing to do
+        }
+
+        // Exceptions have no Cranelift lowering. Falling into the skip arm below
+        // would compile the function with the throw silently *deleted* — a
+        // miscompile waiting for the day `JitExecutor` dispatches compiled code
+        // instead of always delegating to the interpreter (issue #181).
+        Instruction::TryBegin { .. }
+        | Instruction::TryEnd
+        | Instruction::Throw { .. }
+        | Instruction::GetException { .. } => {
+            return Err(JitError::unsupported_instruction(format!("{}", inst)));
         }
 
         _ => {

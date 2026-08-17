@@ -359,6 +359,8 @@ fn compile_optimized_instruction(
                     // String constants are handled as pointers
                     builder.ins().iconst(types::I64, 0)
                 }
+                // TODO(#180): JIT does not yet support function values; delegated to the interpreter.
+                Constant::Function(_) => builder.ins().iconst(types::I64, 0),
             };
 
             builder.def_var(var, val);
@@ -544,7 +546,9 @@ fn compile_optimized_instruction(
             args: _,
             ret_ty,
         } => {
-            // TODO: Implement optimized function calls with inline caching
+            // TODO: Implement optimized function calls with inline caching. As
+            // in the baseline tier, dispatch must prefer a declared function
+            // over a same-named builtin (#262).
             let cranelift_ty = ir_type_to_cranelift(ret_ty)?;
             let dest_var = get_or_create_var(builder, d.0, cranelift_ty, var_map);
             let zero = builder.ins().iconst(types::I64, 0);
@@ -553,6 +557,15 @@ fn compile_optimized_instruction(
 
         Instruction::Call { dest: None, .. } => {
             // Function call with no destination - nothing to do
+        }
+
+        // See the matching arm in `jit::baseline::compiler`: skipping these
+        // would delete the throw from the compiled function (issue #181).
+        Instruction::TryBegin { .. }
+        | Instruction::TryEnd
+        | Instruction::Throw { .. }
+        | Instruction::GetException { .. } => {
+            return Err(JitError::unsupported_instruction(format!("{}", inst)));
         }
 
         _ => {

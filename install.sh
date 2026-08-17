@@ -73,7 +73,7 @@ echo ""
 
 mkdir -p "$INSTALL_DIR/bin"
 mkdir -p "$INSTALL_DIR/lib"
-mkdir -p "$INSTALL_DIR/stdlib_trq"
+mkdir -p "$INSTALL_DIR/stdlib"
 
 # Copy binary
 echo -e "  ${GREEN}✓${NC} Installing tarqeem binary"
@@ -86,7 +86,7 @@ cp "$SCRIPT_DIR/target/release/libtrq.a" "$INSTALL_DIR/lib/"
 
 # Copy standard library
 echo -e "  ${GREEN}✓${NC} Installing standard library"
-cp -r "$SCRIPT_DIR/stdlib_trq/"* "$INSTALL_DIR/stdlib_trq/"
+cp -r "$SCRIPT_DIR/stdlib/"* "$INSTALL_DIR/stdlib/"
 
 # Create version file (reuse CARGO_VERSION from earlier)
 echo "$CARGO_VERSION" > "$INSTALL_DIR/VERSION"

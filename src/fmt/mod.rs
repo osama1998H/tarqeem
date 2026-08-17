@@ -32,7 +32,34 @@ pub fn format_source(source: &str, config: &FormatConfig) -> Result<String, Form
     })?;
 
     let formatter = Formatter::new(config.clone());
-    Ok(formatter.format(&ast))
+    let formatted = formatter.format(&ast);
+
+    // Refuse to hand back output the compiler cannot read. `fmt -w` overwrites
+    // the user's file, so a formatter bug here destroys source (issue #201:
+    // stripped `///` markers turned doc text into bare words). Verifying in
+    // `format_source` rather than the CLI means `--check`, `--diff` and library
+    // callers are all covered. This bounds *unparseable* output only — a
+    // formatter that silently drops a comment still parses fine.
+    if let Err(e) = Parser::new(&formatted).parse() {
+        let mut message = format!("{} ({}:{})", e, e.span.line, e.span.column);
+        if let Some(code) = &e.code {
+            message = format!("[{}] {}", code, message);
+        }
+        // `brace_style = next_line` emits a newline before `{`, which no
+        // declaration header accepts, so it fails on essentially every file.
+        // Naming it keeps the guard from blaming the formatter in general when
+        // one known-broken option is responsible (issue #226).
+        if config.brace_style == BraceStyle::NextLine {
+            message.push_str(
+                " — likely cause: brace_style = next_line, which emits a newline \
+                 before '{' that the parser does not accept; try brace_style = \
+                 same_line / السبب المرجَّح: الإعداد brace_style = next_line",
+            );
+        }
+        return Err(FormatError::OutputNotReparsable { message });
+    }
+
+    Ok(formatted)
 }
 
 pub fn check_formatted(source: &str, config: &FormatConfig) -> Result<bool, FormatError> {
@@ -42,9 +69,15 @@ pub fn check_formatted(source: &str, config: &FormatConfig) -> Result<bool, Form
 
 pub fn show_diff(source: &str, config: &FormatConfig) -> Result<String, FormatError> {
     let formatted = format_source(source, config)?;
+    Ok(diff_of(source, &formatted))
+}
 
+/// Renders the diff for output a caller already has, so a caller that formatted
+/// the source itself does not pay for a second format (and, with the re-parse
+/// guard, a second pair of parses).
+pub fn diff_of(source: &str, formatted: &str) -> String {
     if source == formatted {
-        return Ok(String::new());
+        return String::new();
     }
 
     let mut diff = String::new();
@@ -74,14 +107,25 @@ pub fn show_diff(source: &str, config: &FormatConfig) -> Result<String, FormatEr
         }
     }
 
-    Ok(diff)
+    diff
 }
 
 #[derive(Debug, Clone)]
 pub enum FormatError {
-    ParseError { message: String },
-    IoError { message: String },
-    ConfigError { message: String },
+    ParseError {
+        message: String,
+    },
+    IoError {
+        message: String,
+    },
+    ConfigError {
+        message: String,
+    },
+    /// The formatter produced output that no longer parses — always a bug in the
+    /// formatter, never in the user's source, which parsed on the way in.
+    OutputNotReparsable {
+        message: String,
+    },
 }
 
 impl std::fmt::Display for FormatError {
@@ -95,6 +139,16 @@ impl std::fmt::Display for FormatError {
             }
             FormatError::ConfigError { message } => {
                 write!(f, "Config error / خطأ في الإعدادات: {}", message)
+            }
+            FormatError::OutputNotReparsable { message } => {
+                write!(
+                    f,
+                    "Internal formatter bug: formatted output does not re-parse; \
+                     the file was left unchanged / \
+                     خطأ داخلي في المنسق: الناتج المنسق لا يمكن تحليله، \
+                     ولم يُعدَّل الملف: {}",
+                    message
+                )
             }
         }
     }

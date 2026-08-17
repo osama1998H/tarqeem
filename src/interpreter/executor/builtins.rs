@@ -16,6 +16,18 @@ use sha2::{Digest, Sha256};
 
 use super::{Interpreter, RuntimeError, RuntimeResult, Value};
 
+/// Milliseconds since the UNIX epoch, backing both `وقت_الآن` and `وقت_أداء`.
+///
+/// Shared with the debug interpreter so the two registries cannot drift; the
+/// native runtime mirrors it in `runtime-rs/src/runtime.rs` (#241).
+pub(crate) fn epoch_millis() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 /// Convert a Value to a byte (0-255) with range validation.
 fn value_to_byte(v: &Value) -> Result<u8, RuntimeError> {
     let i = v
@@ -139,6 +151,8 @@ impl Interpreter {
                 | "وقت_الآن"
                 | "وقت_أداء"
                 // String functions
+                | "حرف_إلى_رمز"
+                | "رمز_إلى_حرف"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
                 | "نص_ينتهي_بـ"
@@ -150,6 +164,10 @@ impl Interpreter {
                 | "trq_int_to_string"
                 | "trq_float_to_string"
                 | "trq_bool_to_string"
+                | "trq_assert"
+                | "trq_string_len"
+                | "trq_string_to_int_checked"
+                | "trq_string_to_float_checked"
                 // SHA-256 functions
                 | "احسب_بصمة"
                 | "بصمة_ملف"
@@ -253,6 +271,8 @@ impl Interpreter {
                 match val {
                     Value::Int(i) => Ok(Value::Float(*i as f64)),
                     Value::Float(f) => Ok(Value::Float(*f)),
+                    // Mirrors عدد, which already maps صحيح/خطأ to 1/0.
+                    Value::Bool(b) => Ok(Value::Float(if *b { 1.0 } else { 0.0 })),
                     Value::String(s) => s
                         .parse::<f64>()
                         .map(Value::Float)
@@ -800,15 +820,68 @@ impl Interpreter {
                 Ok(Value::Bool(random.is_multiple_of(2)))
             }
 
-            "تأكد" => {
+            // `trq_assert` is the symbol the IR builder lowers both تأكد and
+            // تأكد_رسالة to, with a null second argument standing for "no
+            // message" — the same contract the native runtime implements.
+            "تأكد" | "trq_assert" => {
                 let cond = args
                     .first()
                     .ok_or_else(|| RuntimeError::invalid_operation("تأكد() تتطلب معامل واحد"))?;
 
                 if !cond.is_truthy() {
-                    return Err(RuntimeError::invalid_operation("فشل التأكيد"));
+                    return match args.get(1) {
+                        Some(msg) if !matches!(msg, Value::Null) => {
+                            Err(RuntimeError::invalid_operation(format!(
+                                "فشل التأكيد: {}",
+                                msg.to_display_string()
+                            )))
+                        }
+                        _ => Err(RuntimeError::invalid_operation("فشل التأكيد")),
+                    };
                 }
                 Ok(Value::Null)
+            }
+
+            "trq_string_len" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("trq_string_len() تتطلب معامل واحد")
+                })?;
+                match val {
+                    // Bytes, not characters: `trq_string_len` is the byte-length
+                    // symbol natively (`trq_string_len_chars` is the other one).
+                    Value::String(s) => Ok(Value::Int(s.len() as i64)),
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
+            }
+
+            // The checked parsers back عدد/عدد_عشري on a string. They reject an
+            // unparsable value rather than yielding 0, so every backend agrees.
+            "trq_string_to_int_checked" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::invalid_operation("عدد() تتطلب معامل واحد"))?;
+                match val {
+                    Value::String(s) => {
+                        s.trim().parse::<i64>().map(Value::Int).map_err(|_| {
+                            RuntimeError::type_error("numeric string", "invalid string")
+                        })
+                    }
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
+            }
+
+            "trq_string_to_float_checked" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("عدد_عشري() تتطلب معامل واحد")
+                })?;
+                match val {
+                    Value::String(s) => {
+                        s.trim().parse::<f64>().map(Value::Float).map_err(|_| {
+                            RuntimeError::type_error("numeric string", "invalid string")
+                        })
+                    }
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
             }
 
             "تأكد_رسالة" => {
@@ -853,14 +926,7 @@ impl Interpreter {
                 Ok(Value::Null)
             }
 
-            "وقت_الآن" | "وقت_أداء" => {
-                use std::time::{SystemTime, UNIX_EPOCH};
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(0);
-                Ok(Value::Int(now))
-            }
+            "وقت_الآن" | "وقت_أداء" => Ok(Value::Int(epoch_millis())),
 
             "ادخل_رسالة" => {
                 let prompt = args
@@ -903,6 +969,48 @@ impl Interpreter {
                     .parse::<f64>()
                     .map(Value::Float)
                     .map_err(|_| RuntimeError::type_error("float input", "invalid input"))
+            }
+
+            "حرف_إلى_رمز" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("حرف_إلى_رمز() تتطلب معامل واحد")
+                })?;
+
+                match val {
+                    // `chars()`, so this is the first codepoint and not the first
+                    // grapheme: the fatha in "مَ" is the second one.
+                    Value::String(s) => Ok(Value::Int(s.chars().next().map_or(-1, |c| c as i64))),
+                    // An un-narrowed `نص؟` is accepted into a `نص` parameter by
+                    // `Type::compat`, and native lowers it to `ptr null`, where the
+                    // runtime's guard answers -1. Erroring here instead would make
+                    // the interpreter disagree with native on reachable source.
+                    Value::Null => Ok(Value::Int(-1)),
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
+            }
+
+            // No `Value::Null` arm, deliberately, and unlike `حرف_إلى_رمز`
+            // above. There the runtime function guarded a null *pointer* and
+            // answered -1, so the arm mirrored a designed contract. Here the
+            // parameter is an integer: native turns `لا_شيء` into `0` as a
+            // side effect of passing a null pointer in an i64 slot, and
+            // encoding that artifact as "لا_شيء means U+0000" would make the
+            // contract worse to close a gap this name does not own. `نم` and
+            // `بتات_نفي` diverge identically on the same source (#327).
+            "رمز_إلى_حرف" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("رمز_إلى_حرف() تتطلب معامل واحد")
+                })?;
+
+                match val {
+                    Value::Int(code) => Ok(Value::string(
+                        u32::try_from(*code)
+                            .ok()
+                            .and_then(char::from_u32)
+                            .map_or(String::new(), |c| c.to_string()),
+                    )),
+                    _ => Err(RuntimeError::type_error("عدد", val.type_name())),
+                }
             }
 
             "نص_يحتوي" => {
@@ -966,9 +1074,12 @@ impl Interpreter {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation("عشري_لنص() تتطلب معامل واحد")
                 })?;
+                // `Value::to_display_string` is the single definition of how a
+                // float reads; `f.to_string()` drops the fraction of a whole one
+                // and made `"…" + 10000.0` disagree with `اطبع(10000.0)` (#185).
                 match val {
-                    Value::Float(f) => Ok(Value::string(f.to_string())),
-                    Value::Int(n) => Ok(Value::string((*n as f64).to_string())),
+                    Value::Float(f) => Ok(Value::string(Value::Float(*f).to_display_string())),
+                    Value::Int(n) => Ok(Value::string(Value::Float(*n as f64).to_display_string())),
                     _ => Err(RuntimeError::type_error("عدد_عشري", val.type_name())),
                 }
             }

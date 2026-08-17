@@ -445,6 +445,126 @@ pub extern "C" fn trq_hex_decode_to_bytes(hex: *const TrqString) -> *mut TrqArra
     }
 }
 
+/// Standard base64 alphabet (RFC 4648 §4), padded with `=`.
+const BASE64_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// Position of a byte in [`BASE64_CHARS`], or `None` if it is not a base64
+/// character.
+fn base64_value(c: u8) -> Option<u32> {
+    let index = match c {
+        b'A'..=b'Z' => c - b'A',
+        b'a'..=b'z' => c - b'a' + 26,
+        b'0'..=b'9' => c - b'0' + 52,
+        b'+' => 62,
+        b'/' => 63,
+        _ => return None,
+    };
+    Some(index as u32)
+}
+
+/// Encode a string as base64. Backs the builtin `ترميز_أساس64`, declared by
+/// codegen since before any definition existed (#241).
+///
+/// Hand-rolled rather than pulling in a crate, matching the hex encoding above.
+/// The caller owns the returned string.
+///
+/// # Safety
+///
+/// - `s` must be a valid pointer to a `TrqString` or null.
+#[no_mangle]
+pub extern "C" fn trq_base64_encode(s: *const TrqString) -> *mut TrqString {
+    unsafe {
+        if s.is_null() || (*s).data.is_null() || (*s).len <= 0 {
+            return allocate_string(0);
+        }
+
+        let input = std::slice::from_raw_parts((*s).data, (*s).len as usize);
+        let output_len = input.len().div_ceil(3) * 4;
+        let str_ptr = allocate_string(output_len as i64);
+        if str_ptr.is_null() {
+            return ptr::null_mut();
+        }
+        let output = (*str_ptr).data;
+
+        for (block, chunk) in input.chunks(3).enumerate() {
+            let mut bits = 0u32;
+            for (i, byte) in chunk.iter().enumerate() {
+                bits |= (*byte as u32) << (16 - 8 * i);
+            }
+
+            let at = block * 4;
+            for slot in 0..4 {
+                // A 3-byte block yields 4 characters; a short tail pads the
+                // slots it cannot fill.
+                *output.add(at + slot) = if slot <= chunk.len() {
+                    BASE64_CHARS[((bits >> (18 - 6 * slot)) & 0x3F) as usize]
+                } else {
+                    b'='
+                };
+            }
+        }
+        *output.add(output_len) = 0;
+
+        str_ptr
+    }
+}
+
+/// Decode a base64 string. Backs the builtin `فك_أساس64`.
+///
+/// Returns an empty string when the input is not valid base64, matching how
+/// `trq_sha256_file` reports failure. The caller owns the returned string.
+///
+/// # Safety
+///
+/// - `s` must be a valid pointer to a `TrqString` or null.
+#[no_mangle]
+pub extern "C" fn trq_base64_decode(s: *const TrqString) -> *mut TrqString {
+    unsafe {
+        if s.is_null() || (*s).data.is_null() || (*s).len <= 0 {
+            return allocate_string(0);
+        }
+
+        let input = std::slice::from_raw_parts((*s).data, (*s).len as usize);
+        let body = match input.iter().position(|&c| c == b'=') {
+            Some(pad) => {
+                // Padding is only legal as the final one or two characters.
+                if pad + 2 < input.len() || input[pad..].iter().any(|&c| c != b'=') {
+                    return allocate_string(0);
+                }
+                &input[..pad]
+            }
+            None => input,
+        };
+
+        if input.len() % 4 != 0 || body.len() % 4 == 1 {
+            return allocate_string(0);
+        }
+
+        let mut decoded = Vec::with_capacity(body.len() / 4 * 3);
+        for chunk in body.chunks(4) {
+            let mut bits = 0u32;
+            for (i, byte) in chunk.iter().enumerate() {
+                match base64_value(*byte) {
+                    Some(value) => bits |= value << (18 - 6 * i),
+                    None => return allocate_string(0),
+                }
+            }
+            for slot in 0..chunk.len() - 1 {
+                decoded.push((bits >> (16 - 8 * slot)) as u8);
+            }
+        }
+
+        let str_ptr = allocate_string(decoded.len() as i64);
+        if str_ptr.is_null() {
+            return ptr::null_mut();
+        }
+        ptr::copy_nonoverlapping(decoded.as_ptr(), (*str_ptr).data, decoded.len());
+        *(*str_ptr).data.add(decoded.len()) = 0;
+
+        str_ptr
+    }
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -567,5 +687,75 @@ mod tests {
             let decoded = trq_hex_decode(hex);
             assert!(decoded.is_null());
         }
+    }
+
+    fn text_of(result: *mut TrqString) -> String {
+        unsafe {
+            let s = &*result;
+            if s.data.is_null() || s.len <= 0 {
+                return String::new();
+            }
+            let bytes = std::slice::from_raw_parts(s.data as *const u8, s.len as usize);
+            String::from_utf8_lossy(bytes).into_owned()
+        }
+    }
+
+    fn owned(text: &str) -> *mut TrqString {
+        trq_string_new(text.as_ptr(), text.len() as i64)
+    }
+
+    #[test]
+    fn test_base64_encode_covers_every_padding_length() {
+        // RFC 4648 §10 vectors: 0, 1 and 2 bytes of padding.
+        assert_eq!(text_of(trq_base64_encode(owned("foo"))), "Zm9v");
+        assert_eq!(text_of(trq_base64_encode(owned("fo"))), "Zm8=");
+        assert_eq!(text_of(trq_base64_encode(owned("f"))), "Zg==");
+        assert_eq!(text_of(trq_base64_encode(owned("foobar"))), "Zm9vYmFy");
+        assert_eq!(text_of(trq_base64_encode(owned(""))), "");
+    }
+
+    #[test]
+    fn test_base64_round_trips_arabic() {
+        // Multi-byte UTF-8 is the case a byte-oriented encoder gets wrong.
+        for text in ["مرحبا", "ترقيم", "السلام عليكم"] {
+            let encoded = trq_base64_encode(owned(text));
+            assert_eq!(text_of(trq_base64_decode(encoded)), text);
+        }
+    }
+
+    #[test]
+    fn test_base64_decode_matches_known_vectors() {
+        assert_eq!(text_of(trq_base64_decode(owned("Zm9v"))), "foo");
+        assert_eq!(text_of(trq_base64_decode(owned("Zm8="))), "fo");
+        assert_eq!(text_of(trq_base64_decode(owned("Zg=="))), "f");
+    }
+
+    #[test]
+    fn test_base64_decode_rejects_malformed_input() {
+        // Wrong length, illegal character, and padding in the middle.
+        assert_eq!(text_of(trq_base64_decode(owned("Zm9"))), "");
+        assert_eq!(text_of(trq_base64_decode(owned("Zm9!"))), "");
+        assert_eq!(text_of(trq_base64_decode(owned("Z=9v"))), "");
+    }
+
+    #[test]
+    fn test_base64_decode_rejects_pathological_padding() {
+        // Padding that is not a final one-or-two-character tail.
+        for bad in ["====", "AAAA====", "=", "A===", "AB=A"] {
+            assert_eq!(
+                text_of(trq_base64_decode(owned(bad))),
+                "",
+                "accepted {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_base64_encodes_arbitrary_bytes() {
+        // 0xFF/0x00 exercise the top bits of the 24-bit accumulator, which
+        // UTF-8 text alone never sets.
+        let raw = [0xFFu8, 0x00, 0xFF];
+        let s = trq_string_new(raw.as_ptr(), 3);
+        assert_eq!(text_of(trq_base64_encode(s)), "/wD/");
     }
 }

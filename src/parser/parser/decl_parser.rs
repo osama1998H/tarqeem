@@ -5,24 +5,53 @@
 
 use crate::error::codes::{
     ERR_EXPECTED_CLASS_NAME, ERR_EXPECTED_FUNCTION_NAME, ERR_EXPECTED_VARIABLE_NAME,
+    ERR_UNEXPECTED_TOKEN,
 };
 use crate::error::Diagnostic;
 use crate::lexer::TokenKind;
 
 use super::super::ast::*;
-use super::Parser;
+use super::{within_brackets, Parser};
 
 impl Parser {
     /// Parse a declaration (variable, function, class, etc.).
     pub(crate) fn parse_declaration(&mut self) -> Result<Stmt, Diagnostic> {
-        // Collect any line comments before the declaration
-        self.collect_line_comments();
-        let leading_comments = self.take_pending_comments();
+        self.parse_declaration_with_doc(None)
+    }
 
-        let doc_comment = self.consume_doc_comment();
+    /// Parse a declaration, optionally carrying a doc comment consumed by a
+    /// caller that has already passed the point where it appeared.
+    ///
+    /// `صدّر` needs this: `parse_declaration` consumes the doc comment before it
+    /// can tell which declaration follows, then recurses through
+    /// `parse_export_statement` — by which point the token is gone and the inner
+    /// declaration used to end up with `doc_comment: None`, silently dropping
+    /// docs on every `صدّر دالة`/`صدّر صنف` (issue #204). Threading the value
+    /// down keeps the AST built once, rather than patching it afterwards.
+    pub(crate) fn parse_declaration_with_doc(
+        &mut self,
+        inherited_doc: Option<String>,
+    ) -> Result<Stmt, Diagnostic> {
+        // Consume the whole trivia run in one pass; the doc it holds is only
+        // moved into `trivia.comments` if nothing below can carry it, so a
+        // demotion lands back on the line the user wrote it on.
+        let mut trivia = self.collect_leading_trivia();
+        let pending_comments = self.take_pending_comments();
 
-        // Skip newlines after doc comment before the actual declaration
-        self.skip_newlines();
+        // A doc comment written before the outer keyword documents the
+        // declaration, so it wins over one found after it — and the loser is
+        // demoted rather than dropped, since `fmt -w` would otherwise erase it.
+        let inherited_wins = inherited_doc.is_some();
+        let inherited_for_demotion = inherited_doc.clone();
+        let doc_comment = if inherited_wins {
+            trivia.demote_doc();
+            inherited_doc
+        } else {
+            trivia.doc.clone()
+        };
+        // An inherited doc was written *above* this run, so it cannot simply be
+        // appended to it — its provenance is what places it.
+        let mut demoted_inherited: Option<String> = None;
 
         let mut stmt = if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
             self.parse_var_declaration(doc_comment)?
@@ -38,17 +67,49 @@ impl Parser {
         } else if self.check(&TokenKind::Enum) {
             self.parse_enum_declaration(doc_comment)?
         } else if self.check(&TokenKind::Import) {
+            // Neither of these owns a `doc_comment` field, so the text would be
+            // dropped — and since the doc token is consumed now, `fmt -w` would
+            // erase it from the user's file rather than failing loudly. Demote it
+            // to a leading comment so the formatter still writes it out.
+            if inherited_wins {
+                demoted_inherited = inherited_for_demotion;
+            } else {
+                trivia.demote_doc();
+            }
             self.parse_import_statement()?
         } else if self.check(&TokenKind::Export) {
-            self.parse_export_statement()?
+            // `صدّر <إعلان>` threads the doc into the inner declaration, but a
+            // re-export (`صدّر *` / `صدّر { … }`) has nowhere to put it, so it
+            // is demoted here for the same reason as `استورد` above — otherwise
+            // `fmt -w` deletes the line from the user's file.
+            if self.export_is_reexport() {
+                if inherited_wins {
+                    demoted_inherited = inherited_for_demotion;
+                } else {
+                    trivia.demote_doc();
+                }
+                self.parse_export_statement(None)?
+            } else {
+                self.parse_export_statement(doc_comment)?
+            }
         } else {
+            if inherited_wins {
+                demoted_inherited = inherited_for_demotion;
+            } else {
+                trivia.demote_doc();
+            }
             self.parse_statement()?
         };
 
         // Capture trailing comment (on same line after statement)
         stmt.trailing_comment = self.capture_trailing_comment();
 
-        // Attach leading comments to the statement
+        // Source order: comments collected before this call, then a doc written
+        // above the outer keyword, then this run — whose own demoted doc is
+        // already back in its slot.
+        let mut leading_comments = pending_comments;
+        leading_comments.extend(demoted_inherited);
+        leading_comments.extend(trivia.comments);
         stmt.leading_comments = leading_comments;
         Ok(stmt)
     }
@@ -63,7 +124,7 @@ impl Parser {
         self.advance(); // consume 'let' or 'const'
 
         let name = self
-            .expect_identifier("متوقع اسم المتغير")
+            .expect_declaration_name("متوقع اسم المتغير")
             .map_err(|e| e.with_code(ERR_EXPECTED_VARIABLE_NAME.to_string()))?;
 
         let ty = if self.match_token(&TokenKind::Colon) {
@@ -103,7 +164,7 @@ impl Parser {
         self.expect(&TokenKind::Function, "متوقع 'دالة'")?;
 
         let name = self
-            .expect_identifier("متوقع اسم الدالة")
+            .expect_declaration_name("متوقع اسم الدالة")
             .map_err(|e| e.with_code(ERR_EXPECTED_FUNCTION_NAME.to_string()))?;
 
         self.expect(&TokenKind::LeftParen, "متوقع '('")?;
@@ -252,12 +313,13 @@ impl Parser {
 
     /// Parse a single class member.
     pub(crate) fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
-        self.collect_line_comments();
+        let trivia = self.collect_leading_trivia();
         // Captured before the body is parsed so nothing downstream (e.g. the
         // method's own parse_block) can steal it — pending_comments is a
         // single shared buffer, not scoped to this member.
-        let leading_comments = self.take_pending_comments();
-        let member_doc = self.consume_doc_comment();
+        let mut leading_comments = self.take_pending_comments();
+        leading_comments.extend(trivia.comments);
+        let member_doc = trivia.doc;
 
         let visibility = self.parse_visibility();
         let is_static = self.match_token(&TokenKind::Static);
@@ -277,7 +339,7 @@ impl Parser {
         } else if self.check(&TokenKind::Function) || self.check(&TokenKind::Async) {
             let is_async = self.match_token(&TokenKind::Async);
             self.expect(&TokenKind::Function, "متوقع 'دالة'")?;
-            let name = self.expect_identifier("متوقع اسم الدالة")?;
+            let name = self.expect_declaration_name("متوقع اسم الدالة")?;
             self.expect(&TokenKind::LeftParen, "متوقع '('")?;
             let params = self.parse_parameters()?;
             self.expect(&TokenKind::RightParen, "متوقع ')'")?;
@@ -303,7 +365,7 @@ impl Parser {
             })
         } else if self.check(&TokenKind::Property) {
             self.advance();
-            let name = self.expect_identifier("متوقع اسم الخاصية")?;
+            let name = self.expect_declaration_name("متوقع اسم الخاصية")?;
             self.expect(&TokenKind::Colon, "متوقع ':'")?;
             let ty = self.parse_type_annotation()?;
 
@@ -331,7 +393,7 @@ impl Parser {
                 doc_comment: member_doc,
             })
         } else {
-            let name = self.expect_identifier("متوقع اسم الحقل")?;
+            let name = self.expect_declaration_name("متوقع اسم الحقل")?;
             let ty = if self.match_token(&TokenKind::Colon) {
                 Some(self.parse_type_annotation()?)
             } else {
@@ -391,7 +453,7 @@ impl Parser {
                 });
             } else if self.match_token(&TokenKind::Set) {
                 let param_name = if self.match_token(&TokenKind::LeftParen) {
-                    let name = self.expect_identifier("متوقع اسم المعامل")?;
+                    let name = self.expect_declaration_name("متوقع اسم المعامل")?;
                     self.expect(&TokenKind::RightParen, "متوقع ')'")?;
                     name
                 } else {
@@ -461,13 +523,17 @@ impl Parser {
             if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
                 break;
             }
-            // Skip any line comments before the method
-            self.collect_line_comments();
+            // MethodSignature has no field for a leading comment, so the run's
+            // line comments are discarded here exactly as they were before the
+            // loop — but the run is consumed in one pass, so a `//` after a
+            // `///` no longer hard-errors inside a ميثاق while the same shape
+            // checks clean inside a صنف (issue #203).
+            let trivia = self.collect_leading_trivia();
             let _ = self.take_pending_comments();
-            let method_doc = self.consume_doc_comment();
+            let method_doc = trivia.doc;
 
             self.expect(&TokenKind::Function, "متوقع 'دالة'")?;
-            let method_name = self.expect_identifier("متوقع اسم الدالة")?;
+            let method_name = self.expect_declaration_name("متوقع اسم الدالة")?;
             self.expect(&TokenKind::LeftParen, "متوقع '('")?;
             let params = self.parse_parameters()?;
             self.expect(&TokenKind::RightParen, "متوقع ')'")?;
@@ -526,10 +592,12 @@ impl Parser {
             if self.match_terminator_after_trivia(&TokenKind::RightBrace) {
                 break;
             }
-            // Skip any line comments before the variant
-            self.collect_line_comments();
+            // Same as the interface-method loop: EnumVariant has no comment
+            // field, so line comments are discarded as before, but the whole run
+            // is consumed so the order inside it no longer matters.
+            let trivia = self.collect_leading_trivia();
             let _ = self.take_pending_comments();
-            let variant = self.parse_enum_variant()?;
+            let variant = self.parse_enum_variant_with_doc(trivia.doc)?;
             variants.push(variant);
 
             let _ =
@@ -553,12 +621,18 @@ impl Parser {
     }
 
     /// Parse an enum variant.
-    pub(crate) fn parse_enum_variant(&mut self) -> Result<EnumVariant, Diagnostic> {
+    /// Parse an enum variant, carrying the doc comment its caller already took
+    /// off the trivia run in front of it.
+    pub(crate) fn parse_enum_variant_with_doc(
+        &mut self,
+        inherited_doc: Option<String>,
+    ) -> Result<EnumVariant, Diagnostic> {
         let start = self.current_span();
 
-        let variant_doc = self.consume_doc_comment();
+        // A doc found here still wins for a caller that consumed none.
+        let variant_doc = inherited_doc.or_else(|| self.consume_doc_comment());
 
-        let name = self.expect_identifier("متوقع اسم الحالة")?;
+        let name = self.expect_variant_name("متوقع اسم الحالة")?;
 
         let discriminant = if self.match_token(&TokenKind::Equal) {
             let is_negative = self.match_token(&TokenKind::Minus);
@@ -645,14 +719,14 @@ impl Parser {
 
         let items = if self.match_token(&TokenKind::Star) {
             self.expect(&TokenKind::As, "متوقع 'كـ'")?;
-            let alias = self.expect_identifier("متوقع اسم مستعار")?;
+            let alias = self.expect_declaration_name("متوقع اسم مستعار")?;
             ImportItems::Wildcard(alias)
         } else if self.match_token(&TokenKind::LeftBrace) {
             let mut items = Vec::new();
             loop {
-                let name = self.expect_identifier("متوقع اسم")?;
+                let name = self.expect_declaration_name("متوقع اسم")?;
                 let alias = if self.match_token(&TokenKind::As) {
-                    Some(self.expect_identifier("متوقع اسم مستعار")?)
+                    Some(self.expect_declaration_name("متوقع اسم مستعار")?)
                 } else {
                     None
                 };
@@ -687,7 +761,15 @@ impl Parser {
     /// - `صدّر { name1، name2 }` - Named exports
     /// - `صدّر { name1، name2 } من "module"` - Named re-exports
     /// - `صدّر * من "module"` - Wildcard re-export
-    pub(crate) fn parse_export_statement(&mut self) -> Result<Stmt, Diagnostic> {
+    ///
+    /// `doc_comment` is the doc comment `parse_declaration` already consumed
+    /// before it knew a `صدّر` followed; it belongs to the exported declaration
+    /// (issue #204). `ExportItems::Named`/`Wildcard`/`NamedReexport` have no
+    /// field to hold it, so a doc comment on those forms is still dropped.
+    pub(crate) fn parse_export_statement(
+        &mut self,
+        doc_comment: Option<String>,
+    ) -> Result<Stmt, Diagnostic> {
         let start = self.current_span();
         self.advance(); // consume 'export' (صدّر)
 
@@ -700,7 +782,7 @@ impl Parser {
             // صدّر { name1، name2 } [من "module"]
             let mut items = Vec::new();
             loop {
-                let name = self.expect_identifier("متوقع اسم التصدير")?;
+                let name = self.expect_declaration_name("متوقع اسم التصدير")?;
                 let alias = if self.match_token(&TokenKind::As) {
                     Some(self.expect_identifier("متوقع الاسم المستعار")?)
                 } else {
@@ -726,7 +808,7 @@ impl Parser {
             }
         } else {
             // صدّر دالة/صنف/ثابت... - Declaration export
-            let stmt = self.parse_declaration()?;
+            let stmt = self.parse_declaration_with_doc(doc_comment)?;
             ExportItems::Declaration(Box::new(stmt))
         };
 
@@ -738,6 +820,10 @@ impl Parser {
 
     /// Parse a type annotation.
     pub(crate) fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, Diagnostic> {
+        if self.check(&TokenKind::LeftParen) {
+            return self.parse_function_type_annotation();
+        }
+
         let start = self.current_span();
 
         let name = self.expect_type_name()?;
@@ -770,14 +856,71 @@ impl Parser {
         Ok(TypeAnnotation::new(kind, span))
     }
 
-    /// Parse function parameters.
-    pub(crate) fn parse_parameters(&mut self) -> Result<Vec<Param>, Diagnostic> {
-        let mut params = Vec::new();
+    /// Parse a function-type annotation: `(T، U) -> R`.
+    ///
+    /// Grammar (LANGUAGE_SPEC.md §5.3):
+    /// نمط_دالة := '(' [نمط {'،' نمط}] ')' ['->' نمط]
+    ///
+    /// The return type is parsed via a recursive `parse_type_annotation`
+    /// call, which makes currying (`(عدد) -> (عدد) -> عدد`) right-associative
+    /// for free. Omitting `->` is legal only with an empty parameter list,
+    /// giving the spec's bare `()` sugar — a function returning nothing,
+    /// represented as `return_type: None` (Tarqeem has no `فراغ` keyword).
+    fn parse_function_type_annotation(&mut self) -> Result<TypeAnnotation, Diagnostic> {
+        let start = self.current_span();
+        self.expect(&TokenKind::LeftParen, "متوقع '('")?;
 
+        let mut params = Vec::new();
         if !self.check(&TokenKind::RightParen) {
             loop {
+                params.push(self.parse_type_annotation()?);
+                if !self.match_token(&TokenKind::Comma)
+                    && !self.match_token(&TokenKind::ArabicComma)
+                {
+                    break;
+                }
+            }
+        }
+        self.expect(&TokenKind::RightParen, "متوقع ')'")?;
+
+        let return_type = if self.match_token(&TokenKind::Arrow) {
+            Some(Box::new(self.parse_type_annotation()?))
+        } else if params.is_empty() {
+            None
+        } else {
+            return Err(Diagnostic::error(
+                "متوقع '->' بعد قائمة أنماط المعاملات",
+                self.current_span(),
+            )
+            .with_code(ERR_UNEXPECTED_TOKEN.to_string()));
+        };
+
+        let span = start.merge(&self.previous_span());
+        Ok(TypeAnnotation::new(
+            TypeKind::Function {
+                params,
+                return_type,
+            },
+            span,
+        ))
+    }
+
+    /// Parse function parameters.
+    pub(crate) fn parse_parameters(&mut self) -> Result<Vec<Param>, Diagnostic> {
+        // Newlines are trivia between the parentheses, so a long signature can be
+        // wrapped (issue #255), matching parse_arguments at the call side.
+        within_brackets(self, |parser| parser.parse_parameter_list())
+    }
+
+    fn parse_parameter_list(&mut self) -> Result<Vec<Param>, Diagnostic> {
+        let mut params = Vec::new();
+
+        self.skip_newlines();
+        if !self.check(&TokenKind::RightParen) {
+            loop {
+                self.skip_newlines();
                 let start = self.current_span();
-                let name = self.expect_identifier("متوقع اسم المعامل")?;
+                let name = self.expect_declaration_name("متوقع اسم المعامل")?;
 
                 let ty = if self.match_token(&TokenKind::Colon) {
                     Some(self.parse_type_annotation()?)
@@ -798,6 +941,7 @@ impl Parser {
                     span: start.merge(&self.previous_span()),
                 });
 
+                self.skip_newlines();
                 if !self.match_token(&TokenKind::Comma)
                     && !self.match_token(&TokenKind::ArabicComma)
                 {
@@ -806,6 +950,7 @@ impl Parser {
             }
         }
 
+        self.skip_newlines();
         Ok(params)
     }
 }

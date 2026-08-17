@@ -20,6 +20,15 @@ pub enum Precedence {
 }
 
 impl Precedence {
+    /// Binding power of a token **in infix position**, which is the only thing
+    /// the Pratt loop consults to decide whether to keep going.
+    ///
+    /// Invariant: every token scored above `None` here must have a `parse_infix`
+    /// arm that consumes it. A prefix-only token scores `None` so the loop breaks
+    /// and the statement layer reports it. `Bang` (`!`, `ليس`) once scored
+    /// `Unary` here despite having no infix arm, and the loop spun on it forever
+    /// (#266) — prefix NOT binds through the `Precedence::Unary` literal in
+    /// `parse_prefix`, not through this table.
     pub fn of(kind: &TokenKind) -> Precedence {
         match kind {
             TokenKind::Equal
@@ -46,8 +55,6 @@ impl Precedence {
             TokenKind::Star | TokenKind::Slash | TokenKind::Percent => Precedence::Factor,
 
             TokenKind::StarStar => Precedence::Power,
-
-            TokenKind::Bang => Precedence::Unary,
 
             TokenKind::PlusPlus | TokenKind::MinusMinus => Precedence::Call,
 

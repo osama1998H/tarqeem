@@ -14,10 +14,15 @@ mod stmt_analyzer;
 
 use super::class_resolver::ClassResolver;
 use super::generics::{GenericContext, GenericParam, GenericResolver};
+use super::linker::{link_program, unwrap_exported_decl};
 use super::modules::ModuleLoader;
-use super::scope::{Scope, ScopeKind, SymbolKind};
+use super::prelude;
+use super::scope::{normalize_name, Scope, ScopeKind, SymbolKind};
 use super::types::{parse_type_name, Type};
-use crate::error::codes::{WARN_UNUSED_FUNCTION, WARN_UNUSED_IMPORT, WARN_UNUSED_VARIABLE};
+use crate::error::codes::{
+    ERR_CIRCULAR_DEPENDENCY, ERR_REDEFINE_PRELUDE_CLASS, WARN_UNUSED_FUNCTION, WARN_UNUSED_IMPORT,
+    WARN_UNUSED_VARIABLE,
+};
 use crate::error::{Diagnostic, Language, Span};
 use crate::parser::*;
 use std::collections::HashMap;
@@ -55,6 +60,11 @@ pub struct Analyzer {
     pub(crate) expected_type: Option<Type>,
     /// Registry of enum types with their variants.
     pub(crate) enums: HashMap<String, EnumInfo>,
+    /// Exports of each module bound by a wildcard import (`استورد * كـ`),
+    /// keyed by the specifier `Type::Module` carries. Stdlib modules are
+    /// absent: their members have no AST to enumerate and are looked up on
+    /// demand through `Scope::get_stdlib_builtin`.
+    pub(crate) module_namespaces: HashMap<String, HashMap<String, Type>>,
 }
 
 impl Analyzer {
@@ -72,6 +82,7 @@ impl Analyzer {
             current_class: None,
             expected_type: None,
             enums: HashMap::new(),
+            module_namespaces: HashMap::new(),
         }
     }
 
@@ -92,9 +103,50 @@ impl Analyzer {
         &self.exports
     }
 
+    /// Fold every module reached by `analyze` into `main`, producing the single
+    /// `Ast` that `IrBuilder::build` accepts.
+    ///
+    /// Must be called *after* `analyze`, which is what populates the module
+    /// cache; on a fresh analyzer this returns a clone of `main`.
+    ///
+    /// `warnings` is an out-parameter because the `Err` arm carries fatal
+    /// collisions only; callers emit the warnings and keep going.
+    pub fn linked_ast(
+        &self,
+        main: &Ast,
+        warnings: &mut Vec<Diagnostic>,
+    ) -> Result<Ast, Vec<Diagnostic>> {
+        link_program(
+            main,
+            &self.module_loader,
+            self.current_file.as_deref(),
+            warnings,
+        )
+    }
+
+    /// The names visible to the main file as user declarations, for
+    /// [`crate::ir::IrBuilder::with_visible_names`].
+    ///
+    /// Must be read after `analyze`. `linked_ast` hands the IR builder every
+    /// merged module declaration under its bare name, so without this the
+    /// builder would treat a module's un-imported `اطبع` as shadowing the
+    /// built-in that `analyze` actually bound the call to.
+    pub fn visible_names(&self) -> std::collections::HashSet<String> {
+        self.scope.user_defined_names()
+    }
+
     /// Get the class resolver.
     pub fn class_resolver(&self) -> &ClassResolver {
         &self.class_resolver
+    }
+
+    /// Assignment-position type check: like `Type::is_compatible_with`, plus
+    /// upcasting a class to one of its ancestors (issue #184). Use this for
+    /// variable initialization, assignment, and call/constructor arguments —
+    /// not for `==`, override checks, or generic constraints, which must
+    /// keep their pre-existing exact-type semantics.
+    pub(crate) fn is_assignable(&self, value: &Type, slot: &Type) -> bool {
+        value.is_assignable(slot, &self.class_resolver)
     }
 
     /// Set the language for error messages.
@@ -105,7 +157,20 @@ impl Analyzer {
 
     /// Analyze an AST and return any errors.
     pub fn analyze(&mut self, ast: &Ast) -> Result<(), Vec<Diagnostic>> {
+        // Modules are loaded here rather than where `analyze_import` first
+        // needs them, because that runs in the third pass — after
+        // `build_vtables` below — so an imported class could never join the
+        // hierarchy in time (issue #182). Rebuilding vtables afterwards is not
+        // an option: `validate` drains its own diagnostics, so a second run
+        // would report every main-file class error twice.
+        // Before any module load, so `modules_in_load_order` yields the prelude
+        // first and a user class can inherit from `استثناء` (issue #181).
+        self.inject_prelude();
+
+        let module_spans = self.preload_imported_modules(ast);
+
         // First pass: register all types (classes and interfaces)
+        let module_type_spans = self.register_module_types(&module_spans);
         for stmt in &ast.statements {
             self.register_types(stmt);
         }
@@ -123,6 +188,7 @@ impl Analyzer {
         }
 
         // Second pass: add members to types
+        self.add_module_type_members();
         for stmt in &ast.statements {
             self.add_type_members(stmt);
         }
@@ -130,9 +196,23 @@ impl Analyzer {
         // Build vtables for method dispatch
         self.class_resolver.build_vtables();
 
-        // Validate class hierarchy
+        // Validate class hierarchy.
+        //
+        // A module's classes are registered — `جديد نقطة()` on an imported
+        // class needs them — but their hierarchy violations are not the user's
+        // to fix and cannot even be shown: every one is anchored to main's
+        // `استورد` (or to nothing at all, for a transitively loaded module), so
+        // it renders against a line of main that has nothing to do with it.
+        // Reporting them made a single `استورد { قائمة } من "مجموعات"` fail
+        // every program that imported the stdlib collections. A violation
+        // involving a *main* class — including one inheriting from a module
+        // class — is anchored to that class and still reported.
         if let Err(diags) = self.class_resolver.validate() {
-            self.diagnostics.extend(diags);
+            self.diagnostics.extend(
+                diags
+                    .into_iter()
+                    .filter(|diagnostic| !module_type_spans.contains(&diagnostic.span)),
+            );
         }
 
         // Third pass: analyze statements
@@ -155,7 +235,10 @@ impl Analyzer {
 
     /// Register types in the first pass.
     fn register_types(&mut self, stmt: &Stmt) {
-        match &stmt.kind {
+        // `صدّر صنف س` declares `س` just as `صنف س` does; without unwrapping,
+        // the reserved-name check below missed the exported form and the clash
+        // surfaced from the linker instead (issue #181).
+        match &unwrap_exported_decl(stmt).kind {
             StmtKind::ClassDecl {
                 name,
                 type_params,
@@ -163,6 +246,26 @@ impl Analyzer {
                 implements,
                 ..
             } => {
+                // `register_class` is a `HashMap::insert`, so a user class of
+                // the same name would replace the prelude's `استثناء` without a
+                // word — and `link_program` would then merge two declarations of
+                // it into the IR. Refuse instead; inheriting is the supported
+                // way to add an exception type (issue #181).
+                if normalize_name(name) == normalize_name(prelude::EXCEPTION_CLASS) {
+                    self.error_with_code(
+                        &format!(
+                            "لا يمكن إعادة تعريف صنف الاستثناء الأساسي '{}'؛ ورّثه بدلاً من ذلك: صنف اسمك يرث {}. / \
+                             Cannot redefine the built-in base exception class '{}'; \
+                             inherit from it instead: صنف اسمك يرث {}.",
+                            prelude::EXCEPTION_CLASS, prelude::EXCEPTION_CLASS,
+                            prelude::EXCEPTION_CLASS, prelude::EXCEPTION_CLASS
+                        ),
+                        stmt.span,
+                        &ERR_REDEFINE_PRELUDE_CLASS.to_string(),
+                    );
+                    return;
+                }
+
                 self.class_resolver.register_class(
                     name,
                     type_params,
@@ -178,10 +281,236 @@ impl Analyzer {
         }
     }
 
+    /// Seed the module cache with the implicit prelude, so `استثناء` reaches
+    /// the class hierarchy and the merged AST like any other module's classes
+    /// (see `super::prelude`).
+    ///
+    /// A parse failure here is a defect in the compiler's own source, not the
+    /// user's, and `prelude::tests` guards it. Silently skipping beats failing
+    /// the user's build with a diagnostic they cannot act on; the consequence is
+    /// the pre-#181 behaviour, not a crash.
+    fn inject_prelude(&mut self) {
+        if let Ok((path, source, ast)) = prelude::prelude_ast() {
+            self.module_loader
+                .insert_synthetic_module(path, source, ast);
+        }
+    }
+
+    /// Load every module `ast` imports, and map each one to the `استورد` span
+    /// that pulled it in.
+    ///
+    /// Only top-level imports are walked, matching `link_program`: an import
+    /// nested inside a block still resolves its own symbols in the third pass,
+    /// but contributes no types to the hierarchy.
+    fn preload_imported_modules(&mut self, ast: &Ast) -> HashMap<PathBuf, Span> {
+        // The same fallback `analyze_import` uses. The two must resolve a
+        // specifier to the same file, or the third pass would load and cache a
+        // second copy of the module under a different path.
+        let current_file = self
+            .current_file
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let imports: Vec<(String, Span)> = ast
+            .statements
+            .iter()
+            .filter_map(|stmt| match &stmt.kind {
+                StmtKind::Import { from, .. } => Some((from.clone(), stmt.span)),
+                _ => None,
+            })
+            .collect();
+
+        let mut spans = HashMap::new();
+        let circular = ERR_CIRCULAR_DEPENDENCY.to_string();
+
+        for (from, span) in imports {
+            // Stdlib names resolve against a builtin table and are never read
+            // from disk; see `ModuleLoader::load_imported_modules`.
+            if Scope::get_stdlib_modules().contains(&from.as_str()) {
+                continue;
+            }
+
+            let Some(path) = self.module_loader.resolve_path(&current_file, &from) else {
+                continue;
+            };
+
+            let loaded = self.module_loader.load_module(&path, span).is_ok();
+
+            // Drained per import, because who reported what is only knowable
+            // here: this batch is everything one direct import produced.
+            let reported = self.module_loader.take_diagnostics();
+
+            if loaded {
+                spans.entry(path).or_insert(span);
+
+                // The direct module is fine, so every diagnostic in the batch
+                // came from something it pulled in. Nothing re-reports those:
+                // `analyze_import` reloads the direct specifier in the third
+                // pass and finds it cached, which never revisits its
+                // dependencies. Dropping them let a project with a broken
+                // transitive module pass `check` with "No errors found!" and
+                // then fail at run time with a misleading undefined-function
+                // error.
+                self.diagnostics.extend(reported);
+            } else {
+                // The direct module itself failed, and `load_module_internal`
+                // gives up before loading any dependency — so the batch is its
+                // own failure alone. It is absent from the cache, so
+                // `analyze_import` retries in the third pass and reports the
+                // same failure there; keeping this copy would report it twice.
+                //
+                // A cycle is the exception: it is detected by a *nested* load,
+                // and every module on it still lands in the cache, so the third
+                // pass finds them present and never re-reports. Dropping it
+                // here too let `أ` ⇄ `ب` compile and run silently (issue #182).
+                self.diagnostics.extend(
+                    reported
+                        .into_iter()
+                        .filter(|diagnostic| diagnostic.code.as_deref() == Some(circular.as_str())),
+                );
+            }
+        }
+
+        spans
+    }
+
+    /// Register the classes and interfaces declared by every loaded module, so
+    /// that the first pass covers the whole program's hierarchy and not just
+    /// main's.
+    ///
+    /// Diagnostics about these types are anchored to main's `استورد`, never to
+    /// a span inside the module: `Span` carries no file identity and
+    /// `Diagnostic::emit` renders every span against the main file's source
+    /// (the rule `link_program` documents).
+    ///
+    /// Returns exactly those anchor spans, which is what lets `analyze` tell a
+    /// module class's hierarchy diagnostic from a main class's. A `Vec` rather
+    /// than a set because `Span` is not `Hash`, and a program imports few
+    /// enough modules for the scan to be free.
+    fn register_module_types(&mut self, module_spans: &HashMap<PathBuf, Span>) -> Vec<Span> {
+        let main_path = self.main_module_path();
+        let mut anchors = Vec::new();
+
+        for module in self.module_loader.modules_in_load_order() {
+            if main_path.as_deref() == Some(module.path.as_path()) {
+                continue;
+            }
+
+            // A transitively loaded module has no `استورد` of its own in main.
+            let span = module_spans
+                .get(&module.path)
+                .copied()
+                .unwrap_or_else(Span::default);
+
+            let mut registered_here = false;
+
+            for stmt in &module.ast.statements {
+                match &unwrap_exported_decl(stmt).kind {
+                    StmtKind::ClassDecl {
+                        name,
+                        type_params,
+                        extends,
+                        implements,
+                        ..
+                    } => {
+                        self.class_resolver.register_class(
+                            name,
+                            type_params,
+                            extends.as_deref(),
+                            implements,
+                            span,
+                        );
+                        registered_here = true;
+                    }
+                    StmtKind::InterfaceDecl { name, .. } => {
+                        self.class_resolver.register_interface(name, &[], span);
+                        registered_here = true;
+                    }
+                    _ => {}
+                }
+            }
+
+            if registered_here {
+                anchors.push(span);
+            }
+        }
+
+        anchors
+    }
+
+    /// Second-pass counterpart of `register_module_types`. Split for the same
+    /// reason main's two passes are: a module class may inherit from one
+    /// declared in main, so every name must be registered before any member is
+    /// resolved.
+    fn add_module_type_members(&mut self) {
+        let main_path = self.main_module_path();
+
+        for module in self.module_loader.modules_in_load_order() {
+            if main_path.as_deref() == Some(module.path.as_path()) {
+                continue;
+            }
+
+            for stmt in &module.ast.statements {
+                match &unwrap_exported_decl(stmt).kind {
+                    StmtKind::ClassDecl { name, members, .. } => {
+                        self.class_resolver.add_class_members(
+                            name,
+                            members,
+                            resolve_type_annotation,
+                        );
+                    }
+                    StmtKind::InterfaceDecl { name, methods, .. } => {
+                        self.class_resolver.add_interface_methods(
+                            name,
+                            methods,
+                            resolve_type_annotation,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Main's own canonical path, when it has one.
+    ///
+    /// A module that imports the main file back puts main into the module
+    /// cache. Its declarations must not be registered from there as well, or
+    /// every main class would be built twice — `link_program` skips the same
+    /// entry for the same reason.
+    fn main_module_path(&self) -> Option<PathBuf> {
+        self.current_file
+            .as_ref()
+            .and_then(|path| path.canonicalize().ok())
+    }
+
     /// Add members to registered types in the second pass.
+    ///
+    /// Unwraps `صدّر` for the same reason `register_types` does: the two passes
+    /// must agree on what counts as a declaration. While this one matched the
+    /// raw statement, `صدّر صنف س` was registered as a class with an *empty*
+    /// member table — so `جديد س` reported "ليس له منشئ" and every field and
+    /// method access reported ص٠٣٠١, including inside the class's own methods.
+    /// An exported `ميثاق` lost its methods the same way, which left
+    /// `validate` nothing to require and silently suppressed ص٠٢٠١ (issue
+    /// #259). The module-side twin `add_module_type_members` already unwrapped,
+    /// which is why only classes declared in the main file were affected.
     fn add_type_members(&mut self, stmt: &Stmt) {
-        match &stmt.kind {
+        match &unwrap_exported_decl(stmt).kind {
             StmtKind::ClassDecl { name, members, .. } => {
+                // `register_types` refuses a redefinition of the prelude's
+                // `استثناء` and returns without registering it, so the entry
+                // under that name is still the prelude's. Registering the
+                // user's members over it replaces `رسالة` and the
+                // single-string constructor wholesale, which turned the one
+                // correct ص٠٦٠٢ refusal into three errors — two of them
+                // pointing at correct `ارمِ`/`خ.رسالة` code. The prelude's own
+                // members arrive through `add_module_type_members`, so skipping
+                // here costs nothing.
+                if normalize_name(name) == normalize_name(prelude::EXCEPTION_CLASS) {
+                    return;
+                }
+
                 self.class_resolver
                     .add_class_members(name, members, resolve_type_annotation);
             }
@@ -221,7 +550,15 @@ impl Analyzer {
                 return_type,
             } => Type::Function {
                 params: params.iter().map(|p| self.resolve_type(p)).collect(),
-                return_type: Box::new(self.resolve_type(return_type)),
+                // Bare `()` (no return type) resolves to Void — the same
+                // idiom `func_signature_types` uses for a `دالة` with no
+                // `-> نوع`.
+                return_type: Box::new(
+                    return_type
+                        .as_ref()
+                        .map(|t| self.resolve_type(t))
+                        .unwrap_or(Type::Void),
+                ),
             },
             TypeKind::Generic { base, args } => match base.as_str() {
                 "مصفوفة" | "array" | "Array" => {
@@ -259,6 +596,32 @@ impl Analyzer {
     pub(crate) fn push_function_scope(&mut self, return_type: Type) {
         let old_scope = std::mem::replace(&mut self.scope, Scope::new_global());
         self.scope = Scope::new_function(old_scope, return_type);
+    }
+
+    /// Push a lambda scope with return type. Mirrors `push_function_scope`,
+    /// but tags the scope `ScopeKind::Lambda` (see `Scope::new_lambda`) so
+    /// capture detection and return-type inference (issue #180) can tell an
+    /// arrow lambda's body apart from a declared function's.
+    pub(crate) fn push_lambda_scope(&mut self, return_type: Type) {
+        let old_scope = std::mem::replace(&mut self.scope, Scope::new_global());
+        self.scope = Scope::new_lambda(old_scope, return_type);
+    }
+
+    /// Runs `f` with `self.expected_type` temporarily set to `expected`,
+    /// restoring whatever was there before on return. Unlike a raw
+    /// assign-then-reset-to-`None`, this composes correctly when `f` itself
+    /// reads or sets `expected_type` (e.g. a lambda argument whose own body
+    /// contains a nested array/map literal or lambda that must not inherit
+    /// the outer expectation — see `infer_lambda_expr`).
+    pub(crate) fn with_expected<R>(
+        &mut self,
+        expected: Option<Type>,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let saved = std::mem::replace(&mut self.expected_type, expected);
+        let out = f(self);
+        self.expected_type = saved;
+        out
     }
 
     /// Pop the current scope.
@@ -593,22 +956,19 @@ impl Analyzer {
 
     // Error type checking
 
-    const ERROR_BASE_CLASSES: &'static [&'static str] = &["استثناء", "Exception", "Error"];
+    /// `Exception`/`Error` are carried for the pre-#181 tests and sources that
+    /// hand-declared a base class under an English name; `استثناء` is the one
+    /// the prelude actually provides.
+    const ERROR_BASE_CLASSES: &'static [&'static str] =
+        &[prelude::EXCEPTION_CLASS, "Exception", "Error"];
 
-    /// Check if a type is an error type.
+    /// Whether `ty` may be thrown: `استثناء` itself, or any subclass of it.
     pub(crate) fn is_error_type(&self, ty: &Type) -> bool {
         match ty {
-            Type::Class(class_name) => {
-                if Self::ERROR_BASE_CLASSES.contains(&class_name.as_str()) {
-                    return true;
-                }
-                for base_error in Self::ERROR_BASE_CLASSES {
-                    if self.class_resolver.is_subclass(class_name, base_error) {
-                        return true;
-                    }
-                }
-                false
-            }
+            // `is_subclass` is reflexive, so this covers the base class too.
+            Type::Class(class_name) => Self::ERROR_BASE_CLASSES
+                .iter()
+                .any(|base| self.class_resolver.is_subclass(class_name, base)),
             Type::Any => true, // Allow Any for backwards compatibility
             _ => false,
         }
@@ -635,7 +995,12 @@ pub fn resolve_type_annotation(type_ann: &TypeAnnotation) -> Type {
             return_type,
         } => Type::Function {
             params: params.iter().map(resolve_type_annotation).collect(),
-            return_type: Box::new(resolve_type_annotation(return_type)),
+            return_type: Box::new(
+                return_type
+                    .as_ref()
+                    .map(|t| resolve_type_annotation(t))
+                    .unwrap_or(Type::Void),
+            ),
         },
         TypeKind::Generic { base, args } => match base.as_str() {
             "مصفوفة" | "array" | "Array" => {
@@ -664,7 +1029,9 @@ pub fn resolve_type_annotation(type_ann: &TypeAnnotation) -> Type {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::codes::{ERR_NOT_EXPORTED, ERR_THROW_NON_EXCEPTION};
     use crate::parser::Parser;
+    use tempfile::TempDir;
 
     fn wrap_with_markers(source: &str) -> String {
         format!("بسم_الله\n{}\nالحمد_لله", source.trim())
@@ -682,6 +1049,37 @@ mod tests {
     fn test_variable_declaration() {
         let result = analyze("متغير س = 5;");
         assert!(result.is_ok());
+    }
+
+    /// LANGUAGE_SPEC §13.4: an optional is usable at its unwrapped type once a
+    /// null check has proved it present.
+    #[test]
+    fn test_null_check_narrows_optional() {
+        let result = analyze("متغير س: عدد? = 5\nإذا (س != لا_شيء) { اطبع(س + 1) }");
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    /// Without the check it stays optional, and arithmetic on it is still an
+    /// error — narrowing must not become a blanket exemption.
+    #[test]
+    fn test_optional_arithmetic_without_a_null_check_is_rejected() {
+        let result = analyze("متغير س: عدد? = 5\nاطبع(س + 1)");
+        assert!(result.is_err());
+    }
+
+    /// Narrowing is withdrawn when the branch assigns to the variable: the proof
+    /// no longer holds, and this analyzer has no flow pass to say from where.
+    #[test]
+    fn test_assignment_in_the_branch_withdraws_narrowing() {
+        let result = analyze("متغير س: عدد? = 5\nإذا (س != لا_شيء) { س = لا_شيء\nاطبع(س + 1) }");
+        assert!(result.is_err());
+    }
+
+    /// Narrowing applies to the branch the test actually proves.
+    #[test]
+    fn test_equality_null_check_narrows_the_else_branch() {
+        let result = analyze("متغير س: عدد? = 5\nإذا (س == لا_شيء) { اطبع(0) } وإلا { اطبع(س + 1) }");
+        assert!(result.is_ok(), "{:?}", result.err());
     }
 
     #[test]
@@ -874,31 +1272,26 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    /// The class is *not* declared here: `استثناء` comes from the prelude
+    /// (`semantic::prelude`). Before #181 every one of these tests had to
+    /// hand-declare it, which is precisely why the base class being missing went
+    /// unnoticed for the whole v1.0 release.
     #[test]
     fn test_throw_error_object() {
         let result = analyze(
             r#"
-            صنف استثناء {
-                عام رسالة: نص;
-                منشئ(رسالة: نص) {
-                    هذا.رسالة = رسالة;
-                }
-            }
             دالة ف() {
                 ارمِ جديد استثناء("حدث خطأ");
             }
         "#,
         );
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "{:?}", result.unwrap_err());
     }
 
     #[test]
     fn test_throw_error_subclass() {
         let result = analyze(
             r#"
-            صنف استثناء {
-                عام رسالة: نص;
-            }
             صنف استثناء_قيمة يرث استثناء {
                 عام القيمة: عدد;
             }
@@ -907,7 +1300,7 @@ mod tests {
             }
         "#,
         );
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "{:?}", result.unwrap_err());
     }
 
     #[test]
@@ -923,7 +1316,7 @@ mod tests {
         let errors = result.unwrap_err();
         assert!(errors
             .iter()
-            .any(|e| e.message.contains("لا يمكن رمي نوع غير خطأ")));
+            .any(|e| e.code.as_deref() == Some(ERR_THROW_NON_EXCEPTION.to_string().as_str())));
     }
 
     #[test]
@@ -937,7 +1330,9 @@ mod tests {
         );
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("غير خطأ")));
+        assert!(errors
+            .iter()
+            .any(|e| e.code.as_deref() == Some(ERR_THROW_NON_EXCEPTION.to_string().as_str())));
     }
 
     #[test]
@@ -954,16 +1349,15 @@ mod tests {
         );
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("غير خطأ")));
+        assert!(errors
+            .iter()
+            .any(|e| e.code.as_deref() == Some(ERR_THROW_NON_EXCEPTION.to_string().as_str())));
     }
 
     #[test]
     fn test_catch_parameter_typed_as_error() {
         let result = analyze(
             r#"
-            صنف استثناء {
-                عام رسالة: نص;
-            }
             دالة ف() {
                 حاول {
                     متغير س = 1;
@@ -973,19 +1367,13 @@ mod tests {
             }
         "#,
         );
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "{:?}", result.unwrap_err());
     }
 
     #[test]
     fn test_try_catch_finally() {
         let result = analyze(
             r#"
-            صنف استثناء {
-                عام رسالة: نص;
-                منشئ(رسالة: نص) {
-                    هذا.رسالة = رسالة;
-                }
-            }
             دالة ف() {
                 حاول {
                     ارمِ جديد استثناء("حدث استثناء");
@@ -997,7 +1385,7 @@ mod tests {
             }
         "#,
         );
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "{:?}", result.unwrap_err());
     }
 
     // ==========================================================================
@@ -1380,5 +1768,267 @@ mod tests {
         "#,
         );
         assert!(result.is_ok());
+    }
+
+    /// Analyze `main` as a file on disk alongside `modules`, so that a relative
+    /// `استورد` resolves the way it does for a real program.
+    ///
+    /// The `TempDir` travels back in the tuple because dropping it deletes the
+    /// fixtures; a caller that discards it would race its own analysis.
+    fn analyze_project(
+        modules: &[(&str, &str)],
+        main: &str,
+    ) -> (Analyzer, Result<(), Vec<Diagnostic>>, TempDir) {
+        let dir = TempDir::new().unwrap();
+
+        for (name, body) in modules {
+            std::fs::write(dir.path().join(name), wrap_with_markers(body)).unwrap();
+        }
+
+        let source = wrap_with_markers(main);
+        let main_path = dir.path().join("رئيسي.ترقيم");
+        std::fs::write(&main_path, &source).unwrap();
+
+        let ast = Parser::new(&source).parse().expect("main must parse");
+        let mut analyzer = Analyzer::for_file(main_path);
+        let result = analyzer.analyze(&ast);
+
+        (analyzer, result, dir)
+    }
+
+    // Issue #182: an imported class used to be missing from the hierarchy
+    // entirely, because modules were loaded in the third pass — long after
+    // `register_types`.
+    #[test]
+    fn test_imported_class_is_registered() {
+        let (analyzer, result, _dir) = analyze_project(
+            &[(
+                "نقاط.ترقيم",
+                "صدّر صنف نقطة {\n عام س: عدد\n منشئ(س: عدد) { هذا.س = س }\n}",
+            )],
+            "استورد { نقطة } من \"./نقاط\"\nمتغير ن = جديد نقطة(7)\nاطبع(ن.س)",
+        );
+
+        assert!(result.is_ok(), "expected no errors, got {:?}", result);
+        assert!(analyzer.class_resolver().get_class("نقطة").is_some());
+    }
+
+    // The registration must land before `build_vtables`, not merely before the
+    // statement that uses the class: an override only shares its parent's slot
+    // if both classes were present when the vtables were built.
+    #[test]
+    fn test_imported_class_hierarchy_reaches_the_vtable() {
+        let (analyzer, result, _dir) = analyze_project(
+            &[(
+                "أشكال.ترقيم",
+                "صدّر صنف شكل {\n عام دالة اسم() -> نص { أرجع \"شكل\" }\n}\n\
+                 صدّر صنف دائرة يرث شكل {\n عام دالة اسم() -> نص { أرجع \"دائرة\" }\n}",
+            )],
+            "استورد { دائرة } من \"./أشكال\"\nمتغير د = جديد دائرة()\nاطبع(د.اسم())",
+        );
+
+        assert!(result.is_ok(), "expected no errors, got {:?}", result);
+
+        let resolver = analyzer.class_resolver();
+        let parent = resolver.get_class("شكل").expect("شكل must be registered");
+        let child = resolver
+            .get_class("دائرة")
+            .expect("دائرة must be registered");
+
+        assert_eq!(child.vtable, vec!["اسم".to_string()]);
+        assert_eq!(
+            child.methods["اسم"].vtable_index, parent.methods["اسم"].vtable_index,
+            "the override must occupy the inherited slot"
+        );
+    }
+
+    // Preloading loads each module once, then `analyze_import` loads it again
+    // in the third pass. A module that fails is absent from the cache, so the
+    // second attempt repeats the failure — only one copy may reach the user.
+    #[test]
+    fn test_failing_module_is_reported_once() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[("معطوب.ترقيم", "صدّر دالة ناقصة( {")],
+            "استورد { ناقصة } من \"./معطوب\"\nاطبع(1)",
+        );
+
+        let diagnostics = result.expect_err("a module that does not parse must fail analysis");
+        let about_module = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("معطوب"))
+            .count();
+
+        assert_eq!(
+            about_module, 1,
+            "one diagnostic per broken module, got {:?}",
+            diagnostics
+        );
+    }
+
+    // A failure inside a *transitively* imported module has nobody to
+    // re-report it: the third pass reloads main's own specifiers only, and
+    // finds them cached. Dropping it here let `check` announce "No errors
+    // found!" for a project that then died at run time on a function whose
+    // module never parsed.
+    #[test]
+    fn test_failing_transitive_module_is_reported() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[
+                ("ج.ترقيم", "صدّر دالة ثلاثة() -> عدد { أرجع ((( }"),
+                (
+                    "ب.ترقيم",
+                    "استورد { ثلاثة } من \"./ج\"\n\
+                     صدّر دالة ضاعف(س: عدد) -> عدد { أرجع س * 2 }",
+                ),
+            ],
+            "استورد { ضاعف } من \"./ب\"\nاطبع(ضاعف(21))",
+        );
+
+        let diagnostics =
+            result.expect_err("a broken transitive module must fail the whole program");
+        let about_broken = diagnostics
+            .iter()
+            .filter(|d| d.message.contains("ج.ترقيم"))
+            .count();
+
+        assert_eq!(
+            about_broken, 1,
+            "the transitive failure must be reported exactly once, got {:?}",
+            diagnostics
+        );
+    }
+
+    // Registering a module's classes also fed them to `ClassResolver::validate`,
+    // so any hierarchy violation inside a library failed the importing program —
+    // `استورد { قائمة } من "مجموعات"` alone was enough. The classes must stay
+    // registered, since `جديد` on an imported class needs them.
+    #[test]
+    fn test_module_class_violation_does_not_fail_main() {
+        let (analyzer, result, _dir) = analyze_project(
+            &[(
+                "أشكال.ترقيم",
+                "ميثاق مرسوم {\n دالة ارسم() -> نص\n}\n\
+                 صدّر صنف مربع يلتزم مرسوم {\n عام دالة ارسم() -> عدد { أرجع 1 }\n}",
+            )],
+            "استورد { مربع } من \"./أشكال\"\nمتغير م = جديد مربع()\nاطبع(\"مرحبا\")",
+        );
+
+        assert!(
+            result.is_ok(),
+            "a violation the user cannot see or fix must not fail their program: {:?}",
+            result
+        );
+        assert!(
+            analyzer.class_resolver().get_class("مربع").is_some(),
+            "the module class must still be registered"
+        );
+    }
+
+    // The other half of the same filter: a violation by a class the user did
+    // write is anchored to that class, so it survives.
+    #[test]
+    fn test_main_class_violation_against_imported_interface_is_reported() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[("أشكال.ترقيم", "صدّر ميثاق مرسوم {\n دالة ارسم() -> نص\n}")],
+            "استورد { مرسوم } من \"./أشكال\"\n\
+             صنف مربع يلتزم مرسوم {\n عام دالة ارسم() -> عدد { أرجع 1 }\n}\n\
+             اطبع(\"مرحبا\")",
+        );
+
+        let diagnostics = result.expect_err("a main-file class must still be validated");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message.contains("مربع") && d.message.contains("ارسم")),
+            "expected the override violation, got {:?}",
+            diagnostics
+        );
+    }
+
+    // Deliberate degradation, not an oversight: an unresolved module exposes no
+    // exports, so typing the alias as a module would turn every access through
+    // it into an error.
+    #[test]
+    fn test_wildcard_of_missing_module_stays_any() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[],
+            "استورد * كـ أدوات من \"./لا_يوجد\"\nاطبع(أدوات.أي_شيء())",
+        );
+
+        assert!(
+            result.is_ok(),
+            "access through an unresolved module must not error: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_wildcard_alias_uses_the_real_export_signature() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[(
+                "أدوات.ترقيم",
+                "صدّر دالة جمع(أ: عدد، ب: عدد) -> عدد { أرجع أ + ب }",
+            )],
+            "استورد * كـ أدوات من \"./أدوات\"\nمتغير س: عدد = أدوات.جمع(2، 3)",
+        );
+
+        assert!(result.is_ok(), "expected no errors, got {:?}", result);
+    }
+
+    // The point of `Type::Module` over `أي`: the signature is enforced, not
+    // waved through.
+    #[test]
+    fn test_wildcard_alias_checks_export_arity() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[(
+                "أدوات.ترقيم",
+                "صدّر دالة جمع(أ: عدد، ب: عدد) -> عدد { أرجع أ + ب }",
+            )],
+            "استورد * كـ أدوات من \"./أدوات\"\nمتغير س: عدد = أدوات.جمع(2)",
+        );
+
+        assert!(result.is_err(), "a wrong argument count must be rejected");
+    }
+
+    #[test]
+    fn test_wildcard_alias_rejects_unknown_export() {
+        let (_analyzer, result, _dir) = analyze_project(
+            &[("أدوات.ترقيم", "صدّر دالة جمع(أ: عدد) -> عدد { أرجع أ }")],
+            "استورد * كـ أدوات من \"./أدوات\"\nمتغير س = أدوات.غير_موجود",
+        );
+
+        let diagnostics = result.expect_err("an export that does not exist must be reported");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.code.as_deref() == Some(ERR_NOT_EXPORTED.to_string().as_str())),
+            "expected و٠٠٠٢, got {:?}",
+            diagnostics
+        );
+    }
+
+    // Stdlib modules keep no AST, so their members resolve one at a time
+    // through the builtin table instead of a recorded export map.
+    #[test]
+    fn test_stdlib_wildcard_alias_resolves_builtin() {
+        let result =
+            analyze("استورد * كـ رياضيات من \"رياضيات\"\nمتغير ج: عدد_عشري = رياضيات.جذر(16.0)");
+
+        assert!(result.is_ok(), "expected no errors, got {:?}", result);
+    }
+
+    #[test]
+    fn test_stdlib_wildcard_alias_rejects_unknown_builtin() {
+        let result =
+            analyze("استورد * كـ رياضيات من \"رياضيات\"\nمتغير ج = رياضيات.لا_وجود_لها(1.0)");
+
+        let diagnostics = result.expect_err("an unknown stdlib member must be reported");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.code.as_deref() == Some(ERR_NOT_EXPORTED.to_string().as_str())),
+            "expected و٠٠٠٢, got {:?}",
+            diagnostics
+        );
     }
 }

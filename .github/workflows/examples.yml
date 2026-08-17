@@ -46,6 +46,39 @@ jobs:
           path: target/release/libtrq.a
 
   # ============================================
+  # Enumerate Examples (feeds the run-* matrices)
+  # ============================================
+  list-examples:
+    name: List Examples
+    runs-on: ubuntu-latest
+    outputs:
+      names: ${{ steps.collect.outputs.names }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Collect example names
+        id: collect
+        run: |
+          # The three run-* matrices below are derived from this glob instead of
+          # being hand-maintained, so adding or removing an example never needs a
+          # matrix edit. Hand-syncing them had already failed once: رؤية_بسيط sat
+          # in examples/ while being in none of the three, so it was never run.
+          #
+          # Same flat, non-recursive glob as check-examples — those jobs resolve
+          # examples/<name>.ترقيم, so a nested example would not be found.
+          names=$(ls examples/*.ترقيم | xargs -n1 basename | sed 's/\.ترقيم$//' | jq -R . | jq -sc .)
+          echo "Examples: $names"
+
+          # An empty matrix would spawn zero jobs and report success, which is
+          # indistinguishable from every example passing.
+          if [ "$names" = "[]" ]; then
+            echo "::error::No examples found — the glob matched nothing"
+            exit 1
+          fi
+
+          echo "names=$names" >> "$GITHUB_OUTPUT"
+
+  # ============================================
   # Validate Examples (Syntax Check)
   # ============================================
   check-examples:
@@ -72,13 +105,18 @@ jobs:
           PASS=0
           FAIL=0
 
-          # Only check examples in the main examples/ directory (not planned/)
+          # examples/ is flat, so this glob is the whole corpus. It is not
+          # recursive on purpose: a nested example would be checked here but
+          # missed by the run-* matrices below, which resolve examples/<name>.ترقيم.
           for file in examples/*.ترقيم; do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
               echo "Checking: $filename"
 
-              if ./bin/tarqeem check "$file" 2>&1; then
+              # Bounded like the run-* steps below: a parser that spins (#266)
+              # would otherwise hold this job to the 6-hour job limit with no
+              # diagnostic, since no job here sets timeout-minutes.
+              if timeout 30s ./bin/tarqeem check "$file" 2>&1; then
                 echo "- :white_check_mark: $filename" >> check-results.md
                 PASS=$((PASS + 1))
               else
@@ -106,34 +144,129 @@ jobs:
           path: check-results.md
 
   # ============================================
+  # Validate the Standard Library (Syntax Check)
+  # ============================================
+  check-stdlib:
+    name: Check Stdlib Syntax
+    runs-on: ubuntu-latest
+    needs: build-compiler
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download compiler
+        uses: actions/download-artifact@v8
+        with:
+          name: tarqeem-compiler
+          path: ./bin
+
+      - name: Make compiler executable
+        run: chmod +x ./bin/tarqeem
+
+      # 33 of 43 stdlib files did not parse before #228 and nothing noticed,
+      # because the only stdlib parse coverage was two hard-coded files. The
+      # allowlist mirrors KNOWN_UNPARSEABLE in tests/integration_tests.rs and may
+      # only shrink.
+      - name: Parse every stdlib file
+        run: |
+          ALLOWED="stdlib/أخطاء/فهرس.ترقيم"   # #243
+          PASS=0
+          FAIL=0
+
+          while IFS= read -r file; do
+            # Bounded for the same reason as the check step above (#266).
+            if timeout 30s ./bin/tarqeem parse "$file" >/dev/null 2>&1; then
+              PASS=$((PASS + 1))
+              if [ "$file" = "$ALLOWED" ]; then
+                echo "::error::$file parses now — drop it from the allowlist here and in tests/integration_tests.rs"
+                exit 1
+              fi
+            elif [ "$file" = "$ALLOWED" ]; then
+              echo "known blocker (#243): $file"
+            else
+              echo "::error::$file no longer parses"
+              ./bin/tarqeem parse "$file" 2>&1 | head -12
+              FAIL=$((FAIL + 1))
+            fi
+          done < <(find stdlib -name '*.ترقيم' | sort)
+
+          echo "**Parsed:** $PASS | **Failed:** $FAIL"
+
+          if [ $FAIL -gt 0 ]; then
+            exit 1
+          fi
+
+  # ============================================
   # Run Examples with Interpreter (Default Mode)
   # ============================================
+  # ============================================
+  # Expected Output — the only job that checks a *value*
+  # ============================================
+  #
+  # Every other example job checks that a program runs, and compare-backends
+  # checks that the backends agree. Neither can see a wrong answer: three
+  # backends agreeing on the same wrong number is a pass. `اطبع(5.0)` printing
+  # `5` survived exactly that way, in every backend at once.
+  #
+  # So each example's output is committed under examples/متوقع/ and diffed here.
+  # Regenerate deliberately, and read the diff before committing it:
+  #
+  #   ./scripts/جدد_المتوقع.sh
+  #
+  expected-output:
+    name: Expected Output (values, not just exit codes)
+    runs-on: ubuntu-latest
+    needs: build-compiler
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download compiler
+        uses: actions/download-artifact@v8
+        with:
+          name: tarqeem-compiler
+          path: ./bin
+
+      - name: Make compiler executable
+        run: chmod +x ./bin/tarqeem
+
+      - name: Diff every example against its committed output
+        run: |
+          unset TARQEEM_HOME
+          status=0
+          for file in examples/*.ترقيم; do
+            name="$(basename "$file" .ترقيم)"
+            expected="examples/متوقع/${name}.خرج"
+
+            if [ ! -f "$expected" ]; then
+              echo "::error::لا يوجد خرج متوقع لـ ${name} / no expected output committed"
+              echo "  أضفه بتشغيل / add it with: ./scripts/جدد_المتوقع.sh"
+              status=1
+              continue
+            fi
+
+            if ! timeout 60s ./bin/tarqeem run "$file" > "/tmp/${name}.actual" 2>&1; then
+              echo "::error::فشل تنفيذ ${name} / ${name} failed to run"
+              tail -20 "/tmp/${name}.actual"
+              status=1
+              continue
+            fi
+
+            if diff -u "$expected" "/tmp/${name}.actual"; then
+              echo "✅ ${name}"
+            else
+              echo "::error::خرج ${name} تغيّر / ${name} output changed — if intended, regenerate and commit"
+              status=1
+            fi
+          done
+          exit $status
+
   run-examples-interpreted:
     name: Run Examples (Interpreter)
     runs-on: ubuntu-latest
-    needs: build-compiler
+    needs: [build-compiler, list-examples]
     strategy:
       fail-fast: false
       matrix:
-        example:
-          # Only include working examples (those not in planned/)
-          - مرحبا
-          - متغيرات
-          - دوال
-          - تحكم
-          - أهلا
-          - صنف
-          - خواص
-          - تعداد
-          - اختبار_بسيط
-          - اختبار_مجموعات
-          - اختبار_اطار_العمل
-          - لعبة_الحياة_بسيط
-          - لعبة_الحياة
-          - حاسبة
-          - وضع_البرنامج
-          - بصمة
-          - ضغط
+        example: ${{ fromJSON(needs.list-examples.outputs.names) }}
     steps:
       - uses: actions/checkout@v7
 
@@ -168,29 +301,11 @@ jobs:
   run-examples-jit:
     name: Run Examples (JIT)
     runs-on: ubuntu-latest
-    needs: build-compiler
+    needs: [build-compiler, list-examples]
     strategy:
       fail-fast: false
       matrix:
-        example:
-          # Only include working examples (those not in planned/)
-          - مرحبا
-          - متغيرات
-          - دوال
-          - تحكم
-          - أهلا
-          - صنف
-          - خواص
-          - تعداد
-          - اختبار_بسيط
-          - اختبار_مجموعات
-          - اختبار_اطار_العمل
-          - لعبة_الحياة_بسيط
-          - لعبة_الحياة
-          - حاسبة
-          - وضع_البرنامج
-          - بصمة
-          - ضغط
+        example: ${{ fromJSON(needs.list-examples.outputs.names) }}
     steps:
       - uses: actions/checkout@v7
 
@@ -225,29 +340,11 @@ jobs:
   run-examples-compiled:
     name: Run Examples (Compiled)
     runs-on: ubuntu-latest
-    needs: build-compiler
+    needs: [build-compiler, list-examples]
     strategy:
       fail-fast: false
       matrix:
-        example:
-          # Only include working examples (those not in planned/)
-          - مرحبا
-          - متغيرات
-          - دوال
-          - تحكم
-          - أهلا
-          - صنف
-          - خواص
-          - تعداد
-          - اختبار_بسيط
-          - اختبار_مجموعات
-          - اختبار_اطار_العمل
-          - لعبة_الحياة_بسيط
-          - لعبة_الحياة
-          - حاسبة
-          - وضع_البرنامج
-          - بصمة
-          - ضغط
+        example: ${{ fromJSON(needs.list-examples.outputs.names) }}
     steps:
       - uses: actions/checkout@v7
 
@@ -300,6 +397,175 @@ jobs:
           timeout 30s "./output_${{ matrix.example }}"
 
   # ============================================
+  # Compare Interpreter vs Native Output
+  # ============================================
+  # The jobs above run every example under all three backends, but only ever
+  # check the exit code. A miscompilation that prints wrong numbers and exits 0
+  # passes them all — which is exactly how issue #239 (auto-property accessors
+  # all addressing field slot 0) survived in `خواص` while CI stayed green.
+  #
+  # This job takes the interpreter as the reference and diffs both other
+  # backends' stdout against it, so a backend that silently disagrees fails the
+  # build. It also asserts each run's exit status, because two backends that are
+  # both broken enough to print nothing would otherwise produce two empty files
+  # and "agree".
+  compare-backends:
+    name: Compare Backends (Interpreter vs JIT vs Native)
+    runs-on: ubuntu-latest
+    needs: build-compiler
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install LLVM/Clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lld zlib1g-dev
+
+      - name: Download compiler
+        uses: actions/download-artifact@v8
+        with:
+          name: tarqeem-compiler
+          path: ./bin
+
+      - name: Download runtime library
+        uses: actions/download-artifact@v8
+        with:
+          name: tarqeem-runtime
+          path: ./runtime
+
+      - name: Make compiler executable
+        run: chmod +x ./bin/tarqeem
+
+      - name: Diff every backend's output against the interpreter's
+        env:
+          # `example:backend` pairs known to disagree with the interpreter, with
+          # the issue that tracks each. Entries are removed as the issues are
+          # fixed — never added to silence a fresh divergence without filing one
+          # first. Keyed per backend, not per example, because a bug is usually
+          # specific to one, so a per-example entry would wrongly excuse a
+          # regression in a backend that was never broken.
+          #
+          #   (none today — تشفير_وضغط:native was the last entry, removed with
+          #    #185 once native طول counted characters rather than UTF-8 bytes.)
+          KNOWN_DIVERGENT: ""
+          # Examples native codegen is *documented* to refuse, so a refusal here
+          # is the expected outcome rather than a build break. KNOWN_DIVERGENT
+          # cannot cover these: it is only consulted once a binary exists.
+          #
+          #   (none today — an example using ارمِ would belong here, since
+          #    native compilation rejects it with ت٠٣٠٣ by design, see #238.)
+          NATIVE_UNSUPPORTED: ""
+        run: |
+          # `find_runtime`'s first priority — the explicit override, which beats
+          # every other location. It is the honest choice for a job that
+          # downloads the library as an artifact rather than building it: no
+          # target/ directory, no CARGO_MANIFEST_DIR, no ~/.tarqeem. (Before
+          # #285 the CLI ignored this variable outright and the job passed only
+          # because ./runtime/ is also searched.)
+          export TARQEEM_RUNTIME_PATH="$PWD/runtime/libtrq.a"
+          # TARQEEM_HOME is deliberately left unset (not set to ""), so the
+          # stdlib search falls through to this checkout's own stdlib.
+          unset TARQEEM_HOME
+          mkdir -p ./compare
+          status=0
+
+          # Is $1 listed in the space-separated allowlist $2?
+          listed() {
+            case " $2 " in (*" $1 "*) return 0 ;; esac
+            return 1
+          }
+
+          for file in examples/*.ترقيم; do
+            name="$(basename "$file" .ترقيم)"
+            reference="./compare/${name}.interpreted"
+
+            # An example that cannot run under the interpreter has no reference
+            # to compare against, and an empty file is not one — that is how two
+            # equally broken backends would "agree".
+            if ! timeout 30s ./bin/tarqeem run "$file" > "$reference" 2> "./compare/${name}.run.log"; then
+              echo "::error file=$file::فشل التنفيذ بالمفسّر / interpreter run failed"
+              tail -20 "./compare/${name}.run.log"
+              status=1
+              continue
+            fi
+
+            for backend in jit native; do
+              actual="./compare/${name}.${backend}"
+
+              case "$backend" in
+                jit)
+                  if ! timeout 60s ./bin/tarqeem run --jit "$file" > "$actual" 2> "./compare/${name}.jit.log"; then
+                    echo "::error file=$file::فشل التنفيذ بالترجمة الفورية / JIT run failed"
+                    tail -20 "./compare/${name}.jit.log"
+                    status=1
+                    continue
+                  fi
+                  ;;
+                native)
+                  if ! timeout 120s ./bin/tarqeem compile "$file" -o "./compare/${name}.bin" \
+                       > "./compare/${name}.compile.log" 2>&1; then
+                    if listed "$name" "$NATIVE_UNSUPPORTED"; then
+                      echo "known     $name (الترجمة الأصلية غير مدعومة / native unsupported)"
+                    else
+                      echo "::error file=$file::تعذّرت الترجمة الأصلية / native compile failed"
+                      tail -20 "./compare/${name}.compile.log"
+                      status=1
+                    fi
+                    continue
+                  fi
+                  if listed "$name" "$NATIVE_UNSUPPORTED"; then
+                    echo "::error file=$file::$name يُترجَم الآن — أزله من NATIVE_UNSUPPORTED / compiles now, remove it from NATIVE_UNSUPPORTED"
+                    status=1
+                  fi
+                  if ! timeout 30s "./compare/${name}.bin" > "$actual" 2> "./compare/${name}.native.log"; then
+                    echo "::error file=$file::فشل تنفيذ الملف التنفيذي الأصلي / native binary run failed"
+                    tail -20 "./compare/${name}.native.log"
+                    status=1
+                    continue
+                  fi
+                  ;;
+              esac
+
+              if diff -u "$reference" "$actual" > "./compare/${name}.${backend}.diff"; then
+                echo "ok        $name ($backend)"
+                # A known-divergent example that has started agreeing means the
+                # tracking issue is fixed; drop it from KNOWN_DIVERGENT.
+                if listed "$name:$backend" "$KNOWN_DIVERGENT"; then
+                  echo "::error file=$file::$name متطابق الآن ($backend) — أزل $name:$backend من KNOWN_DIVERGENT / now agrees, remove it from KNOWN_DIVERGENT"
+                  status=1
+                fi
+              elif listed "$name:$backend" "$KNOWN_DIVERGENT"; then
+                echo "known     $name ($backend) (اختلاف متوقع / expected divergence)"
+              else
+                echo "::error file=$file::$name يطبع خرجاً مختلفاً بين المفسّر و$backend / output differs from the interpreter"
+                cat "./compare/${name}.${backend}.diff"
+                # A NUL byte anywhere reduces `diff -u` to "Binary files
+                # differ", which names neither the offset nor the byte. Print
+                # both so the log identifies the divergence on its own.
+                echo "--- أول بايت مختلف / first differing bytes ---"
+                cmp -l "$reference" "$actual" | head -20 || true
+                echo "--- المفسّر / interpreter ---"
+                od -c "$reference" | head -40
+                echo "--- $backend ---"
+                od -c "$actual" | head -40
+                status=1
+              fi
+            done
+          done
+
+          exit $status
+
+      # Every backend's stdout, plus the diffs, so a divergence can be examined
+      # byte-for-byte instead of re-run with added logging.
+      - name: Upload backend outputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compare-backends-output
+          path: ./compare/
+          retention-days: 7
+
+  # ============================================
   # Run Standard Library Tests
   # ============================================
   run-stdlib:
@@ -347,7 +613,7 @@ jobs:
   summary:
     name: Examples Summary
     runs-on: ubuntu-latest
-    needs: [check-examples, run-examples-interpreted, run-examples-jit, run-examples-compiled, run-stdlib]
+    needs: [check-examples, check-stdlib, run-examples-interpreted, run-examples-jit, run-examples-compiled, compare-backends, run-stdlib]
     if: always()
     steps:
       - name: Download all artifacts
@@ -382,3 +648,14 @@ jobs:
         with:
           name: examples-summary
           path: summary.md
+
+      # `if: always()` above makes this job green even when a job it aggregates
+      # went red, so anything using "Examples Summary" as the single required
+      # check would read a failed compare-backends as a pass. Skipped and
+      # cancelled deps are not failures, so they are matched explicitly rather
+      # than by `!= success`.
+      - name: Fail if any aggregated job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::أحد أعمال الأمثلة فشل / one of the aggregated example jobs failed"
+          exit 1

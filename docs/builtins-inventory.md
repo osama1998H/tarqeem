@@ -1,0 +1,511 @@
+# Builtin / Stdlib Inventory — جرد المدمجات
+
+**Phase 1 deliverable.** A read-only census of every function and type the Tarqeem compiler
+exposes to the language, where each one is implemented, which backends can actually execute it,
+and the verdict assigned by the classification pass in
+[`builtins-vs-stdlib.md`](builtins-vs-stdlib.md).
+
+Nothing here is a proposal. Every row is a fact verified against source, and every count is
+backed by a mechanical count that agrees with the hand enumeration.
+
+---
+
+## 0. Headline numbers
+
+| | |
+|---|---|
+| Names declared in `Scope` | **192** — 27 `core_builtins()` + 165 `get_stdlib_builtin()` across 7 modules |
+| Names reachable on *some* backend | **244** — the extra 52 exist in a backend but in no registry, so no program can call them |
+| `runtime-rs` exports | **220** `#[no_mangle] pub extern "C" fn` |
+| … of which ABI-internal (compiler-emitted plumbing) | **22** — excluded from the language surface |
+| … of which orphans (no caller anywhere) | **28** |
+| … reachable from a declared name | **156** |
+| Self-hosted `.ترقيم` exports under `stdlib/` | **385** `صدّر` declarations across 44 files |
+| … actually loadable today | **one module** (`مجموعات`); 201 exports are dead by short-circuit |
+| Places to edit to add **one** builtin | **9** for a symbol-mapped name, **2** for an IR-intercepted one — measured on both (see §1) |
+
+**Two planes, counted separately.** `runtime-rs` mixes the language's builtin surface with the
+ABI the compiler emits for ordinary operators and allocation (`trq_alloc`, `trq_retain`,
+`trq_string_concat` …). Conflating them inflates the "builtin count" by a factor of two and makes
+any target size meaningless. The 22 ABI-internal symbols are never language-visible and are
+excluded from every count below.
+
+---
+
+## 1. How a name reaches a program
+
+There is no single registry. A name must be independently present on up to six surfaces, and
+nothing enforces that it is present on all of them.
+
+| Surface | File | Mechanism |
+|---|---|---|
+| Semantic | `src/semantic/scope.rs` | `core_builtins()` — a `Vec` of 27 `(name, params, ret)` tuples registered into the global scope. `get_stdlib_builtin(module, name)` — a two-level `match` with 165 arms, manufactured on demand at import. `get_stdlib_module_exports()` — a **second, hand-maintained copy** of the same 165 names with no consistency test. |
+| Interpreter | `src/interpreter/executor/builtins.rs` | `is_builtin` string membership + a dispatch `match`. Two edits per name, same file. |
+| Debug interpreter | `src/debug/interpreter/builtins.rs` | A private duplicate of the above, used by DAP. Knows **27** names — 20 Arabic plus 7 `trq_*` symbols, and `is_builtin` and the dispatch `match` list the same 27. The original census recorded 18; that figure was already stale when written, since the #185/#222/#241 repairs had added runtime-symbol arms. **Count it excluding comments:** the comment lines inside `is_builtin` quote Arabic diagnostics («دالة غير معرّفة») and call syntax (`عدد("٥")`), so a regex over the block that does not strip `//` lines over-counts — that is how a wrong 29 reached this row once already. |
+| Native | `src/ir/builder/expr_builder.rs` + `src/codegen/llvm/codegen.rs` | Either intercepted in the IR builder (15 names) or looked up in `get_runtime_function_name` (215 names) and emitted as a `trq_*` call. |
+| JIT | `src/jit/{baseline,optimizing}/compiler.rs` | **Compiles zero builtins.** `run_with_profiling` always returns `interpreter.run()`; `get_function_ptr` has no callers. The JIT column agrees with the interpreter by delegation, not by compiling. |
+| Editor | `src/lsp/handlers/{completion,semantic_tokens,inlay_hints}.rs` | Three hardcoded lists (10 / 14 / 18 names) that derive from nothing and agree with neither the registry nor each other. |
+
+### 1.1 Imports never touch disk for 7 specifiers
+
+`src/semantic/analyzer/stmt_analyzer.rs:1122-1128`:
+
+```rust
+let is_stdlib_module = Scope::get_stdlib_modules().contains(&from);
+if is_stdlib_module { self.handle_stdlib_import(items, from, span); return; }
+```
+
+`رياضيات، نص، ملفات، وقت، تشفير، ضغط، شبكة` short-circuit to the native table, and
+`modules.rs:299` skips loading them entirely. `src/semantic/modules.rs:693-707` locks this in with
+a test that plants a real `رياضيات.ترقيم` on the search path and asserts it is **not** loaded.
+
+The short-circuit keys on the *literal specifier string*, so the same file is reachable through two
+different mechanisms depending on spelling: `من "رياضيات"` hits the builtin table, while
+`من "./رياضيات"` loads `stdlib/رياضيات.ترقيم` from disk with entirely different types.
+
+Everything else — `مجموعات، طرفية، اختبار، أخطاء` — does resolve from disk. **`مجموعات` loads and
+type-checks clean.** So the disk loader is production machinery, not a thing to be built.
+
+---
+
+## 2. What the census found
+
+These are the defects the inventory surfaced. They are recorded here because they set the cost of
+the refactor; fixing them is scoped in the plan document, not here.
+
+### 2.1 The default backend is the weakest one
+
+**78 of 192 declared names (41%) have no interpreter arm**, so `tarqeem run` fails on them after
+the import type-checks cleanly: all 23 `شبكة` names, 19 of 21 `ملفات`, 32 of 41 `نص`, plus
+`الحق، طول_مصفوفة، باقي، بذرة_عشوائي`. Both JIT tiers inherit every one of these holes by
+delegation.
+
+### 2.2 Names that work on exactly one backend
+
+The `نص` predicates are split down the middle: `يحتوي / يبدأ_بـ / ينتهي_بـ` lower natively with no
+interpreter arm, while `نص_يحتوي / نص_يبدأ_بـ / نص_ينتهي_بـ` have interpreter arms and no codegen
+mapping. All six are declared. **Neither spelling of any of the three predicates works on both
+backends.**
+
+### 2.3 Names implemented nowhere
+
+`كرر` (declared at `scope.rs:458`, exported at `:856`) has no implementation in any backend —
+`rg '"كرر"'` matches only those two lines. It imports, type-checks, then fails at run time
+everywhere. `بذرة_عشوائية` likewise; `باقي` is gated with no arm.
+
+### 2.4 Aliases
+
+**50 alias groups cover 106 of 235 names.** 31 of those groups are *inconsistent* — their members
+disagree on at least one backend cell, so choosing one spelling over another silently changes which
+backends work. The trigonometric pairs (`جا/جيب`, `جتا/جيب_التمام`, `ظا/ظل` …) are consistent; the
+`عشوائي/عشوائي_عدد` pair and the network family are not.
+
+`مطلق_عدد، قوة_عدد، أقل_عدد، أكبر_عدد، حصر_عدد` are **not** aliases — they are monomorphic `عدد`
+siblings mapping to different runtime symbols, and exist only because `Type` cannot express
+`عدد | عدد_عشري`.
+
+### 2.5 Native reference counting is declared but never emitted
+
+`trq_retain`, `trq_release` and `trq_free` each appear in `src/` exactly once — as `declare` lines
+in `codegen.rs:697-699`. No `call` to any of them is emitted anywhere. **Every native-compiled
+program allocates and never frees**, contradicting `ARCHITECTURE.md` §5 and `LANGUAGE_SPEC.md`
+§13.3. A second leak layer sits underneath: every `TrqString`/`TrqArray` is two allocations, and
+the only functions that free the payload (`trq_string_free_data`, `trq_array_free_data`) are
+orphans — the former has zero call sites in the entire repository.
+
+### 2.6 Dead runtime surface
+
+28 exports have no caller. Among them a complete, tested, unreachable streaming file API
+(`trq_file_open_read/write/append`, `read_line`, `write_line`, `eof`, `flush`, `close` —
+`io.rs:427-592`, ~165 lines) with no Arabic name. That is precisely the category-7 primitive set
+the plan needs, already written. Five more symbols are *declare-only*: codegen emits an LLVM
+`declare` into every module and never a call (`trq_nroot`, `trq_dir_create_all`, `trq_path_stem`,
+`trq_path_absolute`, `trq_path_is_absolute`).
+
+`trq_pi` and `trq_e` are dead **and** duplicated — `stdlib/رياضيات/ثوابت.ترقيم:13,21` hardcodes the
+same constants as Tarqeem literals.
+
+### 2.7 Half the "syscall layer" needs no OS
+
+Per file, syscall / pure: `io.rs` 38/7 · `math.rs` 5/44 · `runtime.rs` 12/2 · `network.rs` 25/2 ·
+`crypto.rs` 1/9 · `compress.rs` 2/4 · `date.rs` **0/8**. Total **83 syscall / 76 pure**.
+
+`date.rs` never reads a clock — every function takes an explicit y/m/d and does civil-calendar
+arithmetic. The RNG is pure xorshift64 whose only OS dependency is one lazy `SystemTime` seed read.
+
+### 2.8 The self-hosted stdlib is mostly unreachable
+
+Of 385 `صدّر` declarations, **201 are dead by short-circuit** (`رياضيات` 83, `نص` 44, `شبكة` 34,
+`وقت` 22, `ملفات` 18) — shadowed by the native table, not orphaned: importing the same file *by
+path* works. The rest:
+
+- `طرفية` — loads, then dies at link with `و٠١٠١`: `خط_افقي_حرف` is declared as both a function
+  (`اساسي.ترقيم:258`) and a constant (`تنسيق.ترقيم:30`). One rename fixes the module.
+- `أخطاء` — does not **parse**: `فهرس.ترقيم:21` says `صدّر صنف خطأ {` and `خطأ` is the boolean-false
+  keyword (`ب٠٤٠١`). `اختبار` dies transitively through it.
+- `تشفير` and `ضغط` — no `.ترقيم` file exists at all; 100% native.
+- Seven flat stub files (`stdlib/نص.ترقيم` …) shadow their own directories and **return lies**:
+  `نص.ترقيم:28` is `دالة يحتوي(نص، جزء) -> منطقي { أرجع خطأ }`, `ملفات.ترقيم:15` is
+  `دالة اقرأ_ملف(مسار) -> نص { أرجع "" }`. Inert today only because the short-circuit fires first.
+
+### 2.9 Editor drift
+
+The LSP offers `جذر، مطلق، اقرأ_ملف، اكتب_ملف` as no-import completions; none is in
+`core_builtins()`. Accepting one of those suggestions produces code the analyzer rejects. The
+converse gap: 9 real core builtins (`طباعة، اطبع_خطأ، ادخل_رسالة، تأكد، تأكد_رسالة، توقف، نم،
+طول_مصفوفة، الحق`) are never highlighted or completed. `get_builtin_hover` and
+`get_builtin_signature_help` are `#[allow(dead_code)]` with no non-test callers — users get no
+hover text and no signature help for any builtin at all.
+
+### 2.10 Test coverage
+
+`test_every_core_builtin_agrees_across_backends` (`tests/builtins_execution_tests.rs:904`) drives
+`core_builtin_names()` and fails if a **new core builtin** lands without an execution probe — but
+excludes four names, so `ادخل، ادخل_رسالة، اطبع_خطأ` have zero execution coverage in any backend.
+
+**No test locks either registry's size.** `core_builtins()` has 18 entries; the only place `18`
+appears is a *comment*. Contents are locked one-directionally — removing a core builtin fails,
+adding a nineteenth passes silently. The stdlib half is structurally unguardable: `get_stdlib_builtin`
+is a `match` with no enumeration accessor.
+
+Of 165 stdlib registry names, **8 (≈5%) have any cross-backend execution assertion**, six of them
+through the single example `تشفير_وضغط.ترقيم`. `tests/module_execution_tests.rs:584-631` pins the
+native leg of a stdlib import as **broken by inverted assertion** — importing any stdlib function
+segfaults natively (exit 139, #185).
+
+`runtime_symbols_tests.rs` guards codegen's `@trq_*` declarations against `runtime-rs` definitions,
+but carries an 11-entry `KNOWN_UNDEFINED` allowlist — it is a tracked-hole registry, not
+protection — and it guards only the `trq_*` layer, never the Arabic→symbol layer above it.
+
+---
+
+## 3. Reading the table
+
+`ن` semantic (`scope.rs`) · `مف` interpreter · `تن` debug interpreter · `أص` native (IR + codegen).
+`✓` present · `✗` absent · `~` present but incomplete (typically: lowered with no IR return type
+registered, so the result carries a `Ptr(Void)` sentinel and composing it is silently wrong).
+
+The JIT columns are omitted because they are not independent — both tiers compile zero builtins and
+mirror the interpreter.
+
+**Verdicts** — assigned by the classification pass, criteria in
+[`builtins-vs-stdlib.md`](builtins-vs-stdlib.md) §1:
+
+| الحكم | Meaning | Count |
+|---|---|---|
+| `مدمج` | Stays a compiler/runtime primitive | 19 existing (+21 new = the 40-name registry) |
+| `مكتبة` | Migrates to self-hosted Tarqeem stdlib | 121 |
+| `يُحذف` | Alias collapse, or dead in every backend | 48 |
+| `مؤجل` | Sockets — deferred to a separate registry (Increment K) | 47 |
+
+`معطّل اليوم` marks a name that is **declared but non-functional right now** — no interpreter arm,
+no native lowering, and no runtime symbol. It is orthogonal to the verdict, which describes the
+target state.
+
+**How verdicts were assigned.** 108 names carry an explicit per-name verdict from the
+classification pass. The remainder are derived mechanically from the same published rules —
+membership in the 40-name registry (`مدمج`), the socket family (`مؤجل`), an alias group recorded in
+the dispatch matrix (`يُحذف`), otherwise `مكتبة`, which is the criteria's default. The derivation is
+deterministic; no row was assigned by judgement outside those rules.
+
+**Reconciling with the plan document.** Its executive summary counts 26 alias collapses and 11 dead
+names against the **192 declared** names; this table counts 48 against the **244 reachable** names,
+which additionally covers the 52 that exist in a backend but in no registry. Likewise the plan
+defers **12 socket primitives** while this table marks **47 socket-family names** deferred — 12 is
+the primitive count after collapse, 47 is the raw name count. Both are correct; they count
+different universes.
+
+
+## 4. The inventory
+
+#### `core` — 30
+
+Rows marked **مُنفَّذ** landed after this census; the backend columns are re-verified,
+not carried over from the original pass.
+
+| الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
+|---|:-:|:-:|:-:|:-:|---|---|---|
+| `أضف` | ✗ | ✗ | ✗ | ✓ | `-` | مكتبة |  |
+| `ألحق` | ✗ | ✗ | ✗ | ✓ | `trq_array_push` | مدمج | primitive |
+| `ادخل` | ✓ | ✓ | ✓ | ~ | `trq_input` | يُحذف | alias/dead |
+| `ادخل_رسالة` | ✓ | ✓ | ✗ | ~ | `trq_input_prompt` | مكتبة |  |
+| `اطبع` | ✓ | ✓ | ✓ | ~ | `trq_print, trq_print_optional…` | مدمج | primitive |
+| `اطبع_خطأ` | ✓ | ✓ | ✗ | ~ | `trq_print_error` | مدمج | primitive |
+| `اطبع_سطر` | ✓ | ✓ | ✗ | ~ | `trq_print` | يُحذف | alias/dead |
+| `اقرأ_سطر` | ✗ | ✓ | ✗ | ✗ | `-` | مكتبة |  |
+| `الحق` | ✓ | ✗ | ✗ | ~ | `trq_array_push` | يُحذف | alias/dead |
+| `بتات_أو` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#306) |
+| `بتات_أو_حصري` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#309) |
+| `بتات_إزاحة_يسار` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#317) |
+| `بتات_إزاحة_يمين` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#320) |
+| `بتات_إزاحة_يمين_منطقية` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#322) |
+| `بتات_نفي` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#312) |
+| `بتات_و` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#302) |
+| `تأكد` | ✓ | ✓ | ✗ | ✓ | `trq_assert` | مكتبة |  |
+| `تأكد_رسالة` | ✓ | ✓ | ✗ | ✓ | `-` | مكتبة |  |
+| `توقف` | ✓ | ✓ | ✗ | ~ | `trq_panic` | مدمج | primitive |
+| `حرف_إلى_رمز` | ✓ | ✓ | ✓ | ✓ | `trq_string_char_code` | مدمج | primitive، **مُنفَّذ** (#324) |
+| `رمز_إلى_حرف` | ✓ | ✓ | ✓ | ✓ | `trq_string_from_char_code` | مدمج | primitive، **مُنفَّذ** (#326) |
+| `طباعة` | ✓ | ✓ | ✗ | ~ | `trq_print` | يُحذف | alias/dead |
+| `طول` | ✓ | ✓ | ✓ | ✓ | `trq_array_len, trq_string_len…` | مدمج | primitive |
+| `طول_مصفوفة` | ✓ | ✗ | ✗ | ~ | `trq_array_len` | يُحذف | alias/dead |
+| `عدد` | ✓ | ✓ | ✓ | ✓ | `trq_string_to_int_checked` | مدمج | primitive |
+| `عدد_عشري` | ✓ | ✓ | ✓ | ✓ | `trq_string_to_float_checked` | مدمج | primitive |
+| `منطقي` | ✓ | ✓ | ✓ | ✓ | `trq_string_len` | مدمج | primitive |
+| `نص` | ✓ | ✓ | ✓ | ✓ | `trq_int_to_string` | مدمج | primitive |
+| `نم` | ✓ | ✓ | ✗ | ~ | `trq_sleep` | مدمج | primitive |
+| `نوع` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive |
+
+#### `رياضيات` — 70
+
+| الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
+|---|:-:|:-:|:-:|:-:|---|---|---|
+| `أدنى` | ✓ | ✓ | ✗ | ~ | `trq_min_float` | يُحذف | alias collapse |
+| `أرضية` | ✓ | ✓ | ✓ | ~ | `trq_floor` | مكتبة |  |
+| `أس` | ✓ | ✓ | ✗ | ~ | `trq_exp` | مكتبة |  |
+| `أسي` | ✓ | ✓ | ✗ | ~ | `trq_exp` | يُحذف | alias collapse |
+| `أقصى` | ✓ | ✓ | ✗ | ~ | `trq_max_float` | يُحذف | alias collapse |
+| `أقل` | ✓ | ✓ | ✗ | ~ | `trq_min_float` | مكتبة |  |
+| `أقل_عدد` | ✓ | ✓ | ✗ | ~ | `trq_min_int` | يُحذف | alias collapse |
+| `أكبر` | ✓ | ✓ | ✗ | ~ | `trq_max_float` | مكتبة |  |
+| `أكبر_عدد` | ✓ | ✓ | ✗ | ~ | `trq_max_int` | يُحذف | alias collapse |
+| `اقتطع` | ✓ | ✓ | ✗ | ~ | `trq_trunc` | مكتبة |  |
+| `الى_درجات` | ✓ | ✓ | ✗ | ~ | `trq_to_degrees` | مكتبة |  |
+| `الى_راديان` | ✓ | ✓ | ✗ | ~ | `trq_to_radians` | مكتبة |  |
+| `باقي` | ✓ | ✗ | ✗ | ~ | `trq_mod` | مكتبة |  |
+| `بذرة_عشوائي` | ✓ | ✗ | ✗ | ~ | `trq_random_seed` | مكتبة |  |
+| `بذرة_عشوائية` | ✓ | ✗ | ✗ | ✗ | `-` | مكتبة | **معطّل اليوم** |
+| `تقريب` | ✓ | ✓ | ✗ | ~ | `trq_round` | يُحذف | alias collapse |
+| `جا` | ✓ | ✓ | ✗ | ~ | `trq_sin` | مكتبة |  |
+| `جا_زائدي` | ✓ | ✓ | ✗ | ~ | `trq_sinh` | مكتبة |  |
+| `جا_عكسي` | ✓ | ✓ | ✗ | ~ | `trq_asin` | مكتبة |  |
+| `جتا` | ✓ | ✓ | ✗ | ~ | `trq_cos` | مكتبة |  |
+| `جتا_زائدي` | ✓ | ✓ | ✗ | ~ | `trq_cosh` | مكتبة |  |
+| `جتا_عكسي` | ✓ | ✓ | ✗ | ~ | `trq_acos` | مكتبة |  |
+| `جذر` | ✓ | ✓ | ✓ | ✓ | `trq_sqrt` | مدمج | primitive |
+| `جذر_تكعيبي` | ✓ | ✓ | ✗ | ~ | `trq_cbrt` | مكتبة |  |
+| `جيب` | ✓ | ✓ | ✓ | ~ | `trq_sin` | يُحذف | alias collapse |
+| `جيب_التمام` | ✓ | ✓ | ✓ | ~ | `trq_cos` | يُحذف | alias collapse |
+| `جيب_تمام_زائدي` | ✗ | ✓ | ✗ | ✗ | `-` | يُحذف | alias collapse |
+| `جيب_تمام_عكسي` | ✓ | ✓ | ✗ | ~ | `trq_acos` | يُحذف | alias collapse |
+| `جيب_زائدي` | ✗ | ✓ | ✗ | ✗ | `-` | يُحذف | alias collapse |
+| `جيب_عكسي` | ✓ | ✓ | ✗ | ~ | `trq_asin` | يُحذف | alias collapse |
+| `حصر` | ✓ | ✓ | ✗ | ~ | `trq_clamp_float` | مكتبة |  |
+| `حصر_عدد` | ✓ | ✓ | ✗ | ~ | `trq_clamp_int` | يُحذف | alias collapse |
+| `درجات` | ✓ | ✓ | ✗ | ~ | `trq_to_degrees` | يُحذف | alias collapse |
+| `راديان` | ✓ | ✓ | ✗ | ~ | `trq_to_radians` | يُحذف | alias collapse |
+| `سقف` | ✓ | ✓ | ✓ | ~ | `trq_ceil` | مكتبة |  |
+| `ظا` | ✓ | ✓ | ✗ | ~ | `trq_tan` | مكتبة |  |
+| `ظا_زائدي` | ✓ | ✓ | ✗ | ~ | `trq_tanh` | مكتبة |  |
+| `ظا_عكسي` | ✓ | ✓ | ✗ | ~ | `trq_atan` | مكتبة |  |
+| `ظا_عكسي2` | ✓ | ✓ | ✗ | ~ | `trq_atan2` | مكتبة |  |
+| `ظتا` | ✓ | ✓ | ✗ | ~ | `trq_cot` | مكتبة |  |
+| `ظل` | ✓ | ✓ | ✓ | ~ | `trq_tan` | يُحذف | alias collapse |
+| `ظل_التمام` | ✓ | ✓ | ✗ | ~ | `trq_cot` | يُحذف | alias collapse |
+| `ظل_زائدي` | ✗ | ✓ | ✗ | ✗ | `-` | يُحذف | alias collapse |
+| `ظل_عكسي` | ✗ | ✓ | ✗ | ✗ | `-` | يُحذف | alias collapse |
+| `ظل_عكسي2` | ✗ | ✓ | ✗ | ✗ | `-` | يُحذف | alias collapse |
+| `عاملي` | ✓ | ✓ | ✗ | ~ | `trq_factorial` | مكتبة |  |
+| `عشوائي` | ✓ | ✓ | ✗ | ✗ | `-` | مكتبة |  |
+| `عشوائي_بين` | ✓ | ✓ | ✗ | ✗ | `-` | مكتبة |  |
+| `عشوائي_عدد` | ✓ | ✓ | ✗ | ~ | `trq_random_int` | يُحذف | alias collapse |
+| `عشوائي_عدد_بين` | ✓ | ✓ | ✗ | ~ | `trq_random_int_range` | يُحذف | alias collapse |
+| `عشوائي_عشري` | ✓ | ✓ | ✗ | ~ | `trq_random_float` | مكتبة |  |
+| `عشوائي_عشري_بين` | ✓ | ✓ | ✗ | ~ | `trq_random_float_range` | يُحذف | alias collapse |
+| `عشوائي_منطقي` | ✓ | ✓ | ✗ | ~ | `trq_random_bool` | مكتبة |  |
+| `علامة` | ✓ | ✓ | ✗ | ~ | `trq_sign` | مكتبة |  |
+| `قا` | ✓ | ✓ | ✗ | ~ | `trq_sec` | مكتبة |  |
+| `قاسم_مشترك` | ✓ | ✓ | ✗ | ~ | `trq_gcd` | مكتبة |  |
+| `قاطع` | ✓ | ✓ | ✗ | ~ | `trq_sec` | يُحذف | alias collapse |
+| `قاطع_التمام` | ✓ | ✓ | ✗ | ~ | `trq_csc` | يُحذف | alias collapse |
+| `قتا` | ✓ | ✓ | ✗ | ~ | `trq_csc` | مكتبة |  |
+| `قرب` | ✗ | ✓ | ✓ | ✗ | `-` | مكتبة |  |
+| `قرّب` | ✓ | ✓ | ✗ | ~ | `trq_round` | يُحذف | alias collapse |
+| `قوة` | ✓ | ✓ | ✗ | ~ | `trq_pow_float` | مكتبة |  |
+| `قوة_عدد` | ✓ | ✓ | ✗ | ~ | `trq_pow_int` | يُحذف | alias collapse |
+| `لوغ10` | ✓ | ✓ | ✗ | ~ | `trq_log10` | مكتبة |  |
+| `لوغ2` | ✓ | ✓ | ✗ | ~ | `trq_log2` | مكتبة |  |
+| `لوغاريتم` | ✓ | ✓ | ✗ | ~ | `trq_log` | مكتبة |  |
+| `لوغاريتم10` | ✓ | ✓ | ✗ | ~ | `trq_log10` | يُحذف | alias collapse |
+| `مضاعف_مشترك` | ✓ | ✓ | ✗ | ~ | `trq_lcm` | مكتبة |  |
+| `مطلق` | ✓ | ✓ | ✓ | ~ | `trq_abs_float` | مكتبة |  |
+| `مطلق_عدد` | ✓ | ✓ | ✗ | ~ | `trq_abs_int` | يُحذف | alias collapse |
+
+#### `نص` — 41
+
+| الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
+|---|:-:|:-:|:-:|:-:|---|---|---|
+| `احشو_يسار` | ✓ | ✗ | ✗ | ~ | `trq_string_pad_left` | مكتبة |  |
+| `احشو_يمين` | ✓ | ✗ | ✗ | ~ | `trq_string_pad_right` | مكتبة |  |
+| `ادخل_عدد` | ✓ | ✓ | ✗ | ~ | `trq_input_int` | مكتبة |  |
+| `ادخل_عشري` | ✓ | ✓ | ✗ | ~ | `trq_input_float` | مكتبة |  |
+| `ادمج` | ✓ | ✗ | ✗ | ~ | `trq_string_join` | مكتبة |  |
+| `ازل_فراغات` | ✓ | ✗ | ✗ | ~ | `trq_string_trim` | مكتبة |  |
+| `ازل_فراغات_يسار` | ✓ | ✗ | ✗ | ~ | `trq_string_trim_left` | مكتبة |  |
+| `ازل_فراغات_يمين` | ✓ | ✗ | ✗ | ~ | `trq_string_trim_right` | مكتبة |  |
+| `استبدل` | ✓ | ✗ | ✗ | ~ | `trq_string_replace` | مكتبة |  |
+| `استبدل_كل` | ✓ | ✗ | ✗ | ~ | `trq_string_replace_all` | مكتبة |  |
+| `اعكس_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_reverse` | مكتبة |  |
+| `حرف_في` | ✓ | ✗ | ✗ | ~ | `trq_string_char_at` | مكتبة |  |
+| `حروف_فقط` | ✓ | ✗ | ✗ | ~ | `trq_string_is_alpha` | مكتبة |  |
+| `رقمي` | ✓ | ✗ | ✗ | ~ | `trq_string_is_numeric` | مكتبة |  |
+| `صغير` | ✓ | ✗ | ✗ | ~ | `trq_string_to_lower` | مكتبة |  |
+| `طول_حروف` | ✓ | ✗ | ✗ | ~ | `trq_string_len_chars` | مكتبة |  |
+| `طول_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_len` | يُحذف | alias/dead |
+| `عدد_لنص` | ✓ | ✓ | ✗ | ~ | `trq_int_to_string` | مكتبة |  |
+| `عدد_مرات` | ✓ | ✗ | ✗ | ~ | `trq_string_count` | مكتبة |  |
+| `عربي` | ✓ | ✗ | ✗ | ~ | `trq_string_is_arabic` | مكتبة |  |
+| `عشري_لنص` | ✓ | ✓ | ✗ | ~ | `trq_float_to_string` | مكتبة |  |
+| `عنوان` | ✓ | ✗ | ✗ | ~ | `trq_string_to_title` | مكتبة |  |
+| `قارن_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_compare` | مكتبة |  |
+| `قسّم` | ✓ | ✗ | ✗ | ~ | `trq_string_split` | مكتبة |  |
+| `قص_حروف` | ✓ | ✗ | ✗ | ~ | `trq_string_substr_chars` | مدمج | primitive |
+| `قص_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_substr` | يُحذف | alias/dead |
+| `كبير` | ✓ | ✗ | ✗ | ~ | `trq_string_to_upper` | مكتبة |  |
+| `كرر` | ✓ | ✗ | ✗ | ✗ | `-` | يُحذف | alias/dead، **معطّل اليوم** |
+| `كرر_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_repeat` | مكتبة |  |
+| `منطقي_لنص` | ✓ | ✓ | ✗ | ~ | `trq_bool_to_string` | مكتبة |  |
+| `موضع` | ✓ | ✗ | ✗ | ~ | `trq_string_index_of` | مكتبة |  |
+| `موضع_اخير` | ✓ | ✗ | ✗ | ~ | `trq_string_last_index_of` | مكتبة |  |
+| `نص_لعدد` | ✓ | ✗ | ✗ | ~ | `trq_string_to_int` | مكتبة |  |
+| `نص_لعشري` | ✓ | ✗ | ✗ | ~ | `trq_string_to_float` | مكتبة |  |
+| `نص_يبدأ_بـ` | ✓ | ✓ | ✗ | ✗ | `-` | يُحذف | alias/dead |
+| `نص_يحتوي` | ✓ | ✓ | ✗ | ✗ | `-` | يُحذف | alias/dead |
+| `نص_ينتهي_بـ` | ✓ | ✓ | ✗ | ✗ | `-` | يُحذف | alias/dead |
+| `نصوص_متساوية` | ✓ | ✗ | ✗ | ~ | `trq_string_equals` | مكتبة |  |
+| `يبدأ_بـ` | ✓ | ✗ | ✗ | ~ | `trq_string_starts_with` | مكتبة |  |
+| `يحتوي` | ✓ | ✗ | ✗ | ~ | `trq_string_contains` | مكتبة |  |
+| `ينتهي_بـ` | ✓ | ✗ | ✗ | ~ | `trq_string_ends_with` | مكتبة |  |
+
+#### `ملفات` — 21
+
+| الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
+|---|:-:|:-:|:-:|:-:|---|---|---|
+| `احذف_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_dir_delete` | مكتبة |  |
+| `احذف_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_delete` | مكتبة |  |
+| `ادمج_مسار` | ✓ | ✗ | ✗ | ~ | `trq_path_join` | مكتبة |  |
+| `اسم_ملف` | ✓ | ✗ | ✗ | ~ | `trq_path_filename` | مكتبة |  |
+| `اقرأ_ملف` | ✓ | ✓ | ✗ | ✓ | `trq_file_read` | مكتبة |  |
+| `اكتب_ملف` | ✓ | ✓ | ✗ | ✓ | `trq_file_write` | مكتبة |  |
+| `الحق_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_append` | مكتبة |  |
+| `امتداد_ملف` | ✓ | ✗ | ✗ | ~ | `trq_path_extension` | مكتبة |  |
+| `انسخ_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_copy` | مكتبة |  |
+| `انشئ_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_dir_create` | مدمج | primitive |
+| `انقل_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_move` | مدمج | primitive |
+| `حجم_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_size` | مكتبة |  |
+| `فاصل_مسار` | ✓ | ✗ | ✗ | ~ | `trq_path_separator` | مكتبة |  |
+| `قائمة_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_dir_list` | مدمج | primitive |
+| `مجلد_حالي` | ✓ | ✗ | ✗ | ~ | `trq_dir_current` | مدمج | primitive |
+| `مجلد_مؤقت` | ✓ | ✗ | ✗ | ~ | `trq_dir_temp` | مكتبة |  |
+| `مجلد_مستخدم` | ✓ | ✗ | ✗ | ~ | `trq_dir_home` | مكتبة |  |
+| `مسار_اب` | ✓ | ✗ | ✗ | ~ | `trq_path_parent` | مكتبة |  |
+| `ملف_موجود` | ✓ | ✗ | ✗ | ~ | `trq_file_exists` | مكتبة |  |
+| `هل_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_file_is_dir` | مكتبة |  |
+| `هل_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_is_file` | مكتبة |  |
+
+#### `وقت` — 18
+
+| الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
+|---|:-:|:-:|:-:|:-:|---|---|---|
+| `أضف_أشهر` | ✗ | ✗ | ✗ | ✗ | `trq_date_add_months` | يُحذف | alias/dead |
+| `أضف_أيام` | ✗ | ✗ | ✗ | ✗ | `trq_date_add_days` | يُحذف | alias/dead |
+| `أيام_الشهر` | ✗ | ✗ | ✗ | ✓ | `trq_days_in_month` | مكتبة |  |
+| `تاريخ_اليوم` | ✗ | ✗ | ✗ | ✗ | `trq_date_today` | يُحذف | alias/dead |
+| `تاريخ_من_طابع` | ✗ | ✗ | ✗ | ✗ | `trq_date_from_timestamp` | يُحذف | alias/dead |
+| `تاريخ_ووقت_من_طابع` | ✗ | ✗ | ✗ | ✗ | `trq_datetime_from_timestamp` | يُحذف | alias/dead |
+| `حلل_تاريخ` | ✗ | ✗ | ✗ | ✗ | `trq_date_parse` | يُحذف | alias/dead |
+| `حلل_تاريخ_ووقت` | ✗ | ✗ | ✗ | ✗ | `trq_datetime_parse` | يُحذف | alias/dead |
+| `حلل_وقت` | ✗ | ✗ | ✗ | ✗ | `trq_time_parse` | يُحذف | alias/dead |
+| `رقم_الأسبوع` | ✗ | ✗ | ✗ | ✓ | `trq_week_number` | مكتبة |  |
+| `فرق_أيام` | ✗ | ✗ | ✗ | ✓ | `trq_date_diff_days` | مكتبة |  |
+| `نسّق_تاريخ` | ✗ | ✗ | ✗ | ✓ | `trq_date_format` | مكتبة |  |
+| `نسّق_تاريخ_ووقت` | ✗ | ✗ | ✗ | ✓ | `trq_datetime_format` | مكتبة |  |
+| `نسّق_وقت` | ✗ | ✗ | ✗ | ✓ | `trq_time_format` | مكتبة |  |
+| `وقت_أداء` | ✓ | ✓ | ✓ | ✓ | `trq_performance_now` | مدمج | primitive |
+| `وقت_الآن` | ✓ | ✓ | ✓ | ✓ | `trq_time_now` | مدمج | primitive |
+| `يوم_الأسبوع` | ✗ | ✗ | ✗ | ✓ | `trq_day_of_week` | مكتبة |  |
+| `يوم_السنة` | ✗ | ✗ | ✗ | ✓ | `trq_day_of_year` | مكتبة |  |
+
+#### `تشفير` — 10
+
+| الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
+|---|:-:|:-:|:-:|:-:|---|---|---|
+| `إلى_ست_عشري` | ✓ | ✓ | ✗ | ✓ | `trq_hex_encode` | مكتبة |  |
+| `احسب_بصمة` | ✓ | ✓ | ✗ | ✓ | `trq_sha256_string` | مكتبة |  |
+| `بصمة_ثنائي` | ✓ | ✓ | ✗ | ✓ | `trq_sha256_bytes` | مكتبة |  |
+| `بصمة_ملف` | ✓ | ✓ | ✗ | ✓ | `trq_sha256_file` | مكتبة |  |
+| `ترميز_أساس64` | ✗ | ✗ | ✗ | ✓ | `trq_base64_encode` | مكتبة |  |
+| `ثنائي_إلى_ست_عشري` | ✓ | ✓ | ✗ | ✓ | `trq_hex_encode_bytes` | مكتبة |  |
+| `ست_عشري_إلى_ثنائي` | ✓ | ✓ | ✗ | ✓ | `trq_hex_decode_to_bytes` | مكتبة |  |
+| `طابق_بصمة` | ✓ | ✓ | ✗ | ✓ | `trq_sha256_compare` | مكتبة |  |
+| `فك_أساس64` | ✗ | ✗ | ✗ | ✓ | `trq_base64_decode` | مكتبة |  |
+| `من_ست_عشري` | ✓ | ✓ | ✗ | ✓ | `trq_hex_decode` | مكتبة |  |
+
+#### `ضغط` — 6
+
+| الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
+|---|:-:|:-:|:-:|:-:|---|---|---|
+| `اضغط` | ✓ | ✓ | ✗ | ✓ | `trq_gzip_compress_string` | مكتبة |  |
+| `اضغط_ثنائي` | ✓ | ✓ | ✗ | ✓ | `trq_gzip_compress_bytes` | مكتبة |  |
+| `اضغط_ملف` | ✓ | ✓ | ✗ | ✓ | `trq_gzip_compress_file` | مكتبة |  |
+| `فك_الضغط` | ✓ | ✓ | ✗ | ✓ | `trq_gzip_decompress_to_string` | مكتبة |  |
+| `فك_ضغط_ثنائي` | ✓ | ✓ | ✗ | ✓ | `trq_gzip_decompress_bytes` | مكتبة |  |
+| `فك_ضغط_ملف` | ✓ | ✓ | ✗ | ✓ | `trq_gzip_decompress_file` | مكتبة |  |
+
+#### `شبكة` — 47
+
+| الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
+|---|:-:|:-:|:-:|:-:|---|---|---|
+| `أرسل` | ✓ | ✗ | ✗ | ~ | `trq_tcp_send` | مؤجل | deferred |
+| `أرسل_إلى` | ✓ | ✗ | ✗ | ~ | `trq_udp_send_to` | مؤجل | deferred |
+| `أرسل_بايتات` | ✓ | ✗ | ✗ | ~ | `trq_tcp_send_bytes` | مؤجل | deferred |
+| `أغلق_اتصال` | ✓ | ✗ | ✗ | ~ | `trq_tcp_close` | مؤجل | deferred |
+| `اتصل_خادم` | ✓ | ✗ | ✗ | ~ | `trq_tcp_connect` | مؤجل | deferred |
+| `احصل_عنوان_محلي` | ✗ | ✗ | ✗ | ~ | `trq_get_local_ip` | مؤجل | deferred |
+| `احصل_ويب` | ✓ | ✗ | ✗ | ~ | `trq_http_get` | مؤجل | deferred |
+| `ارتبط_منفذ` | ✓ | ✗ | ✗ | ~ | `trq_udp_bind` | مؤجل | deferred |
+| `استقبل` | ✓ | ✗ | ✗ | ~ | `trq_tcp_receive` | مؤجل | deferred |
+| `استقبل_بايتات` | ✓ | ✗ | ✗ | ~ | `trq_tcp_receive_bytes` | مؤجل | deferred |
+| `استقبل_حتى` | ✓ | ✗ | ✗ | ~ | `trq_tcp_receive_until` | مؤجل | deferred |
+| `استقبل_من` | ✓ | ✗ | ✗ | ~ | `trq_udp_receive` | مؤجل | deferred |
+| `استمع` | ✓ | ✗ | ✗ | ~ | `trq_tcp_listen` | مؤجل | deferred |
+| `اقبل_اتصال` | ✓ | ✗ | ✗ | ~ | `trq_tcp_accept` | مؤجل | deferred |
+| `حزم_اربط` | ✗ | ✗ | ✗ | ~ | `trq_udp_bind` | مؤجل | deferred |
+| `حزم_ارسل_الى` | ✗ | ✗ | ✗ | ~ | `trq_udp_send_to` | مؤجل | deferred |
+| `حزم_ارسل_بايتات_الى` | ✗ | ✗ | ✗ | ~ | `trq_udp_send_bytes_to` | مؤجل | deferred |
+| `حزم_ارسل_رد` | ✗ | ✗ | ✗ | ~ | `trq_udp_reply` | مؤجل | deferred |
+| `حزم_استقبل` | ✗ | ✗ | ✗ | ~ | `trq_udp_receive` | مؤجل | deferred |
+| `حزم_استقبل_بايتات` | ✗ | ✗ | ✗ | ~ | `trq_udp_receive_bytes` | مؤجل | deferred |
+| `حزم_اغلق` | ✗ | ✗ | ✗ | ~ | `trq_udp_close` | مؤجل | deferred |
+| `حل_اسم_نطاق` | ✓ | ✗ | ✗ | ~ | `trq_resolve_hostname` | مؤجل | deferred |
+| `حل_عنوان` | ✗ | ✗ | ✗ | ~ | `trq_resolve_hostname` | مؤجل | deferred |
+| `حمّل_ملف` | ✓ | ✗ | ✗ | ~ | `trq_http_download` | مؤجل | deferred |
+| `حمّل_ويب` | ✗ | ✗ | ✗ | ~ | `trq_http_download` | مؤجل | deferred |
+| `رد` | ✓ | ✗ | ✗ | ~ | `trq_udp_reply` | مؤجل | deferred |
+| `رمّز_رابط` | ✓ | ✗ | ✗ | ~ | `trq_url_encode` | مؤجل | deferred |
+| `طلب_ويب` | ✓ | ✗ | ✗ | ~ | `trq_http_request` | مؤجل | deferred |
+| `عنوان_محلي` | ✓ | ✗ | ✗ | ~ | `trq_tcp_local_address` | مؤجل | deferred |
+| `عنوان_محلي_للجهاز` | ✓ | ✗ | ✗ | ~ | `trq_get_local_ip` | مؤجل | deferred |
+| `فك_ترميز_رابط` | ✓ | ✗ | ✗ | ~ | `trq_url_decode` | مؤجل | deferred |
+| `فك_رمز_رابط` | ✗ | ✗ | ✗ | ~ | `trq_url_decode` | مؤجل | deferred |
+| `منفذ_محلي` | ✓ | ✗ | ✗ | ~ | `trq_tcp_local_port` | مؤجل | deferred |
+| `نقل_اتصل` | ✗ | ✗ | ✗ | ~ | `trq_tcp_connect` | مؤجل | deferred |
+| `نقل_ارسل` | ✗ | ✗ | ✗ | ~ | `trq_tcp_send` | مؤجل | deferred |
+| `نقل_ارسل_بايتات` | ✗ | ✗ | ✗ | ~ | `trq_tcp_send_bytes` | مؤجل | deferred |
+| `نقل_استقبل` | ✗ | ✗ | ✗ | ~ | `trq_tcp_receive` | مؤجل | deferred |
+| `نقل_استقبل_بايتات` | ✗ | ✗ | ✗ | ~ | `trq_tcp_receive_bytes` | مؤجل | deferred |
+| `نقل_استقبل_حتى` | ✗ | ✗ | ✗ | ~ | `trq_tcp_receive_until` | مؤجل | deferred |
+| `نقل_استمع` | ✗ | ✗ | ✗ | ~ | `trq_tcp_listen` | مؤجل | deferred |
+| `نقل_اغلق` | ✗ | ✗ | ✗ | ~ | `trq_tcp_close` | مؤجل | deferred |
+| `نقل_اقبل` | ✗ | ✗ | ✗ | ~ | `trq_tcp_accept` | مؤجل | deferred |
+| `نقل_اقبل_مع_مهلة` | ✗ | ✗ | ✗ | ~ | `trq_tcp_accept_timeout` | مؤجل | deferred |
+| `نقل_بيانات_متاحة` | ✗ | ✗ | ✗ | ~ | `trq_tcp_available` | مؤجل | deferred |
+| `نقل_عنوان_محلي` | ✗ | ✗ | ✗ | ~ | `trq_tcp_local_address` | مؤجل | deferred |
+| `نقل_منفذ_محلي` | ✗ | ✗ | ✗ | ~ | `trq_tcp_local_port` | مؤجل | deferred |
+| `هل_متاح` | ✓ | ✗ | ✗ | ~ | `trq_tcp_available` | مؤجل | deferred |
+
+#### `طرفية` — 1
+
+| الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
+|---|:-:|:-:|:-:|:-:|---|---|---|
+| `اطبع_منسق` | ✗ | ✗ | ✗ | ~ | `trq_print` | مكتبة |  |

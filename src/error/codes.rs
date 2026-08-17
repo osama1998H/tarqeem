@@ -281,6 +281,9 @@ pub const ERR_THIS_OUTSIDE_CLASS: ErrorCode = ErrorCode::new(ErrorCategory::Dala
 /// د٠٣٠٥: استخدام 'الأصل' خارج صنف
 pub const ERR_SUPER_OUTSIDE_CLASS: ErrorCode = ErrorCode::new(ErrorCategory::Dalala, 305);
 
+/// د٠٣٠٦: التقاط متغير خارجي داخل دالة سهمية
+pub const ERR_LAMBDA_CAPTURE: ErrorCode = ErrorCode::new(ErrorCategory::Dalala, 306);
+
 // ============================================================================
 // رموز أخطاء الأنواع (ن) - Type Error Codes
 // ============================================================================
@@ -322,6 +325,18 @@ pub const ERR_PRIVATE_ACCESS: ErrorCode = ErrorCode::new(ErrorCategory::Sinf, 40
 /// ص٠٤٠٢: الوصول لعضو محمي
 pub const ERR_PROTECTED_ACCESS: ErrorCode = ErrorCode::new(ErrorCategory::Sinf, 402);
 
+/// ص٠٥٠١: الوصول لعضو غير مشترك عبر اسم الصنف
+pub const ERR_NONSTATIC_VIA_CLASS: ErrorCode = ErrorCode::new(ErrorCategory::Sinf, 501);
+
+/// ص٠٥٠٢: الوصول لعضو مشترك عبر نسخة
+pub const ERR_STATIC_VIA_INSTANCE: ErrorCode = ErrorCode::new(ErrorCategory::Sinf, 502);
+
+/// ص٠٦٠١: رمي قيمة ليست استثناءً
+pub const ERR_THROW_NON_EXCEPTION: ErrorCode = ErrorCode::new(ErrorCategory::Sinf, 601);
+
+/// ص٠٦٠٢: إعادة تعريف صنف الاستثناء الأساسي
+pub const ERR_REDEFINE_PRELUDE_CLASS: ErrorCode = ErrorCode::new(ErrorCategory::Sinf, 602);
+
 // ============================================================================
 // رموز أخطاء الوحدات (و) - Module Error Codes
 // ============================================================================
@@ -348,10 +363,52 @@ pub const ERR_LLVM_INTERNAL: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 
 /// ت٠١٠١: فشل الربط
 pub const ERR_LINKING_FAILED: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 101);
 
+/// ت٠١٠٢: مكتبة وقت التشغيل غير موجودة
+/// Every native executable links `libtrq.a`, and a missing one used to be
+/// ignored: the archive was simply left off the clang invocation, so the build
+/// failed one step later with an undefined-symbol dump naming internal `trq_`
+/// symbols. Refusing up front lets the message name the searched paths and the
+/// `cargo build -p tarqeem-runtime` that fixes it (see issue #285).
+pub const ERR_RUNTIME_NOT_FOUND: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 102);
+
 /// ت٠٢٠١: تعارض وضع نقطة الدخول (وضع السكربت ووضع البرنامج معاً)
 /// Entry point mode conflict: Cannot have both top-level executable code (Script mode)
 /// and دالة رئيسية() (Program mode) in the same file.
 pub const ERR_ENTRY_POINT_CONFLICT: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 201);
+
+/// ت٠٢٠٢: لا توجد نقطة دخول للبرنامج
+/// No entry point: the file has neither top-level executable code (Script
+/// mode) nor دالة رئيسية() (Program mode), so no `__main__` is produced. A
+/// declarations-only file is a valid library module — it is meant to be
+/// imported, not compiled on its own. Without this check the absence surfaced
+/// only as a raw C linker error naming the internal `__main__` symbol.
+pub const ERR_NO_ENTRY_POINT: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 202);
+
+/// ت٠٣٠١: معامل دالة سهمية بدون نوع في الترجمة الأصلية
+/// Native codegen cannot lower an arrow-function parameter that never
+/// resolved to a concrete type (no annotation, no inferable hint) — the
+/// interpreter handles this fine dynamically, but native mode needs a real
+/// LLVM type. Restricted to `tarqeem compile`/native; `tarqeem run` is
+/// unaffected (see issue #180).
+pub const ERR_UNTYPED_LAMBDA_PARAM: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 301);
+
+/// ت٠٣٠٢: استدعاء قيمة دالة بدون توقيع معروف في الترجمة الأصلية
+/// A native indirect call's LLVM signature comes entirely from static
+/// types; calling a function value whose static type isn't a function
+/// signature (e.g. one reaching the call through an `أي`-typed slot) would
+/// emit an ABI-mismatched `call` that silently corrupts data. The
+/// interpreter dispatches on runtime values and is unaffected; only
+/// `tarqeem compile`/native rejects this (see issue #180).
+pub const ERR_UNTYPED_INDIRECT_CALL: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 302);
+
+/// ت٠٣٠٣: رمي الاستثناءات غير مدعوم في الترجمة الأصلية
+/// Native codegen has no unwinding strategy at all: `TryBegin`/`TryEnd` lower to
+/// LLVM comments, the catch block is emitted with no predecessor, and the
+/// `@trq_throw` it would call is not defined in the runtime. A program with
+/// `ارمِ` therefore used to fail as an undefined-symbol link error naming an
+/// internal symbol. The interpreter and the JIT run it correctly, so this is a
+/// native-only refusal (see issue #181).
+pub const ERR_NATIVE_EXCEPTIONS: ErrorCode = ErrorCode::new(ErrorCategory::Tawleed, 303);
 
 // ============================================================================
 // رموز التحذيرات (ح) - Warning Codes
@@ -395,7 +452,10 @@ mod tests {
         assert_eq!(ERR_CLASS_NOT_FOUND.to_string(), "ص٠٠٠١");
         assert_eq!(ERR_MODULE_NOT_FOUND.to_string(), "و٠٠٠١");
         assert_eq!(ERR_LLVM_INTERNAL.to_string(), "ت٠٠٠١");
+        assert_eq!(ERR_LINKING_FAILED.to_string(), "ت٠١٠١");
+        assert_eq!(ERR_RUNTIME_NOT_FOUND.to_string(), "ت٠١٠٢");
         assert_eq!(ERR_ENTRY_POINT_CONFLICT.to_string(), "ت٠٢٠١");
+        assert_eq!(ERR_NO_ENTRY_POINT.to_string(), "ت٠٢٠٢");
     }
 
     #[test]

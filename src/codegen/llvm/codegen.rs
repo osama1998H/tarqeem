@@ -4,13 +4,17 @@
 
 use super::{mangle_name, TypeMapper};
 use crate::codegen::Target;
-use crate::error::codes::ERR_LLVM_INTERNAL;
+use crate::error::codes::{ERR_LLVM_INTERNAL, ERR_UNTYPED_INDIRECT_CALL};
 use crate::ir::{
     BasicBlock, BinaryOp, BlockId, Class, ClassId, Constant, Function, Instruction, IrType, Module,
     UnaryOp, VarId,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
+
+/// Struct slots a declared class reserves before its first field: the dispatch
+/// pointer at word 0. Object literals (`__anonymous__`) reserve none.
+const VTABLE_SLOT: u32 = 1;
 
 macro_rules! emit {
     ($self:expr) => {
@@ -39,12 +43,51 @@ pub struct LlvmCodegen {
     name_counter: u32,
     class_defs: HashMap<String, Vec<(String, IrType)>>,
     vtable_globals: HashMap<String, String>,
+    /// Dispatch slot of each virtual member, per class: "Class" -> member ->
+    /// index. A subclass's table extends its parent's as a prefix, so the index
+    /// found under the receiver's *static* class also addresses the right entry
+    /// in the runtime class's table — that is what makes the load correct
+    /// without codegen knowing the runtime type.
+    vtable_slots: HashMap<String, HashMap<String, u32>>,
     current_return_type: IrType,
+    /// Declared parameter types per mangled function name.
+    ///
+    /// A call site otherwise types each argument from the argument itself, which
+    /// is wrong wherever the callee declares an optional: passing `0` to a
+    /// `عدد?` parameter has to box, and only the callee's signature says so.
+    fn_param_types: HashMap<String, Vec<IrType>>,
     global_vars: HashMap<String, String>,
     inherited_field_count: HashMap<String, usize>,
     /// Global string variables that need runtime initialization
     /// (mangled_global_name, string_constant_global, length)
     global_string_inits: Vec<(String, String, usize)>,
+    /// Global optional scalars needing their initial value boxed at program
+    /// start: (mangled_global_name, pointee_type, literal).
+    global_optional_inits: Vec<(String, IrType, String)>,
+    /// Declared type of each global, by source name. `GlobalStore` otherwise
+    /// types the store from the value, which boxes nothing when a scalar is
+    /// assigned to an optional global.
+    global_types: HashMap<String, IrType>,
+    /// Whether the module has a synthesized `__global_init__` function
+    /// (non-constant global/`مشترك` initializers). Interpreter mode calls it
+    /// explicitly; native codegen must call it from `__main__`'s prologue
+    /// itself, or arrays/objects assigned to globals stay null.
+    has_global_init: bool,
+    /// Names the program declares as functions. A declared name keeps its own
+    /// mangled symbol instead of adopting the runtime's, because built-ins are
+    /// the last tier of the lookup order (#262). Without it a user's `مطلق` is
+    /// *defined* as `@trq_abs_float`, which `emit_runtime_declarations` has
+    /// already declared — an invalid redefinition LLVM rejects while parsing
+    /// the IR (#257).
+    user_function_names: HashSet<String>,
+    /// The subset of `user_function_names` that outranks a same-named built-in,
+    /// as decided by the IR builder (`Module::shadowing_names`).
+    ///
+    /// Definitions are mangled against `user_function_names` so *every* user
+    /// function keeps a symbol of its own (#257); call sites are mangled against
+    /// this narrower set, so a call the semantic layer bound to a built-in still
+    /// reaches `trq_*` even when a merged module happens to declare that name.
+    shadowing_names: HashSet<String>,
 }
 
 impl LlvmCodegen {
@@ -62,15 +105,27 @@ impl LlvmCodegen {
             name_counter: 0,
             class_defs: HashMap::new(),
             vtable_globals: HashMap::new(),
+            vtable_slots: HashMap::new(),
+            fn_param_types: HashMap::new(),
             current_return_type: IrType::Void,
             global_vars: HashMap::new(),
             inherited_field_count: HashMap::new(),
             global_string_inits: Vec::new(),
+            global_optional_inits: Vec::new(),
+            global_types: HashMap::new(),
+            has_global_init: false,
+            user_function_names: HashSet::new(),
+            shadowing_names: HashSet::new(),
         }
     }
 
     pub fn generate(&mut self, module: &Module) -> Result<String, CodegenError> {
         self.output.clear();
+        self.has_global_init = module.functions.iter().any(|f| f.name == "__global_init__");
+        // Must precede every `mangle_function_name` call below, definitions and
+        // call sites alike, or the two disagree about one name.
+        self.user_function_names = module.functions.iter().map(|f| f.id.0.clone()).collect();
+        self.shadowing_names = module.shadowing_names.clone();
 
         self.emit_header(&module.name)?;
 
@@ -96,6 +151,13 @@ impl LlvmCodegen {
         self.emit_anonymous_class_definition(&anon_fields)?;
 
         self.emit_runtime_declarations()?;
+
+        for func in &module.functions {
+            self.fn_param_types.insert(
+                mangle_function_name(&func.id.0, &self.user_function_names),
+                func.params.iter().map(|p| p.ty.clone()).collect(),
+            );
+        }
 
         for func in &module.functions {
             self.emit_function(func)?;
@@ -133,6 +195,40 @@ impl LlvmCodegen {
                 len
             );
             emit!(self, "  store ptr {}, ptr @{}", str_temp, global_name);
+        }
+        Ok(())
+    }
+
+    /// The literal text of a scalar constant, or `None` if it is not one.
+    fn scalar_literal(init: &Constant) -> Option<String> {
+        match init {
+            Constant::Int(n) => Some(n.to_string()),
+            Constant::Bool(b) => Some(if *b { "1" } else { "0" }.to_string()),
+            Constant::Float(f) => {
+                let s = format!("{:e}", f);
+                Some(if s.contains('.') {
+                    s
+                } else {
+                    s.replace('e', ".0e")
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Box the initial value of each global optional scalar, at program start.
+    fn emit_global_optional_init(&mut self) -> Result<(), CodegenError> {
+        if self.global_optional_inits.is_empty() {
+            return Ok(());
+        }
+
+        emit!(self, "  ; Initialize global optional scalars");
+        for (global_name, ty, literal) in self.global_optional_inits.clone() {
+            let llvm_ty = self.type_mapper.map_type(&ty);
+            let boxed = self.new_temp();
+            emit!(self, "  {} = call ptr @trq_alloc(i64 8)", boxed);
+            emit!(self, "  store {} {}, ptr {}", llvm_ty, literal, boxed);
+            emit!(self, "  store ptr {}, ptr @{}", boxed, global_name);
         }
         Ok(())
     }
@@ -190,6 +286,26 @@ impl LlvmCodegen {
         for (name, ty, init) in &module.globals {
             let llvm_type = self.type_mapper.map_type(ty);
             let global_name = mangle_name(name);
+            self.global_types.insert(name.clone(), ty.clone());
+
+            // A global optional scalar cannot carry its value in the initializer:
+            // the slot is a pointer, so the value has to live in a box, and a box
+            // needs an allocation. Defer it the way string globals already are —
+            // start as null, fill in at program start (#185).
+            if let IrType::Ptr(pointee) = ty {
+                if matches!(**pointee, IrType::Int | IrType::Float | IrType::Bool) {
+                    if let Some(literal) = init.as_ref().and_then(Self::scalar_literal) {
+                        emit!(self, "@{} = global {} null", global_name, llvm_type);
+                        self.global_optional_inits.push((
+                            global_name.clone(),
+                            (**pointee).clone(),
+                            literal,
+                        ));
+                        self.global_vars.insert(name.clone(), global_name);
+                        continue;
+                    }
+                }
+            }
 
             let init_val = match init {
                 Some(Constant::Int(n)) => n.to_string(),
@@ -211,6 +327,9 @@ impl LlvmCodegen {
                     }
                 }
                 Some(Constant::Null) => "null".to_string(),
+                Some(Constant::Function(name)) => {
+                    format!("@{}", mangle_function_name(name, &self.shadowing_names))
+                }
                 Some(Constant::String(idx)) => {
                     // String globals store TrqString*, initialized at program start
                     // Store the init info for emit_global_string_init() to handle
@@ -270,10 +389,19 @@ impl LlvmCodegen {
 
         let type_def = self
             .type_mapper
-            .generate_struct_type(&class.id, &all_fields);
+            .generate_struct_type(&class.id, &all_fields, true);
         emit!(self, "{}", type_def);
 
         if !class.vtable.is_empty() {
+            self.vtable_slots.insert(
+                class.id.0.clone(),
+                class
+                    .vtable
+                    .iter()
+                    .enumerate()
+                    .map(|(slot, method)| (method.name.clone(), slot as u32))
+                    .collect(),
+            );
             self.emit_vtable(class)?;
         }
 
@@ -424,7 +552,9 @@ impl LlvmCodegen {
 
         emit!(self, "; Anonymous class (object literals)");
         let class_id = ClassId("__anonymous__".to_string());
-        let type_def = self.type_mapper.generate_struct_type(&class_id, fields);
+        let type_def = self
+            .type_mapper
+            .generate_struct_type(&class_id, fields, false);
         emit!(self, "{}", type_def);
 
         // Register the fields in class_defs for field access
@@ -497,23 +627,54 @@ impl LlvmCodegen {
                 .get(lookup_class)
                 .copied()
                 .unwrap_or(0) as u32;
-            inherited_count + field_index
+            // +1 for the vtable pointer every declared class carries at word 0
+            // (`generate_struct_type`). Both object GEP sites — GetField and
+            // SetField — reach the index through here, so this is the only
+            // place the shift belongs.
+            VTABLE_SLOT + inherited_count + field_index
         };
 
         (struct_ty, actual_index)
+    }
+
+    /// The dispatch slot for `member`, read off the receiver's *static* class.
+    ///
+    /// Sound because a subclass's table extends its parent's as a prefix: the
+    /// index a static class assigns to a member is the index every descendant
+    /// assigns it too, so the entry loaded from the object's own table is the
+    /// implementation its runtime class provides. `None` means "no table for
+    /// this receiver" — an untyped, interface-typed or anonymous receiver — and
+    /// the caller falls back to a static bind.
+    fn receiver_vtable_slot(&self, object: u32, member: &str) -> Option<u32> {
+        let class = match self.var_types.get(&object)? {
+            IrType::Ptr(inner) => match inner.as_ref() {
+                IrType::Struct(class_id) => &class_id.0,
+                _ => return None,
+            },
+            IrType::Struct(class_id) => &class_id.0,
+            _ => return None,
+        };
+
+        self.vtable_slots.get(class)?.get(member).copied()
     }
 
     fn emit_vtable(&mut self, class: &Class) -> Result<(), CodegenError> {
         let mangled_class = mangle_class_name(&class.id.0);
         let vtable_name = format!("@vtable.{}", mangled_class);
 
+        // Must match `emit_function`'s symbol exactly: bodies are emitted as
+        // ordinary functions named `mangle_function_name("{Class}::{method}")`.
+        // Spelling these `@{class}_{method}` instead would name symbols nothing
+        // defines — invisible until a vtable was first populated.
         let vtable_entries: Vec<String> = class
             .vtable
             .iter()
             .map(|method| {
-                let mangled_method_class = mangle_class_name(&method.class.0);
-                let mangled_method_name = mangle_function_name(&method.name);
-                format!("ptr @{}_{}", mangled_method_class, mangled_method_name)
+                let symbol = mangle_function_name(
+                    &format!("{}::{}", method.class.0, method.name),
+                    &self.user_function_names,
+                );
+                format!("ptr @{}", symbol)
             })
             .collect();
 
@@ -544,6 +705,8 @@ impl LlvmCodegen {
         emit!(self, "declare ptr @trq_string_substr(ptr, i64, i64)");
         emit!(self, "declare ptr @trq_string_substr_chars(ptr, i64, i64)");
         emit!(self, "declare ptr @trq_string_char_at(ptr, i64)");
+        emit!(self, "declare i64 @trq_string_char_code(ptr)");
+        emit!(self, "declare ptr @trq_string_from_char_code(i64)");
         emit!(self, "declare i1 @trq_string_contains(ptr, ptr)");
         emit!(self, "declare i1 @trq_string_starts_with(ptr, ptr)");
         emit!(self, "declare i1 @trq_string_ends_with(ptr, ptr)");
@@ -572,9 +735,16 @@ impl LlvmCodegen {
 
         emit!(self, "declare ptr @trq_int_to_string(i64)");
         emit!(self, "declare ptr @trq_float_to_string(double)");
-        emit!(self, "declare ptr @trq_bool_to_string(i1)");
+        emit!(self, "declare ptr @trq_bool_to_string(i1 zeroext)");
         emit!(self, "declare i64 @trq_string_to_int(ptr)");
         emit!(self, "declare double @trq_string_to_float(ptr)");
+        // The `عدد`/`عدد_عشري` builtins reject an unparsable string instead of
+        // yielding 0, matching the interpreter (#222).
+        emit!(self, "declare i64 @trq_string_to_int_checked(ptr)");
+        emit!(self, "declare double @trq_string_to_float_checked(ptr)");
+        // `i1 zeroext` per the FFI convention below: Rust's `bool` is UB for any
+        // other bit pattern.
+        emit!(self, "declare void @trq_assert(i1 zeroext, ptr)");
 
         emit!(self, "declare ptr @trq_array_new(i64, i64)");
         emit!(self, "declare i64 @trq_array_len(ptr)");
@@ -586,7 +756,8 @@ impl LlvmCodegen {
         emit!(self, "declare void @trq_print(ptr)");
         emit!(self, "declare void @trq_print_int(i64)");
         emit!(self, "declare void @trq_print_float(double)");
-        emit!(self, "declare void @trq_print_bool(i1)");
+        emit!(self, "declare void @trq_print_optional_scalar(ptr, i64)");
+        emit!(self, "declare void @trq_print_bool(i1 zeroext)");
         emit!(self, "declare void @trq_print_array(ptr)");
         emit!(self, "declare void @trq_print_newline()");
         emit!(self, "declare void @trq_print_error(ptr)");
@@ -692,7 +863,10 @@ impl LlvmCodegen {
         emit!(self, "declare i64 @trq_week_number(i64, i64, i64)");
         emit!(self, "declare i64 @trq_days_in_month(i64, i64)");
         emit!(self, "declare ptr @trq_date_format(i64, i64, i64, ptr)");
-        emit!(self, "declare ptr @trq_time_now()");
+        // i64, not ptr: the semantic layer types وقت_الآن as عدد and the
+        // interpreter returns epoch milliseconds. The old `ptr` came from an
+        // unbuilt struct-returning date API (#241).
+        emit!(self, "declare i64 @trq_time_now()");
         emit!(self, "declare ptr @trq_time_parse(ptr)");
         emit!(
             self,
@@ -775,11 +949,28 @@ impl LlvmCodegen {
     }
 
     fn emit_function(&mut self, func: &Function) -> Result<(), CodegenError> {
+        // A lambda param that never resolved to a concrete type (no
+        // annotation, no hint from context) lowers to `Ptr(Void)` ("ptr" in
+        // LLVM). Native `call`/`call_indirect` sites carry their own
+        // signature, so this alone wouldn't fail to link — but the callee
+        // would silently reinterpret whatever bit pattern the caller passed
+        // (issue #185's divergence class). The interpreter is dynamically
+        // typed and unaffected; only native codegen needs this guard.
+        // The message and code come from the block itself: the advice for an
+        // untyped parameter ("declare concrete types") is wrong for a construct
+        // with no native lowering at all, such as `ارمِ` (issue #181).
+        if let Some(block) = &func.native_block {
+            return Err(CodegenError::with_code(
+                block.message.clone(),
+                block.code.clone(),
+            ));
+        }
+
         self.var_map.clear();
         self.block_map.clear();
         self.name_counter = 0;
 
-        let func_name = mangle_function_name(&func.id.0);
+        let func_name = mangle_function_name(&func.id.0, &self.user_function_names);
         self.current_func = Some(func_name.clone());
         self.current_return_type = func.return_type.clone();
 
@@ -816,8 +1007,12 @@ impl LlvmCodegen {
             params.join(", ")
         );
 
-        // Flag to track if we need to emit global string init
-        let needs_global_init = func_name == "__main__" && !self.global_string_inits.is_empty();
+        // Flag to track if we need to emit global string init and/or the
+        // __global_init__ call
+        let needs_global_init = func_name == "__main__"
+            && (!self.global_string_inits.is_empty()
+                || !self.global_optional_inits.is_empty()
+                || self.has_global_init);
 
         for (i, block) in func.blocks.iter().enumerate() {
             // For __main__, emit global string initialization at the start of the first block
@@ -825,6 +1020,12 @@ impl LlvmCodegen {
                 let label = self.get_block(block.id)?;
                 emit!(self, "{}:", label);
                 self.emit_global_string_init()?;
+                self.emit_global_optional_init()?;
+                // String globals must be initialized first: __global_init__
+                // may store string values into globals it depends on.
+                if self.has_global_init {
+                    emit!(self, "  call void @__global_init__()");
+                }
                 // Continue with block instructions
                 for inst in &block.instructions {
                     self.emit_instruction(inst)?;
@@ -907,6 +1108,13 @@ impl LlvmCodegen {
                 self.var_types.insert(dest.0, IrType::Float);
             }
 
+            Instruction::BoolToInt { dest, src } => {
+                let dest_name = self.get_or_create_var(*dest);
+                let src_name = self.get_var(*src)?;
+                emit!(self, "  {} = zext i1 {} to i64", dest_name, src_name);
+                self.var_types.insert(dest.0, IrType::Int);
+            }
+
             Instruction::FloatToInt { dest, src } => {
                 let dest_name = self.get_or_create_var(*dest);
                 let src_name = self.get_var(*src)?;
@@ -928,9 +1136,12 @@ impl LlvmCodegen {
                         .unwrap();
                     }
                     Some(IrType::Bool) => {
+                        // Same `zeroext` requirement as @trq_print_bool: the
+                        // Rust side is `extern "C" fn(bool)`, which admits only
+                        // 0 or 1.
                         writeln!(
                             self.output,
-                            "  {} = call ptr @trq_bool_to_string(i1 {})",
+                            "  {} = call ptr @trq_bool_to_string(i1 zeroext {})",
                             dest_name, src_name
                         )
                         .unwrap();
@@ -996,6 +1207,25 @@ impl LlvmCodegen {
                         })
                     })
                     .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+
+                // An optional `T?` lowers to `Ptr(T)`, so a slot holding one is
+                // `Ptr(Ptr(T))`. Storing a bare scalar into it wrote the raw i64
+                // where a pointer belongs — valid LLVM under opaque pointers, so
+                // nothing rejected it, and `عدد? = 0` then compared equal to
+                // `لا_شيء` because both bit patterns are zero (#185). Box the
+                // scalar so the null test is a genuine pointer test.
+                let slot_ty = match self.var_types.get(&ptr.0) {
+                    Some(IrType::Ptr(inner)) => Some((**inner).clone()),
+                    _ => None,
+                };
+                if let Some(slot_ty) = slot_ty {
+                    if Self::needs_boxing(&val_type, &slot_ty) {
+                        let boxed = self.emit_boxed_scalar(&value_name, &val_type);
+                        emit!(self, "  store ptr {}, ptr {}", boxed, ptr_name);
+                        return Ok(());
+                    }
+                }
+
                 let llvm_ty = self.type_mapper.map_type(&val_type);
                 emit!(self, "  store {} {}, ptr {}", llvm_ty, value_name, ptr_name);
             }
@@ -1044,8 +1274,14 @@ impl LlvmCodegen {
 
             Instruction::Return { value } => {
                 if let Some(val) = value {
-                    let val_name = self.get_var(*val)?;
-                    let ret_ty = self.type_mapper.map_type(&self.current_return_type);
+                    let mut val_name = self.get_var(*val)?;
+                    let declared = self.current_return_type.clone();
+                    if let Some(val_ty) = self.var_types.get(&val.0).cloned() {
+                        if Self::needs_boxing(&val_ty, &declared) {
+                            val_name = self.emit_boxed_scalar(&val_name, &val_ty);
+                        }
+                    }
+                    let ret_ty = self.type_mapper.map_type(&declared);
                     emit!(self, "  ret {} {}", ret_ty, val_name);
                 } else {
                     emit!(self, "  ret void");
@@ -1058,21 +1294,46 @@ impl LlvmCodegen {
                 args,
                 ret_ty,
             } => {
-                let func_name = mangle_function_name(&func.0);
+                let func_name = mangle_function_name(&func.0, &self.shadowing_names);
 
-                let args_str: Vec<String> = args
-                    .iter()
-                    .map(|a| {
-                        let name = self.get_var(*a).unwrap_or("undef".to_string());
-                        let arg_ty = self
-                            .var_types
-                            .get(&a.0)
-                            .cloned()
-                            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
-                        let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
-                        format!("{} {}", llvm_ty, name)
-                    })
-                    .collect();
+                // The callee's declared parameter types, where known: an argument
+                // otherwise describes itself, which is wrong for a `عدد?`
+                // parameter given a bare `0` — that has to be boxed first (#185).
+                let declared_params = self.fn_param_types.get(&func_name).cloned();
+                // Runtime conversions take the scalar itself, so a boxed optional
+                // reaching one — as `"…" + مخزون` does inside a narrowed branch —
+                // has to be loaded first, or the pointer is printed as the value.
+                let runtime_scalar_param = match func_name.as_str() {
+                    "trq_int_to_string" => Some(IrType::Int),
+                    "trq_float_to_string" => Some(IrType::Float),
+                    "trq_bool_to_string" => Some(IrType::Bool),
+                    _ => None,
+                };
+
+                let mut args_str: Vec<String> = Vec::with_capacity(args.len());
+                for (i, a) in args.iter().enumerate() {
+                    let mut name = self.get_var(*a).unwrap_or("undef".to_string());
+                    let mut arg_ty = self
+                        .var_types
+                        .get(&a.0)
+                        .cloned()
+                        .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+
+                    if let Some(declared) = declared_params.as_ref().and_then(|p| p.get(i)) {
+                        if Self::needs_boxing(&arg_ty, declared) {
+                            name = self.emit_boxed_scalar(&name, &arg_ty);
+                            arg_ty = declared.clone();
+                        }
+                    } else if let Some(scalar) = runtime_scalar_param.as_ref().filter(|_| i == 0) {
+                        if matches!(&arg_ty, IrType::Ptr(inner) if **inner == *scalar) {
+                            name = self.emit_unboxed_scalar(&name, scalar);
+                            arg_ty = scalar.clone();
+                        }
+                    }
+
+                    let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
+                    args_str.push(format!("{} {}", llvm_ty, name));
+                }
                 let ret_type = self.type_mapper.map_type(ret_ty);
 
                 let is_void = matches!(ret_ty, IrType::Void);
@@ -1118,6 +1379,25 @@ impl LlvmCodegen {
                 args,
                 ret_ty,
             } => {
+                // The call site's LLVM signature comes entirely from static
+                // types. If the callee value's recorded type isn't a
+                // function signature (e.g. a lambda reaching here through
+                // an `أي`-typed slot), the emitted `call` would carry a
+                // wrong return/argument signature and the callee would
+                // reinterpret raw bits — silent corruption (issue #185's
+                // divergence class). The interpreter dispatches on runtime
+                // values and handles this fine; only native codegen must
+                // reject it.
+                if !matches!(
+                    self.var_types.get(&func_ptr.0),
+                    Some(IrType::Function { .. })
+                ) {
+                    return Err(CodegenError::with_code(
+                        "الترجمة الأصلية لا تدعم استدعاء قيمة دالة بدون توقيع معروف (مثل قيمة من النوع 'أي'): صرّح بنوع الدالة، أو شغّل البرنامج بالمفسّر (tarqeem run)"
+                            .to_string(),
+                        ERR_UNTYPED_INDIRECT_CALL.to_string(),
+                    ));
+                }
                 let func_ptr_name = self.get_var(*func_ptr)?;
                 let args_str: Vec<String> = args
                     .iter()
@@ -1172,12 +1452,11 @@ impl LlvmCodegen {
 
             Instruction::NewObject { dest, class } => {
                 let dest_name = self.get_or_create_var(*dest);
-                let fields = self.class_defs.get(&class.0).cloned().unwrap_or_default();
-                let size: u64 = fields
-                    .iter()
-                    .map(|(_, ty)| self.type_mapper.type_size(ty))
-                    .sum();
-                let size = if size == 0 { 8 } else { size }; // Minimum 8 bytes
+                // Sized off the registered struct layout, which pads each field to
+                // its alignment: summing bare field sizes under-allocated, so
+                // `{ ptr, i1, i64 }` asked for 17 bytes while its `i64` is stored
+                // at offset 16 — a seven-byte overrun on every instance.
+                let size = self.type_mapper.type_size(&IrType::Struct(class.clone()));
 
                 writeln!(
                     self.output,
@@ -1185,6 +1464,17 @@ impl LlvmCodegen {
                     dest_name, size
                 )
                 .unwrap();
+
+                // Installed before the constructor runs, so a constructor
+                // calling a virtual method dispatches on the class being built —
+                // matching the interpreter, which stamps `class_id` at
+                // construction. A class with no virtual members emits no vtable
+                // global; word 0 then stays `trq_alloc`'s zero, and no call site
+                // can load it.
+                if let Some(vtable) = self.vtable_globals.get(&class.0).cloned() {
+                    writeln!(self.output, "  store ptr {}, ptr {}", vtable, dest_name).unwrap();
+                }
+
                 self.var_types
                     .insert(dest.0, IrType::Ptr(Box::new(IrType::Struct(class.clone()))));
             }
@@ -1243,7 +1533,20 @@ impl LlvmCodegen {
                     ptr_name, struct_ty, obj_name, actual_index
                 )
                 .unwrap();
-                let val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+                let mut val_name = val_name;
+                let mut val_type = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+
+                // A field declared `عدد?` holds a boxed scalar like any other
+                // optional, so assigning a bare scalar to it boxes here too —
+                // otherwise `هذا.رصيد = 0` stores a raw 0 and the field then
+                // compares equal to `لا_شيء` (#185).
+                if let Some(declared) = self.declared_field_type(&field.class.0, &field.name) {
+                    if Self::needs_boxing(&val_type, &declared) {
+                        val_name = self.emit_boxed_scalar(&val_name, &val_type);
+                        val_type = declared;
+                    }
+                }
+
                 let llvm_ty = self.type_mapper.map_type(&val_type);
                 writeln!(
                     self.output,
@@ -1259,15 +1562,63 @@ impl LlvmCodegen {
                 method,
                 args,
                 ret_ty,
+                virtual_dispatch,
             } => {
                 let obj_name = self.get_var(*object)?;
-                let full_method_name = format!("{}::{}", method.class.0, method.name);
-                let method_name = mangle_function_name(&full_method_name);
+
+                // `الأصل.م()` carries `virtual_dispatch: false` and must keep it:
+                // dispatching a super call virtually would resolve back to the
+                // override that made it and recurse until the stack ends.
+                // Receivers with no class table — `أي`, `ميثاق` (#209), object
+                // literals — fall back to the definer's body as before.
+                let slot = virtual_dispatch
+                    .then(|| self.receiver_vtable_slot(object.0, &method.name))
+                    .flatten();
+
+                let method_symbol = mangle_function_name(
+                    &format!("{}::{}", method.class.0, method.name),
+                    &self.user_function_names,
+                );
+
+                let callee = match slot {
+                    Some(index) => {
+                        let vtable_ptr = self.fresh_name("vtable.ptr");
+                        emit!(self, "  {} = load ptr, ptr {}", vtable_ptr, obj_name);
+
+                        let method_ptr_ptr = self.fresh_name("method.ptr.ptr");
+                        emit!(
+                            self,
+                            "  {} = getelementptr inbounds ptr, ptr {}, i32 {}",
+                            method_ptr_ptr,
+                            vtable_ptr,
+                            index
+                        );
+
+                        let method_ptr = self.fresh_name("method.ptr");
+                        emit!(self, "  {} = load ptr, ptr {}", method_ptr, method_ptr_ptr);
+                        method_ptr
+                    }
+                    None => format!("@{}", method_symbol),
+                };
+
+                // Declared parameter 0 is the receiver, which is not in `args`, so
+                // the argument at `i` is declared at `i + 1`. Without this, a
+                // method taking `س: عدد?` called as `م.افحص(0)` receives a raw
+                // scalar in a pointer slot (#185).
+                let declared_params = self.fn_param_types.get(&method_symbol).cloned();
 
                 let mut all_args = vec![format!("ptr {}", obj_name)];
-                for arg in args {
-                    let arg_name = self.get_var(*arg)?;
-                    let arg_ty = self.var_types.get(&arg.0).cloned().unwrap_or(IrType::Int);
+                for (i, arg) in args.iter().enumerate() {
+                    let mut arg_name = self.get_var(*arg)?;
+                    let mut arg_ty = self.var_types.get(&arg.0).cloned().unwrap_or(IrType::Int);
+
+                    if let Some(declared) = declared_params.as_ref().and_then(|p| p.get(i + 1)) {
+                        if Self::needs_boxing(&arg_ty, declared) {
+                            arg_name = self.emit_boxed_scalar(&arg_name, &arg_ty);
+                            arg_ty = declared.clone();
+                        }
+                    }
+
                     let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
                     all_args.push(format!("{} {}", llvm_ty, arg_name));
                 }
@@ -1280,9 +1631,9 @@ impl LlvmCodegen {
                         // Void calls cannot have a return value assigned
                         writeln!(
                             self.output,
-                            "  call {} @{}({})",
+                            "  call {} {}({})",
                             ret_type,
-                            method_name,
+                            callee,
                             all_args.join(", ")
                         )
                         .unwrap();
@@ -1290,10 +1641,10 @@ impl LlvmCodegen {
                         let dest_name = self.get_or_create_var(*d);
                         writeln!(
                             self.output,
-                            "  {} = call {} @{}({})",
+                            "  {} = call {} {}({})",
                             dest_name,
                             ret_type,
-                            method_name,
+                            callee,
                             all_args.join(", ")
                         )
                         .unwrap();
@@ -1302,9 +1653,9 @@ impl LlvmCodegen {
                 } else {
                     writeln!(
                         self.output,
-                        "  call {} @{}({})",
+                        "  call {} {}({})",
                         ret_type,
-                        method_name,
+                        callee,
                         all_args.join(", ")
                     )
                     .unwrap();
@@ -1426,10 +1777,24 @@ impl LlvmCodegen {
             Instruction::ArrayLen { dest, array } => {
                 let dest_name = self.get_or_create_var(*dest);
                 let array_name = self.get_var(*array)?;
+                // `ArrayLen` is polymorphic: every interpreting backend branches on
+                // the runtime value and counts characters for a string. Codegen has
+                // no runtime tag, so it must dispatch on the operand's IR type here
+                // — and getting it wrong is silent, not loud, because `TrqString`
+                // and `TrqArray` are both `#[repr(C)]` with `len` first, so reading
+                // one as the other returns the *byte* count instead of trapping
+                // (#185). An unknown operand type keeps the array symbol: that is
+                // today's behaviour, and the catch-all arm is where type-directed
+                // fixes break (#222).
+                let symbol = if Self::is_string_operand(self.var_types.get(&array.0)) {
+                    "trq_string_len_chars"
+                } else {
+                    "trq_array_len"
+                };
                 writeln!(
                     self.output,
-                    "  {} = call i64 @trq_array_len(ptr {})",
-                    dest_name, array_name
+                    "  {} = call i64 @{}(ptr {})",
+                    dest_name, symbol, array_name
                 )
                 .unwrap();
                 // ArrayLen returns i64 (Int type)
@@ -1445,8 +1810,25 @@ impl LlvmCodegen {
                 let dest_name = self.get_or_create_var(*dest);
                 let array_name = self.get_var(*array)?;
                 let index_name = self.get_var(*index)?;
-                let llvm_ty = self.type_mapper.map_type(elem_ty);
 
+                // Indexing a string yields a one-character string, exactly as the
+                // interpreter's `Value::String` arm does. Routing it through
+                // `trq_array_get` instead read the string's byte pointer as an
+                // element table and aborted with "الوصول إلى مصفوفة فارغة" — the
+                // element-access half of the same polymorphism gap as `ArrayLen`
+                // (#185). `لكل ح في نص` is the common way to reach it.
+                if Self::is_string_operand(self.var_types.get(&array.0)) {
+                    writeln!(
+                        self.output,
+                        "  {} = call ptr @trq_string_char_at(ptr {}, i64 {})",
+                        dest_name, array_name, index_name
+                    )
+                    .unwrap();
+                    self.var_types.insert(dest.0, IrType::String);
+                    return Ok(());
+                }
+
+                let llvm_ty = self.type_mapper.map_type(elem_ty);
                 let elem_ptr = self.fresh_name("elem.ptr");
                 writeln!(
                     self.output,
@@ -1586,6 +1968,25 @@ impl LlvmCodegen {
                 let val_name = self.get_var(*value)?;
                 let var_type = self.var_types.get(&value.0).cloned();
                 match &var_type {
+                    // A boxed scalar optional is `Ptr(Int|Float|Bool)`. Handing it
+                    // to `trq_print`, which expects a `TrqString*`, segfaulted
+                    // (#185). Print `لا_شيء` for a null one and the pointee
+                    // otherwise, matching the interpreter.
+                    Some(IrType::Ptr(pointee))
+                        if matches!(**pointee, IrType::Int | IrType::Float | IrType::Bool) =>
+                    {
+                        let kind = match **pointee {
+                            IrType::Float => 1,
+                            IrType::Bool => 2,
+                            _ => 0,
+                        };
+                        emit!(
+                            self,
+                            "  call void @trq_print_optional_scalar(ptr {}, i64 {})",
+                            val_name,
+                            kind
+                        );
+                    }
                     Some(IrType::String) | Some(IrType::Ptr(_)) => {
                         emit!(self, "  call void @trq_print(ptr {})", val_name);
                     }
@@ -1593,7 +1994,12 @@ impl LlvmCodegen {
                         emit!(self, "  call void @trq_print_float(double {})", val_name);
                     }
                     Some(IrType::Bool) => {
-                        emit!(self, "  call void @trq_print_bool(i1 {})", val_name);
+                        // `zeroext` is load-bearing, not decoration: an `i1` whose
+                        // upper byte bits are don't-care (any NOT, lowered to
+                        // `xorb $-1`) otherwise reaches Rust's `bool` as 254 or
+                        // 255 — an invalid bit pattern whose branch arithmetic
+                        // walks off into .rodata (#266 follow-up).
+                        emit!(self, "  call void @trq_print_bool(i1 zeroext {})", val_name);
                     }
                     Some(IrType::Array(_, _)) => {
                         emit!(self, "  call void @trq_print_array(ptr {})", val_name);
@@ -1623,8 +2029,18 @@ impl LlvmCodegen {
             }
 
             Instruction::GlobalStore { name, value } => {
-                let value_name = self.get_var(*value)?;
-                let value_ty = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+                let mut value_name = self.get_var(*value)?;
+                let mut value_ty = self.var_types.get(&value.0).cloned().unwrap_or(IrType::Int);
+
+                // Assigning a scalar to an optional global boxes, exactly as it
+                // does for a local (#185).
+                if let Some(declared) = self.global_types.get(name).cloned() {
+                    if Self::needs_boxing(&value_ty, &declared) {
+                        value_name = self.emit_boxed_scalar(&value_name, &value_ty);
+                        value_ty = declared;
+                    }
+                }
+
                 let llvm_type = self.type_mapper.map_type(&value_ty);
                 let global_name = mangle_name(name);
                 writeln!(
@@ -1795,6 +2211,10 @@ impl LlvmCodegen {
             Constant::Null => {
                 emit!(self, "  {} = bitcast ptr null to ptr", dest_name);
             }
+            Constant::Function(name) => {
+                let mangled = mangle_function_name(name, &self.shadowing_names);
+                emit!(self, "  {} = bitcast ptr @{} to ptr", dest_name, mangled);
+            }
             Constant::Bool(b) => {
                 let val = if *b { "true" } else { "false" };
                 emit!(
@@ -1856,8 +2276,35 @@ impl LlvmCodegen {
         ty: &IrType,
     ) -> Result<(), CodegenError> {
         let dest_name = self.get_or_create_var(dest);
-        let left_name = self.get_var(left)?;
-        let right_name = self.get_var(right)?;
+        let mut left_name = self.get_var(left)?;
+        let mut right_name = self.get_var(right)?;
+
+        // Once the analyzer narrows `س` after `إذا (س != لا_شيء)`, the branch may
+        // use it as a plain scalar — but it is still a boxed pointer here, so the
+        // value has to be loaded back out (#185). Unbox only against a bare
+        // scalar operand: a comparison with `لا_شيء` has `Ptr(Void)` on the other
+        // side and must stay a pointer test.
+        let left_ty_raw = self.var_types.get(&left.0).cloned();
+        let right_ty_raw = self.var_types.get(&right.0).cloned();
+        let unboxes_against = |boxed: &Option<IrType>, other: &Option<IrType>| -> Option<IrType> {
+            match (boxed, other) {
+                (Some(IrType::Ptr(pointee)), Some(other_ty))
+                    if **pointee == *other_ty
+                        && matches!(**pointee, IrType::Int | IrType::Float | IrType::Bool) =>
+                {
+                    Some((**pointee).clone())
+                }
+                _ => None,
+            }
+        };
+
+        if let Some(scalar) = unboxes_against(&left_ty_raw, &right_ty_raw) {
+            left_name = self.emit_unboxed_scalar(&left_name, &scalar);
+            self.var_types.insert(left.0, scalar);
+        } else if let Some(scalar) = unboxes_against(&right_ty_raw, &left_ty_raw) {
+            right_name = self.emit_unboxed_scalar(&right_name, &scalar);
+            self.var_types.insert(right.0, scalar);
+        }
 
         // Check operand type from var_types - more reliable than ty parameter
         // This handles cases where the IR builder passes incorrect type info
@@ -1896,8 +2343,51 @@ impl LlvmCodegen {
         );
 
         if is_comparison {
-            // Get the operand type from var_types
-            if let Some(operand_ty) = self.var_types.get(&left.0) {
+            // `Binary.ty` is the *result* type, always Bool for a comparison, so
+            // the opcode table below cannot be trusted to describe the operands —
+            // integer comparison only works there because that arm happens to
+            // spell `i64`. Everything non-scalar has to be resolved here instead,
+            // from the operand types codegen already tracks (#185).
+            //
+            // Two shapes need care. `لا_شيء` is emitted as `Ptr(Void)` and an
+            // optional `T?` as `Ptr(T)`, so anything involving the null literal is
+            // a pointer-identity test — but two optional *strings* compared with
+            // each other must keep the value semantics the interpreter has, and so
+            // route to the string path rather than to `icmp ptr`.
+            let left_ty = self.var_types.get(&left.0).cloned();
+            let right_ty = self.var_types.get(&right.0).cloned();
+
+            let is_null_literal = |t: &Option<IrType>| matches!(t, Some(IrType::Ptr(inner)) if matches!(**inner, IrType::Void));
+            let both_optional_strings = matches!(
+                (&left_ty, &right_ty),
+                (Some(IrType::Ptr(a)), Some(IrType::Ptr(b)))
+                    if matches!(**a, IrType::String) && matches!(**b, IrType::String)
+            );
+            let is_reference = |t: &Option<IrType>| {
+                matches!(
+                    t,
+                    Some(
+                        IrType::Ptr(_)
+                            | IrType::Struct(_)
+                            | IrType::Enum(_)
+                            | IrType::Function { .. }
+                    )
+                )
+            };
+
+            let operand_ty = if matches!(left_ty, Some(IrType::String)) || both_optional_strings {
+                Some(IrType::String)
+            } else if is_null_literal(&left_ty)
+                || is_null_literal(&right_ty)
+                || is_reference(&left_ty)
+                || is_reference(&right_ty)
+            {
+                Some(IrType::Ptr(Box::new(IrType::Void)))
+            } else {
+                left_ty
+            };
+
+            if let Some(operand_ty) = operand_ty.as_ref() {
                 match operand_ty {
                     IrType::String => {
                         // String comparison using runtime functions
@@ -1958,6 +2448,55 @@ impl LlvmCodegen {
                             BinaryOp::Le => "fcmp ole double",
                             BinaryOp::Gt => "fcmp ogt double",
                             BinaryOp::Ge => "fcmp oge double",
+                            _ => unreachable!(),
+                        };
+                        writeln!(
+                            self.output,
+                            "  {} = {} {}, {}",
+                            dest_name, cmp_op, left_name, right_name
+                        )
+                        .unwrap();
+                        return Ok(());
+                    }
+                    // Pointer identity, which is what the interpreter gives for a
+                    // class instance too. Enum values do not reach this arm — the
+                    // IR types them as strings, so a direct `==` between them
+                    // reads a discriminant as a `TrqString` header, before this
+                    // change and after it.
+                    IrType::Ptr(_)
+                    | IrType::Struct(_)
+                    | IrType::Enum(_)
+                    | IrType::Function { .. } => {
+                        let cmp_op = match op {
+                            BinaryOp::Eq => "icmp eq ptr",
+                            BinaryOp::Ne => "icmp ne ptr",
+                            // Ordering two references is not meaningful; the
+                            // analyzer rejects it, so reaching here is a bug in
+                            // an earlier layer rather than user input.
+                            _ => {
+                                return Err(CodegenError::new(format!(
+                                    "لا يمكن ترتيب مرجعين بالعامل {op:?} / cannot order two references with {op:?}"
+                                )))
+                            }
+                        };
+                        writeln!(
+                            self.output,
+                            "  {} = {} {}, {}",
+                            dest_name, cmp_op, left_name, right_name
+                        )
+                        .unwrap();
+                        return Ok(());
+                    }
+                    IrType::Bool => {
+                        // Booleans are `i1`; the fallback table would compare them
+                        // as `i64` and LLVM rejects the module outright.
+                        let cmp_op = match op {
+                            BinaryOp::Eq => "icmp eq i1",
+                            BinaryOp::Ne => "icmp ne i1",
+                            BinaryOp::Lt => "icmp ult i1",
+                            BinaryOp::Le => "icmp ule i1",
+                            BinaryOp::Gt => "icmp ugt i1",
+                            BinaryOp::Ge => "icmp uge i1",
                             _ => unreachable!(),
                         };
                         writeln!(
@@ -2114,7 +2653,20 @@ impl LlvmCodegen {
         ty: &IrType,
     ) -> Result<(), CodegenError> {
         let dest_name = self.get_or_create_var(dest);
-        let operand_name = self.get_var(operand)?;
+        let mut operand_name = self.get_var(operand)?;
+
+        // A narrowed optional is still a boxed `Ptr(T)` here, so the value has to
+        // be loaded back out before an integer opcode can touch it — the same
+        // unboxing `emit_binary` does (#185). Without it, `بتات_نفي(س)` after
+        // `إذا (س != لا_شيء)` emits `xor i64 %ptr, -1` and clang rejects the
+        // module, while the interpreter and JIT both answer correctly.
+        if let Some(IrType::Ptr(pointee)) = self.var_types.get(&operand.0).cloned() {
+            let scalar = *pointee;
+            if scalar == *ty && matches!(scalar, IrType::Int | IrType::Float | IrType::Bool) {
+                operand_name = self.emit_unboxed_scalar(&operand_name, &scalar);
+                self.var_types.insert(operand.0, scalar);
+            }
+        }
 
         match (op, ty) {
             (UnaryOp::Neg, IrType::Int) => {
@@ -2178,6 +2730,80 @@ impl LlvmCodegen {
         self.name_counter += 1;
         format!("%{}.{}", prefix, self.name_counter)
     }
+
+    /// True when a value of type `from` needs boxing to satisfy a slot, parameter
+    /// or return position declared `to`.
+    ///
+    /// An optional `T?` lowers to `Ptr(T)`, so a scalar reaching one has to be
+    /// put behind a pointer — otherwise the raw bit pattern stands in for the
+    /// pointer and `عدد? = 0` is indistinguishable from `لا_شيء` (#185).
+    fn needs_boxing(from: &IrType, to: &IrType) -> bool {
+        matches!(from, IrType::Int | IrType::Float | IrType::Bool)
+            && matches!(to, IrType::Ptr(pointee) if **pointee == *from)
+    }
+
+    /// Whether an operand is a string at run time.
+    ///
+    /// `نص` is `String` and `نص?` is `Ptr(String)`, but both are a `TrqString*`
+    /// once compiled — so a narrowed optional string must take the string path
+    /// too, or `طول` counts its bytes again (#185).
+    fn is_string_operand(ty: Option<&IrType>) -> bool {
+        matches!(ty, Some(IrType::String))
+            || matches!(ty, Some(IrType::Ptr(inner)) if matches!(**inner, IrType::String))
+    }
+
+    /// The declared type of `field` on `class`.
+    ///
+    /// `class_defs` holds each class's *own* fields, so an inherited field is not
+    /// under the receiver's name. The fallback searches every class, but only
+    /// accepts an unambiguous match — guessing between two same-named fields on
+    /// unrelated classes would be worse than declining to box.
+    fn declared_field_type(&self, class: &str, field: &str) -> Option<IrType> {
+        let own = |c: &str| {
+            self.class_defs.get(c).and_then(|fields| {
+                fields
+                    .iter()
+                    .find(|(name, _)| name == field)
+                    .map(|(_, ty)| ty.clone())
+            })
+        };
+
+        own(class).or_else(|| {
+            let mut found = self.class_defs.values().filter_map(|fields| {
+                fields
+                    .iter()
+                    .find(|(name, _)| name == field)
+                    .map(|(_, ty)| ty.clone())
+            });
+            let only = found.next()?;
+            found.next().is_none().then_some(only)
+        })
+    }
+
+    /// Load a boxed scalar back out of its cell.
+    fn emit_unboxed_scalar(&mut self, value_name: &str, ty: &IrType) -> String {
+        let llvm_ty = self.type_mapper.map_type(ty);
+        let loaded = self.fresh_name("opt.unbox");
+        let _ = writeln!(
+            self.output,
+            "  {} = load {}, ptr {}",
+            loaded, llvm_ty, value_name
+        );
+        loaded
+    }
+
+    /// Allocate an 8-byte cell, store `value_name` in it, and yield the cell.
+    fn emit_boxed_scalar(&mut self, value_name: &str, ty: &IrType) -> String {
+        let llvm_ty = self.type_mapper.map_type(ty);
+        let boxed = self.fresh_name("opt.box");
+        let _ = writeln!(self.output, "  {} = call ptr @trq_alloc(i64 8)", boxed);
+        let _ = writeln!(
+            self.output,
+            "  store {} {}, ptr {}",
+            llvm_ty, value_name, boxed
+        );
+        boxed
+    }
 }
 
 #[derive(Debug)]
@@ -2214,9 +2840,17 @@ impl std::fmt::Display for CodegenError {
 
 impl std::error::Error for CodegenError {}
 
-fn mangle_function_name(name: &str) -> String {
-    if let Some(runtime_name) = get_runtime_function_name(name) {
-        return runtime_name.to_string();
+/// The LLVM symbol a function name is emitted under.
+///
+/// `user_functions` is every name the program declares. A declared name keeps
+/// its own mangled symbol; only an undeclared one falls through to the runtime
+/// table. Applying the table to a *definition* is what made a user's `مطلق`
+/// collide with the `declare @trq_abs_float` above it (#257).
+fn mangle_function_name(name: &str, user_functions: &HashSet<String>) -> String {
+    if !user_functions.contains(name) {
+        if let Some(runtime_name) = get_runtime_function_name(name) {
+            return runtime_name.to_string();
+        }
     }
     mangle_name(name)
 }
@@ -2226,6 +2860,10 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "قص_نص" => Some("trq_string_substr"),
         "قص_حروف" => Some("trq_string_substr_chars"),
         "حرف_في" => Some("trq_string_char_at"),
+        // Core tier, unlike its neighbours here: reachable with no import, and
+        // its `IrType::Int` return type is registered in the IR builder.
+        "حرف_إلى_رمز" => Some("trq_string_char_code"),
+        "رمز_إلى_حرف" => Some("trq_string_from_char_code"),
         "يحتوي" => Some("trq_string_contains"),
         "يبدأ_بـ" => Some("trq_string_starts_with"),
         "ينتهي_بـ" => Some("trq_string_ends_with"),
@@ -2484,16 +3122,38 @@ fn escape_llvm_string(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // No longer used by `generate` itself — the code now travels on the
+    // `NativeBlock` — but these tests assert which code a given source produces.
+    use crate::error::codes::ERR_UNTYPED_LAMBDA_PARAM;
 
     #[test]
     fn test_mangle_function_name() {
-        assert_eq!(mangle_function_name("main"), "main");
-        assert_eq!(mangle_function_name("add_numbers"), "add_numbers");
-        assert_eq!(mangle_function_name("اطبع"), "trq_print");
-        assert_eq!(mangle_function_name("طباعة"), "trq_print");
-        let mangled = mangle_function_name("دالتي");
+        let none = HashSet::new();
+        assert_eq!(mangle_function_name("main", &none), "main");
+        assert_eq!(mangle_function_name("add_numbers", &none), "add_numbers");
+        assert_eq!(mangle_function_name("اطبع", &none), "trq_print");
+        assert_eq!(mangle_function_name("طباعة", &none), "trq_print");
+        let mangled = mangle_function_name("دالتي", &none);
         assert!(!mangled.contains("دالتي"));
         assert!(mangled.contains("_U"));
+    }
+
+    /// A name the program declares keeps its own symbol, so the definition can
+    /// never collide with the `declare @trq_*` emitted for the same name (#257).
+    #[test]
+    fn test_a_declared_name_does_not_adopt_the_runtime_symbol() {
+        let declared: HashSet<String> = ["اطبع", "مطلق"].iter().map(|s| s.to_string()).collect();
+
+        for name in ["اطبع", "مطلق"] {
+            let symbol = mangle_function_name(name, &declared);
+            assert!(
+                !symbol.starts_with("trq_"),
+                "'{name}' يجب ألا يأخذ رمز وقت التشغيل، وُجد {symbol}"
+            );
+        }
+
+        // An undeclared name still maps, so call sites reach the runtime.
+        assert_eq!(mangle_function_name("طباعة", &declared), "trq_print");
     }
 
     #[test]
@@ -2543,5 +3203,362 @@ mod tests {
                 line
             );
         }
+    }
+
+    #[test]
+    fn test_lambda_call_indirect_uses_real_return_type() {
+        // Regression test (issue #180): a call through a global holding a
+        // lambda used to emit `call ptr %fn(...)` regardless of the
+        // lambda's actual return type, because the global's recorded type
+        // was a provisional `Ptr(Void)` guess from before the lambda body
+        // was built. Against an i64-returning lambda this is an LLVM
+        // call-site/callee signature mismatch that segfaults at runtime.
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let source = "بسم_الله\nثابت مربع = (س: عدد) => س * س؛\nاطبع(مربع(5))؛\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let llvm_ir = codegen.generate(&ir_module).expect("codegen failed");
+
+        let call_line = llvm_ir
+            .lines()
+            .find(|l| l.contains("call") && l.contains('%') && !l.contains("call void @trq"))
+            .unwrap_or_else(|| panic!("expected an indirect call in:\n{}", llvm_ir));
+        assert!(
+            call_line.contains("call i64"),
+            "indirect call must use the lambda's real i64 return type, got: {}",
+            call_line
+        );
+    }
+
+    #[test]
+    fn test_lambda_untyped_param_rejected_in_native_codegen() {
+        // Native codegen cannot safely lower an arrow-function parameter
+        // that never resolved to a concrete type (issue #180); the
+        // interpreter handles this dynamically (see
+        // tests/lambda_execution_tests.rs::تنفيذ::test_spec_untyped_sum_lambda_executes),
+        // but native mode needs a real LLVM type at the parameter.
+        use crate::error::codes::ERR_UNTYPED_LAMBDA_PARAM;
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let source = "بسم_الله\nثابت جمع = (أ، ب) => أ + ب؛\nاطبع(جمع(3، 4))؛\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let err = codegen
+            .generate(&ir_module)
+            .expect_err("native codegen must reject an untyped lambda parameter");
+
+        assert_eq!(
+            err.code.as_deref(),
+            Some(ERR_UNTYPED_LAMBDA_PARAM.to_string().as_str())
+        );
+    }
+
+    #[test]
+    fn test_indirect_call_through_any_slot_rejected_in_native_codegen() {
+        // A lambda passed through an `أي`-typed parameter has no static
+        // signature at the call site; emitting the call anyway would
+        // produce an ABI-mismatched `call ptr` against a `define i64`
+        // callee — silent corruption instead of an error. Native codegen
+        // must reject it (ت٠٣٠٢); the interpreter runs it fine.
+        use crate::error::codes::ERR_UNTYPED_INDIRECT_CALL;
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        // The callee reaches the call site through an `أي`-typed *variable*,
+        // so no function has an unlowerable parameter (the lambda's own `س`
+        // is annotated) and the ت٠٣٠١ parameter guard does not fire first.
+        let source = "بسم_الله\nمتغير ف: أي = (س: عدد) => س * س؛\nاطبع(ف(5))؛\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let err = codegen
+            .generate(&ir_module)
+            .expect_err("native codegen must reject an indirect call with no known signature");
+
+        assert_eq!(
+            err.code.as_deref(),
+            Some(ERR_UNTYPED_INDIRECT_CALL.to_string().as_str())
+        );
+    }
+
+    #[test]
+    fn test_lambda_as_call_argument_compiles_natively() {
+        // A lambda literal passed as a call argument picks up its param
+        // types from the callee's declared function-type parameter — the
+        // same contextual inference the semantic layer performs. Without
+        // the hint it lifts with `Ptr(Void)` params and native compilation
+        // rejects spec-legal code with ت٠٣٠١.
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let source = "بسم_الله\nدالة طبق(ف: (عدد) -> عدد، ق: عدد) -> عدد {\nأرجع ف(ق)؛\n}\nاطبع(طبق((س) => س * 2، 5))؛\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let llvm_ir = codegen
+            .generate(&ir_module)
+            .expect("a lambda argument with an inferable signature must compile natively");
+
+        assert!(
+            llvm_ir.contains("define i64 @__lambda_0(i64"),
+            "the argument lambda must lift with a concrete i64 param, in:\n{}",
+            llvm_ir
+        );
+    }
+
+    #[test]
+    fn test_program_mode_annotated_global_lambda_compiles_natively() {
+        // Program mode routes global initializers through __global_init__;
+        // that path must thread the declared function-type annotation to
+        // the lambda (and must not lift a second orphaned duplicate from
+        // the statement pass, where the store would be silently dropped).
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let source = "بسم_الله\nثابت جمع: (عدد، عدد) -> عدد = (أ، ب) => أ + ب؛\nدالة رئيسية() {\nاطبع(جمع(3، 4))؛\n}\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let lambda_count = ir_module
+            .functions
+            .iter()
+            .filter(|f| f.name.starts_with("__lambda_"))
+            .count();
+        assert_eq!(
+            lambda_count, 1,
+            "the global initializer must lift exactly one lambda, not an orphaned duplicate"
+        );
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let llvm_ir = codegen
+            .generate(&ir_module)
+            .expect("an annotated program-mode global lambda must compile natively");
+        assert!(
+            llvm_ir.contains("define i64 @__lambda_0(i64"),
+            "the annotation must reach the lifted lambda's params, in:\n{}",
+            llvm_ir
+        );
+    }
+
+    #[test]
+    fn test_mixed_bare_and_valued_lambda_returns_unify() {
+        // Semantic analysis accepts mixed bare/valued returns in a block
+        // lambda (legal early-return code, folded to أي). The lifted
+        // function must patch bare returns to a zero-of-type return, or
+        // native codegen emits `ret void` inside a non-void define —
+        // invalid LLVM IR.
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let source = "بسم_الله\nثابت ف = (س: عدد) => {\nإذا (س > 0) {\nأرجع؛\n}\nأرجع 1؛\n}؛\nف(5)؛\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let llvm_ir = codegen.generate(&ir_module).expect("codegen failed");
+
+        let lambda_body: String = llvm_ir
+            .lines()
+            .skip_while(|l| !l.contains("@__lambda_0"))
+            .take_while(|l| !l.starts_with('}'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            lambda_body.contains("define i64"),
+            "mixed returns must unify to the valued type, in:\n{}",
+            llvm_ir
+        );
+        assert!(
+            !lambda_body.contains("ret void"),
+            "bare أرجع must be patched to a typed return inside a non-void lambda, in:\n{}",
+            lambda_body
+        );
+    }
+
+    #[test]
+    fn test_indirect_call_coerces_int_arg_to_float() {
+        // Spec §5.6's implicit عدد → عدد_عشري coercion must also apply at
+        // indirect-call arguments: passing a raw i64 where the callee's
+        // signature says double makes the callee reinterpret the bit
+        // pattern (garbage output natively).
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let source = "بسم_الله\nثابت ف: (عدد_عشري) -> عدد_عشري = (س) => س؛\nاطبع(ف(5))؛\nالحمد_لله";
+        let mut parser = Parser::new(source);
+        let ast = parser.parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+
+        let mut codegen = LlvmCodegen::new(crate::codegen::Target::native());
+        let llvm_ir = codegen.generate(&ir_module).expect("codegen failed");
+
+        let call_line = llvm_ir
+            .lines()
+            .find(|l| l.contains("call double"))
+            .unwrap_or_else(|| panic!("expected a double indirect call in:\n{}", llvm_ir));
+        assert!(
+            call_line.contains("double %") && !call_line.contains("i64 %"),
+            "the int argument must be coerced to double before the call, got: {}",
+            call_line
+        );
+    }
+
+    /// Builds a module and returns its LLVM IR, or the CodegenError code.
+    fn compile_or_code(source: &str) -> Result<String, Option<String>> {
+        use crate::ir::IrBuilder;
+        use crate::parser::Parser;
+
+        let ast = Parser::new(source).parse().expect("Failed to parse");
+        let ir_module = IrBuilder::new("test".to_string())
+            .build(&ast)
+            .expect("Failed to build IR");
+        LlvmCodegen::new(crate::codegen::Target::native())
+            .generate(&ir_module)
+            .map_err(|e| e.code.clone())
+    }
+
+    #[test]
+    fn test_call_through_lambda_variable_types_the_result_slot() {
+        // The slot's type came from `infer_expr_type`, whose `Call` arm knew
+        // only the global function table — a call *through a function value*
+        // fell back to `Ptr(Void)`, so `اطبع` emitted `trq_print(ptr %x)` on
+        // an integer and dereferenced it (segfault, exit 139).
+        let ir = compile_or_code(
+            "بسم_الله\nثابت مربع = (س: عدد) => س * س؛\nمتغير ن = مربع(5)؛\nاطبع(ن)؛\nالحمد_لله",
+        )
+        .expect("must compile");
+        assert!(
+            ir.contains("call void @trq_print_int"),
+            "the call result must be typed i64, not printed as a pointer, in:\n{ir}"
+        );
+        assert!(
+            !ir.contains("call void @trq_print(ptr"),
+            "an integer must never reach the pointer-printing runtime call, in:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn test_void_bodied_lambda_emits_bare_return() {
+        // `(س) => اطبع(س)` is an idiomatic callback whose body is Void; the
+        // lifted function must `ret void`, not `ret void %v` (invalid LLVM,
+        // and the void Call never even names a dest).
+        let ir = compile_or_code(
+            "بسم_الله\nدالة رئيسية() {\nثابت اطبعه = (س: عدد) => اطبع(س)؛\nاطبعه(7)؛\n}\nالحمد_لله",
+        )
+        .expect("must compile");
+        assert!(
+            ir.contains("define void @__lambda_0"),
+            "expected a void-returning lifted lambda in:\n{ir}"
+        );
+        assert!(
+            !ir.contains("ret void %"),
+            "`ret void` must not carry an operand, in:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn test_any_annotated_param_is_rejected_natively() {
+        // `أي` lowers to `Struct(ClassId("أي"))`, not `Ptr(Void)`, so a guard
+        // keyed on the type shape missed it and emitted an ABI mismatch.
+        assert_eq!(
+            compile_or_code(
+                "بسم_الله\nدالة رئيسية() {\nثابت ف = (س: أي) => س؛\nاطبع(ف(5))؛\n}\nالحمد_لله"
+            )
+            .unwrap_err()
+            .as_deref(),
+            Some(ERR_UNTYPED_LAMBDA_PARAM.to_string().as_str())
+        );
+    }
+
+    #[test]
+    fn test_declared_function_untyped_param_is_rejected_natively() {
+        // Same hazard as the lambda case: keying the guard on the
+        // `__lambda_` name prefix left this identical hole open.
+        assert_eq!(
+            compile_or_code("بسم_الله\nدالة ضاعف(س) { أرجع س * 2 }\nاطبع(ضاعف(5))؛\nالحمد_لله")
+                .unwrap_err()
+                .as_deref(),
+            Some(ERR_UNTYPED_LAMBDA_PARAM.to_string().as_str())
+        );
+    }
+
+    #[test]
+    fn test_annotated_map_param_is_not_falsely_rejected() {
+        // `قاموس<…>` legitimately lowers to `Ptr(Void)`, so the old
+        // shape-keyed guard rejected fully-annotated code.
+        compile_or_code(
+            "بسم_الله\nثابت ف: (قاموس<نص، عدد>) -> عدد = (خ) => 1؛\nاطبع(ف({}))؛\nالحمد_لله",
+        )
+        .expect("an annotated قاموس parameter must compile natively");
+    }
+
+    #[test]
+    fn test_curried_lambda_threads_hint_to_inner_lambda() {
+        // LANGUAGE_SPEC §5.3's curried form: the inner lambda must inherit
+        // its parameter type from the outer annotation's return signature,
+        // or it lifts untyped and native codegen refuses documented syntax.
+        let ir = compile_or_code(
+            "بسم_الله\nثابت ف: (عدد) -> (عدد) -> عدد = (أ) => (ب) => ب * 2؛\nاطبع(ف(1)(21))؛\nالحمد_لله",
+        )
+        .expect("a curried annotated lambda must compile natively");
+        assert!(
+            ir.contains("(i64 %arg.0)"),
+            "both lifted lambdas must take a concrete i64 param, in:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn test_lambda_assigned_to_annotated_slot_threads_hint() {
+        // Assignment position previously skipped the hint, so reassigning a
+        // lambda to an already-annotated function-typed variable was
+        // rejected with "declare a type" — which the user had declared.
+        compile_or_code(
+            "بسم_الله\nدالة رئيسية() {\nمتغير ف: (عدد) -> عدد = (س) => س + 1؛\nف = (س) => س * 10؛\nاطبع(ف(3))؛\n}\nالحمد_لله",
+        )
+        .expect("a lambda assigned to an annotated slot must compile natively");
+    }
+
+    #[test]
+    fn test_non_unifiable_mixed_returns_give_a_tarqeem_diagnostic() {
+        // Semantic analysis folds mixed return types to `أي` on purpose and
+        // the interpreter dispatches dynamically, but native code needs one
+        // ABI — the user must get a Tarqeem error, not a leaked clang one.
+        assert_eq!(
+            compile_or_code(
+                "بسم_الله\nدالة رئيسية() {\nثابت ف = (س: عدد) => { إذا (س > 0) { أرجع \"نص\" } أرجع 1 }؛\nاطبع(ف(5))؛\n}\nالحمد_لله"
+            )
+            .unwrap_err()
+            .as_deref(),
+            Some(ERR_UNTYPED_LAMBDA_PARAM.to_string().as_str())
+        );
     }
 }

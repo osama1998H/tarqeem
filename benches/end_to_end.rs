@@ -2,7 +2,8 @@
 //!
 //! Measures full compilation pipeline time for various program sizes.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use std::hint::black_box;
 use tarqeem::ir::{OptLevel, Optimizer};
 use tarqeem::{Analyzer, IrBuilder, Lexer, Parser};
 
@@ -183,7 +184,11 @@ fn benchmark_full_pipeline(source: &str, opt_level: OptLevel) {
     analyzer.analyze(&ast).expect("Analysis should succeed");
 
     let ir_builder = IrBuilder::new("benchmark".to_string());
-    let mut module = ir_builder.build(&ast).expect("IR build should succeed");
+    // Some corpora are declaration-only; they measure pipeline throughput,
+    // not entry-point policy, so they lower as library modules.
+    let mut module = ir_builder
+        .build_library(&ast)
+        .expect("IR build should succeed");
 
     let mut optimizer = Optimizer::new(opt_level);
     optimizer.optimize(&mut module);

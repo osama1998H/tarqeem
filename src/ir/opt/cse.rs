@@ -274,12 +274,14 @@ impl CommonSubexprElim {
                 method,
                 args,
                 ret_ty,
+                virtual_dispatch,
             } => Instruction::CallMethod {
                 dest: *dest,
                 object: replace(object),
                 method: method.clone(),
                 args: args.iter().map(replace).collect(),
                 ret_ty: ret_ty.clone(),
+                virtual_dispatch: *virtual_dispatch,
             },
 
             Instruction::CallVirtual {
@@ -360,6 +362,11 @@ impl CommonSubexprElim {
                 dest: *dest,
                 src: replace(src),
                 ty: ty.clone(),
+            },
+
+            Instruction::BoolToInt { dest, src } => Instruction::BoolToInt {
+                dest: *dest,
+                src: replace(src),
             },
 
             _ => inst.clone(),

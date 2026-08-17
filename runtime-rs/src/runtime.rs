@@ -118,6 +118,45 @@ pub extern "C" fn trq_abort(msg: *const TrqString) {
     trq_panic(msg);
 }
 
+/// Suspend the calling thread for `milliseconds`.
+///
+/// Backs the core builtin `نم`, which codegen has always emitted a call to
+/// while nothing defined the symbol, so any program using it failed to link.
+#[no_mangle]
+pub extern "C" fn trq_sleep(milliseconds: i64) {
+    if milliseconds > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(milliseconds as u64));
+    }
+}
+
+/// Milliseconds since the UNIX epoch, or 0 if the clock predates it.
+///
+/// The single source of truth for both time builtins, so the value native code
+/// sees cannot drift from `src/interpreter/executor/builtins.rs`.
+fn epoch_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Backs the stdlib builtin `وقت_الآن` (`استورد { وقت_الآن } من "وقت"`).
+///
+/// Declared by codegen since before any definition existed, so every program
+/// importing it failed to link (#241).
+#[no_mangle]
+pub extern "C" fn trq_time_now() -> i64 {
+    epoch_millis()
+}
+
+/// Backs the stdlib builtin `وقت_أداء`. Returns the same epoch-millisecond
+/// clock as `trq_time_now`, matching the interpreter, which treats the two
+/// names identically.
+#[no_mangle]
+pub extern "C" fn trq_performance_now() -> i64 {
+    epoch_millis()
+}
+
 // ============================================================================
 // Debug Utilities
 // ============================================================================

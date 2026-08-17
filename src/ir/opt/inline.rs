@@ -480,12 +480,14 @@ impl FunctionInliner {
                 method,
                 args,
                 ret_ty,
+                virtual_dispatch,
             } => Instruction::CallMethod {
                 dest: dest.map(|d| map_var(&d)),
                 object: map_var(object),
                 method: method.clone(),
                 args: args.iter().map(map_var).collect(),
                 ret_ty: ret_ty.clone(),
+                virtual_dispatch: *virtual_dispatch,
             },
 
             Instruction::CallVirtual {
@@ -555,6 +557,10 @@ impl FunctionInliner {
                 right: map_var(right),
             },
 
+            Instruction::BoolToInt { dest, src } => Instruction::BoolToInt {
+                dest: map_var(dest),
+                src: map_var(src),
+            },
             Instruction::IntToFloat { dest, src } => Instruction::IntToFloat {
                 dest: map_var(dest),
                 src: map_var(src),
@@ -657,6 +663,7 @@ impl FunctionInliner {
             | Instruction::ArrayLen { dest, .. }
             | Instruction::ArrayGet { dest, .. }
             | Instruction::StringConcat { dest, .. }
+            | Instruction::BoolToInt { dest, .. }
             | Instruction::IntToFloat { dest, .. }
             | Instruction::FloatToInt { dest, .. }
             | Instruction::ToString { dest, .. }
@@ -715,7 +722,8 @@ impl FunctionInliner {
             } => vec![*array, *index, *value],
             Instruction::ArrayPush { array, value, .. } => vec![*array, *value],
             Instruction::StringConcat { left, right, .. } => vec![*left, *right],
-            Instruction::IntToFloat { src, .. }
+            Instruction::BoolToInt { src, .. }
+            | Instruction::IntToFloat { src, .. }
             | Instruction::FloatToInt { src, .. }
             | Instruction::ToString { src, .. }
             | Instruction::Bitcast { src, .. }

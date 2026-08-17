@@ -34,7 +34,7 @@ fn interpret_source(source: &str) -> Result<String, String> {
     let ast = parser.parse().map_err(|e| e.message)?;
 
     let mut analyzer = Analyzer::new();
-    let stdlib_path = project_root().join("stdlib_trq");
+    let stdlib_path = project_root().join("stdlib");
     if stdlib_path.exists() {
         analyzer.add_search_path(stdlib_path);
     }
@@ -77,7 +77,7 @@ fn analyzes_ok(source: &str) -> bool {
     };
 
     let mut analyzer = Analyzer::new();
-    let stdlib_path = project_root().join("stdlib_trq");
+    let stdlib_path = project_root().join("stdlib");
     if stdlib_path.exists() {
         analyzer.add_search_path(stdlib_path);
     }

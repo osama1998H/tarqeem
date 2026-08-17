@@ -27,6 +27,55 @@ pub struct Parser {
     panic_mode: bool,
     /// Line comments pending to be attached to the next statement
     pub(crate) pending_comments: Vec<String>,
+    /// How many `(`/`[` are open around the expression being parsed. Inside one,
+    /// a newline is trivia rather than a statement terminator (issue #255).
+    pub(crate) bracket_depth: usize,
+}
+
+/// Runs `body` with the bracket-nesting depth raised, so newlines inside the
+/// brackets are trivia. Restores the depth even when `body` returns an error, or
+/// a malformed argument list would leave every following statement joined to the
+/// next line.
+pub(crate) fn within_brackets<T>(parser: &mut Parser, body: impl FnOnce(&mut Parser) -> T) -> T {
+    parser.bracket_depth += 1;
+    let result = body(parser);
+    parser.bracket_depth -= 1;
+    result
+}
+
+/// One run of comments and blank lines in front of a declaration.
+#[derive(Default)]
+pub(crate) struct LeadingTrivia {
+    /// Every comment in the run except `doc`, in source order. A doc block that
+    /// is not the last in the run lands here and is rendered `//`.
+    pub(crate) comments: Vec<String>,
+    /// The doc block written closest to the declaration — the one documenting it.
+    pub(crate) doc: Option<String>,
+    /// Index in `comments` where `doc` was written. A demoted doc is re-inserted
+    /// there rather than appended, so `fmt` cannot reorder a run it did not
+    /// write: appending would move a demoted `/// وثيقة` below a `//` that came
+    /// after it in the source.
+    doc_position: usize,
+}
+
+impl LeadingTrivia {
+    /// A later doc block is nearer the declaration, so it takes over as its
+    /// documentation and the previous one is demoted back into its own slot.
+    fn push_doc(&mut self, doc: String) {
+        if let Some(previous) = self.doc.replace(doc) {
+            self.comments.insert(self.doc_position, previous);
+        }
+        self.doc_position = self.comments.len();
+    }
+
+    /// Gives up on attaching `doc` and puts it back where it was written. Used
+    /// when what follows the run owns no `doc_comment` field, so the text would
+    /// otherwise be dropped — and erased from the user's file by `fmt -w`.
+    pub(crate) fn demote_doc(&mut self) {
+        if let Some(doc) = self.doc.take() {
+            self.comments.insert(self.doc_position, doc);
+        }
+    }
 }
 
 /// Contextual keywords: احصل/عيّن/حالة are reserved only inside خاصية accessor
@@ -44,6 +93,46 @@ pub(crate) fn identifier_like_name(token: &Token) -> Option<&str> {
     }
 }
 
+/// A name the user chose, in a position where the grammar can hold nothing else:
+/// after `دالة`, before a `:` in a member or parameter list, after `.`. Type
+/// names are keywords here (`عدد` is `TokenKind::TypeInt`), so a method or
+/// parameter named after a type was rejected outright — issue #202, which the
+/// shipped stdlib hits with `دالة عدد()` and `دالة اطبع(نص: نص)`.
+///
+/// Deliberately *not* folded into `identifier_like_name`, even though that is
+/// where the احصل/عيّن/حالة precedent lives: that helper also backs
+/// `check_identifier`, which is the name-or-type disambiguator for enum-variant
+/// payloads and `looks_like_type`. Widening it there would make `مصفوفة<عدد>`
+/// parse as a field named `مصفوفة` and strand the `<عدد>`.
+///
+/// Returns the lexeme rather than a canonical spelling, so `اي` stays `اي` — the
+/// #183 rule that `tarqeem fmt` must never rename a user's identifier. The lexer
+/// NFC-normalizes the whole source, so the lexeme is already normalized.
+pub(crate) fn declaration_name(token: &Token) -> Option<&str> {
+    identifier_like_name(token).or_else(|| {
+        token
+            .kind
+            .is_type_keyword()
+            .then_some(token.lexeme.as_str())
+    })
+}
+
+/// A name in enum-variant position, which additionally allows the boolean
+/// literals: `خطأ` is `TokenKind::False`, and `stdlib/اختبار/نتائج.ترقيم`
+/// declares a variant with exactly that name (issue #196).
+///
+/// Unambiguous because a variant is only ever *referenced* through `::`. A bare
+/// `خطأ` in an expression or a match pattern still resolves to the literal, so
+/// nothing outside variant position changes. Class names are pointedly excluded:
+/// `جديد خطأ()` parses its callee as a primary expression, which would yield
+/// `false` rather than a type name — which is why the stdlib's `صنف خطأ` has to
+/// be renamed (#243) instead.
+pub(crate) fn variant_name(token: &Token) -> Option<&str> {
+    declaration_name(token).or_else(|| {
+        matches!(token.kind, TokenKind::True | TokenKind::False).then_some(token.lexeme.as_str())
+    })
+}
+
 impl Parser {
     /// Create a new parser from source code.
     pub fn new(source: &str) -> Self {
@@ -56,6 +145,7 @@ impl Parser {
             errors: Vec::new(),
             panic_mode: false,
             pending_comments: Vec::new(),
+            bracket_depth: 0,
         }
     }
 
@@ -67,6 +157,7 @@ impl Parser {
             errors: Vec::new(),
             panic_mode: false,
             pending_comments: Vec::new(),
+            bracket_depth: 0,
         }
     }
 
@@ -189,8 +280,10 @@ impl Parser {
         self.panic_mode = false;
 
         while !self.is_at_end() {
-            // Field/method names, including the contextual keywords احصل/عيّن/حالة
-            if self.check_identifier() {
+            // Field/method names: the contextual keywords احصل/عيّن/حالة and, since
+            // a member may be named after a type (#202), the type keywords too —
+            // recovery has to resume at `عدد: نص` or it skips the whole member.
+            if self.check_declaration_name() {
                 return;
             }
 
@@ -254,16 +347,187 @@ impl Parser {
     }
 
     /// Consume a doc comment if present.
+    ///
+    /// Accepts both `///` and `/** */`. Before this accepted `BlockDocComment`,
+    /// a `/** */` preceding a declaration was left unconsumed and fell through
+    /// to the expression parser as a hard error (`رمز غير متوقع:
+    /// BlockDocComment(..)`) — see issue #201. It is only safe to attach now
+    /// that the formatter re-prefixes `///` on every doc line; attaching it
+    /// while the formatter still stripped markers would have turned that loud
+    /// error into silent corruption.
+    ///
+    /// A `/** */` is only taken when it *starts its own line*. Documentation
+    /// describes what follows it, so a block comment trailing code on the same
+    /// line (`خاص اسم: نص /** ملاحظة */`) annotates that line, and taking it
+    /// here would silently re-attach it to the *next* member — `tarqeem doc`
+    /// would then publish the note under the wrong name, and `fmt -w` would
+    /// rewrite the file that way. Leaving it unconsumed preserves the loud
+    /// error it produced before #201. `///` deliberately keeps its old
+    /// behaviour: the lexer already refuses to merge a trailing `///` forward
+    /// (`is_line_start`, lexer.rs), and the parser's acceptance of it here
+    /// predates this change.
     pub(crate) fn consume_doc_comment(&mut self) -> Option<String> {
-        if let TokenKind::DocComment(comment) = &self.peek().kind {
-            let comment = comment.clone();
-            self.advance();
-            // Skip any newlines after doc comment
-            self.skip_newlines();
-            Some(comment)
-        } else {
-            None
+        let comment = match &self.peek().kind {
+            TokenKind::DocComment(comment) => comment.clone(),
+            TokenKind::BlockDocComment(comment) if self.at_line_start() => comment.clone(),
+            _ => return None,
+        };
+        self.advance();
+        // Skip any newlines after doc comment
+        self.skip_newlines();
+        Some(comment)
+    }
+
+    /// True when nothing but a line break or an opening brace precedes the
+    /// current token, i.e. it is the first thing on its line.
+    fn at_line_start(&self) -> bool {
+        self.current == 0
+            || matches!(
+                self.previous().kind,
+                TokenKind::Newline | TokenKind::LeftBrace
+            )
+    }
+
+    /// True when the doc comment at the current position documents the *file*
+    /// rather than whatever follows it — the only place a `///` can be kept with
+    /// its marker when nothing below it can hold a doc comment.
+    ///
+    /// It is the file's doc when any of these holds:
+    ///
+    /// 1. **A nearer doc block follows.** That one documents the declaration, so
+    ///    this one cannot. Covers the 22 stdlib files whose header is followed by
+    ///    a `//` banner and then the real doc.
+    /// 2. **Nothing follows** (`الحمد_لله`/`Eof`). Required, not theoretical:
+    ///    without it a header with no declaration after it survives one `fmt`
+    ///    pass and is discarded by the *second*, because
+    ///    `match_terminator_after_trivia` drops trailing trivia — silent loss
+    ///    that only appears on a second run.
+    /// 3. **What follows owns no `doc_comment` field** — `استورد`, a bare
+    ///    `صدّر *`/`صدّر { … }`, or anything routed through `parse_statement`.
+    ///    There the doc would be demoted into `leading_comments` and re-emitted
+    ///    as `//`. `stdlib/اختبار/توكيدات.ترقيم` is exactly this: header,
+    ///    `//` note, `استورد` — its seven `///` lines depend on this clause.
+    ///
+    /// Otherwise the declaration below owns the doc and keeps it, which is what
+    /// the 20 corpus files whose header sits directly above a declaration have
+    /// always done.
+    fn doc_comment_is_module_header(&self) -> bool {
+        match &self.peek().kind {
+            TokenKind::DocComment(_) => {}
+            TokenKind::BlockDocComment(_) if self.at_line_start() => {}
+            _ => return false,
         }
+
+        let mut idx = self.current + 1;
+        let mut nearer_doc = false;
+        while idx < self.tokens.len() {
+            match &self.tokens[idx].kind {
+                TokenKind::Newline | TokenKind::LineComment(_) => idx += 1,
+                TokenKind::DocComment(_) | TokenKind::BlockDocComment(_) => {
+                    nearer_doc = true;
+                    idx += 1;
+                }
+                _ => break,
+            }
+        }
+
+        if idx >= self.tokens.len() || nearer_doc {
+            return true;
+        }
+
+        match self.tokens[idx].kind {
+            TokenKind::Alhamdulillah | TokenKind::Eof => true,
+            // Every declaration that carries a `doc_comment` field.
+            TokenKind::Let
+            | TokenKind::Const
+            | TokenKind::Function
+            | TokenKind::Async
+            | TokenKind::Class
+            | TokenKind::Interface
+            | TokenKind::Enum => false,
+            // `صدّر <decl>` threads the doc into the inner declaration; a
+            // wildcard or named export list has nowhere to put it.
+            // A declaration that carries no documentation of its own: a doc
+            // above it can only be describing the file. Hoisting is what keeps
+            // the text at all — `استورد` demotes it to `//`, and a re-export
+            // drops it outright (both were silent losses before this).
+            TokenKind::Import => true,
+            TokenKind::Export => self.export_has_no_doc_field(idx),
+            // Executable code in script mode. A doc directly above it reads as
+            // documenting that statement, so it keeps demoting into a leading
+            // comment as before; once a comment run separates the two there is
+            // nothing left for it to be adjacent to.
+            _ => self.tokens[self.current + 1..idx]
+                .iter()
+                .any(|token| token.kind.is_comment()),
+        }
+    }
+
+    /// True when the `صدّر` at the current position is a re-export rather than
+    /// an exported declaration, so it can carry no documentation.
+    pub(crate) fn export_is_reexport(&self) -> bool {
+        self.export_has_no_doc_field(self.current)
+    }
+
+    /// True when the `صدّر` at `idx` is a re-export rather than an exported
+    /// declaration, i.e. `صدّر *` or `صدّر { … }`.
+    fn export_has_no_doc_field(&self, idx: usize) -> bool {
+        let mut next = idx + 1;
+        while next < self.tokens.len() {
+            match &self.tokens[next].kind {
+                TokenKind::Newline => next += 1,
+                kind if kind.is_comment() => next += 1,
+                _ => break,
+            }
+        }
+
+        next < self.tokens.len()
+            && matches!(
+                self.tokens[next].kind,
+                TokenKind::Star | TokenKind::LeftBrace
+            )
+    }
+
+    /// Consumes the *whole* run of blank lines and comments in front of a
+    /// declaration.
+    ///
+    /// Replaces a `collect_line_comments()` + `consume_doc_comment()` pair, each
+    /// of which ran exactly once: a `///` block stopped the line-comment loop
+    /// before it began, so any comment written *after* that block was left in
+    /// the stream and fell through the declaration dispatch into
+    /// `parse_statement`, where it became `ب٠٠٠١ رمز غير متوقع` (issue #203).
+    pub(crate) fn collect_leading_trivia(&mut self) -> LeadingTrivia {
+        let mut trivia = LeadingTrivia::default();
+
+        loop {
+            self.skip_newlines();
+
+            // Every arm but the last consumes exactly one token, so `current`
+            // strictly increases until the loop exits.
+            match &self.peek().kind {
+                TokenKind::LineComment(comment) => {
+                    let comment = comment.clone();
+                    self.advance();
+                    trivia.comments.push(comment);
+                }
+                TokenKind::DocComment(comment) => {
+                    let comment = comment.clone();
+                    self.advance();
+                    trivia.push_doc(comment);
+                }
+                // A `/** */` trailing code on the same line annotates that line,
+                // so it is left for capture_trailing_comment — the #201 rule
+                // that consume_doc_comment encodes with the same guard.
+                TokenKind::BlockDocComment(comment) if self.at_line_start() => {
+                    let comment = comment.clone();
+                    self.advance();
+                    trivia.push_doc(comment);
+                }
+                _ => break,
+            }
+        }
+
+        trivia
     }
 
     /// Collect any line comments before a statement.
@@ -313,6 +577,15 @@ impl Parser {
 
         // Skip newlines after بسم_الله
         self.skip_newlines();
+
+        // Peel a file-level doc comment before the declaration loop can claim
+        // it: 42 of the 43 stdlib files open with one, and it documents the
+        // module, not whatever declaration happens to follow.
+        let module_doc = if self.doc_comment_is_module_header() {
+            self.consume_doc_comment()
+        } else {
+            None
+        };
 
         let mut statements = Vec::new();
 
@@ -375,11 +648,9 @@ impl Parser {
             ));
         }
 
-        Ok(Ast::with_markers(
-            statements,
-            bismillah_span,
-            alhamdulillah_span,
-        ))
+        let mut ast = Ast::with_markers(statements, bismillah_span, alhamdulillah_span);
+        ast.module_doc = module_doc;
+        Ok(ast)
     }
 
     // Token helper methods
@@ -449,6 +720,31 @@ impl Parser {
     /// Expect an identifier (including contextual keywords) or error.
     pub(crate) fn expect_identifier(&mut self, message: &str) -> Result<String, Diagnostic> {
         if let Some(name) = identifier_like_name(self.peek()).map(str::to_string) {
+            self.advance();
+            Ok(name)
+        } else {
+            Err(Diagnostic::error(message, self.current_span()))
+        }
+    }
+
+    /// True if the current token can name a declaration, member or parameter.
+    pub(crate) fn check_declaration_name(&self) -> bool {
+        declaration_name(self.peek()).is_some()
+    }
+
+    /// Expect a declaration/member/parameter name, which may be a type keyword.
+    pub(crate) fn expect_declaration_name(&mut self, message: &str) -> Result<String, Diagnostic> {
+        if let Some(name) = declaration_name(self.peek()).map(str::to_string) {
+            self.advance();
+            Ok(name)
+        } else {
+            Err(Diagnostic::error(message, self.current_span()))
+        }
+    }
+
+    /// Expect an enum-variant name, which may also be a boolean literal keyword.
+    pub(crate) fn expect_variant_name(&mut self, message: &str) -> Result<String, Diagnostic> {
+        if let Some(name) = variant_name(self.peek()).map(str::to_string) {
             self.advance();
             Ok(name)
         } else {

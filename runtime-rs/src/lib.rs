@@ -55,6 +55,7 @@
 pub mod array;
 pub mod compress;
 pub mod crypto;
+pub mod date;
 mod helpers; // Internal helpers (not re-exported)
 pub mod io;
 pub mod math;
@@ -73,15 +74,16 @@ pub use memory::{trq_alloc, trq_free, trq_realloc, trq_refcount, trq_release, tr
 // Re-export all string functions
 pub use string::{
     trq_bool_to_string, trq_float_to_string, trq_int_to_string, trq_string_char_at,
-    trq_string_clone, trq_string_compare, trq_string_concat, trq_string_contains, trq_string_count,
-    trq_string_ends_with, trq_string_equals, trq_string_free_data, trq_string_from_cstr,
-    trq_string_index_of, trq_string_is_alpha, trq_string_is_arabic, trq_string_is_numeric,
-    trq_string_join, trq_string_last_index_of, trq_string_len, trq_string_len_chars,
-    trq_string_new, trq_string_pad_left, trq_string_pad_right, trq_string_repeat,
-    trq_string_replace, trq_string_replace_all, trq_string_reverse, trq_string_split,
-    trq_string_starts_with, trq_string_substr, trq_string_substr_chars, trq_string_to_float,
-    trq_string_to_int, trq_string_to_lower, trq_string_to_title, trq_string_to_upper,
-    trq_string_trim, trq_string_trim_left, trq_string_trim_right,
+    trq_string_char_code, trq_string_clone, trq_string_compare, trq_string_concat,
+    trq_string_contains, trq_string_count, trq_string_ends_with, trq_string_equals,
+    trq_string_free_data, trq_string_from_char_code, trq_string_from_cstr, trq_string_index_of,
+    trq_string_is_alpha, trq_string_is_arabic, trq_string_is_numeric, trq_string_join,
+    trq_string_last_index_of, trq_string_len, trq_string_len_chars, trq_string_new,
+    trq_string_pad_left, trq_string_pad_right, trq_string_repeat, trq_string_replace,
+    trq_string_replace_all, trq_string_reverse, trq_string_split, trq_string_starts_with,
+    trq_string_substr, trq_string_substr_chars, trq_string_to_float, trq_string_to_int,
+    trq_string_to_lower, trq_string_to_title, trq_string_to_upper, trq_string_trim,
+    trq_string_trim_left, trq_string_trim_right,
 };
 
 // Re-export all array functions
@@ -140,6 +142,7 @@ pub use io::{
     trq_print_float,
     trq_print_int,
     trq_print_newline,
+    trq_print_optional_scalar,
 };
 
 // Re-export all math functions
@@ -209,7 +212,7 @@ pub use math::{
 // Re-export all runtime functions
 pub use runtime::{
     trq_abort, trq_assert, trq_debug, trq_env_get, trq_env_remove, trq_env_set, trq_panic,
-    trq_runtime_cleanup, trq_runtime_init, trq_version,
+    trq_performance_now, trq_runtime_cleanup, trq_runtime_init, trq_time_now, trq_version,
 };
 
 // Re-export all network functions
@@ -250,6 +253,9 @@ pub use network::{
 
 // Re-export all crypto functions
 pub use crypto::{
+    // Base64 encoding functions (2)
+    trq_base64_decode,
+    trq_base64_encode,
     // Hex encoding functions (4)
     trq_hex_decode,
     trq_hex_decode_to_bytes,
@@ -260,6 +266,12 @@ pub use crypto::{
     trq_sha256_compare,
     trq_sha256_file,
     trq_sha256_string,
+};
+
+// Re-export all date/time functions (8)
+pub use date::{
+    trq_date_diff_days, trq_date_format, trq_datetime_format, trq_day_of_week, trq_day_of_year,
+    trq_days_in_month, trq_time_format, trq_week_number, INVALID,
 };
 
 // Re-export all compression functions

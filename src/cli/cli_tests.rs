@@ -1058,7 +1058,11 @@ fn compile_to_ir(source: &str) -> Result<crate::ir::Module, String> {
     })?;
 
     let ir_builder = IrBuilder::new("test_module".to_string());
-    let module = ir_builder.build(&ast).map_err(|e| e.to_string())?;
+    // `build_library`, not `build`: these fixtures assert on the IR of a
+    // declaration, and a declarations-only source has no entry point for
+    // `build` to find (ت٠٢٠٢). A fixture that does declare one still lowers it
+    // — `build_library` only drops the requirement, not the handling.
+    let module = ir_builder.build_library(&ast).map_err(|e| e.to_string())?;
     Ok(module)
 }
 

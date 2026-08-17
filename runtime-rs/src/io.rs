@@ -39,13 +39,49 @@ pub extern "C" fn trq_print_int(value: i64) {
 }
 
 /// Print a float to stdout.
+///
+/// Mirrors the interpreter's `Value::to_display_string` exactly (#185): a whole
+/// float keeps one decimal place, so `اطبع(5.0)` reads `5.0` in every backend.
+/// The previous `%g` convention printed `value as i64`, which agreed with no
+/// other backend and made native output silently disagree with `tarqeem run`.
 #[no_mangle]
 pub extern "C" fn trq_print_float(value: f64) {
-    // Use %g style formatting (remove trailing zeros)
-    if value.fract() == 0.0 && value.abs() < 1e15 {
-        print!("{}", value as i64);
+    if value.fract() == 0.0 {
+        print!("{:.1}", value);
     } else {
         print!("{}", value);
+    }
+    io::stdout().flush().ok();
+}
+
+/// Print an optional scalar — a `عدد?`, `عدد_عشري?` or `منطقي?` — to stdout.
+///
+/// Optionals lower to a pointer, and a scalar one is a pointer to its boxed
+/// value, so printing it means a null test and a load. Codegen used to hand the
+/// pointer to `trq_print`, which reads it as a `TrqString*` and segfaults
+/// (#185). `kind` selects the pointee: 0 = عدد, 1 = عدد_عشري, 2 = منطقي.
+///
+/// Rendering matches `Value::to_display_string`, including the whole-float
+/// `.0` — a null prints `لا_شيء`, as the interpreter does.
+#[no_mangle]
+pub extern "C" fn trq_print_optional_scalar(value: *const u8, kind: i64) {
+    if value.is_null() {
+        print!("لا_شيء");
+    } else {
+        unsafe {
+            match kind {
+                1 => {
+                    let f = *(value as *const f64);
+                    if f.fract() == 0.0 {
+                        print!("{:.1}", f);
+                    } else {
+                        print!("{}", f);
+                    }
+                }
+                2 => print!("{}", if *value != 0 { "صحيح" } else { "خطأ" }),
+                _ => print!("{}", *(value as *const i64)),
+            }
+        }
     }
     io::stdout().flush().ok();
 }

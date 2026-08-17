@@ -10,8 +10,11 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use crate::interpreter::{RuntimeError, RuntimeResult, Value};
-use crate::ir::{BasicBlock, BlockId, Constant, FuncId, Function, Instruction, Module, VarId};
+use crate::interpreter::{ErrorKind, RuntimeError, RuntimeResult, Value};
+use crate::ir::{
+    BasicBlock, BlockId, Constant, FuncId, Function, Instruction, MethodId, Module, VarId,
+};
+use crate::semantic::EXCEPTION_MESSAGE_FIELD;
 
 use super::context::{BreakpointId, DebugContext};
 use super::source_map::SourceLocation;
@@ -65,6 +68,9 @@ pub struct DebugInterpreter {
     event_callback: Option<Box<dyn FnMut(DebugEvent)>>,
     current_file: PathBuf,
     frame_id_counter: u32,
+    /// Mirrors `Interpreter::virtual_method_cache` — memoizes
+    /// `resolve_virtual_method`'s runtime-class walk.
+    virtual_method_cache: HashMap<(String, String), FuncId>,
 }
 
 impl DebugInterpreter {
@@ -78,6 +84,7 @@ impl DebugInterpreter {
             event_callback: None,
             current_file: PathBuf::from("unknown"),
             frame_id_counter: 0,
+            virtual_method_cache: HashMap::new(),
         }
     }
 
@@ -779,6 +786,38 @@ impl DebugInterpreter {
         Err(DebugError::new("الدالة الرئيسية غير موجودة"))
     }
 
+    /// Mirrors `Interpreter::resolve_virtual_method` so stepping through an
+    /// inherited or overridden method call in the debugger matches normal
+    /// execution instead of diverging from it.
+    fn resolve_virtual_method(&mut self, obj_val: &Value, method: &MethodId) -> FuncId {
+        if let Value::Object(obj) = obj_val {
+            let runtime_class = obj.borrow().class_id.clone();
+            let cache_key = (runtime_class.0.clone(), method.name.clone());
+            if let Some(cached) = self.virtual_method_cache.get(&cache_key) {
+                return cached.clone();
+            }
+
+            let mut current = Some(runtime_class);
+            let mut visited = std::collections::HashSet::new();
+            while let Some(class_id) = current {
+                if !visited.insert(class_id.0.clone()) {
+                    break; // cyclic inheritance is rejected by semantic analysis; don't hang here
+                }
+                let candidate = FuncId(format!("{}::{}", class_id.0, method.name));
+                if self.module.get_function(&candidate).is_some() {
+                    self.virtual_method_cache
+                        .insert(cache_key, candidate.clone());
+                    return candidate;
+                }
+                current = self
+                    .module
+                    .get_class(&class_id)
+                    .and_then(|c| c.parent.clone());
+            }
+        }
+        FuncId(format!("{}::{}", method.class.0, method.name))
+    }
+
     fn call_function(&mut self, func_id: &FuncId, args: Vec<Value>) -> RuntimeResult<Value> {
         if self.call_stack.len() >= MAX_STACK_DEPTH {
             return Err(RuntimeError::stack_overflow());
@@ -856,7 +895,11 @@ impl DebugInterpreter {
                             frame.inst_idx = 0;
                         }
                     } else {
-                        let msg = exception.to_display_string();
+                        // Parked so the caller's `Call` site can convert this
+                        // `Err` back into a throw against its own handler stack —
+                        // the same fix as `interpreter::executor` (issue #181).
+                        let msg = Self::exception_message(&exception);
+                        self.current_exception = Some(exception);
                         return Err(RuntimeError::unhandled_exception(&msg));
                     }
                 }
@@ -938,6 +981,13 @@ impl DebugInterpreter {
             } => {
                 let operand_val = self.get_local(*operand)?;
                 let result = self.execute_unary_op(*op, operand_val, ty)?;
+                self.set_local(*dest, result);
+                Ok(InstructionResult::Continue)
+            }
+
+            Instruction::BoolToInt { dest, src } => {
+                let val = self.get_local(*src)?;
+                let result = Value::Int(if val.is_truthy() { 1 } else { 0 });
                 self.set_local(*dest, result);
                 Ok(InstructionResult::Continue)
             }
@@ -1073,16 +1123,17 @@ impl DebugInterpreter {
                     .map(|v| self.get_local(*v))
                     .collect::<RuntimeResult<Vec<_>>>()?;
 
-                let result = if self.is_builtin(&func.0) {
-                    self.call_builtin(&func.0, arg_values)?
+                // A declared function of the same name wins: built-ins are the
+                // last tier of the lookup order (#262). Decided by the IR builder so all
+                // backends answer identically.
+                let outcome = if Self::is_builtin(&func.0) && !self.module.shadows_builtin(&func.0)
+                {
+                    self.call_builtin(&func.0, arg_values)
                 } else {
-                    self.call_function(func, arg_values)?
+                    self.call_function(func, arg_values)
                 };
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::CallIndirect {
@@ -1102,12 +1153,9 @@ impl DebugInterpreter {
                     .map(|v| self.get_local(*v))
                     .collect::<RuntimeResult<Vec<_>>>()?;
 
-                let result = self.call_function(&FuncId(func_name), arg_values)?;
+                let outcome = self.call_function(&FuncId(func_name), arg_values);
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::NewObject { dest, class } => {
@@ -1167,6 +1215,7 @@ impl DebugInterpreter {
                 object,
                 method,
                 args,
+                virtual_dispatch,
                 ..
             } => {
                 let obj_val = self.get_local(*object)?;
@@ -1175,13 +1224,14 @@ impl DebugInterpreter {
                     arg_values.push(self.get_local(*arg)?);
                 }
 
-                let method_func_id = FuncId(format!("{}::{}", method.class.0, method.name));
-                let result = self.call_function(&method_func_id, arg_values)?;
+                let method_func_id = if *virtual_dispatch {
+                    self.resolve_virtual_method(&obj_val, method)
+                } else {
+                    FuncId(format!("{}::{}", method.class.0, method.name))
+                };
+                let outcome = self.call_function(&method_func_id, arg_values);
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::CallVirtual {
@@ -1222,12 +1272,9 @@ impl DebugInterpreter {
                 }
 
                 let method_func_id = FuncId(format!("{}::{}", method_id.class.0, method_id.name));
-                let result = self.call_function(&method_func_id, arg_values)?;
+                let outcome = self.call_function(&method_func_id, arg_values);
 
-                if let Some(d) = dest {
-                    self.set_local(*d, result);
-                }
-                Ok(InstructionResult::Continue)
+                self.finish_call(outcome, dest.as_ref())
             }
 
             Instruction::NewArray { dest, elements, .. } => {
@@ -1455,6 +1502,7 @@ impl DebugInterpreter {
                 let s = self.module.strings.get(*idx).unwrap_or("").to_string();
                 Value::string(s)
             }
+            Constant::Function(name) => Value::Function(name.clone()),
         }
     }
 
@@ -1476,6 +1524,56 @@ impl DebugInterpreter {
         self.call_stack
             .last_mut()
             .and_then(|frame| frame.try_stack.pop())
+    }
+
+    /// Bind a callee's result, or turn a throw the callee did not handle into one
+    /// this frame's `try_stack` can catch.
+    ///
+    /// Kept identical to `interpreter::executor::Interpreter::finish_call`. This
+    /// file duplicates the main interpreter's instruction handling (issue #223),
+    /// so `tarqeem debug` would otherwise abort on an exception that
+    /// `tarqeem run` catches — a debug-vs-run divergence (issue #181).
+    fn finish_call(
+        &mut self,
+        outcome: RuntimeResult<Value>,
+        dest: Option<&VarId>,
+    ) -> RuntimeResult<InstructionResult> {
+        match outcome {
+            Ok(result) => {
+                if let Some(d) = dest {
+                    self.set_local(*d, result);
+                }
+                Ok(InstructionResult::Continue)
+            }
+            Err(err) => match self.take_propagating_exception(&err) {
+                Some(exception) => Ok(InstructionResult::Throw(exception)),
+                None => Err(err),
+            },
+        }
+    }
+
+    fn take_propagating_exception(&mut self, err: &RuntimeError) -> Option<Value> {
+        if err.kind == ErrorKind::UnhandledException {
+            self.current_exception.take()
+        } else {
+            None
+        }
+    }
+
+    /// An uncaught exception's `رسالة`, rather than `<استثناء>`. Mirrors
+    /// `interpreter::executor::Interpreter::exception_message`.
+    ///
+    /// `pub(crate)` because the DAP adapter renders `StepResult::Exception`
+    /// itself on the step-driven path, which never passes through the recursive
+    /// `execute` loop below (issue #181).
+    pub(crate) fn exception_message(exception: &Value) -> String {
+        if let Value::Object(obj) = exception {
+            if let Some(message) = obj.borrow().fields.get(EXCEPTION_MESSAGE_FIELD) {
+                return message.to_display_string();
+            }
+        }
+
+        exception.to_display_string()
     }
 }
 

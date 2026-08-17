@@ -55,6 +55,35 @@ tarqeem doc ./src -o ./docs -f html
 
 ## Doc Comment Syntax
 
+### Module Doc Comments
+
+A `///` block placed directly after `بسم_الله` documents the **file**, and becomes
+`Documentation.description` — the module summary the HTML and Markdown generators
+render at the top of the page.
+
+```tarqeem
+بسم_الله
+
+/// وحدة الرياضيات
+///
+/// @منذ ١.٠.٠
+
+/// القيمة المطلقة
+صدّر دالة مطلق(س: عدد) -> عدد {
+}
+
+الحمد_لله
+```
+
+It is read as the file's documentation when a nearer comment follows it, when
+nothing follows it, or when what follows is an `استورد` / `صدّر * من` /
+`صدّر { … }` that carries no documentation of its own. A `///` block sitting
+directly above a declaration documents *that declaration*, as it always has —
+which is why the blank line and the `//` banner in the example above matter.
+
+Tags in a module doc are parsed like any other (`@منذ`, `@ملاحظة`, …), but only
+the description text is rendered; the tags are not.
+
 ### Single-line Doc Comments
 
 ```tarqeem
@@ -237,7 +266,8 @@ Doc comments are automatically extracted and displayed in IDE hover information 
 
 ### Documentation
 - `name`: Module/file name
-- `description`: Module-level description
+- `description`: Module-level description, from the file's own `///` block
+  (`Ast::module_doc`)
 - `source_path`: Source file path
 - `items`: List of documented items
 

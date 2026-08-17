@@ -290,12 +290,12 @@ cargo build --release
 $InstallDir = "$env:LOCALAPPDATA\Tarqeem"
 New-Item -ItemType Directory -Force -Path "$InstallDir\bin"
 New-Item -ItemType Directory -Force -Path "$InstallDir\lib"
-New-Item -ItemType Directory -Force -Path "$InstallDir\stdlib_trq"
+New-Item -ItemType Directory -Force -Path "$InstallDir\stdlib"
 
 # ٣. نسخ الملفات
 Copy-Item "target\release\tarqeem.exe" "$InstallDir\bin\"
 Copy-Item "target\release\libtrq.a" "$InstallDir\lib\"
-Copy-Item -Recurse "stdlib_trq\*" "$InstallDir\stdlib_trq\"
+Copy-Item -Recurse "stdlib\*" "$InstallDir\stdlib\"
 
 # ٤. تعيين متغيرات البيئة
 [Environment]::SetEnvironmentVariable("TARQEEM_HOME", $InstallDir, "User")
@@ -510,7 +510,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 │   └── tarqeem               # الملف التنفيذي
 ├── lib/
 │   └── libtrq.a              # مكتبة وقت التشغيل
-├── stdlib_trq/               # المكتبة القياسية
+├── stdlib/               # المكتبة القياسية
 │   ├── مجموعات/
 │   ├── رياضيات/
 │   ├── نص/
