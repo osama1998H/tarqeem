@@ -163,10 +163,11 @@ fn test_global_scope_has_core_builtins() {
     assert!(scope.lookup("طول_مصفوفة").is_some());
     assert!(scope.lookup("الحق").is_some());
 
-    // Bitwise (3)
+    // Bitwise (4)
     assert!(scope.lookup("بتات_و").is_some());
     assert!(scope.lookup("بتات_أو").is_some());
     assert!(scope.lookup("بتات_أو_حصري").is_some());
+    assert!(scope.lookup("بتات_نفي").is_some());
 
     // Verify stdlib functions are NOT in global scope
     assert!(scope.lookup("مطلق").is_none());

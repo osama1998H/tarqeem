@@ -2866,3 +2866,87 @@ additive — 25 insertions, no other example's committed output moved. The DAP l
 with `printf 'r\nc\nq\n' | tarqeem debug`, stripping the `ترقيم> ` prompt and `[DEBUG]`
 lines before comparing.
 
+
+---
+
+## #312 — بتات_نفي, the fourth bitwise primitive and the first unary one
+
+Branch `feature/312-bitwise-not-builtin`. Increment A of
+[`builtins-vs-stdlib.md`](builtins-vs-stdlib.md) §6.1, four names of seven.
+
+### The estimate held a fourth time, and this time on a new shape
+
+Same two source files as #302, #306 and #309, and no third. What made this run worth doing as
+its own test of the estimate is that the three before it were all `Instruction::Binary`;
+`بتات_نفي` is the family's only `Unary` member, and the estimate had never been exercised
+there. `UnaryOp::BitNot` already had arms in the interpreter (`executor/mod.rs:1021`), the
+debug interpreter (`debug/interpreter/operations.rs:162`), both JIT tiers (`bnot`), LLVM
+(`xor i64 %x, -1`) and the constant folder; CSE keys `Unary` too. So the shape difference cost
+nothing but a second `match` arm — it could not share the binary one, which reads `args.get(1)`.
+
+The estimate held for the two files, but the *backend* claim did not: the real binary/unary
+asymmetry in codegen is not the destination type — `Instruction::Unary` and `Instruction::Binary`
+both take it from the instruction's own `ty` field (`codegen.rs:1097` and `:1083`) — it is
+**operand unboxing**. `emit_binary` loads a narrowed optional back out of its box (#185);
+`emit_unary` did not, so `بتات_نفي(س)` after `إذا (س != لا_شيء)` emitted `xor i64 %ptr, -1` and
+clang rejected the whole module, while the interpreter and JIT both answered correctly. Fixed by
+mirroring `emit_binary`'s unbox in `emit_unary`, which also repairs `-س` and `ليس س` on a
+narrowed optional; pinned by `test_bitwise_not_over_a_narrowed_optional`. Whoever lands the
+shifts should assume the *unary* path is the less-travelled one and probe a boxed operand first.
+
+Still open there: unary `Neg` over a narrowed `عدد_عشري?` emits `sub i64` because the IR builder
+types that `Unary` as `Int`, so the unbox gate (pointee must equal the instruction's `ty`) does
+not fire. Pre-existing and unrelated to the bitwise family, which is `Int` only.
+
+### It is a spelling, not a capability — and the tests say so
+
+#309 already made the complement reachable: `بتات_أو_حصري(س، -1)` flips every bit. This name
+was landed anyway, per its unchanged §1.3 verdict, for call-site readability and registry
+completeness — `بتات_نفي(٢٥٥)` states the operation, while `بتات_أو_حصري(٢٥٥، -١)` requires
+the reader to already know that `-1` is all-ones.
+
+Because it duplicates a reachable operation, the discriminating probe is **agreement**, not
+truth-table correctness: `test_bitwise_not_agrees_with_xor_against_all_ones` asserts
+`بتات_نفي(س) == بتات_أو_حصري(س، -1)` over positive, zero and negative operands. That is what
+pins the new arm to `BitNot` specifically — a wrong unary op would still return an integer and
+still print plausibly. The two's-complement identity `بتات_نفي(س) == -س - ١` is the second
+such probe, and it is also what would catch an operand narrower than i64.
+
+### The stale note in the example is now closed
+
+#306 left `examples/مدمجات.ترقيم` writing the inverse low-byte mask as the literal `-256` with
+a «إلى أن تصل بتات_نفي» comment; #309 half-answered it with a `متمم` helper. The example now
+computes the mask as `بتات_نفي(255)` and asserts all three forms agree, so the literal that
+remains in `استبدل_البايت_الأدنى` is there deliberately as the contrast rather than as a
+placeholder.
+
+### The lexer check applied here too
+
+`في` is a keyword (`TokenKind::In`, `keywords.rs:28`) and `بتات_نفي` ends in it — the same
+suffix position as `و` in `بتات_و` and `أو` in `بتات_أو`, and less dangerous than
+`بتات_أو_حصري`'s mid-name `أو`, since a split here fails loudly rather than parsing as a
+different expression. `test_identifier_containing_a_keyword_stays_one_token` now covers all
+four spellings and its comment names all three keywords.
+
+### Verification
+
+Interpreter, JIT, native and the DAP debug interpreter all produce byte-identical output for
+`examples/مدمجات.ترقيم` — the DAP leg compared after stripping its three-line banner and the
+trailing `انتهى البرنامج` line. The regenerated `examples/متوقع/مدمجات.خرج` diff is purely
+additive: 19 insertions, and no other example's committed output moved. Full suite green and
+`cargo clippy --all-targets` clean.
+
+**What that four-backend agreement did *not* cover, and the lesson.** Every operand in the
+example and in the first six probes was an unboxed `عدد` — a literal, a `ثابت`, or a typed
+parameter. So the diff was byte-identical across four backends while the native backend could
+not compile the same call over a *narrowed optional* at all. Backend-diff on an example is
+necessary and it is not sufficient: it only samples the operand shapes the example happens to
+use. `.claude/rules` §11 rule 5 already says to test composition rather than printing; the
+sharper form is to test composition **over each operand representation** the type can take.
+
+### #304 — retested during review
+
+The three prior runs each confirmed by hand that an intercepted builtin segfaults natively
+inside an array literal, and this run initially took that as established rather than re-running
+it. It was then reproduced: `ثابت م = [بتات_نفي(255)، 1]` prints `-256` interpreted and exits
+139 natively, so §6.1's "confirmed unchanged by #306, #309 and #312" is accurate.
