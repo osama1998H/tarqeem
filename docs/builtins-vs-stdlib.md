@@ -477,7 +477,8 @@ and no `register_builtin_return_types` entry (`var_types` carries `Int` directly
 verified in all four executing backends — interpreter, JIT, native, and the DAP debug
 interpreter. #312 extended the estimate to the `Unary` shape and #317 to a **multi-instruction
 chain**, which were the two untested assumptions in it; #320 added nothing new to it, which is
-itself the result — the second shift cost three instructions and no new mechanism. The remaining
+itself the result — the second shift cost no new mechanism and, after the guard was shared,
+no extra instruction either: both tails are three ops over the same six-op guard. The remaining
 one is `بتات_إزاحة_يمين_منطقية`, which composes rather than emitting one op.
 
 With XOR landed the three logic operations were complete, and with them the bitwise
@@ -546,8 +547,8 @@ boundary at 64. Under the inherited wording that identity would hold to 63 and t
 
 Implementation difference: the left shift masks the *result* to zero out of range, the right shift
 saturates the *amount* to 63. `guard.amount | (٦٣ & out_of_range)` saturates without a select,
-because the guard's masked amount already fits in those six bits. Three instructions, no new
-mechanism.
+because the guard's masked amount already fits in those six bits. Three instructions — the same
+number the left shift's tail costs, so the two lower to identical instruction counts.
 
 **Lexer check — done (#309), and it passed.** `بتات_أو_حصري` lexes as **one identifier**: the
 greedy identifier scan neither stops at the embedded `أو` nor resumes after it. The mid-name

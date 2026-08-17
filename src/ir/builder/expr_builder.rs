@@ -45,8 +45,9 @@ struct ShiftGuard {
     amount: VarId,
     /// All ones when the original amount was outside 0-63, zero otherwise.
     out_of_range: VarId,
-    /// Its complement: all ones when the original amount was in range.
-    keep: VarId,
+    /// The `٦٣` the guard masked with, so an arm needing that constant reuses
+    /// it rather than emitting a second one.
+    range_mask: VarId,
 }
 
 /// A `خاصية` that exists but does not declare the accessor this access needs:
@@ -702,8 +703,12 @@ impl IrBuilder {
                     return Ok(None);
                 };
                 let guard = self.emit_shift_range_guard(amount);
+
+                // Zeroing masks the *result*, so what this arm needs is the
+                // complement of the guard's flag.
+                let keep = self.emit_int_unary(UnaryOp::BitNot, guard.out_of_range);
                 let shifted = self.emit_int_binary(BinaryOp::Shl, first, guard.amount);
-                self.emit_int_binary(BinaryOp::BitAnd, shifted, guard.keep)
+                self.emit_int_binary(BinaryOp::BitAnd, shifted, keep)
             }
 
             // The same guard, with the opposite answer out of range: an
@@ -722,9 +727,8 @@ impl IrBuilder {
                 // 63 being the amount at which the value is already fully
                 // shifted out. `أ | ٦٣` saturates rather than needing a select
                 // because `guard.amount` is masked to those same six bits.
-                let sixty_three = self.emit_int_const(63);
                 let saturate =
-                    self.emit_int_binary(BinaryOp::BitAnd, sixty_three, guard.out_of_range);
+                    self.emit_int_binary(BinaryOp::BitAnd, guard.range_mask, guard.out_of_range);
                 let clamped = self.emit_int_binary(BinaryOp::BitOr, guard.amount, saturate);
                 self.emit_int_binary(BinaryOp::Shr, first, clamped)
             }
@@ -767,13 +771,12 @@ impl IrBuilder {
         let negated = self.emit_int_binary(BinaryOp::Sub, zero, high);
         let either_sign = self.emit_int_binary(BinaryOp::BitOr, high, negated);
         let out_of_range = self.emit_int_binary(BinaryOp::Shr, either_sign, sixty_three);
-        let keep = self.emit_int_unary(UnaryOp::BitNot, out_of_range);
         let amount = self.emit_int_binary(BinaryOp::BitAnd, raw_amount, sixty_three);
 
         ShiftGuard {
             amount,
             out_of_range,
-            keep,
+            range_mask: sixty_three,
         }
     }
 

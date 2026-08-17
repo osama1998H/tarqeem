@@ -3043,7 +3043,8 @@ Branch `feature/320-bitwise-ashr-builtin`. Increment A of
 
 ### The interesting part is not the code
 
-The lowering took three instructions beyond #317's and needed no new mechanism. What this change
+The lowering needed no new mechanism, and once the guard was shared it needed no extra
+instruction either — both tails are three ops over the same six-op guard. What this change
 is actually about is that **#317 wrote its conclusion into the plan as a family-wide rule, and the
 conclusion did not generalise while its reasoning did.**
 
@@ -3097,7 +3098,8 @@ plausible enough that no arithmetic assertion catches it, which is why
 
 ### The guard is now shared, which is the whole diff in `expr_builder.rs`
 
-Both shifts need the same six-instruction range guard and differ only in the tail:
+Both shifts need the same six-op range guard (over three constants) and differ only in the
+three-op tail:
 
 - `يسار` masks the **result** to zero out of range — `shifted & keep`.
 - `يمين` saturates the **amount** to 63 — `guard.amount | (٦٣ & out_of_range)`, which needs no
@@ -3107,8 +3109,15 @@ Both shifts need the same six-instruction range guard and differ only in the tai
 Extracting `emit_shift_range_guard` was not tidying: the guard is subtle (a `-1/0` mask built
 without `BoolToInt`, which **neither JIT tier implements**, and without subtracting the amount
 itself, which would overflow at `i64::MIN`), and two copies of it would have been two places to
-get it wrong. The left shift's emitted instruction sequence is unchanged, which its nine existing
-fixtures verify.
+get it wrong. The left shift emits the same instructions as before — only the `BitNot` moved, out
+of the shared guard and into the arm that consumes it — which its nine existing fixtures verify.
+
+**That relocation is not cosmetic, and the reason generalises to every shared lowering.** The
+first cut left `keep` in the guard, where the right shift never reads it. `Optimizer::optimize`
+runs **only** in `compile` (`cli/commands/compile.rs:167`), so `tarqeem run` and both JIT tiers
+execute unoptimized IR: the dead `BitNot` was not folded away, it ran, on every call, in the two
+backends people actually use by default. Anything a shared helper emits that only one caller
+consumes belongs in that caller.
 
 ### The estimate held a sixth time, and that is now the finding
 
