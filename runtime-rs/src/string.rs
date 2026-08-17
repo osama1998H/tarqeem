@@ -298,6 +298,34 @@ pub extern "C" fn trq_string_char_code(s: *const TrqString) -> i64 {
     }
 }
 
+/// Backs the core builtin `رمز_إلى_حرف`: the one-character string holding
+/// `code`, or `""` when `code` is not a Unicode scalar value.
+///
+/// `""` mirrors [`trq_string_char_code`]'s `-1`, so the pair is total in both
+/// directions: `-1` maps back to `""` and `""` maps forward to `-1`. It also
+/// matches the bad-input convention of every other string constructor here,
+/// which reserves a raw null for allocation failure alone.
+///
+/// The range check is on the `i64` **before** any cast. `code as u32` wraps, so
+/// `2^32 + 65` would truncate to `65` and answer `"A"`; `u32::try_from` routes
+/// that and every negative through the same rejection as a surrogate.
+///
+/// # C Equivalent
+/// ```c
+/// TrqString* trq_string_from_char_code(int64_t code);
+/// ```
+#[no_mangle]
+pub extern "C" fn trq_string_from_char_code(code: i64) -> *mut TrqString {
+    match u32::try_from(code).ok().and_then(char::from_u32) {
+        Some(c) => {
+            let mut buffer = [0u8; 4];
+            let text = c.encode_utf8(&mut buffer);
+            trq_string_new(text.as_ptr(), text.len() as i64)
+        }
+        None => trq_string_new(ptr::null(), 0),
+    }
+}
+
 /// Compare two strings
 ///
 /// # Arguments
@@ -1978,6 +2006,63 @@ mod tests {
         ] {
             let s = trq_string_new(bytes.as_ptr(), bytes.len() as i64);
             assert_eq!(trq_string_char_code(s), expected, "من {:?}", bytes);
+            crate::memory::trq_release(s as *mut u8);
+        }
+    }
+
+    /// Reads the constructed string back through the accessor rather than
+    /// comparing bytes: the two together are the contract, and a width the
+    /// encoder gets wrong would otherwise still look like a plausible string.
+    #[test]
+    fn test_string_from_char_code_at_every_utf8_width() {
+        for (code, width) in [(65, 1), (1605, 2), (65021, 3), (126464, 4)] {
+            let s = trq_string_from_char_code(code);
+            assert_eq!(trq_string_len(s), width, "طول «{}»", code);
+            assert_eq!(trq_string_char_code(s), code, "ذهاب وإياب «{}»", code);
+            crate::memory::trq_release(s as *mut u8);
+        }
+    }
+
+    /// U+0000 is a one-character string, not the empty one — which is exactly
+    /// why `trq_string_char_code` could not use `0` as its sentinel.
+    #[test]
+    fn test_string_from_char_code_builds_a_nul_character() {
+        let s = trq_string_from_char_code(0);
+        assert_eq!(trq_string_len(s), 1);
+        assert_eq!(trq_string_char_code(s), 0);
+        crate::memory::trq_release(s as *mut u8);
+    }
+
+    #[test]
+    fn test_string_from_char_code_rejects_unrepresentable_values() {
+        for code in [
+            -1,
+            i64::MIN,
+            // Surrogate halves: `char::from_u32` rejects the whole D800..=DFFF
+            // range, so encoding one can never produce ill-formed UTF-8.
+            0xD800,
+            0xDFFF,
+            // Above the Unicode range.
+            0x11_0000,
+            // The reason the guard is on the i64: `code as u32` truncates this
+            // to 65, so an unguarded cast would answer "A".
+            0x1_0000_0041,
+        ] {
+            let s = trq_string_from_char_code(code);
+            assert_eq!(trq_string_len(s), 0, "من «{}»", code);
+            // Every rejected value normalizes to the accessor's own sentinel.
+            assert_eq!(trq_string_char_code(s), -1, "من «{}»", code);
+            crate::memory::trq_release(s as *mut u8);
+        }
+    }
+
+    /// The boundaries either side of each rejected range are accepted, so the
+    /// guard cannot quietly be one wider or one narrower than Unicode.
+    #[test]
+    fn test_string_from_char_code_accepts_the_boundaries() {
+        for code in [0xD7FF, 0xE000, 0x10_FFFF] {
+            let s = trq_string_from_char_code(code);
+            assert_eq!(trq_string_char_code(s), code, "من «{}»", code);
             crate::memory::trq_release(s as *mut u8);
         }
     }

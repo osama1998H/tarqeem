@@ -307,6 +307,8 @@ impl IrBuilder {
         // sentinel as `جذر` above and emit `call ptr` against a `declare i64`.
         self.function_return_types
             .insert("حرف_إلى_رمز".to_string(), IrType::Int);
+        self.function_return_types
+            .insert("رمز_إلى_حرف".to_string(), IrType::String);
 
         // اقرأ_سطر (read_line) returns string
         self.function_return_types

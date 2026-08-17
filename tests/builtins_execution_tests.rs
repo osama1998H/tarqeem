@@ -1522,6 +1522,150 @@ fn test_user_function_shadows_char_code() {
 }
 
 // ---------------------------------------------------------------------------
+// رمز_إلى_حرف — the codepoint constructor (#326)
+// ---------------------------------------------------------------------------
+
+/// One case per UTF-8 encoding width, read back through `حرف_إلى_رمز` rather
+/// than compared against a literal: the two names are one contract, and a width
+/// the encoder gets wrong would otherwise still print something plausible.
+#[test]
+fn test_char_from_code_encodes_every_utf8_width_in_every_backend() {
+    assert_prints(
+        "حرف_عروض",
+        concat!(
+            "اطبع(رمز_إلى_حرف(65))\n",
+            "اطبع(رمز_إلى_حرف(1605))\n",
+            "اطبع(رمز_إلى_حرف(65021))\n",
+            "اطبع(رمز_إلى_حرف(126464))",
+        ),
+        &["A", "م", "﷽", "𞸀"],
+    );
+}
+
+/// Asserted through `طول`, never by printing the result: `Output::lines()`
+/// trims, so a printed empty string is indistinguishable from a printed newline
+/// and the test could not fail.
+///
+/// The last case is why the range check is on the `i64` before any cast —
+/// `4294967361 as u32` is 65, so an unguarded cast would answer "A".
+#[test]
+fn test_char_from_code_rejects_unrepresentable_code_points() {
+    assert_prints(
+        "حرف_مرفوض",
+        concat!(
+            "اطبع(طول(رمز_إلى_حرف(-1)))\n",
+            "اطبع(طول(رمز_إلى_حرف(55296)))\n",
+            "اطبع(طول(رمز_إلى_حرف(57343)))\n",
+            "اطبع(طول(رمز_إلى_حرف(1114112)))\n",
+            "اطبع(طول(رمز_إلى_حرف(4294967361)))",
+        ),
+        &["0", "0", "0", "0", "0"],
+    );
+}
+
+/// The boundaries either side of each rejected range, so the guard cannot
+/// quietly become one wider or one narrower than Unicode.
+#[test]
+fn test_char_from_code_accepts_the_range_boundaries() {
+    assert_prints(
+        "حرف_حدود",
+        concat!(
+            "اطبع(حرف_إلى_رمز(رمز_إلى_حرف(55295)))\n",
+            "اطبع(حرف_إلى_رمز(رمز_إلى_حرف(57344)))\n",
+            "اطبع(حرف_إلى_رمز(رمز_إلى_حرف(1114111)))",
+        ),
+        &["55295", "57344", "1114111"],
+    );
+}
+
+/// The load-bearing test. `رمز_إلى_حرف` lowers to a plain call, so nothing but
+/// the `register_builtin_return_types` entry types its result; without it the
+/// result carries the `Ptr(Void)` sentinel, printing keeps working, and
+/// concatenating or comparing prints a pointer instead — exactly how
+/// `"X" + حرف_في(س،١)` printed `X4377631856` natively.
+#[test]
+fn test_char_from_code_result_composes_as_a_string() {
+    assert_prints(
+        "حرف_تركيب",
+        concat!(
+            "اطبع(نوع(رمز_إلى_حرف(65)))\n",
+            "اطبع(\"س\" + رمز_إلى_حرف(65))\n",
+            "اطبع(رمز_إلى_حرف(1605) == \"م\")\n",
+            "اطبع(طول(رمز_إلى_حرف(65)))",
+        ),
+        &["نص", "سA", "صحيح", "1"],
+    );
+}
+
+/// U+0000 is a one-character string, not the empty one — which is precisely why
+/// `حرف_إلى_رمز` could not use `0` as its "no first character" sentinel.
+/// Asserted through `طول` and the round trip rather than by printing, since a
+/// NUL byte on stdout is a question about the terminal, not about the contract.
+#[test]
+fn test_char_from_code_builds_a_nul_character() {
+    assert_prints(
+        "حرف_صفر",
+        concat!(
+            "اطبع(طول(رمز_إلى_حرف(0)))\n",
+            "اطبع(حرف_إلى_رمز(رمز_إلى_حرف(0)))",
+        ),
+        &["1", "0"],
+    );
+}
+
+/// The pair is total in both directions: every valid code round-trips, and
+/// every rejected one lands on `""`, whose code is `-1`. So the two sentinels
+/// map onto each other instead of leaving a hole.
+#[test]
+fn test_char_code_and_char_from_code_round_trip() {
+    assert_prints(
+        "حرف_إياب",
+        concat!(
+            "اطبع(رمز_إلى_حرف(حرف_إلى_رمز(\"م\")))\n",
+            "اطبع(حرف_إلى_رمز(رمز_إلى_حرف(126464)))\n",
+            "اطبع(حرف_إلى_رمز(رمز_إلى_حرف(-1)))\n",
+            "اطبع(حرف_إلى_رمز(رمز_إلى_حرف(1114112)))",
+        ),
+        &["م", "126464", "-1", "-1"],
+    );
+}
+
+/// A literal argument can fold at build time; a variable, an arithmetic
+/// expression and a parameter cannot, so these are the cases where the runtime
+/// call is actually made.
+#[test]
+fn test_char_from_code_over_a_computed_argument() {
+    assert_prints(
+        "حرف_محسوب",
+        concat!(
+            "متغير رمز = 1605\n",
+            "اطبع(رمز_إلى_حرف(رمز))\n",
+            "اطبع(رمز_إلى_حرف(1600 + 5))\n",
+            "دالة حرف_من(ر: عدد) -> نص {\n",
+            "    أرجع رمز_إلى_حرف(ر)\n",
+            "}\n",
+            "اطبع(حرف_من(1583))",
+        ),
+        &["م", "م", "د"],
+    );
+}
+
+/// Builtins are the last tier of the lookup order, so a user function of the
+/// same name must win — in every backend at once (#262). A symbol-mapped
+/// builtin has to survive two independent gates: `shadows_builtin` in the IR
+/// builder, and the `user_functions` check in codegen's `mangle_function_name`,
+/// which would otherwise emit `@trq_string_from_char_code` instead of the
+/// user's own symbol.
+#[test]
+fn test_user_function_shadows_char_from_code() {
+    assert_prints(
+        "حرف_مظلل",
+        "دالة رمز_إلى_حرف(ر: عدد) -> نص {\n    أرجع \"ظ\"\n}\nاطبع(رمز_إلى_حرف(65))",
+        &["ظ"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // طول over a string — characters, not bytes (#185)
 // ---------------------------------------------------------------------------
 
@@ -2096,6 +2240,9 @@ fn test_every_core_builtin_agrees_across_backends() {
         // A two-byte Arabic letter, so this one line rejects both plausible
         // degradations: a byte read gives 217 and a `طول`-style count gives 1.
         ("حرف_إلى_رمز", "اطبع(حرف_إلى_رمز(\"مرحبا\"))", &["1605"]),
+        // A two-byte Arabic letter, so this one line rejects a byte-wise write:
+        // it would emit the lead byte alone and print a replacement character.
+        ("رمز_إلى_حرف", "اطبع(رمز_إلى_حرف(1605))", &["م"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();

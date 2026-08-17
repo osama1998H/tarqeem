@@ -186,6 +186,9 @@ impl Scope {
             // since U+0000 is itself a codepoint. Takes `نص` rather than `أي`
             // so it composes at a concrete type in every backend.
             ("حرف_إلى_رمز", vec![Type::String], Type::Int),
+            // Its inverse, and `""` where the accessor answers `-1`, so the two
+            // are total in both directions.
+            ("رمز_إلى_حرف", vec![Type::Int], Type::String),
             // Bitwise - عمليات البتات
             // Functions, not operators: there is no `&`/`|`/`^` token, and
             // `بتات_` opens the name because `و`/`أو` are keywords.

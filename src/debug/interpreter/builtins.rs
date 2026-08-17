@@ -28,6 +28,7 @@ impl DebugInterpreter {
                 | "سقف"
                 | "قرب"
                 | "حرف_إلى_رمز"
+                | "رمز_إلى_حرف"
                 // Runtime symbols the IR builder lowers core builtins to
                 // (#222). Without these, stepping through `عدد("٥")` or
                 // `تأكد(...)` aborts with "دالة غير معرّفة".
@@ -183,6 +184,23 @@ impl DebugInterpreter {
                     Value::String(s) => Ok(Value::Int(s.chars().next().map_or(-1, |c| c as i64))),
                     Value::Null => Ok(Value::Int(-1)),
                     _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
+            }
+
+            // Mirrors `interpreter::executor::builtins`, including the absence
+            // of a `Null` arm — see the reasoning there (#327).
+            "رمز_إلى_حرف" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("رمز_إلى_حرف() تتطلب معامل واحد")
+                })?;
+                match val {
+                    Value::Int(code) => Ok(Value::string(
+                        u32::try_from(*code)
+                            .ok()
+                            .and_then(char::from_u32)
+                            .map_or(String::new(), |c| c.to_string()),
+                    )),
+                    _ => Err(RuntimeError::type_error("عدد", val.type_name())),
                 }
             }
 
@@ -368,6 +386,41 @@ mod tests {
                 .call_builtin("حرف_إلى_رمز", vec![argument])
                 .expect("حرف_إلى_رمز أخفق في مفسّر التنقيح");
             assert_eq!(result.as_int(), Some(expected));
+        }
+    }
+
+    /// Same reasoning as `test_char_code_is_dispatchable`, and the pair is
+    /// asserted through the round trip rather than against literal strings so
+    /// that a width the encoder gets wrong cannot pass as a plausible answer.
+    #[test]
+    fn test_char_from_code_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("رمز_إلى_حرف"),
+            "رمز_إلى_حرف غير مُعرَّف كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        // One per UTF-8 width, then U+0000 — a one-character string, not the
+        // empty one — then each rejection class, including the `as u32` wrap.
+        for code in [65, 1605, 65021, 126464, 0] {
+            let built = interpreter
+                .call_builtin("رمز_إلى_حرف", vec![Value::Int(code)])
+                .expect("رمز_إلى_حرف أخفق في مفسّر التنقيح");
+            let round_tripped = interpreter
+                .call_builtin("حرف_إلى_رمز", vec![built])
+                .expect("حرف_إلى_رمز أخفق في مفسّر التنقيح");
+            assert_eq!(round_tripped.as_int(), Some(code));
+        }
+
+        for code in [-1, 0xD800, 0x11_0000, 0x1_0000_0041] {
+            let built = interpreter
+                .call_builtin("رمز_إلى_حرف", vec![Value::Int(code)])
+                .expect("رمز_إلى_حرف أخفق في مفسّر التنقيح");
+            assert_eq!(built.as_string(), Some(""), "من {code}");
         }
     }
 
