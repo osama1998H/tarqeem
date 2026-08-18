@@ -407,7 +407,16 @@ pub extern "C" fn trq_string_from_bytes(arr: *const TrqArray) -> *mut TrqString 
         // `elem_size` 8 for the same reason `trq_string_to_bytes` writes 8: a
         // `مصفوفة<عدد>` element is a raw inline i64 slot. Any other width is not
         // an array this primitive can read.
-        if arr.is_null() || (*arr).data.is_null() || (*arr).len <= 0 || (*arr).elem_size != 8 {
+        //
+        // **The field order here is load-bearing, not style.** An `أي` holder lets
+        // a `TrqString*` reach this parameter (the semantic layer widens `أي` to
+        // `مصفوفة<عدد>` and codegen has no runtime tag to catch it), and a
+        // `TrqString` is 24 bytes — `len`, `cap`, `data` — allocated to exactly
+        // that size. `elem_size` sits at offset 16, inside it; `data` sits at
+        // offset 24, one past the end. So `elem_size` must be rejected *before*
+        // `data` is read, or the type-confused call is a heap over-read. A real
+        // `data` pointer is never 8, so the check rejects such a string here.
+        if arr.is_null() || (*arr).elem_size != 8 || (*arr).data.is_null() || (*arr).len <= 0 {
             return trq_string_new(ptr::null(), 0);
         }
 
@@ -2368,6 +2377,23 @@ mod tests {
             crate::array::trq_array_free_data(arr);
             crate::memory::trq_release(arr as *mut u8);
         }
+    }
+
+    /// An `أي` holder lets a `TrqString*` reach the `TrqArray*` parameter, and a
+    /// `TrqString` is 24 bytes allocated to exactly that size — so reading `data`
+    /// at offset 24 is one past the end. The `elem_size` check at offset 16 must
+    /// come first; this pins that order, which is otherwise invisible until a
+    /// sanitizer runs.
+    #[test]
+    fn test_bytes_to_string_rejects_a_string_without_reading_past_it() {
+        let text = "مرحبا";
+        let s = trq_string_new(text.as_ptr(), text.len() as i64);
+
+        let built = trq_string_from_bytes(s as *const TrqArray);
+        assert_eq!(trq_string_len(built), 0, "قُبل نص بدل مصفوفة");
+
+        crate::memory::trq_release(built as *mut u8);
+        crate::memory::trq_release(s as *mut u8);
     }
 
     /// Round trip against the landed inverse: each byte, read back as a
