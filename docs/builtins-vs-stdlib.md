@@ -161,6 +161,30 @@ Legend for **status**: `unchanged` · `renamed` · `narrowed` · `new`.
 > §5.2 keeps a no-import name a builtin until **B12** — with one addition the earlier expiries did not
 > have: the *validating* half stays materially harder to hand-write, which is what the primitive buys.
 >
+> **Correction (#333) — second part, and it is a different kind again.** `قص_حروف`'s row above
+> claimed it is "the only way self-hosted Tarqeem can reach the i-th character at all", citing
+> probes p4/p7. Both halves of that were true when written; the **first expired** when the byte
+> bridge closed. `نص_إلى_ثنائي` (#330) and `ثنائي_إلى_نص` (#333), with indexing over `مصفوفة<عدد>`
+> and the bitwise family, make a codepoint slicer writable in Tarqeem — pinned by
+> `test_substr_chars_matches_the_slicer_it_names`, which runs a hand-written one beside the builtin
+> in all three backends and finds them equal, out of range included. It shipped anyway on `بتات_نفي`'s
+> grounds — core tier, and §5.2 keeps a no-import name a builtin until **B12** — plus one this
+> document had not seen before: it was a **repair of a registered name**, not a new registration, so
+> the alternative to shipping was not "leave it in stdlib" but "leave it half-wired".
+>
+> **The `س[i]` half did *not* expire, and that matters more than the criterion.** **B6** is still
+> open, so the two things the claim rested on have come apart: the operation became expressible while
+> the *idiomatic* route to it stayed broken. Do not read one as the other.
+>
+> **Deviation recorded (#336): `قص_نص` was removed outright, not deprecated.** §1.3's "deliberate
+> cut" says both `طول_نص` and `قص_نص` "survive as call-compatible stdlib functions", and §1.1 rule 3
+> gives dropped spellings one release of `م`-warnings. Neither happened for `قص_نص` — it left the
+> registry in the same change, on the owner's decision. This is recorded rather than argued because
+> the failure mode is a later increment planning against a promise the registry no longer keeps.
+> `طول_نص` is untouched. Note the removal is what *forced* the fix to `stdlib/نص/اساسي.ترقيم`
+> described in §1.3 below, so the trap that section cites as its motivating example no longer exists
+> in checked-in code.
+
 > **First re-check under that rule, and it passed (#324).** `حرف_إلى_رمز` was re-derived before
 > implementation rather than read off its row, and criterion (a) **holds**: `نص_إلى_ثنائي` does not
 > exist (**B9**), `س[i]` and `لكل ح في س` still yield an untyped `Ptr(Void)` (**B6**), and nothing
@@ -182,7 +206,7 @@ clear the sign bit, shift the rest, and place the bit at `٦٣-ن`.
 
 | الاسم | التوقيع | الحالة | التبرير |
 |---|---|---|---|
-| `قص_حروف` | `(نص، عدد، عدد) -> نص` | narrowed | **The** codepoint accessor, and the only way self-hosted Tarqeem can reach the i-th character at all — `س[i]` and `لكل ح في س` both yield an untyped `Ptr(Void)` (probes p4/p7). Requires UTF-8 boundary walking over the raw buffer. Subsumes `حرف_في`, which becomes a one-line stdlib wrapper. **Narrowed** because it moves from the `نص` module tier to the core tier (no import) — see §4.3. |
+| `قص_حروف` | `(نص، عدد، عدد) -> نص` | narrowed — **مُنفَّذ (#336)** | **The** codepoint accessor. Requires UTF-8 boundary walking over the raw buffer. Subsumes `حرف_في`, which becomes a one-line stdlib wrapper. **Narrowed** because it moves from the `نص` module tier to the core tier (no import) — see §4.3. Criterion (a) **expired** before it shipped, the fourth row to do so (correction below); it ships on §5.2/**B12** plus the fact that it was a *repair*, not a new registration. Total: a negative start, a start past the end and a non-positive length all answer `""`, and a length past the end clamps. |
 | `حرف_إلى_رمز` | `(نص) -> عدد` | new — **مُنفَّذ (#324)** | Codepoint of the first character; `-1` for empty. Nothing in the 235 declared names or the 42 `string.rs` exports returns a numeric character code — the nearest, `حرف_في`, returns a one-character `نص`. **The single highest-leverage missing primitive:** case conversion, digit parsing, character classification, hex encoding, sorting and hashing are all inexpressible without it. Arity 1 so it composes as `حرف_إلى_رمز(قص_حروف(س، ي، ١))` — one unit throughout, so it cannot participate in the byte/char trap. |
 | `رمز_إلى_حرف` | `(عدد) -> نص` | new — **مُنفَّذ (#326)** | Inverse. Required to *build* strings from computed characters, which is what number formatting is. Rejects surrogates and values > U+10FFFF rather than emit invalid UTF-8 — the rejection answers `""`, mirroring `حرف_إلى_رمز`'s `-1`, so the pair is total in both directions instead of leaving a hole. |
 | `نص_إلى_ثنائي` | `(نص) -> مصفوفة<عدد>` | new — **مُنفَّذ (#330)** | UTF-8 octets of a string. No bridge existed; the payload buffer is behind the `TrqString` ABI. `ثنائي` is existing vocabulary for a byte array and the `X_إلى_Y` shape matches `ثنائي_إلى_ست_عشري` exactly — reuse of vocabulary, not invention. Criterion (a), re-derived at implementation time and **held**: reaching the i-th character is the only way to encode a string in Tarqeem, and no backend-portable way to do that exists while **B7** is open. `""` and `لا_شيء` both answer an **empty array** — a value, not a sentinel, since a string with no bytes has one unambiguous encoding. |
@@ -202,6 +226,8 @@ which kept both and designated only `قص_نص` as the budget cut. Reasons:
    declares a parameter named `عدد_احرف` and then calls the *byte* slicer `قص_نص`, so
    `قص("مرحباً بالعالم"، ٠، ٦)` returns 3 Arabic characters, not 6. That is checked-in,
    hand-written self-hosted code, and it is the only hand-written self-hosted `نص` code that exists.
+   **Fixed in #336** — removing `قص_نص` left that line nothing to call but `قص_حروف`, which is the
+   argument of this paragraph carried out rather than restated.
 
 Both names survive as call-compatible stdlib functions. Byte-level work happens only through
 `نص_إلى_ثنائي` / `ثنائي_إلى_نص` and ordinary array indexing.
@@ -658,11 +684,11 @@ Four new primitives (`حرف_إلى_رمز`, `رمز_إلى_حرف`, `نص_إل�
 Five names × the full nine-site path — the most registration work in the plan, and the last time it
 is paid at scale.
 
-**Progress: 4 of 5 landed.** `حرف_إلى_رمز` (#324), `رمز_إلى_حرف` (#326), `نص_إلى_ثنائي` (#330) and
-`ثنائي_إلى_نص` (#333). Remaining: `قص_حروف`'s repair (**B7**, still open) — a repair, not a new name,
-so the four *new* primitives of this increment are complete. **Not one atomic change** — the
-increment is landing a name at a time, as Increment A did, and each name's criterion (a) is
-re-derived when its turn comes rather than trusted from §1.3.
+**Complete: 5 of 5 landed.** `حرف_إلى_رمز` (#324), `رمز_إلى_حرف` (#326), `نص_إلى_ثنائي` (#330),
+`ثنائي_إلى_نص` (#333) and `قص_حروف` (#336), which closes **B7**. **Not one atomic change** — the
+increment landed a name at a time, as Increment A did, and each name's criterion (a) was re-derived
+when its turn came rather than trusted from §1.3. Two of the five held on re-derivation and three
+had expired.
 
 **What #324 measured, since Increment A's cost note does not transfer.** The seven bitwise names
 were IR-intercepted and cost two files each; `حرف_إلى_رمز` is the first *new* symbol-mapped core
@@ -789,6 +815,39 @@ did not state:
    `Value::to_display_string` already is, so the rejection rule cannot drift between them. Prefer this
    to a second copy whenever the logic — not just the dispatch — is identical.
 
+**What #336 added: the nine sites shrank to six, and the quiet site got louder.** `قص_حروف` was the
+first of the five that already had a `runtime-rs` function, a codegen mapping and a `declare`, so it
+cost only the *semantic and interpreter* half: a `Scope` move, a `register_builtin_return_types`
+entry, and `is_builtin` plus a dispatch arm in both interpreters. That is the shape every remaining
+`~` row in the inventory has — 216 names are already mapped in `get_runtime_function_name` — so it is
+the cheaper half of the path, and the one that repairs a half-wired name rather than adding one.
+
+Four things it found that the plan did not state:
+
+1. **The missing-return-type failure is *not* monotonic in loudness, and it is worst for this
+   name.** #330 measured one caught assertion for an array and #333 measured three for a `نص`. Here
+   **four of five** caught it — because `طول` did, answering `6` where `3` was right. The sentinel
+   sends `ArrayLen` to `trq_array_len`, which reads `TrqArray.len`; a `TrqString`'s first field is
+   its *byte* length, and the two structs' layouts make that a clean misread rather than a crash. So
+   the specific failure mode of dropping this name's entry is that **the codepoint slicer starts
+   counting bytes** — the one thing it exists not to do, and indistinguishable from a correct answer
+   on ASCII. Generalisable: predict *which* assertion catches a missing entry from the return type's
+   struct layout, not from a loud/quiet dichotomy.
+2. **Sharing the whole dispatch beat sharing the computation.** #333 shared `bytes_to_string`, the
+   decode, and each interpreter kept its own argument checks. Here the checks *are* most of the
+   contract — three parameters, a null arm on one of them and not the other two — so
+   `call_substring_by_chars` is `pub(crate)` and each interpreter's arm is one line. Prefer sharing
+   at the widest point where the two backends must agree, which is the dispatch, not the kernel.
+3. **The keyword-embedding check found its fourth distinct shape, and it passed.** `قص_حروف` embeds
+   `و` inside `حروف` with a *letter* on each side (`ر` and `ف`). Every earlier case has a `_` or a
+   name boundary on at least one side, so this is the only one where a scan treating a keyword match
+   as a boundary would cut a word into three. Four names, four shapes, four separate answers — the
+   check stays per-name.
+4. **`ك` is unusable as a loop variable, and the parse error does not say so.** A counted inner loop
+   written with `ك` fails as «ب٠٢٠١: متوقع اسم المتغير» pointing at the `=`, because `ك` is the
+   contextual alias keyword. §6.6 already warns about this for Increment F; it fired here first, in a
+   *test fixture*, which is where it will keep firing.
+
 ### 6.3 Increment C — `رياضيات`
 
 Flip `"رياضيات"` out of `get_stdlib_modules()` **once**, in this increment. Because the flip is
@@ -900,7 +959,7 @@ the same disease as the nine `#298` date constructors.
 | **B4** | **`stdlib/طرفية` duplicate-export collision (`و٠١٠١`).** One rename. | Phase 1 | Increment G |
 | **B5** | **The seven flat stubs and three name collisions** (§2.1). | file listing; `نص/اساسي.ترقيم:170`, `وقت/تاريخ.ترقيم:220`, `شبكة/فهرس.ترقيم` | Every module flip |
 | **B6** | **Character-binding type inference defect — the highest-severity item here.** Both `لكل ح في نص` and `س[i]` yield an untyped `Ptr(Void)`. Un-annotated: `ح == "م"` **never matches natively while working interpreted and JIT'd**, and `ج + ح` prints raw pointer integers natively while the other two backends at least error loudly. Writing `: نص` repairs it. | `ح_مساواة`, `ح_دمج`, `فهرس_حلقة` vs `فهرس_حلقة2`, `دمج_معنون`, `p7` | Increment F (`نص`) |
-| **B7** | **`قص_حروف` has no interpreter arm, no debug arm, and no registered IR return type.** Without the return type it inherits the `Ptr(Void)` sentinel and reproduces the exact bug this refactor removes. | `p8`; `"X" + حرف_في(س،١)` → `X4377631856` | Increment B, and everything downstream |
+| ~~**B7**~~ | **Closed (#336).** `قص_حروف` is core tier with an `IrType::String` return type and arms in both interpreters. Measured before the fix, natively: `نوع` → `مؤشر`, `"X" + …` → `X4341079168`, `== "رح"` → `خطأ`, and `طول` → **6 instead of 3** — the sentinel routes it to `trq_array_len`, which reads `TrqString.len`, the byte count. `حرف_في` still has the defect and is still native-only. | `p8`; `"X" + حرف_في(س،١)` → `X4377631856` | ~~Increment B, and everything downstream~~ |
 | **B8** | **No bitwise capability exists** in any spelling — no lexer token, no Arabic name, nothing to reuse. | `ثنائي_عامل` probe: `أ & ب` → `ب٠٠٠٢` at the `&` | Increments E, I, J and the RNG |
 | ~~**B9**~~ | **Closed (#333).** char↔code (#324, #326), string→bytes (#330) and bytes→string (#333) all land, so the bridge is total in both directions. One caveat inherited from the contract above: the bytes→string direction **validates**, so it carries text, not arbitrary octets. | grep over all 235 names and all 42 `string.rs` exports, as of the original census | ~~Increments E, F, I~~ |
 | **B10** | **`احذف_آخر` needs a new IR instruction.** The only proposed primitive requiring genuine per-backend work: `ArrayPop` plus arms in the interpreter, debug interpreter, both JIT tiers and LLVM. `trq_array_pop` already exists, unused. | `سحب` probe fails in all three | `مجموعات/مكدس`, `طابور` |

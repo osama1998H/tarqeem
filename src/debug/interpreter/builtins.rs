@@ -3,7 +3,9 @@
 use std::io::{self, Write};
 
 use crate::interpreter::epoch_millis;
-use crate::interpreter::{bytes_to_string, RuntimeError, RuntimeResult, Value};
+use crate::interpreter::{
+    bytes_to_string, call_substring_by_chars, RuntimeError, RuntimeResult, Value,
+};
 
 use super::DebugInterpreter;
 
@@ -27,6 +29,7 @@ impl DebugInterpreter {
                 | "أرضية"
                 | "سقف"
                 | "قرب"
+                | "قص_حروف"
                 | "حرف_إلى_رمز"
                 | "رمز_إلى_حرف"
                 | "نص_إلى_ثنائي"
@@ -205,6 +208,11 @@ impl DebugInterpreter {
                     _ => Err(RuntimeError::type_error("عدد", val.type_name())),
                 }
             }
+
+            // The whole dispatch is shared rather than mirrored, so the
+            // totality contract — negative start, non-positive length, start
+            // past the end, null string — cannot drift from the interpreter's.
+            "قص_حروف" => call_substring_by_chars(&args),
 
             // Mirrors `interpreter::executor::builtins`, `Null` arm included —
             // there the parameter is a pointer, so the empty array is a designed
@@ -540,6 +548,55 @@ mod tests {
         let null = interpreter
             .call_builtin("ثنائي_إلى_نص", vec![Value::Null])
             .expect("ثنائي_إلى_نص أخفق على لا_شيء");
+        assert_eq!(null.as_string(), Some(""));
+    }
+
+    /// The slicer's arm. Like `ثنائي_إلى_نص` above, the whole dispatch is shared
+    /// with the main interpreter, so what this pins is that the dispatch exists
+    /// and keys on the Arabic name — the gap that made `توقف` and `نم` abort here
+    /// while running in every other backend (#295), and that no cross-backend
+    /// sweep can catch, since `Backend::ALL` does not reach this interpreter.
+    #[test]
+    fn test_substr_chars_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("قص_حروف"),
+            "قص_حروف غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        for (text, start, len, expected) in [
+            ("مرحبا", 1, 3, "رحب"),
+            // One codepoint of each UTF-8 width, so a byte slicer cannot pass.
+            ("A﷽م𞸀", 1, 2, "﷽م"),
+            // Totality, in the four shapes `trq_string_substr_chars` guards.
+            ("مرحبا", -1, 2, ""),
+            ("مرحبا", 9, 2, ""),
+            ("مرحبا", 1, 0, ""),
+            ("م", 0, 5, "م"),
+        ] {
+            let result = interpreter
+                .call_builtin(
+                    "قص_حروف",
+                    vec![Value::string(text), Value::Int(start), Value::Int(len)],
+                )
+                .expect("قص_حروف أخفقت في مفسّر التنقيح");
+
+            assert_eq!(
+                result.as_string(),
+                Some(expected),
+                "من {text:?} {start} {len}"
+            );
+        }
+
+        // The `نص` parameter is a pointer, so native's null guard answers `""`
+        // and this arm mirrors a designed contract rather than an artifact.
+        let null = interpreter
+            .call_builtin("قص_حروف", vec![Value::Null, Value::Int(0), Value::Int(1)])
+            .expect("قص_حروف أخفقت على لا_شيء");
         assert_eq!(null.as_string(), Some(""));
     }
 

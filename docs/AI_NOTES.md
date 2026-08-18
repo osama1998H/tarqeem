@@ -3727,3 +3727,110 @@ in this same file explains it is only a first for its *tier*. Both were written 
 incompatible sentences — the careful version and the slogan. Narrowed to «أول مدمجة أساسية» with the
 stdlib precedent named. Worth recording as a failure mode rather than a typo: the summary sentence is
 where a qualified finding tends to lose its qualifier.
+
+## #336 — قص_حروف, and a half-wired name that was worse than a missing one
+
+Increment B's fifth and last name, and the only one of the five that already existed. `قص_حروف` was
+declared in `get_stdlib_builtin("نص")`, mapped in `get_runtime_function_name`, declared in LLVM, and
+implemented correctly in `runtime-rs` — with **no interpreter arm, no debug arm, and no registered IR
+return type**. So it worked natively, aborted «دالة غير معرّفة» in the interpreter and the JIT, and
+its native result carried the `Ptr(Void)` sentinel. Blocker **B7**, now closed.
+
+### The cheaper half of the nine-site path
+
+#324 measured the full path for a *new* symbol-mapped builtin: `runtime-rs` function, `Scope` entry,
+return-type entry, `is_builtin` and a dispatch arm in both interpreters, an LLVM `declare` and a
+`get_runtime_function_name` entry. This name needed only the second half — the semantic and
+interpreter sites — because the first half already shipped.
+
+That is not a special case. 216 names are already mapped in `get_runtime_function_name`, and every
+`~` row in `docs/builtins-inventory.md` is exactly this shape: lowered natively, unregistered
+everywhere else. **Repairing one costs six sites, not nine**, and the repair is what makes a name
+work in the backend most users actually run.
+
+### The missing return type is not "loud or quiet" — it depends on struct layout
+
+#330 measured that a missing `register_builtin_return_types` entry for an **array** was caught by one
+assertion out of four (`نوع`), and #333 measured three out of five for a **نص**. The natural
+generalisation is a loud/quiet dichotomy by return type. It is wrong.
+
+Measured here by deleting the entry and compiling: **four of five** caught it. `نوع` answered `مؤشر`,
+`"X" + …` printed `X4341079168`, `== "رح"` answered `خطأ` — and `طول` answered **6 where 3 was
+right**. Only `حرف_إلى_رمز` still agreed, by accident. The binary exited 0 throughout.
+
+`طول` is the new one, and #333's `نص` did not have it. The sentinel routes `ArrayLen` to
+`trq_array_len`, which reads `TrqArray.len` at offset 0; a `TrqString`'s field at offset 0 is its
+**byte** length. The two layouts make that a clean misread rather than a crash, so the specific
+failure of dropping this entry is that **the codepoint slicer silently starts counting bytes** — the
+one thing the name exists not to do, and invisible on ASCII.
+
+So the rule is not by return type. It is: **work out which assertion catches a missing entry from
+what the sentinel's struct misreads**, and write that assertion. Printing still passed here, as it has
+every time.
+
+### Sharing the dispatch, not the kernel
+
+#333 shared `bytes_to_string` — the decode — and let each interpreter keep its own argument checks,
+which for a one-parameter builtin is nearly all of it. `قص_حروف` takes three parameters, and its
+contract is mostly *in* the checks: which arguments are integers, and that exactly one of the three
+gets a `Value::Null` arm. Duplicating that is duplicating the contract.
+
+So `call_substring_by_chars` is `pub(crate)` and returns `RuntimeResult<Value>`, and each
+interpreter's arm is one line. **Share at the widest point where the two backends must agree.** For a
+kernel-shaped builtin that is the kernel; here it was the whole dispatch.
+
+The `Value::Null` question resolved the way #326's rule predicts and #333's refinement demands:
+the `نص` parameter is a pointer, `Type::compat` lets an un-narrowed `نص?` through, native lowers it
+to `ptr null`, and the runtime guard answers `""` — so the arm mirrors a designed contract. The two
+`عدد` parameters get no arm, because there native's `0` is #327's artifact.
+
+### Criterion (a) expired, and the two halves of the claim came apart
+
+§1.3 justified this name as "the only way self-hosted Tarqeem can reach the i-th character at all —
+`س[i]` and `لكل ح في س` both yield an untyped `Ptr(Void)`". Re-derived before implementation, as
+§6.1 requires:
+
+- The **first** half expired. `نص_إلى_ثنائي` (#330) and `ثنائي_إلى_نص` (#333), with indexing over
+  `مصفوفة<عدد>` and the bitwise family, make a codepoint slicer writable in Tarqeem. Probed before
+  writing any fixture: a hand-written slicer agrees with the builtin in all three backends on every
+  case, out of range included, and that probe is now
+  `test_substr_chars_matches_the_slicer_it_names`.
+- The **second** half did not. **B6** is still open; `س[i]` is still `Ptr(Void)`.
+
+Three of Increment B's five names had their criterion expire, two held. Worth separating from the
+count: the two halves of a single justification can expire at different times, and here the operation
+became expressible while the idiomatic route to it stayed broken. Reading one as evidence for the
+other would have retired **B6** by mistake.
+
+It shipped anyway on `بتات_نفي`'s grounds — core tier, and §5.2 keeps a no-import name a builtin
+until **B12** — plus one earlier expiries did not have: this was a **repair**, so the alternative to
+shipping was not "leave it in stdlib" but "leave it half-wired".
+
+### Removing قص_نص fixed the document's own example
+
+`قص_نص`, the byte-indexed slicer, was removed in the same change — an owner decision that deviates
+from §1.3's "both names survive" and §1.1 rule 3's one release of `م`-warnings, and is recorded as a
+deviation in the plan document rather than argued.
+
+What made it worth noting: `stdlib/نص/اساسي.ترقيم:22` declared a parameter named `عدد_احرف` and passed
+it to the *byte* slicer, so `قص("مرحباً بالعالم"، ٠، ٦)` returned three Arabic characters. §1.3 cites
+that exact line as its motivating example of the byte/char trap. Removing `قص_نص` left the line
+nothing to call but `قص_حروف`, so the argument for a uniformly codepoint-indexed primitive surface
+carried itself out instead of being restated. **A removal can be a repair when the only remaining
+callee is the correct one** — worth looking for, because it costs nothing and the alternative is a
+deprecation window during which the wrong behaviour stays checked in.
+
+`trq_string_substr` went with the name: `rg` found exactly two references under `src/`, the `declare`
+and the map, and no operator path. `trq_string_substr_chars` stays regardless of any Arabic name,
+because `trq_string_char_at` calls it and codegen emits *that* for the `س[i]` operator — standing rule
+3 applied in both directions in one change.
+
+### `ك` is unusable as a loop variable, and the error does not say so
+
+The hand-written slicer's inner loop was first written with `ك` as the counter. It fails at parse:
+«ب٠٢٠١: متوقع اسم المتغير», caret on the `=`. `ك` is the contextual alias keyword, and the diagnostic
+names neither the keyword nor the alias.
+
+§6.6 already warns about this for Increment F. It fired first here, in a **test fixture** — which is
+where it will keep firing, since fixtures are where short identifiers get used. The warning belongs
+next to the diagnostic, not only in the increment that expects it.

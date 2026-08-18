@@ -268,9 +268,9 @@ pub extern "C" fn trq_string_len_chars(s: *const TrqString) -> i64 {
 /// codepoint and `0` could not distinguish an empty string from a NUL character.
 ///
 /// Only the first character's bytes are decoded, never the whole buffer. A
-/// `TrqString` can hold invalid UTF-8 natively — `trq_string_new` takes raw bytes
-/// and [`trq_string_substr`] cuts on byte boundaries — and validating the tail
-/// would throw away a first character that decodes perfectly well.
+/// `TrqString` can hold invalid UTF-8 natively — `trq_string_new` takes raw bytes,
+/// and nothing on the way in validates them — and validating the tail would throw
+/// away a first character that decodes perfectly well.
 ///
 /// # Safety
 ///
@@ -596,47 +596,6 @@ pub extern "C" fn trq_string_concat(
         *(*result).data.add(total_len as usize) = 0;
 
         result
-    }
-}
-
-/// Extract a substring by byte indices
-///
-/// # Arguments
-/// * `s` - Source string
-/// * `start` - Start byte index
-/// * `len` - Number of bytes
-///
-/// # Returns
-/// * New substring, or empty string on invalid input
-///
-/// # C Equivalent
-/// ```c
-/// TrqString* trq_string_substr(const TrqString* s, int64_t start, int64_t len);
-/// ```
-#[no_mangle]
-pub extern "C" fn trq_string_substr(s: *const TrqString, start: i64, len: i64) -> *mut TrqString {
-    unsafe {
-        if s.is_null() || (*s).data.is_null() {
-            return trq_string_new(ptr::null(), 0);
-        }
-
-        let str_len = (*s).len;
-
-        // Bounds checking
-        let start = if start < 0 { 0 } else { start };
-        if start >= str_len {
-            return trq_string_new(ptr::null(), 0);
-        }
-
-        let len = if len < 0 { 0 } else { len };
-        let end = std::cmp::min(start + len, str_len);
-        let actual_len = end - start;
-
-        if actual_len <= 0 {
-            return trq_string_new(ptr::null(), 0);
-        }
-
-        trq_string_new((*s).data.add(start as usize), actual_len)
     }
 }
 
@@ -2477,21 +2436,6 @@ mod tests {
             crate::memory::trq_release(s as *mut u8);
             crate::memory::trq_release(sub as *mut u8);
             crate::memory::trq_release(not_sub as *mut u8);
-        }
-    }
-
-    #[test]
-    fn test_string_substr() {
-        let s = trq_string_from_cstr(b"hello world\0".as_ptr() as *const c_char);
-        let sub = trq_string_substr(s, 6, 5);
-
-        unsafe {
-            assert_eq!((*sub).len, 5);
-            let bytes = std::slice::from_raw_parts((*sub).data, 5);
-            assert_eq!(bytes, b"world");
-
-            crate::memory::trq_release(s as *mut u8);
-            crate::memory::trq_release(sub as *mut u8);
         }
     }
 

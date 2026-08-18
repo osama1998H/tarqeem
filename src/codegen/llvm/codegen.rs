@@ -702,7 +702,6 @@ impl LlvmCodegen {
         emit!(self, "declare ptr @trq_string_concat(ptr, ptr)");
         emit!(self, "declare i64 @trq_string_len(ptr)");
         emit!(self, "declare i64 @trq_string_len_chars(ptr)");
-        emit!(self, "declare ptr @trq_string_substr(ptr, i64, i64)");
         emit!(self, "declare ptr @trq_string_substr_chars(ptr, i64, i64)");
         emit!(self, "declare ptr @trq_string_char_at(ptr, i64)");
         emit!(self, "declare i64 @trq_string_char_code(ptr)");
@@ -2859,11 +2858,13 @@ fn mangle_function_name(name: &str, user_functions: &HashSet<String>) -> String 
 
 fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
     match arabic_name {
-        "قص_نص" => Some("trq_string_substr"),
+        // Core tier: reachable with no import, and its `IrType::String` return
+        // type is registered in the IR builder. `trq_string_substr_chars` also
+        // survives independently of any name — `trq_string_char_at` calls it, and
+        // that is what the `س[ي]` operator lowers to.
         "قص_حروف" => Some("trq_string_substr_chars"),
+        // The `نص` module tier, unlike the core names below it.
         "حرف_في" => Some("trq_string_char_at"),
-        // Core tier, unlike its neighbours here: reachable with no import, and
-        // its `IrType::Int` return type is registered in the IR builder.
         "حرف_إلى_رمز" => Some("trq_string_char_code"),
         "رمز_إلى_حرف" => Some("trq_string_from_char_code"),
         // Core tier too, and the first one returning an array: the `ptr` this

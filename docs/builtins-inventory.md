@@ -218,7 +218,7 @@ different universes.
 
 ## 4. The inventory
 
-#### `core` — 32
+#### `core` — 33
 
 Rows marked **مُنفَّذ** landed after this census; the backend columns are re-verified,
 not carried over from the original pass.
@@ -242,6 +242,7 @@ not carried over from the original pass.
 | `بتات_نفي` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#312) |
 | `بتات_و` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#302) |
 | `ثنائي_إلى_نص` | ✓ | ✓ | ✓ | ✓ | `trq_string_from_bytes` | مدمج | primitive، **مُنفَّذ** (#333) |
+| `قص_حروف` | ✓ | ✓ | ✓ | ✓ | `trq_string_substr_chars` | مدمج | primitive، **مُنفَّذ** (#336) — نُقل من `نص` |
 | `تأكد` | ✓ | ✓ | ✗ | ✓ | `trq_assert` | مكتبة |  |
 | `تأكد_رسالة` | ✓ | ✓ | ✗ | ✓ | `-` | مكتبة |  |
 | `توقف` | ✓ | ✓ | ✗ | ~ | `trq_panic` | مدمج | primitive |
@@ -333,7 +334,7 @@ not carried over from the original pass.
 | `مطلق` | ✓ | ✓ | ✓ | ~ | `trq_abs_float` | مكتبة |  |
 | `مطلق_عدد` | ✓ | ✓ | ✗ | ~ | `trq_abs_int` | يُحذف | alias collapse |
 
-#### `نص` — 41
+#### `نص` — 39
 
 | الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
 |---|:-:|:-:|:-:|:-:|---|---|---|
@@ -361,8 +362,6 @@ not carried over from the original pass.
 | `عنوان` | ✓ | ✗ | ✗ | ~ | `trq_string_to_title` | مكتبة |  |
 | `قارن_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_compare` | مكتبة |  |
 | `قسّم` | ✓ | ✗ | ✗ | ~ | `trq_string_split` | مكتبة |  |
-| `قص_حروف` | ✓ | ✗ | ✗ | ~ | `trq_string_substr_chars` | مدمج | primitive |
-| `قص_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_substr` | يُحذف | alias/dead |
 | `كبير` | ✓ | ✗ | ✗ | ~ | `trq_string_to_upper` | مكتبة |  |
 | `كرر` | ✓ | ✗ | ✗ | ✗ | `-` | يُحذف | alias/dead، **معطّل اليوم** |
 | `كرر_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_repeat` | مكتبة |  |

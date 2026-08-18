@@ -31,6 +31,9 @@ mod executor_tests;
 
 pub use error::{ErrorKind, RuntimeError, RuntimeResult};
 pub(crate) use executor::builtins::bytes_to_string;
+/// Shared with the debug interpreter so `قص_حروف` is total in the same way in
+/// both — the argument checks drift as easily as the slicing does.
+pub(crate) use executor::builtins::call_substring_by_chars;
 pub use executor::Interpreter;
 pub use value::Value;
 

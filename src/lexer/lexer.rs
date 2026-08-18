@@ -982,8 +982,13 @@ mod tests {
         // name. A scan that preferred the longest keyword prefix would emit
         // `TypeString` and then `_إلى_ثنائي`, which is a *plausible* token pair (a
         // type followed by a name), so it would fail somewhere later rather than
-        // here. The last is its mirror, «نص» in trailing position — the same shape
+        // here. The next is its mirror, «نص» in trailing position — the same shape
         // `بتات_و` already covers, listed so the pair reads together.
+        //
+        // The last is the shape none of the others reach: «و» sits inside «حروف»
+        // with a *letter* on each side (ر and ف), where every case above has a `_`
+        // or a name boundary on at least one side. A scan that treated a keyword
+        // match as a boundary regardless of context would cut a word in three.
         let cases = [
             ("بتات_و(12، 10)", "بتات_و"),
             ("بتات_أو(12، 10)", "بتات_أو"),
@@ -992,6 +997,7 @@ mod tests {
             ("بتات_إزاحة_يمين_منطقية(255، 4)", "بتات_إزاحة_يمين_منطقية"),
             ("نص_إلى_ثنائي(\"م\")", "نص_إلى_ثنائي"),
             ("ثنائي_إلى_نص([65])", "ثنائي_إلى_نص"),
+            ("قص_حروف(\"مرحبا\"، 1، 2)", "قص_حروف"),
         ];
 
         for (source, name) in cases {

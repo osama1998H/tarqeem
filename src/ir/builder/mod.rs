@@ -302,6 +302,21 @@ impl IrBuilder {
         self.function_return_types
             .insert("جذر".to_string(), IrType::Float);
 
+        // `قص_حروف` was mapped to a runtime symbol with no entry here for as long
+        // as it existed (**B7**), and the omission is quiet like `ثنائي_إلى_نص`'s
+        // below rather than loud like `جذر`'s above — `Ptr(Void)` and `String`
+        // are both `ptr`, so it linked and printed correctly.
+        //
+        // Measured natively with this line deleted: `نوع` → `مؤشر`, `"X" + …` →
+        // `X4341079168`, `== "رح"` → `خطأ`, and `طول` → **6 where 3 was right**.
+        // That last one is the reason to care: the sentinel routes `ArrayLen` to
+        // `trq_array_len`, which reads `TrqArray.len` at offset 0, and a
+        // `TrqString`'s field at offset 0 is its *byte* length. So dropping this
+        // entry makes the codepoint slicer count bytes — the one thing it exists
+        // not to do, and invisible on ASCII.
+        self.function_return_types
+            .insert("قص_حروف".to_string(), IrType::String);
+
         // حرف_إلى_رمز lowers to a plain call, so this is the only thing that
         // types its result. Unregistered it would take the same `Ptr(Void)`
         // sentinel as `جذر` above and emit `call ptr` against a `declare i64`.

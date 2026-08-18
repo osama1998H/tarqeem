@@ -43,6 +43,63 @@ fn value_to_byte(v: &Value) -> Result<u8, RuntimeError> {
     }
 }
 
+/// `len` codepoints of `text` starting at codepoint `start`, or `""` where
+/// there are none to take.
+///
+/// Shared with the debug interpreter rather than copied, the way `bytes_to_string`
+/// below is, so the totality contract cannot drift between the two.
+///
+/// Every answer here is `trq_string_substr_chars`'s, not a chosen one: a negative
+/// `start`, a non-positive `len`, and a `start` past the end all give `""`, and a
+/// `len` past the end clamps. `chars()` matches the runtime exactly because it
+/// walks lead bytes with `utf8_char_len`, which agrees with codepoint iteration on
+/// every valid encoding — and a `Value::String` is a Rust `String`, so it cannot
+/// hold an invalid one.
+pub(crate) fn substring_by_chars(text: &str, start: i64, len: i64) -> String {
+    if start < 0 || len <= 0 {
+        return String::new();
+    }
+
+    text.chars()
+        .skip(start as usize)
+        .take(len as usize)
+        .collect()
+}
+
+/// `قص_حروف`'s whole dispatch, shared so the two interpreters cannot answer
+/// differently — the argument checks drift as easily as the slicing does.
+pub(crate) fn call_substring_by_chars(args: &[Value]) -> RuntimeResult<Value> {
+    let text = args.first().ok_or_else(|| {
+        RuntimeError::invalid_operation("قص_حروف() تتطلب ثلاثة معاملات: نص، بداية، عدد أحرف")
+    })?;
+    let start = int_argument(args, 1)?;
+    let len = int_argument(args, 2)?;
+
+    match text {
+        Value::String(s) => Ok(Value::string(substring_by_chars(s, start, len))),
+        // The parameter is a pointer, so this mirrors a designed answer rather
+        // than an artifact: `Type::compat` lets an un-narrowed `نص؟` into a `نص`
+        // parameter, native lowers it to `ptr null`, and the runtime's guard
+        // answers `""`. The two `عدد` parameters get no such arm — there native
+        // turns `لا_شيء` into `0` only as a side effect of passing a null pointer
+        // in an i64 slot, and encoding that would make the contract worse to
+        // close a gap this name does not own (#327). `رمز_إلى_حرف` is the same.
+        Value::Null => Ok(Value::string("")),
+        _ => Err(RuntimeError::type_error("نص", text.type_name())),
+    }
+}
+
+/// The `عدد` argument at `index`, or a type error naming what arrived instead.
+fn int_argument(args: &[Value], index: usize) -> RuntimeResult<i64> {
+    let value = args.get(index).ok_or_else(|| {
+        RuntimeError::invalid_operation("قص_حروف() تتطلب ثلاثة معاملات: نص، بداية، عدد أحرف")
+    })?;
+
+    value
+        .as_int()
+        .ok_or_else(|| RuntimeError::type_error("عدد", value.type_name()))
+}
+
 /// The bytes of `values` decoded as UTF-8, or `None` when they are not a UTF-8
 /// encoding — an element outside 0-255, or an invalid sequence.
 ///
@@ -165,6 +222,7 @@ impl Interpreter {
                 | "وقت_الآن"
                 | "وقت_أداء"
                 // String functions
+                | "قص_حروف"
                 | "حرف_إلى_رمز"
                 | "رمز_إلى_حرف"
                 | "نص_إلى_ثنائي"
@@ -986,6 +1044,8 @@ impl Interpreter {
                     .map(Value::Float)
                     .map_err(|_| RuntimeError::type_error("float input", "invalid input"))
             }
+
+            "قص_حروف" => call_substring_by_chars(&args),
 
             "حرف_إلى_رمز" => {
                 let val = args.first().ok_or_else(|| {
