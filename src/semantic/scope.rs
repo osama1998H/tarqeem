@@ -197,6 +197,16 @@ impl Scope {
                 vec![Type::String],
                 Type::Array(Box::new(Type::Int)),
             ),
+            // Its inverse, and the only core entry *taking* a concrete array.
+            // Total: an array that is not the UTF-8 encoding of a string — an
+            // element outside 0-255, or an invalid byte sequence — answers `""`,
+            // which the caller tells from a legitimately empty result by the
+            // length of what it passed in.
+            (
+                "ثنائي_إلى_نص",
+                vec![Type::Array(Box::new(Type::Int))],
+                Type::String,
+            ),
             // Bitwise - عمليات البتات
             // Functions, not operators: there is no `&`/`|`/`^` token, and
             // `بتات_` opens the name because `و`/`أو` are keywords.

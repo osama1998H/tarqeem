@@ -1843,6 +1843,184 @@ fn test_user_function_shadows_string_to_bytes() {
 }
 
 // ---------------------------------------------------------------------------
+// ثنائي_إلى_نص — the bytes→string bridge (#333)
+// ---------------------------------------------------------------------------
+
+/// The pair is total in both directions at every UTF-8 width, which is what
+/// closes blocker **B9**: before this, octets could be read out of a string and
+/// never assembled back into one.
+#[test]
+fn test_bytes_to_string_round_trips_in_every_backend() {
+    assert_prints(
+        "نص_دورة",
+        concat!(
+            "اطبع(ثنائي_إلى_نص(نص_إلى_ثنائي(\"A\")))\n",
+            "اطبع(ثنائي_إلى_نص(نص_إلى_ثنائي(\"م\")))\n",
+            "اطبع(ثنائي_إلى_نص(نص_إلى_ثنائي(\"﷽\")))\n",
+            "اطبع(ثنائي_إلى_نص(نص_إلى_ثنائي(\"𞸀\")))\n",
+            "اطبع(ثنائي_إلى_نص(نص_إلى_ثنائي(\"مرحبا\")) == \"مرحبا\")",
+        ),
+        &["A", "م", "﷽", "𞸀", "صحيح"],
+    );
+}
+
+/// Byte arrays written by hand, so the decoder cannot pass merely by agreeing
+/// with the encoder it inverts. `[217، 133]` is the load-bearing line: those are
+/// «م»'s two **octets**, so an implementation that read the array as codepoints
+/// would answer «Ù…» — two characters — instead.
+#[test]
+fn test_bytes_to_string_decodes_arrays_written_by_hand() {
+    assert_prints(
+        "نص_مكتوب",
+        concat!(
+            "اطبع(ثنائي_إلى_نص([104، 105]))\n",
+            "اطبع(ثنائي_إلى_نص([217، 133]))\n",
+            "اطبع(ثنائي_إلى_نص([239، 183، 189]))\n",
+            "اطبع(طول(ثنائي_إلى_نص([217، 133])))\n",
+            "متغير ب = [65، 122]\n",
+            "اطبع(ثنائي_إلى_نص(ب))",
+        ),
+        &["hi", "م", "﷽", "1", "Az"],
+    );
+}
+
+/// The load-bearing test, and it catches more than its sibling's did. Deleting
+/// the `register_builtin_return_types` entry leaves the module valid — `Ptr(Void)`
+/// and `String` are both LLVM `ptr` — so `اطبع` still printed «مرحبا» correctly.
+/// Measured with the entry removed: `نوع` answered `مؤشر`, concatenation printed
+/// `X4340804192`, and `==` answered `خطأ`. Printing alone passes; these three do
+/// not.
+#[test]
+fn test_bytes_to_string_result_composes_as_a_string() {
+    assert_prints(
+        "نص_تركيب",
+        concat!(
+            "اطبع(نوع(ثنائي_إلى_نص([65])))\n",
+            "اطبع(\"X\" + ثنائي_إلى_نص([65])) \n",
+            "اطبع(ثنائي_إلى_نص([65]) == \"A\")\n",
+            "اطبع(طول(ثنائي_إلى_نص([104، 105])))\n",
+            "اطبع(حرف_إلى_رمز(ثنائي_إلى_نص([217، 133])))",
+        ),
+        &["نص", "XA", "صحيح", "2", "1605"],
+    );
+}
+
+/// One rule covers both rejections: an element that is not a byte, and bytes that
+/// are not a UTF-8 encoding. Asserted through `طول`, never by expecting a printed
+/// `""` — `Output::lines()` trims, so that assertion could never fail.
+#[test]
+fn test_bytes_to_string_rejects_what_is_not_an_encoding() {
+    assert_prints(
+        "نص_مرفوض",
+        concat!(
+            // Not bytes.
+            "اطبع(طول(ثنائي_إلى_نص([300])))\n",
+            "اطبع(طول(ثنائي_إلى_نص([-1])))\n",
+            "اطبع(طول(ثنائي_إلى_نص([65، 256])))\n",
+            // Bytes, but not an encoding: never a lead byte, a truncated
+            // sequence, a stray continuation, an overlong U+0000, a surrogate.
+            "اطبع(طول(ثنائي_إلى_نص([255])))\n",
+            "اطبع(طول(ثنائي_إلى_نص([217])))\n",
+            "اطبع(طول(ثنائي_إلى_نص([133])))\n",
+            "اطبع(طول(ثنائي_إلى_نص([192، 128])))\n",
+            "اطبع(طول(ثنائي_إلى_نص([237، 160، 128])))\n",
+            // An empty array is a value, not a rejection: it has one decoding.
+            "اطبع(طول(ثنائي_إلى_نص([])))",
+        ),
+        &["0", "0", "0", "0", "0", "0", "0", "0", "0"],
+    );
+}
+
+/// `لا_شيء` reaches the arm through an `أي` holder rather than an optional
+/// annotation — `مصفوفة<عدد>؟` does not parse (ب٠١٠١) and a bare `لا_شيء` is
+/// refused at the argument. Without the `Value::Null` arm both interpreters raise
+/// a type error here while native answers `""`, which is the divergence class
+/// this whole increment exists to avoid.
+#[test]
+fn test_bytes_to_string_accepts_a_null_holder() {
+    assert_prints(
+        "نص_غائب",
+        concat!(
+            "متغير غائب: أي = لا_شيء\n",
+            "اطبع(طول(ثنائي_إلى_نص(غائب)))\n",
+            "اطبع(\"[\" + ثنائي_إلى_نص(غائب) + \"]\")",
+        ),
+        &["0", "[]"],
+    );
+}
+
+/// `docs/builtins-vs-stdlib.md` §1.3 claims criterion (a) — inexpressible — for
+/// this name, and that claim **expired** before it shipped: indexing over
+/// `مصفوفة<عدد>` (#330), the seven bitwise names (increment A) and `رمز_إلى_حرف`
+/// (#326) together make UTF-8 decoding writable in Tarqeem. So rather than repeat
+/// a stale claim, this asserts the equivalence — the third row in that document to
+/// need this treatment, after `بتات_نفي` and `بتات_إزاحة_يمين_منطقية`.
+///
+/// The scope is deliberately **valid input only**. The hand decoder reproduces
+/// the decoding, not the validation: rejecting overlong forms and surrogates is
+/// the half that stays materially harder to write by hand, and it is why the
+/// primitive is still worth having.
+#[test]
+fn test_bytes_to_string_matches_the_decoder_it_names() {
+    assert_prints(
+        "نص_مكافئ",
+        concat!(
+            "دالة فكك(ب: مصفوفة<عدد>) -> نص {\n",
+            "    متغير ناتج = \"\"\n",
+            "    متغير ي = 0\n",
+            "    طالما (ي < طول(ب)) {\n",
+            "        ثابت بادئ = ب[ي]\n",
+            "        متغير رمز = 0\n",
+            "        متغير عرض = 1\n",
+            "        إذا (بادئ < 128) {\n",
+            "            رمز = بادئ\n",
+            "        } وإلا إذا (بتات_و(بادئ، 224) == 192) {\n",
+            "            رمز = بتات_و(بادئ، 31)\n",
+            "            عرض = 2\n",
+            "        } وإلا إذا (بتات_و(بادئ، 240) == 224) {\n",
+            "            رمز = بتات_و(بادئ، 15)\n",
+            "            عرض = 3\n",
+            "        } وإلا {\n",
+            "            رمز = بتات_و(بادئ، 7)\n",
+            "            عرض = 4\n",
+            "        }\n",
+            "        متغير خطوة = 1\n",
+            "        طالما (خطوة < عرض) {\n",
+            "            رمز = بتات_أو(بتات_إزاحة_يسار(رمز، 6)، بتات_و(ب[ي + خطوة]، 63))\n",
+            "            خطوة = خطوة + 1\n",
+            "        }\n",
+            "        ناتج = ناتج + رمز_إلى_حرف(رمز)\n",
+            "        ي = ي + عرض\n",
+            "    }\n",
+            "    أرجع ناتج\n",
+            "}\n",
+            "لكل نص_مدخل في [\"A\"، \"م\"، \"﷽\"، \"𞸀\"، \"مرحبا\"، \"Az0\"، \"\"] {\n",
+            "    ثابت بايتات = نص_إلى_ثنائي(نص_مدخل)\n",
+            "    اطبع(ثنائي_إلى_نص(بايتات) == فكك(بايتات))\n",
+            "}",
+        ),
+        &["صحيح", "صحيح", "صحيح", "صحيح", "صحيح", "صحيح", "صحيح"],
+    );
+}
+
+/// Builtins are the last lookup tier, so a user definition must win in every
+/// backend (#262) — including past codegen's `mangle_function_name`, which would
+/// otherwise emit `@trq_string_from_bytes` for the user's own function.
+#[test]
+fn test_user_function_shadows_bytes_to_string() {
+    assert_prints(
+        "نص_مظلل",
+        concat!(
+            "دالة ثنائي_إلى_نص(ب: مصفوفة<عدد>) -> نص {\n",
+            "    أرجع \"دالتي\"\n",
+            "}\n",
+            "اطبع(ثنائي_إلى_نص([104، 105]))",
+        ),
+        &["دالتي"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // طول over a string — characters, not bytes (#185)
 // ---------------------------------------------------------------------------
 
@@ -2424,6 +2602,9 @@ fn test_every_core_builtin_agrees_across_backends() {
         // degradation that would otherwise look right: counting characters
         // instead of octets, which agrees with the byte count on all ASCII.
         ("نص_إلى_ثنائي", "اطبع(طول(نص_إلى_ثنائي(\"م\")))", &["2"]),
+        // «م»'s two octets, so this one line rejects the plausible degradation:
+        // reading the array as codepoints answers «Ù…» instead.
+        ("ثنائي_إلى_نص", "اطبع(ثنائي_إلى_نص([217، 133]))", &["م"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();

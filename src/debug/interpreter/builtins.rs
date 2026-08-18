@@ -3,7 +3,7 @@
 use std::io::{self, Write};
 
 use crate::interpreter::epoch_millis;
-use crate::interpreter::{RuntimeError, RuntimeResult, Value};
+use crate::interpreter::{bytes_to_string, RuntimeError, RuntimeResult, Value};
 
 use super::DebugInterpreter;
 
@@ -30,6 +30,7 @@ impl DebugInterpreter {
                 | "حرف_إلى_رمز"
                 | "رمز_إلى_حرف"
                 | "نص_إلى_ثنائي"
+                | "ثنائي_إلى_نص"
                 // Runtime symbols the IR builder lowers core builtins to
                 // (#222). Without these, stepping through `عدد("٥")` or
                 // `تأكد(...)` aborts with "دالة غير معرّفة".
@@ -218,6 +219,29 @@ impl DebugInterpreter {
                     )),
                     Value::Null => Ok(Value::array()),
                     _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
+            }
+
+            // Its inverse, and the rejection is what keeps the backends
+            // agreeing: a `Value::String` is a Rust `String` and cannot hold
+            // invalid UTF-8 at all, so answering `""` is the only contract both
+            // this and native can honour. See `trq_string_from_bytes`.
+            "ثنائي_إلى_نص" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("ثنائي_إلى_نص() تتطلب معامل واحد")
+                })?;
+
+                match val {
+                    Value::Array(arr) => Ok(Value::string(
+                        bytes_to_string(&arr.borrow()).unwrap_or_default(),
+                    )),
+                    // Load-bearing, but reached differently from its sibling:
+                    // `مصفوفة<عدد>؟` does not parse (ب٠١٠١) and a bare `لا_شيء`
+                    // is refused at the argument, so the route is an `أي` holder
+                    // — where native's null guard answers `""` and erroring here
+                    // instead would abort on source native runs fine.
+                    Value::Null => Ok(Value::string("")),
+                    _ => Err(RuntimeError::type_error("مصفوفة", val.type_name())),
                 }
             }
 
@@ -476,6 +500,47 @@ mod tests {
             let actual: Vec<i64> = bytes.borrow().iter().filter_map(|v| v.as_int()).collect();
             assert_eq!(actual, expected);
         }
+    }
+
+    /// The inverse arm, and the rejections matter more here than the successes:
+    /// the debugger shares `bytes_to_string` with the main interpreter, so what
+    /// this pins is that the *dispatch* exists and keys on the Arabic name.
+    #[test]
+    fn test_bytes_to_string_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("ثنائي_إلى_نص"),
+            "ثنائي_إلى_نص غير مُعرَّف كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        for (slots, expected) in [
+            (vec![65], "A"),
+            (vec![0xD9, 0x85], "م"),
+            (vec![104, 105], "hi"),
+            (vec![], ""),
+            // Not bytes, and not valid UTF-8, both answering `""` — the one rule.
+            (vec![300], ""),
+            (vec![-1], ""),
+            (vec![0xD9], ""),
+        ] {
+            let argument = Value::array_from(slots.iter().map(|b| Value::Int(*b)).collect());
+            let result = interpreter
+                .call_builtin("ثنائي_إلى_نص", vec![argument])
+                .expect("ثنائي_إلى_نص أخفق في مفسّر التنقيح");
+
+            assert_eq!(result.as_string(), Some(expected), "من {slots:?}");
+        }
+
+        // Reached through an `أي` holder rather than an optional annotation —
+        // `مصفوفة<عدد>؟` does not parse. Native answers `""` for it.
+        let null = interpreter
+            .call_builtin("ثنائي_إلى_نص", vec![Value::Null])
+            .expect("ثنائي_إلى_نص أخفق على لا_شيء");
+        assert_eq!(null.as_string(), Some(""));
     }
 
     #[test]

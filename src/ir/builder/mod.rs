@@ -317,6 +317,11 @@ impl IrBuilder {
             "نص_إلى_ثنائي".to_string(),
             IrType::Array(Box::new(IrType::Int), 0),
         );
+        // Quiet unregistered for the same reason as the line above, not `جذر`'s
+        // loud one: `Ptr(Void)` and `String` are both `ptr`, so the module still
+        // links and then reads a `TrqString` as whatever the sentinel implies.
+        self.function_return_types
+            .insert("ثنائي_إلى_نص".to_string(), IrType::String);
 
         // اقرأ_سطر (read_line) returns string
         self.function_return_types
