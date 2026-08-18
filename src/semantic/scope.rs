@@ -182,6 +182,18 @@ impl Scope {
             ("طول_مصفوفة", vec![Type::Any], Type::Int),
             ("الحق", vec![Type::Any, Type::Any], Type::Void),
             // Strings - دوال النصوص
+            // The codepoint slicer, and core tier rather than the `نص` module
+            // because §5.2 keeps a no-import name a builtin: it indexes by
+            // codepoint, not by byte, which is what keeps a caller's «عدد أحرف»
+            // from cutting an Arabic letter in half. Total — a negative start, a
+            // start past the end, or a non-positive length all answer `""`, and a
+            // length past the end clamps — so it never needs a range check at the
+            // call site. Mirrors `trq_string_substr_chars`.
+            (
+                "قص_حروف",
+                vec![Type::String, Type::Int, Type::Int],
+                Type::String,
+            ),
             // The codepoint accessor: `-1` when there is no first character,
             // since U+0000 is itself a codepoint. Takes `نص` rather than `أي`
             // so it composes at a concrete type in every backend.
@@ -410,17 +422,10 @@ impl Scope {
             // نص (String) - String manipulation functions
             // =======================================================================
             "نص" => match name {
-                // Slicing
-                "قص_نص" => Some(builtin(
-                    "قص_نص",
-                    vec![Type::String, Type::Int, Type::Int],
-                    Type::String,
-                )),
-                "قص_حروف" => Some(builtin(
-                    "قص_حروف",
-                    vec![Type::String, Type::Int, Type::Int],
-                    Type::String,
-                )),
+                // Slicing. `قص_حروف` used to sit here and is now core tier, so it
+                // needs no import; `قص_نص` sliced by *byte* and is gone — the
+                // primitive string surface is uniformly codepoint-indexed, and
+                // byte-level work goes through `نص_إلى_ثنائي`/`ثنائي_إلى_نص`.
                 "حرف_في" => Some(builtin(
                     "حرف_في",
                     vec![Type::String, Type::Int],
@@ -879,8 +884,6 @@ impl Scope {
                 "عشوائي_منطقي",
             ],
             "نص" => vec![
-                "قص_نص",
-                "قص_حروف",
                 "حرف_في",
                 "يحتوي",
                 "يبدأ_بـ",

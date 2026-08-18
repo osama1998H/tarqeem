@@ -14,9 +14,9 @@ backed by a mechanical count that agrees with the hand enumeration.
 
 | | |
 |---|---|
-| Names declared in `Scope` | **194** — 29 `core_builtins()` + 165 `get_stdlib_builtin()` across 7 modules |
-| Names reachable on *some* backend | **245** — the extra 52 exist in a backend but in no registry, so no program can call them |
-| `runtime-rs` exports | **221** `#[no_mangle] pub extern "C" fn` |
+| Names declared in `Scope` | **193** — 30 `core_builtins()` + 163 `get_stdlib_builtin()` across 7 modules |
+| Names reachable on *some* backend | **244** — the extra 51 exist in a backend but in no registry, so no program can call them |
+| `runtime-rs` exports | **220** `#[no_mangle] pub extern "C" fn` |
 | … of which ABI-internal (compiler-emitted plumbing) | **22** — excluded from the language surface |
 | … of which orphans (no caller anywhere) | **28** |
 | … reachable from a declared name | **157** |
@@ -72,6 +72,12 @@ type-checks clean.** So the disk loader is production machinery, not a thing to 
 
 These are the defects the inventory surfaced. They are recorded here because they set the cost of
 the refactor; fixing them is scoped in the plan document, not here.
+
+> **Snapshot notice.** §2's counts are the original census's, taken before any name landed. They are
+> left as measured rather than continuously re-derived — re-running the whole census is a separate
+> pass — so read them as "what the census found", not as current state. The §0 table and §4's rows
+> *are* kept current. Known drift since: #336 moved `قص_حروف` to core tier and removed `قص_نص`, so
+> §2.2's «32 of 41 نص» and §2.10's stdlib-registry figures are each one or two low.
 
 ### 2.1 The default backend is the weakest one
 
@@ -218,7 +224,7 @@ different universes.
 
 ## 4. The inventory
 
-#### `core` — 32
+#### `core` — 33
 
 Rows marked **مُنفَّذ** landed after this census; the backend columns are re-verified,
 not carried over from the original pass.
@@ -242,6 +248,7 @@ not carried over from the original pass.
 | `بتات_نفي` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#312) |
 | `بتات_و` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#302) |
 | `ثنائي_إلى_نص` | ✓ | ✓ | ✓ | ✓ | `trq_string_from_bytes` | مدمج | primitive، **مُنفَّذ** (#333) |
+| `قص_حروف` | ✓ | ✓ | ✓ | ✓ | `trq_string_substr_chars` | مدمج | primitive، **مُنفَّذ** (#336) — نُقل من `نص` |
 | `تأكد` | ✓ | ✓ | ✗ | ✓ | `trq_assert` | مكتبة |  |
 | `تأكد_رسالة` | ✓ | ✓ | ✗ | ✓ | `-` | مكتبة |  |
 | `توقف` | ✓ | ✓ | ✗ | ~ | `trq_panic` | مدمج | primitive |
@@ -333,7 +340,7 @@ not carried over from the original pass.
 | `مطلق` | ✓ | ✓ | ✓ | ~ | `trq_abs_float` | مكتبة |  |
 | `مطلق_عدد` | ✓ | ✓ | ✗ | ~ | `trq_abs_int` | يُحذف | alias collapse |
 
-#### `نص` — 41
+#### `نص` — 39
 
 | الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
 |---|:-:|:-:|:-:|:-:|---|---|---|
@@ -361,8 +368,6 @@ not carried over from the original pass.
 | `عنوان` | ✓ | ✗ | ✗ | ~ | `trq_string_to_title` | مكتبة |  |
 | `قارن_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_compare` | مكتبة |  |
 | `قسّم` | ✓ | ✗ | ✗ | ~ | `trq_string_split` | مكتبة |  |
-| `قص_حروف` | ✓ | ✗ | ✗ | ~ | `trq_string_substr_chars` | مدمج | primitive |
-| `قص_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_substr` | يُحذف | alias/dead |
 | `كبير` | ✓ | ✗ | ✗ | ~ | `trq_string_to_upper` | مكتبة |  |
 | `كرر` | ✓ | ✗ | ✗ | ✗ | `-` | يُحذف | alias/dead، **معطّل اليوم** |
 | `كرر_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_repeat` | مكتبة |  |

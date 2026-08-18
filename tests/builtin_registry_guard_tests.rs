@@ -51,6 +51,7 @@ const CORE_BUILTINS: &[&str] = &[
     "طباعة",
     "طول",
     "طول_مصفوفة",
+    "قص_حروف",
     "عدد",
     "عدد_عشري",
     "منطقي",
@@ -64,7 +65,11 @@ const CORE_BUILTINS: &[&str] = &[
 /// Names per stdlib module, as a ratchet on the size of each import surface.
 const STDLIB_MODULE_SIZES: &[(&str, usize)] = &[
     ("رياضيات", 64),
-    ("نص", 41),
+    // 41 until #336, which took two names out for different reasons: `قص_حروف`
+    // was promoted to the core tier (still callable, now with no import), and
+    // `قص_نص` was removed outright — the primitive string surface is uniformly
+    // codepoint-indexed, and byte work goes through `نص_إلى_ثنائي`/`ثنائي_إلى_نص`.
+    ("نص", 39),
     ("ملفات", 21),
     ("وقت", 2),
     ("تشفير", 8),
@@ -181,9 +186,13 @@ fn stdlib_registry_size_is_locked() {
     );
 
     let total: usize = STDLIB_MODULE_SIZES.iter().map(|(_, n)| n).sum();
+    // 194 until #336. A promotion is size-neutral — `قص_حروف` left `نص` and
+    // joined `CORE_BUILTINS` — so the whole of this step is `قص_نص`'s removal,
+    // and it is the first name the migration has actually dropped rather than
+    // moved.
     assert_eq!(
         total + CORE_BUILTINS.len(),
-        194,
+        193,
         "total registry size changed; docs/builtins-vs-stdlib.md targets 40 primitives — reached \
          by migrating ~150 names out and adding 21 new ones, so this number moves in both \
          directions, but only ever deliberately"

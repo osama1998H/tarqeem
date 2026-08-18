@@ -2021,6 +2021,182 @@ fn test_user_function_shadows_bytes_to_string() {
 }
 
 // ---------------------------------------------------------------------------
+// قص_حروف — the codepoint slicer (#336)
+// ---------------------------------------------------------------------------
+
+/// The whole point of the name: it counts characters, not octets. Every fixture
+/// here is multi-byte, because a byte slicer agrees with a codepoint slicer on
+/// all of ASCII — that agreement is exactly how a regression would pass.
+#[test]
+fn test_substr_chars_slices_by_codepoint_in_every_backend() {
+    assert_prints(
+        "قص_حروف_أساسي",
+        concat!(
+            "اطبع(قص_حروف(\"مرحبا\"، 1، 3))\n",
+            // One codepoint of each UTF-8 width in one string, so a slicer that
+            // walked bytes would cut inside the 3- and 4-byte characters.
+            "اطبع(قص_حروف(\"A﷽م𞸀ب\"، 1، 3))\n",
+            "اطبع(قص_حروف(\"𞸀م\"، 0، 1))\n",
+            "اطبع(قص_حروف(\"مرحبا\"، 0، 5))\n",
+        ),
+        &["رحب", "﷽م𞸀", "𞸀", "مرحبا"],
+    );
+}
+
+/// The load-bearing test, and the one that fails if the
+/// `register_builtin_return_types` entry is ever dropped. That was `قص_حروف`'s
+/// state for two releases (**B7**): mapped to a runtime symbol with no registered
+/// return type, so it *printed* correctly while carrying the `Ptr(Void)` sentinel.
+///
+/// Measured natively with the entry removed, exactly as #333 measured its own —
+/// and **four** of the five assertions catch it, where #333's array caught one and
+/// its string caught three. `نوع` answered `مؤشر`, `"X" + …` printed
+/// `X4341079168`, `== "رح"` answered `خطأ`, and `طول` answered **6 instead of 3**:
+/// the sentinel routes it to `trq_array_len`, which reads `TrqString.len` — the
+/// byte count. So the failure mode of dropping the entry is that this name starts
+/// counting bytes, which is the one thing it exists not to do. Only
+/// `حرف_إلى_رمز` still answered correctly, and printing alone passed. The binary
+/// exited 0 throughout.
+#[test]
+fn test_substr_chars_result_composes_as_a_string() {
+    assert_prints(
+        "قص_حروف_تركيب",
+        concat!(
+            "اطبع(نوع(قص_حروف(\"مرحبا\"، 1، 2)))\n",
+            "اطبع(\"X\" + قص_حروف(\"مرحبا\"، 1، 2))\n",
+            "اطبع(قص_حروف(\"مرحبا\"، 1، 2) == \"رح\")\n",
+            "اطبع(طول(قص_حروف(\"مرحبا\"، 1، 3)))\n",
+            "اطبع(حرف_إلى_رمز(قص_حروف(\"مرحبا\"، 0، 1)))\n",
+        ),
+        &["نص", "Xرح", "صحيح", "3", "1605"],
+    );
+}
+
+/// Total, so no call site needs a range check before calling it. Each answer is
+/// `trq_string_substr_chars`'s, copied rather than chosen — a negative start, a
+/// start past the end and a non-positive length all give `""`, and a length past
+/// the end clamps to what remains.
+///
+/// Asserted through `طول` rather than by printing, because an empty line and a
+/// line that failed to print are the same line.
+#[test]
+fn test_substr_chars_is_total_out_of_range() {
+    assert_prints(
+        "قص_حروف_مدى",
+        concat!(
+            "اطبع(طول(قص_حروف(\"مرحبا\"، -1، 2)))\n",
+            "اطبع(طول(قص_حروف(\"مرحبا\"، 9، 2)))\n",
+            "اطبع(طول(قص_حروف(\"مرحبا\"، 5، 1)))\n",
+            "اطبع(طول(قص_حروف(\"مرحبا\"، 1، 0)))\n",
+            "اطبع(طول(قص_حروف(\"مرحبا\"، 1، -3)))\n",
+            "اطبع(طول(قص_حروف(\"\"، 0، 1)))\n",
+            // Clamping, not truncation to nothing: three characters remain.
+            "اطبع(طول(قص_حروف(\"مرحبا\"، 2، 99)))\n",
+        ),
+        &["0", "0", "0", "0", "0", "0", "3"],
+    );
+}
+
+/// `Type::compat` lets an un-narrowed `نص؟` into a `نص` parameter and native
+/// lowers it to `ptr null`, where the runtime's guard answers `""`. Without the
+/// interpreter's `Value::Null` arm this source aborts interpreted while running
+/// fine natively — the divergence class #324 found and #330 confirmed.
+///
+/// The two `عدد` parameters get no such arm, and that is deliberate: there
+/// native's `0` is an artifact of passing a null pointer in an i64 slot, not a
+/// designed answer, so mirroring it would encode #327 as contract.
+#[test]
+fn test_substr_chars_accepts_a_null_holder() {
+    assert_prints(
+        "قص_حروف_غائب",
+        concat!(
+            "متغير غائب: نص? = لا_شيء\n",
+            "اطبع(طول(قص_حروف(غائب، 0، 3)))\n",
+            "اطبع(قص_حروف(غائب، 0، 3) == \"\")\n",
+        ),
+        &["0", "صحيح"],
+    );
+}
+
+/// §1.3 of `docs/builtins-vs-stdlib.md` justifies this name under criterion (a),
+/// and that claim **expired** before it shipped — the fourth row in that document
+/// to need this treatment, after `بتات_نفي` (#312), `بتات_إزاحة_يمين_منطقية`
+/// (#322) and `ثنائي_إلى_نص` (#333). `نص_إلى_ثنائي` (#330), indexing
+/// over `مصفوفة<عدد>` and the bitwise family together make a codepoint slicer
+/// writable in Tarqeem, so rather than repeat a stale claim this asserts the
+/// equivalence.
+///
+/// It ships as a primitive anyway, on grounds that do not depend on
+/// inexpressibility: §5.2 keeps a no-import name a builtin until **B12** is fixed,
+/// so stdlib is not an available home, and it is a repair of an already-registered
+/// name rather than a new one.
+///
+/// The accumulator is seeded with `نص_إلى_ثنائي("")` rather than a `[]` literal:
+/// the literal route is refused by codegen for a typed array, and the empty
+/// array's zero capacity is the shape that used to hang `الحق` natively.
+#[test]
+fn test_substr_chars_matches_the_slicer_it_names() {
+    assert_prints(
+        "قص_حروف_مكافئ",
+        concat!(
+            "دالة اسلخ(س: نص، بداية: عدد، عدد_أحرف: عدد) -> نص {\n",
+            "    إذا (بداية < 0 || عدد_أحرف <= 0) {\n",
+            "        أرجع \"\"\n",
+            "    }\n",
+            "    ثابت بايتات = نص_إلى_ثنائي(س)\n",
+            "    متغير ناتج = نص_إلى_ثنائي(\"\")\n",
+            "    متغير موضع = 0\n",
+            "    متغير رقم_الحرف = 0\n",
+            "    طالما (موضع < طول(بايتات)) {\n",
+            "        ثابت بادئ = بايتات[موضع]\n",
+            "        متغير عرض = 1\n",
+            "        إذا (بتات_و(بادئ، 224) == 192) {\n",
+            "            عرض = 2\n",
+            "        } وإلا إذا (بتات_و(بادئ، 240) == 224) {\n",
+            "            عرض = 3\n",
+            "        } وإلا إذا (بتات_و(بادئ، 248) == 240) {\n",
+            "            عرض = 4\n",
+            "        }\n",
+            "        إذا (رقم_الحرف >= بداية && رقم_الحرف < بداية + عدد_أحرف) {\n",
+            "            متغير خطوة = 0\n",
+            "            طالما (خطوة < عرض) {\n",
+            "                الحق(ناتج، بايتات[موضع + خطوة])\n",
+            "                خطوة = خطوة + 1\n",
+            "            }\n",
+            "        }\n",
+            "        موضع = موضع + عرض\n",
+            "        رقم_الحرف = رقم_الحرف + 1\n",
+            "    }\n",
+            "    أرجع ثنائي_إلى_نص(ناتج)\n",
+            "}\n",
+            "اطبع(اسلخ(\"مرحبا\"، 1، 3) == قص_حروف(\"مرحبا\"، 1، 3))\n",
+            "اطبع(اسلخ(\"A﷽م𞸀ب\"، 1، 3) == قص_حروف(\"A﷽م𞸀ب\"، 1، 3))\n",
+            "اطبع(اسلخ(\"مرحبا\"، 0، 9) == قص_حروف(\"مرحبا\"، 0، 9))\n",
+            "اطبع(اسلخ(\"مرحبا\"، -1، 2) == قص_حروف(\"مرحبا\"، -1، 2))\n",
+            "اطبع(اسلخ(\"مرحبا\"، 9، 2) == قص_حروف(\"مرحبا\"، 9، 2))\n",
+        ),
+        &["صحيح", "صحيح", "صحيح", "صحيح", "صحيح"],
+    );
+}
+
+/// Builtins are the last lookup tier, so a user definition must win in every
+/// backend (#262) — including past codegen's `mangle_function_name`, which would
+/// otherwise emit `@trq_string_substr_chars` for the user's own function.
+#[test]
+fn test_user_function_shadows_substr_chars() {
+    assert_prints(
+        "قص_حروف_مظلل",
+        concat!(
+            "دالة قص_حروف(س: نص، ب: عدد، ط: عدد) -> نص {\n",
+            "    أرجع \"دالتي\"\n",
+            "}\n",
+            "اطبع(قص_حروف(\"مرحبا\"، 1، 2))",
+        ),
+        &["دالتي"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // طول over a string — characters, not bytes (#185)
 // ---------------------------------------------------------------------------
 
@@ -2592,6 +2768,9 @@ fn test_every_core_builtin_agrees_across_backends() {
             "اطبع(بتات_إزاحة_يمين_منطقية(-1، 63))",
             &["1"],
         ),
+        // Two-byte Arabic letters throughout, so this one line rejects the
+        // degradation a byte slicer would give: `رح` is bytes 2-5, not 1-3.
+        ("قص_حروف", "اطبع(قص_حروف(\"مرحبا\"، 1، 3))", &["رحب"]),
         // A two-byte Arabic letter, so this one line rejects both plausible
         // degradations: a byte read gives 217 and a `طول`-style count gives 1.
         ("حرف_إلى_رمز", "اطبع(حرف_إلى_رمز(\"مرحبا\"))", &["1605"]),
