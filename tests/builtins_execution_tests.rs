@@ -2119,9 +2119,9 @@ fn test_substr_chars_accepts_a_null_holder() {
 }
 
 /// §1.3 of `docs/builtins-vs-stdlib.md` justifies this name under criterion (a),
-/// and that claim **expired** before it shipped — the third row in that document
-/// to need this treatment, after `بتات_إزاحة_يمين_منطقية` (#322) and
-/// `ثنائي_إلى_نص` (#333). `نص_إلى_ثنائي` (#330), `ثنائي_إلى_نص` (#333), indexing
+/// and that claim **expired** before it shipped — the fourth row in that document
+/// to need this treatment, after `بتات_نفي` (#312), `بتات_إزاحة_يمين_منطقية`
+/// (#322) and `ثنائي_إلى_نص` (#333). `نص_إلى_ثنائي` (#330), indexing
 /// over `مصفوفة<عدد>` and the bitwise family together make a codepoint slicer
 /// writable in Tarqeem, so rather than repeat a stale claim this asserts the
 /// equivalence.

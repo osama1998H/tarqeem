@@ -14,9 +14,9 @@ backed by a mechanical count that agrees with the hand enumeration.
 
 | | |
 |---|---|
-| Names declared in `Scope` | **194** — 29 `core_builtins()` + 165 `get_stdlib_builtin()` across 7 modules |
-| Names reachable on *some* backend | **245** — the extra 52 exist in a backend but in no registry, so no program can call them |
-| `runtime-rs` exports | **221** `#[no_mangle] pub extern "C" fn` |
+| Names declared in `Scope` | **193** — 30 `core_builtins()` + 163 `get_stdlib_builtin()` across 7 modules |
+| Names reachable on *some* backend | **244** — the extra 51 exist in a backend but in no registry, so no program can call them |
+| `runtime-rs` exports | **220** `#[no_mangle] pub extern "C" fn` |
 | … of which ABI-internal (compiler-emitted plumbing) | **22** — excluded from the language surface |
 | … of which orphans (no caller anywhere) | **28** |
 | … reachable from a declared name | **157** |
@@ -72,6 +72,12 @@ type-checks clean.** So the disk loader is production machinery, not a thing to 
 
 These are the defects the inventory surfaced. They are recorded here because they set the cost of
 the refactor; fixing them is scoped in the plan document, not here.
+
+> **Snapshot notice.** §2's counts are the original census's, taken before any name landed. They are
+> left as measured rather than continuously re-derived — re-running the whole census is a separate
+> pass — so read them as "what the census found", not as current state. The §0 table and §4's rows
+> *are* kept current. Known drift since: #336 moved `قص_حروف` to core tier and removed `قص_نص`, so
+> §2.2's «32 of 41 نص» and §2.10's stdlib-registry figures are each one or two low.
 
 ### 2.1 The default backend is the weakest one
 

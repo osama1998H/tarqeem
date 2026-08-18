@@ -3797,8 +3797,9 @@ to `ptr null`, and the runtime guard answers `""` — so the arm mirrors a desig
   `test_substr_chars_matches_the_slicer_it_names`.
 - The **second** half did not. **B6** is still open; `س[i]` is still `Ptr(Void)`.
 
-Three of Increment B's five names had their criterion expire, two held. Worth separating from the
-count: the two halves of a single justification can expire at different times, and here the operation
+**Three of Increment B's five held** — #324, #326 and #330 — and two expired, #333 and this one.
+Doc-wide it is the fourth expiry, after `بتات_نفي` (#312) and `بتات_إزاحة_يمين_منطقية` (#322).
+Worth separating from the count: the two halves of a single justification can expire at different times, and here the operation
 became expressible while the idiomatic route to it stayed broken. Reading one as evidence for the
 other would have retired **B6** by mistake.
 

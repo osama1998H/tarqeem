@@ -161,11 +161,12 @@ Legend for **status**: `unchanged` · `renamed` · `narrowed` · `new`.
 > §5.2 keeps a no-import name a builtin until **B12** — with one addition the earlier expiries did not
 > have: the *validating* half stays materially harder to hand-write, which is what the primitive buys.
 >
-> **Correction (#333) — second part, and it is a different kind again.** `قص_حروف`'s row above
+> **Correction (#336).** `قص_حروف`'s row above
 > claimed it is "the only way self-hosted Tarqeem can reach the i-th character at all", citing
 > probes p4/p7. Both halves of that were true when written; the **first expired** when the byte
 > bridge closed. `نص_إلى_ثنائي` (#330) and `ثنائي_إلى_نص` (#333), with indexing over `مصفوفة<عدد>`
-> and the bitwise family, make a codepoint slicer writable in Tarqeem — pinned by
+> and the bitwise family, make a codepoint slicer writable in Tarqeem — the **fourth** row to expire,
+> after `بتات_نفي` (#312), `بتات_إزاحة_يمين_منطقية` (#322) and `ثنائي_إلى_نص` (#333) — pinned by
 > `test_substr_chars_matches_the_slicer_it_names`, which runs a hand-written one beside the builtin
 > in all three backends and finds them equal, out of range included. It shipped anyway on `بتات_نفي`'s
 > grounds — core tier, and §5.2 keeps a no-import name a builtin until **B12** — plus one this
@@ -687,8 +688,8 @@ is paid at scale.
 **Complete: 5 of 5 landed.** `حرف_إلى_رمز` (#324), `رمز_إلى_حرف` (#326), `نص_إلى_ثنائي` (#330),
 `ثنائي_إلى_نص` (#333) and `قص_حروف` (#336), which closes **B7**. **Not one atomic change** — the
 increment landed a name at a time, as Increment A did, and each name's criterion (a) was re-derived
-when its turn came rather than trusted from §1.3. Two of the five held on re-derivation and three
-had expired.
+when its turn came rather than trusted from §1.3. **Three of the five held** on re-derivation —
+#324, #326 and #330 — and two had expired, #333 and #336.
 
 **What #324 measured, since Increment A's cost note does not transfer.** The seven bitwise names
 were IR-intercepted and cost two files each; `حرف_إلى_رمز` is the first *new* symbol-mapped core
