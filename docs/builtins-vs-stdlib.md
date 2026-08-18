@@ -716,7 +716,9 @@ Three things #324 found that the plan did not state:
    slice fails when *any* later byte is invalid, which would throw away a perfectly decodable first
    character. The reason given here was that `ثنائي_إلى_نص` would not validate, which #333 withdrew;
    the guidance survives its own rationale, because a `TrqString` can hold invalid UTF-8 natively
-   anyway — `trq_string_new` takes raw bytes and `قص_نص` cuts on byte boundaries.
+   anyway — `trq_string_new` takes raw bytes, and nothing on the way in validates them. (The
+   rationale as first written also cited `قص_نص` cutting on byte boundaries; #336 removed that
+   name, and the guidance survives that too — the same rewording landed in `string.rs`.)
 
 **What #326 added, and one correction to the above.** `رمز_إلى_حرف` cost the same nine sites and
 found nothing new about the path, which is the result. Its criterion (a) was re-derived and
