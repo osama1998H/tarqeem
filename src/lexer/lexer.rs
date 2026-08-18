@@ -978,10 +978,12 @@ mod tests {
         // followed by a *letter* rather than `_`, which is the only case where a
         // resumed scan would split a word rather than at a separator.
         //
-        // The last is the only one whose keyword — «نص» — opens the name. A scan
-        // that preferred the longest keyword prefix would emit `TypeString` and
-        // then `_إلى_ثنائي`, which is a *plausible* token pair (a type followed
-        // by a name), so it would fail somewhere later rather than here.
+        // The sixth is the only one whose keyword — «نص» — opens the
+        // name. A scan that preferred the longest keyword prefix would emit
+        // `TypeString` and then `_إلى_ثنائي`, which is a *plausible* token pair (a
+        // type followed by a name), so it would fail somewhere later rather than
+        // here. The last is its mirror, «نص» in trailing position — the same shape
+        // `بتات_و` already covers, listed so the pair reads together.
         let cases = [
             ("بتات_و(12، 10)", "بتات_و"),
             ("بتات_أو(12، 10)", "بتات_أو"),
@@ -989,6 +991,7 @@ mod tests {
             ("بتات_نفي(255)", "بتات_نفي"),
             ("بتات_إزاحة_يمين_منطقية(255، 4)", "بتات_إزاحة_يمين_منطقية"),
             ("نص_إلى_ثنائي(\"م\")", "نص_إلى_ثنائي"),
+            ("ثنائي_إلى_نص([65])", "ثنائي_إلى_نص"),
         ];
 
         for (source, name) in cases {

@@ -43,6 +43,20 @@ fn value_to_byte(v: &Value) -> Result<u8, RuntimeError> {
     }
 }
 
+/// The bytes of `values` decoded as UTF-8, or `None` when they are not a UTF-8
+/// encoding — an element outside 0-255, or an invalid sequence.
+///
+/// Deliberately not `value_to_byte` above: that one *errors* out of range, which
+/// would raise a runtime error here where native answers `""`. A divergence in
+/// exactly the class `ثنائي_إلى_نص` exists to avoid.
+pub(crate) fn bytes_to_string(values: &[Value]) -> Option<String> {
+    let mut bytes = Vec::with_capacity(values.len());
+    for value in values {
+        bytes.push(u8::try_from(value.as_int()?).ok()?);
+    }
+    String::from_utf8(bytes).ok()
+}
+
 impl Interpreter {
     pub(crate) fn is_builtin(&self, name: &str) -> bool {
         matches!(
@@ -154,6 +168,7 @@ impl Interpreter {
                 | "حرف_إلى_رمز"
                 | "رمز_إلى_حرف"
                 | "نص_إلى_ثنائي"
+                | "ثنائي_إلى_نص"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
                 | "نص_ينتهي_بـ"
@@ -1032,6 +1047,29 @@ impl Interpreter {
                     // abort on source native runs fine.
                     Value::Null => Ok(Value::array()),
                     _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
+            }
+
+            // Its inverse, and the rejection is what keeps the backends
+            // agreeing: a `Value::String` is a Rust `String` and cannot hold
+            // invalid UTF-8 at all, so answering `""` is the only contract both
+            // this and native can honour. See `trq_string_from_bytes`.
+            "ثنائي_إلى_نص" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("ثنائي_إلى_نص() تتطلب معامل واحد")
+                })?;
+
+                match val {
+                    Value::Array(arr) => Ok(Value::string(
+                        bytes_to_string(&arr.borrow()).unwrap_or_default(),
+                    )),
+                    // Load-bearing, but reached differently from its sibling:
+                    // `مصفوفة<عدد>؟` does not parse (ب٠١٠١) and a bare `لا_شيء`
+                    // is refused at the argument, so the route is an `أي` holder
+                    // — where native's null guard answers `""` and erroring here
+                    // instead would abort on source native runs fine.
+                    Value::Null => Ok(Value::string("")),
+                    _ => Err(RuntimeError::type_error("مصفوفة", val.type_name())),
                 }
             }
 

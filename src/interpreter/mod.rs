@@ -30,6 +30,7 @@ mod value;
 mod executor_tests;
 
 pub use error::{ErrorKind, RuntimeError, RuntimeResult};
+pub(crate) use executor::builtins::bytes_to_string;
 pub use executor::Interpreter;
 pub use value::Value;
 

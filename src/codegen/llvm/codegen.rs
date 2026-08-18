@@ -708,6 +708,7 @@ impl LlvmCodegen {
         emit!(self, "declare i64 @trq_string_char_code(ptr)");
         emit!(self, "declare ptr @trq_string_from_char_code(i64)");
         emit!(self, "declare ptr @trq_string_to_bytes(ptr)");
+        emit!(self, "declare ptr @trq_string_from_bytes(ptr)");
         emit!(self, "declare i1 @trq_string_contains(ptr, ptr)");
         emit!(self, "declare i1 @trq_string_starts_with(ptr, ptr)");
         emit!(self, "declare i1 @trq_string_ends_with(ptr, ptr)");
@@ -2869,6 +2870,9 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         // declares is a `TrqArray*`, told apart from a `TrqString*` only by the
         // `IrType::Array` registered in the IR builder.
         "نص_إلى_ثنائي" => Some("trq_string_to_bytes"),
+        // The mirror: the `ptr` it takes is a `TrqArray*`, and the one it
+        // returns is a `TrqString*`.
+        "ثنائي_إلى_نص" => Some("trq_string_from_bytes"),
         "يحتوي" => Some("trq_string_contains"),
         "يبدأ_بـ" => Some("trq_string_starts_with"),
         "ينتهي_بـ" => Some("trq_string_ends_with"),

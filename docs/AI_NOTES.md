@@ -2,6 +2,102 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-08-18 — `ثنائي_إلى_نص`, and a plan row whose contract could not be built (#333)
+
+Increment B's fourth name, closing blocker **B9**: the byte bridge is now total in both directions.
+The nine registration sites cost nothing new — `trq_sha256_bytes(*const TrqArray) -> *mut TrqString`
+is this signature exactly, so like #330 the "first" was only a first for its tier. The expensive part
+was the contract.
+
+### The row asked for something no implementation can satisfy
+
+`docs/builtins-vs-stdlib.md` §1.3 required that `ثنائي_إلى_نص` **not validate UTF-8**, so a socket or
+file read would round-trip arbitrary octets. It cannot:
+
+- The interpreter holds a string as `Value::String(Rc<String>)` — a Rust `String`, which cannot *be*
+  invalid UTF-8. There is no value to construct.
+- Natively there is, and `trq_print` is `if let Ok(text) = std::str::from_utf8(slice)`, so it prints
+  **nothing**, with no error and exit 0.
+
+So the non-validating version is representable in one backend and not the other, and the observable
+difference is silent — the documented recurring failure mode. Honoring the clause needs a
+value-representation change, forbidden by §9. The requirement is withdrawn in the document rather
+than quietly mis-built, and the contract shipped as: *the string whose UTF-8 encoding is exactly
+those bytes, and `""` when there is none.*
+
+Truncating an out-of-range element to its low byte — the house convention in `trq_sha256_bytes` and
+`trq_hex_encode_bytes` — was rejected for the same reason in miniature: `[300]` would answer `","`,
+colliding with a legitimate `[44]`, and the caller would have no signal. Rejection keeps the failure
+**detectable**: an empty result from a non-empty array can only be a rejection. Hashing has no
+invalid input; decoding does, and the two families should not share a convention just because they
+share a parameter type.
+
+**Cost, recorded so it is not rediscovered:** Increment K cannot carry arbitrary socket bytes through
+this name. Nothing regresses — all 23 `شبكة` names already fail today.
+
+**Generalisable, and it is a second kind of §1.3 defect.** The known one is an expiring criterion (a):
+a claim about what the language *cannot express*, which each landed increment can falsify. This is a
+different failure — a **contract** that no backend pair can jointly honour. Check the contract against
+the value representation, not only the criterion against the language.
+
+### Criterion (a) expired too, making three
+
+Re-derived rather than read off the row, as the standing rule says. Indexing over `مصفوفة<عدد>`
+(#330), the seven bitwise names, and `رمز_إلى_حرف` (#326) together make UTF-8 decoding writable in
+Tarqeem, so the claim had expired before the name shipped — after `بتات_نفي` and
+`بتات_إزاحة_يمين_منطقية`. `test_bytes_to_string_matches_the_decoder_it_names` runs a hand-written
+Tarqeem decoder beside the builtin across all three backends and asserts agreement, which is what the
+rule asks for instead of repeating a stale claim.
+
+It shipped as a primitive anyway: core tier, and §5.2 keeps a no-import name a builtin until **B12**.
+One ground the earlier expiries lacked — the *validating* half stays materially harder to hand-write
+(overlong forms, surrogates, truncated tails), and that is what the primitive actually buys.
+
+### A missing return type is louder for a string than for an array
+
+#330 measured that dropping the `register_builtin_return_types` entry for an **array** return was
+nearly silent — four of five plausible assertions passed and only `نوع` caught it. Measured here by
+deleting the entry for a **string** return: `اطبع` still printed «مرحبا», «hi» and «م» correctly, but
+`نوع` answered `مؤشر`, `"X" + …` printed `X4340804192`, and `== "﷽"` answered `خطأ`.
+
+Three of five caught it rather than one, because concatenation and comparison degrade visibly on a
+string where indexing and printing did not on an array. The lesson is unchanged in practice — assert
+`نوع`, concatenation and equality, never printing alone — but the two shapes fail at different
+volumes, and the array is the quieter one.
+
+### `مصفوفة<عدد>؟` does not parse, so the null route is different
+
+`LANGUAGE_SPEC` §5.3 admits `نمط_اختياري := نمط '?'`, but `متغير غائب: مصفوفة<عدد>? = لا_شيء` is
+`ب٠١٠١` at the `?`, and a bare `لا_شيء` is refused at the argument. So the route that made a
+`Value::Null` arm load-bearing for `نص_إلى_ثنائي` — an un-narrowed `نص?` admitted by `Type::compat` —
+does not exist for this name.
+
+The arm is still required, reached through an **`أي` holder** instead: `متغير غائب: أي = لا_شيء` then
+`ثنائي_إلى_نص(غائب)` answers `""` natively, and without the arm both interpreters would raise a type
+error on source native runs fine. This refines #326's narrowing a third time. The rule is now: ask
+whether the parameter is a pointer, **and** how a null can be written for that type at all. Three
+consecutive names, three different answers.
+
+### Two things worth keeping about method
+
+**The array-literal-as-argument shape was probed before any fixture depended on it.** #304 (an
+intercepted builtin inside an array literal segfaults natively) and #327 (the call-argument path) both
+live next door, and no sibling had ever passed a literal *into* a builtin — the three before this one
+only produced arrays *from* one. `ثنائي_إلى_ست_عشري([104، 105])` is correct in all three backends, so
+the fixtures stand. One file, three commands, and it would otherwise have been an assumption under a
+whole test section.
+
+**One decode definition, shared, rather than a duplicated arm.** `bytes_to_string` is `pub(crate)` in
+`interpreter::executor::builtins` and re-exported for the debug interpreter, following what
+`Value::to_display_string` already does there. The debug interpreter is deliberately a duplicate of
+the *dispatch*, but duplicating the rejection **logic** would let the two drift on which arrays are
+refused. Duplicate dispatch; share rules.
+
+Related: it must not reuse `value_to_byte` from the same file, which *errors* out of range — that
+would raise a runtime error where native answers `""`, manufacturing the exact divergence this
+increment exists to avoid. Two byte-reading helpers in one file with different failure modes is a
+sharp edge; the new one carries a comment saying why it is not the other.
+
 ## 2026-08-17 — One runtime search, ordered so a dev build wins (#285)
 
 ### The bug was the install instructions, not just the duplication

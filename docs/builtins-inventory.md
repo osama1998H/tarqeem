@@ -14,7 +14,7 @@ backed by a mechanical count that agrees with the hand enumeration.
 
 | | |
 |---|---|
-| Names declared in `Scope` | **193** — 28 `core_builtins()` + 165 `get_stdlib_builtin()` across 7 modules |
+| Names declared in `Scope` | **194** — 29 `core_builtins()` + 165 `get_stdlib_builtin()` across 7 modules |
 | Names reachable on *some* backend | **245** — the extra 52 exist in a backend but in no registry, so no program can call them |
 | `runtime-rs` exports | **221** `#[no_mangle] pub extern "C" fn` |
 | … of which ABI-internal (compiler-emitted plumbing) | **22** — excluded from the language surface |
@@ -41,7 +41,7 @@ nothing enforces that it is present on all of them.
 |---|---|---|
 | Semantic | `src/semantic/scope.rs` | `core_builtins()` — a `Vec` of 28 `(name, params, ret)` tuples registered into the global scope. `get_stdlib_builtin(module, name)` — a two-level `match` with 165 arms, manufactured on demand at import. `get_stdlib_module_exports()` — a **second, hand-maintained copy** of the same 165 names with no consistency test. |
 | Interpreter | `src/interpreter/executor/builtins.rs` | `is_builtin` string membership + a dispatch `match`. Two edits per name, same file. |
-| Debug interpreter | `src/debug/interpreter/builtins.rs` | A private duplicate of the above, used by DAP. Knows **28** names — 21 Arabic plus 7 `trq_*` symbols, and `is_builtin` and the dispatch `match` list the same 28. The original census recorded 18; that figure was already stale when written, since the #185/#222/#241 repairs had added runtime-symbol arms. **Count it excluding comments:** the comment lines inside `is_builtin` quote Arabic diagnostics («دالة غير معرّفة») and call syntax (`عدد("٥")`), so a regex over the block that does not strip `//` lines over-counts — that is how a wrong 29 reached this row once already. |
+| Debug interpreter | `src/debug/interpreter/builtins.rs` | A private duplicate of the above, used by DAP. Knows **29** names — 22 Arabic plus 7 `trq_*` symbols, and `is_builtin` and the dispatch `match` list the same 29. The original census recorded 18; that figure was already stale when written, since the #185/#222/#241 repairs had added runtime-symbol arms. **Count it excluding comments:** the comment lines inside `is_builtin` quote Arabic diagnostics («دالة غير معرّفة») and call syntax (`عدد("٥")`), so a regex over the block that does not strip `//` lines over-counts — that is how a wrong 29 reached this row once already. |
 | Native | `src/ir/builder/expr_builder.rs` + `src/codegen/llvm/codegen.rs` | Either intercepted in the IR builder (15 names) or looked up in `get_runtime_function_name` (216 names) and emitted as a `trq_*` call. |
 | JIT | `src/jit/{baseline,optimizing}/compiler.rs` | **Compiles zero builtins.** `run_with_profiling` always returns `interpreter.run()`; `get_function_ptr` has no callers. The JIT column agrees with the interpreter by delegation, not by compiling. |
 | Editor | `src/lsp/handlers/{completion,semantic_tokens,inlay_hints}.rs` | Three hardcoded lists (10 / 14 / 18 names) that derive from nothing and agree with neither the registry nor each other. |
@@ -218,7 +218,7 @@ different universes.
 
 ## 4. The inventory
 
-#### `core` — 31
+#### `core` — 32
 
 Rows marked **مُنفَّذ** landed after this census; the backend columns are re-verified,
 not carried over from the original pass.
@@ -241,6 +241,7 @@ not carried over from the original pass.
 | `بتات_إزاحة_يمين_منطقية` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#322) |
 | `بتات_نفي` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#312) |
 | `بتات_و` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#302) |
+| `ثنائي_إلى_نص` | ✓ | ✓ | ✓ | ✓ | `trq_string_from_bytes` | مدمج | primitive، **مُنفَّذ** (#333) |
 | `تأكد` | ✓ | ✓ | ✗ | ✓ | `trq_assert` | مكتبة |  |
 | `تأكد_رسالة` | ✓ | ✓ | ✗ | ✓ | `-` | مكتبة |  |
 | `توقف` | ✓ | ✓ | ✗ | ~ | `trq_panic` | مدمج | primitive |
