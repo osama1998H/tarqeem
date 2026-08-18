@@ -309,6 +309,14 @@ impl IrBuilder {
             .insert("حرف_إلى_رمز".to_string(), IrType::Int);
         self.function_return_types
             .insert("رمز_إلى_حرف".to_string(), IrType::String);
+        // Unregistered this one would not mismatch its `declare` — `Ptr(Void)`
+        // and `Array` both map to `ptr` — so it would link and run, then read
+        // the `TrqArray` as a `TrqString` in `اطبع` and `load ptr` out of an
+        // i64 slot when indexed. Silent, unlike `جذر`'s segfault above.
+        self.function_return_types.insert(
+            "نص_إلى_ثنائي".to_string(),
+            IrType::Array(Box::new(IrType::Int), 0),
+        );
 
         // اقرأ_سطر (read_line) returns string
         self.function_return_types

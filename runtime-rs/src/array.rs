@@ -250,8 +250,16 @@ pub extern "C" fn trq_array_ensure_capacity(arr: *mut TrqArray, new_cap: i64) ->
             return true;
         }
 
-        // Calculate new capacity using growth factor
-        let mut cap = current_cap;
+        // Doubling cannot start from zero: `0 * 2` is `0`, so a zero-capacity
+        // array spun here forever instead of growing. `trq_array_new` never
+        // yields one, but `helpers::allocate_array` does — it sets `cap = len` —
+        // so `الحق(نص_إلى_ثنائي("")، 5)` hung the process natively while both
+        // interpreters answered.
+        let mut cap = if current_cap > 0 {
+            current_cap
+        } else {
+            ARRAY_INITIAL_CAP
+        };
         while cap < new_cap {
             cap *= ARRAY_GROWTH_FACTOR;
         }
@@ -907,6 +915,30 @@ mod tests {
             let success = trq_array_ensure_capacity(arr, 50);
             assert!(success);
             assert_eq!((*arr).cap, old_cap); // Unchanged
+
+            trq_array_free_data(arr);
+            crate::memory::trq_release(arr as *mut u8);
+        }
+    }
+
+    /// A zero-capacity array must still grow. `trq_array_new` never builds one,
+    /// but `helpers::allocate_array` does, and `trq_string_to_bytes("")` returns
+    /// exactly that — so this is the shape `الحق` meets from source. A regression
+    /// **hangs** this test rather than failing it: the old growth loop doubled
+    /// from `0` forever.
+    #[test]
+    fn test_array_push_onto_zero_capacity() {
+        unsafe {
+            let arr = crate::helpers::allocate_array(0, 8);
+            assert!(!arr.is_null());
+            assert_eq!((*arr).cap, 0);
+
+            let value: i64 = 7;
+            trq_array_push(arr, &value as *const i64 as *const u8, 8);
+
+            assert_eq!((*arr).len, 1);
+            assert!((*arr).cap >= 1);
+            assert_eq!(*((*arr).data as *const i64), 7);
 
             trq_array_free_data(arr);
             crate::memory::trq_release(arr as *mut u8);

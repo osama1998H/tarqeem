@@ -10,8 +10,9 @@
 //! - The `data` buffer is allocated via `libc::malloc` (NOT reference-counted)
 //! - String data is UTF-8 encoded and null-terminated
 
+use crate::helpers::allocate_array;
 use crate::memory::trq_alloc;
-use crate::types::TrqString;
+use crate::types::{TrqArray, TrqString};
 use std::ffi::c_char;
 use std::ptr;
 
@@ -323,6 +324,53 @@ pub extern "C" fn trq_string_from_char_code(code: i64) -> *mut TrqString {
             trq_string_new(text.as_ptr(), text.len() as i64)
         }
         None => trq_string_new(ptr::null(), 0),
+    }
+}
+
+/// Backs the core builtin `نص_إلى_ثنائي`: the UTF-8 octets of `s`, one `عدد`
+/// element per byte.
+///
+/// An empty or null string answers an **empty array**, not a raw null. A string
+/// with no bytes has one unambiguous encoding, so unlike
+/// [`trq_string_char_code`]'s `-1` there is nothing for a sentinel to
+/// distinguish; raw null stays reserved for allocation failure, as it is for
+/// every other constructor here.
+///
+/// The bytes are copied verbatim, with no validation: `s` is UTF-8 by
+/// construction, and `ثنائي_إلى_نص` is specified to round-trip arbitrary bytes,
+/// so rejecting anything here would break a round trip that is meant to hold.
+///
+/// # Safety
+///
+/// - `s` must be a valid pointer to a `TrqString` or null.
+///
+/// # C Equivalent
+/// ```c
+/// TrqArray* trq_string_to_bytes(const TrqString* s);
+/// ```
+#[no_mangle]
+pub extern "C" fn trq_string_to_bytes(s: *const TrqString) -> *mut TrqArray {
+    unsafe {
+        let len = if s.is_null() || (*s).data.is_null() || (*s).len <= 0 {
+            0
+        } else {
+            (*s).len as usize
+        };
+
+        // `elem_size` 8 because `مصفوفة<عدد>` elements are raw i64 slots — what
+        // codegen's `load i64` after `trq_array_get` reads back.
+        let arr = allocate_array(len as i64, 8);
+        if arr.is_null() || len == 0 {
+            return arr;
+        }
+
+        let bytes = std::slice::from_raw_parts((*s).data, len);
+        let slots = (*arr).data as *mut i64;
+        for (i, byte) in bytes.iter().enumerate() {
+            *slots.add(i) = *byte as i64;
+        }
+
+        arr
     }
 }
 
@@ -2065,6 +2113,115 @@ mod tests {
             assert_eq!(trq_string_char_code(s), code, "من «{}»", code);
             crate::memory::trq_release(s as *mut u8);
         }
+    }
+
+    /// Reads every slot back rather than only the length: the array is `i64`
+    /// slots holding byte values, so a width written as raw bytes would still
+    /// produce a plausible length and only differ element by element.
+    #[test]
+    fn test_string_to_bytes_at_every_utf8_width() {
+        for (text, expected) in [
+            ("A", &[65][..]),
+            ("م", &[0xD9, 0x85][..]),
+            ("﷽", &[0xEF, 0xB7, 0xBD][..]),
+            ("𞸀", &[0xF0, 0x9E, 0xB8, 0x80][..]),
+            ("hi", &[104, 105][..]),
+        ] {
+            let s = trq_string_new(text.as_ptr(), text.len() as i64);
+            let arr = trq_string_to_bytes(s);
+
+            assert_eq!(
+                crate::array::trq_array_len(arr),
+                expected.len() as i64,
+                "طول «{}»",
+                text
+            );
+            unsafe {
+                let slots = (*arr).data as *const i64;
+                for (i, byte) in expected.iter().enumerate() {
+                    assert_eq!(*slots.add(i), *byte as i64, "بايت {} من «{}»", i, text);
+                }
+
+                crate::array::trq_array_free_data(arr);
+                crate::memory::trq_release(arr as *mut u8);
+            }
+            crate::memory::trq_release(s as *mut u8);
+        }
+    }
+
+    /// A string with no bytes answers an empty array, and never a raw null —
+    /// null is this module's allocation-failure signal, so returning it here
+    /// would make "empty" indistinguishable from "out of memory".
+    #[test]
+    fn test_string_to_bytes_has_no_bytes() {
+        let empty = trq_string_new(ptr::null(), 0);
+        for s in [empty, ptr::null()] {
+            let arr = trq_string_to_bytes(s);
+            assert!(!arr.is_null(), "أرجعت مؤشراً فارغاً");
+            assert_eq!(crate::array::trq_array_len(arr), 0);
+            crate::array::trq_array_free_data(arr);
+            crate::memory::trq_release(arr as *mut u8);
+        }
+        crate::memory::trq_release(empty as *mut u8);
+    }
+
+    /// Bytes are copied verbatim: a buffer that is not valid UTF-8 round-trips
+    /// instead of being rejected, which is what `ثنائي_إلى_نص` will rely on.
+    #[test]
+    fn test_string_to_bytes_does_not_validate() {
+        let bytes = [0x41u8, 0xFF, 0xFE];
+        let s = trq_string_new(bytes.as_ptr(), bytes.len() as i64);
+        let arr = trq_string_to_bytes(s);
+
+        assert_eq!(crate::array::trq_array_len(arr), 3);
+        unsafe {
+            let slots = (*arr).data as *const i64;
+            for (i, byte) in bytes.iter().enumerate() {
+                assert_eq!(*slots.add(i), *byte as i64, "بايت {}", i);
+            }
+
+            crate::array::trq_array_free_data(arr);
+            crate::memory::trq_release(arr as *mut u8);
+        }
+        crate::memory::trq_release(s as *mut u8);
+    }
+
+    /// The byte count is `trq_string_len`, never `trq_string_len_chars` — the
+    /// two differ for every non-ASCII string, and confusing them is the
+    /// byte/char trap this primitive exists to make explicit.
+    #[test]
+    fn test_string_to_bytes_counts_bytes_not_characters() {
+        let text = "مرحبا";
+        let s = trq_string_new(text.as_ptr(), text.len() as i64);
+        let arr = trq_string_to_bytes(s);
+
+        assert_eq!(crate::array::trq_array_len(arr), 10);
+        assert_eq!(trq_string_len_chars(s), 5);
+        crate::array::trq_array_free_data(arr);
+        crate::memory::trq_release(arr as *mut u8);
+        crate::memory::trq_release(s as *mut u8);
+    }
+
+    /// Round trip against the landed inverse: each byte, read back as a
+    /// codepoint, is the character `رمز_إلى_حرف` builds from it.
+    #[test]
+    fn test_string_to_bytes_round_trips_ascii_through_char_from_code() {
+        let text = "Az0";
+        let s = trq_string_new(text.as_ptr(), text.len() as i64);
+        let arr = trq_string_to_bytes(s);
+
+        unsafe {
+            let slots = (*arr).data as *const i64;
+            for (i, expected) in text.chars().enumerate() {
+                let built = trq_string_from_char_code(*slots.add(i));
+                assert_eq!(trq_string_char_code(built), expected as i64, "حرف {}", i);
+                crate::memory::trq_release(built as *mut u8);
+            }
+
+            crate::array::trq_array_free_data(arr);
+            crate::memory::trq_release(arr as *mut u8);
+        }
+        crate::memory::trq_release(s as *mut u8);
     }
 
     #[test]

@@ -81,9 +81,9 @@ pub use string::{
     trq_string_last_index_of, trq_string_len, trq_string_len_chars, trq_string_new,
     trq_string_pad_left, trq_string_pad_right, trq_string_repeat, trq_string_replace,
     trq_string_replace_all, trq_string_reverse, trq_string_split, trq_string_starts_with,
-    trq_string_substr, trq_string_substr_chars, trq_string_to_float, trq_string_to_int,
-    trq_string_to_lower, trq_string_to_title, trq_string_to_upper, trq_string_trim,
-    trq_string_trim_left, trq_string_trim_right,
+    trq_string_substr, trq_string_substr_chars, trq_string_to_bytes, trq_string_to_float,
+    trq_string_to_int, trq_string_to_lower, trq_string_to_title, trq_string_to_upper,
+    trq_string_trim, trq_string_trim_left, trq_string_trim_right,
 };
 
 // Re-export all array functions

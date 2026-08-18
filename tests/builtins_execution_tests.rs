@@ -1666,6 +1666,183 @@ fn test_user_function_shadows_char_from_code() {
 }
 
 // ---------------------------------------------------------------------------
+// نص_إلى_ثنائي — the string→bytes bridge (#330)
+// ---------------------------------------------------------------------------
+
+/// Byte counts per UTF-8 width, and the point of the primitive: `طول` of the
+/// result is the **byte** length while `طول` of the string is the character
+/// length. Both are asserted side by side, since a result that silently counted
+/// characters would agree with the string on every ASCII input.
+#[test]
+fn test_string_to_bytes_counts_bytes_in_every_backend() {
+    assert_prints(
+        "ثنائي_أطوال",
+        concat!(
+            "اطبع(طول(نص_إلى_ثنائي(\"A\")))\n",
+            "اطبع(طول(نص_إلى_ثنائي(\"م\")))\n",
+            "اطبع(طول(نص_إلى_ثنائي(\"﷽\")))\n",
+            "اطبع(طول(نص_إلى_ثنائي(\"𞸀\")))\n",
+            "اطبع(طول(نص_إلى_ثنائي(\"مرحبا\")))\n",
+            "اطبع(طول(\"مرحبا\"))",
+        ),
+        &["1", "2", "3", "4", "10", "5"],
+    );
+}
+
+/// The load-bearing test. `نص_إلى_ثنائي` lowers to a plain call, so nothing but
+/// the `register_builtin_return_types` entry types its result — and an array is
+/// the one return type whose absence does **not** show up as a signature
+/// mismatch, because `Ptr(Void)` and `Array` both map to LLVM `ptr`. Dropping
+/// the entry links and runs; the element load turns into `load ptr` on an i64
+/// slot and `اطبع` reads the `TrqArray` as a `TrqString`. Indexing is therefore
+/// the only thing that fails loudly, which is why it is asserted here.
+#[test]
+fn test_string_to_bytes_result_composes_as_an_integer_array() {
+    assert_prints(
+        "ثنائي_تركيب",
+        concat!(
+            "اطبع(نص_إلى_ثنائي(\"hi\"))\n",
+            "اطبع(نص_إلى_ثنائي(\"A\")[0])\n",
+            "اطبع(نص_إلى_ثنائي(\"A\")[0] + 1)\n",
+            "اطبع(نص_إلى_ثنائي(\"A\")[0] == 65)\n",
+            "اطبع(نوع(نص_إلى_ثنائي(\"A\")[0]))",
+        ),
+        &["[104، 105]", "65", "66", "صحيح", "عدد"],
+    );
+}
+
+/// An empty string has no bytes, so the answer is an empty array — a value, not
+/// a sentinel. Asserted through `طول` and by printing the array itself, never by
+/// printing a bare `""`: `Output::lines()` trims, so that assertion could not
+/// fail.
+#[test]
+fn test_string_to_bytes_of_an_empty_string_is_an_empty_array() {
+    assert_prints(
+        "ثنائي_فارغ",
+        "اطبع(طول(نص_إلى_ثنائي(\"\")))\nاطبع(نص_إلى_ثنائي(\"\"))",
+        &["0", "[]"],
+    );
+}
+
+/// `Type::compat` admits an un-narrowed `نص?` into a `نص` parameter, so this
+/// type-checks and native lowers it to `ptr null`, where the runtime guard
+/// answers an empty array. Both interpreters need a `Value::Null` arm to agree;
+/// keyed on `Value::String` alone they abort where native prints. The *narrowed*
+/// shape is deliberately absent — that is #327, and it is still open.
+#[test]
+fn test_string_to_bytes_accepts_an_absent_optional_in_every_backend() {
+    assert_prints(
+        "ثنائي_غائب",
+        "متغير غائب: نص? = لا_شيء\nاطبع(طول(نص_إلى_ثنائي(غائب)))",
+        &["0"],
+    );
+}
+
+/// A literal argument can fold at build time, so the argument is reached three
+/// other ways: through a variable, through a concatenation, and through a
+/// function parameter.
+#[test]
+fn test_string_to_bytes_accepts_a_computed_argument() {
+    assert_prints(
+        "ثنائي_محسوب",
+        concat!(
+            "متغير ن = \"مرحبا\"\n",
+            "اطبع(طول(نص_إلى_ثنائي(ن)))\n",
+            "اطبع(طول(نص_إلى_ثنائي(ن + \"!\")))\n",
+            "دالة عدد_بايتات(س: نص) -> عدد {\n",
+            "    أرجع طول(نص_إلى_ثنائي(س))\n",
+            "}\n",
+            "اطبع(عدد_بايتات(\"م\"))",
+        ),
+        &["10", "11", "2"],
+    );
+}
+
+/// The result is a first-class array: it binds to a variable, survives the
+/// `Load` that reading that variable emits, indexes, and iterates. `لكل … في`
+/// matters on its own because it lowers through `ArrayLen`, which dispatches on
+/// the operand's IR type and would pick the string symbol if that type were
+/// wrong.
+#[test]
+fn test_string_to_bytes_result_binds_and_iterates() {
+    assert_prints(
+        "ثنائي_حلقة",
+        concat!(
+            "متغير ب = نص_إلى_ثنائي(\"Az\")\n",
+            "اطبع(طول(ب))\n",
+            "اطبع(ب[0])\n",
+            "اطبع(ب[1])\n",
+            "متغير مج = 0\n",
+            "لكل ي في ب {\n",
+            "    مج = مج + ي\n",
+            "}\n",
+            "اطبع(مج)",
+        ),
+        &["2", "65", "122", "187"],
+    );
+}
+
+/// Appending to the **empty** result, which is the one array in the language
+/// reachable with `cap == 0`: `helpers::allocate_array` sets `cap = len`, while
+/// `trq_array_new` floors capacity at `ARRAY_INITIAL_CAP`. Growth doubles, and
+/// `0 * 2` is `0`, so this hung the native binary forever while both
+/// interpreters answered `1`.
+///
+/// `runtime-rs` has a unit test for the same shape, but **CI never runs it** —
+/// every CI `cargo test` is root-package scoped, so this is the leg that
+/// actually guards the fix. Note the failure mode if it regresses: the native
+/// leg hangs rather than failing, so the signal is a stuck job, not a red
+/// assertion.
+#[test]
+fn test_appending_to_an_empty_byte_array_grows_it_in_every_backend() {
+    assert_prints(
+        "ثنائي_إلحاق",
+        concat!(
+            "متغير ب = نص_إلى_ثنائي(\"\")\n",
+            "الحق(ب، 5)\n",
+            "اطبع(طول(ب))\n",
+            "اطبع(ب[0])",
+        ),
+        &["1", "5"],
+    );
+}
+
+/// Round trip against the landed inverse: an ASCII byte read out here is the
+/// codepoint `رمز_إلى_حرف` builds the same character from. Restricted to ASCII
+/// on purpose — a multi-byte character's *bytes* are not its codepoint, and
+/// reassembling one needs `ثنائي_إلى_نص`, which does not exist yet.
+#[test]
+fn test_string_to_bytes_round_trips_ascii_through_char_from_code() {
+    assert_prints(
+        "ثنائي_ذهاب",
+        concat!(
+            "اطبع(رمز_إلى_حرف(نص_إلى_ثنائي(\"z\")[0]))\n",
+            "اطبع(حرف_إلى_رمز(\"z\") == نص_إلى_ثنائي(\"z\")[0])",
+        ),
+        &["z", "صحيح"],
+    );
+}
+
+/// Builtins are the last lookup tier, so a user function of the same name must
+/// win in every backend (#262) — past both `shadows_builtin` in the IR builder
+/// and the `user_functions` check in codegen's `mangle_function_name`, which
+/// would otherwise emit `@trq_string_to_bytes` for the user's own definition.
+#[test]
+fn test_user_function_shadows_string_to_bytes() {
+    assert_prints(
+        "ثنائي_مظلل",
+        concat!(
+            "دالة نص_إلى_ثنائي(س: نص) -> مصفوفة<عدد> {\n",
+            "    أرجع [7]\n",
+            "}\n",
+            "اطبع(طول(نص_إلى_ثنائي(\"مرحبا\")))\n",
+            "اطبع(نص_إلى_ثنائي(\"مرحبا\")[0])",
+        ),
+        &["1", "7"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // طول over a string — characters, not bytes (#185)
 // ---------------------------------------------------------------------------
 
@@ -2243,6 +2420,10 @@ fn test_every_core_builtin_agrees_across_backends() {
         // A two-byte Arabic letter, so this one line rejects a byte-wise write:
         // it would emit the lead byte alone and print a replacement character.
         ("رمز_إلى_حرف", "اطبع(رمز_إلى_حرف(1605))", &["م"]),
+        // A two-byte Arabic letter again, so this one line rejects the one
+        // degradation that would otherwise look right: counting characters
+        // instead of octets, which agrees with the byte count on all ASCII.
+        ("نص_إلى_ثنائي", "اطبع(طول(نص_إلى_ثنائي(\"م\")))", &["2"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
