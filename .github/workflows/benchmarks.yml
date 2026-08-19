@@ -4,6 +4,16 @@ on:
   pull_request:
     branches: ["main"]
 
+# A stalled setup step used to hold a superseded run alive indefinitely: run
+# 32230000001 was still executing four `apt-get` steps after a newer push had
+# already started its replacement (#340). Cancelling is scoped to pull requests
+# deliberately — on `main`/`develop` the run *is* the record of whether that
+# integration commit passed, and discarding it to save a runner trades away the
+# thing the record exists for.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: write
   pull-requests: write
@@ -18,6 +28,7 @@ jobs:
   benchmark:
     name: Performance Benchmarks
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v7
@@ -260,6 +271,7 @@ jobs:
   benchmark-lexer:
     name: Benchmark Lexer
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     continue-on-error: true  # Individual benchmarks are informational, don't block CI
     steps:
       - uses: actions/checkout@v7
@@ -278,6 +290,7 @@ jobs:
   benchmark-parser:
     name: Benchmark Parser
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -296,6 +309,7 @@ jobs:
   benchmark-semantic:
     name: Benchmark Semantic
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -314,6 +328,7 @@ jobs:
   benchmark-ir:
     name: Benchmark IR Generation
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -332,6 +347,7 @@ jobs:
   benchmark-optimizer:
     name: Benchmark Optimizer
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -350,6 +366,7 @@ jobs:
   benchmark-e2e:
     name: Benchmark End-to-End
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -368,6 +385,7 @@ jobs:
   benchmark-jit:
     name: Benchmark JIT Compilation
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
