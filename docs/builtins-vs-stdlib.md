@@ -300,7 +300,26 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | `وقت_الآن` | `() -> عدد` | unchanged | `clock_gettime(CLOCK_REALTIME)`, epoch ms. Every date value in the language descends from this one read. **Also the entropy source** the stdlib RNG seeds from — that is literally what `runtime-rs` does today, so no separate entropy primitive is proposed. **Repair required now:** register its IR return type (see §1.1 rule 5). Criterion (b). |
 | `وقت_أداء` | `() -> عدد` | unchanged | `clock_gettime(CLOCK_MONOTONIC)`. A distinct OS service from the wall clock. **Its body is wrong today** — `trq_performance_now` is a verbatim copy of `trq_time_now`, so a monotonic promise is served by the wall clock and moves backwards on an NTP step. Fix it in the same PR that registers its return type; a name that lies is worse than a missing name. Criterion (b). |
 | `نم` | `(عدد) -> فراغ` | unchanged | `nanosleep(2)`. A busy-wait over `وقت_أداء` burns a core and cannot yield. Already a clean monomorphic wrapper. Criterion (b). |
-| `متغير_بيئة` | `(نص) -> نص` | new | `getenv(3)`, `""` when unset. **New Arabic name over an already-implemented orphan symbol** (`trq_env_get`) — implemented, linkable, and unreachable today because no name maps to it. `مجلد_مستخدم` and `مجلد_مؤقت` both reduce to it. Criterion (b). |
+| `متغير_بيئة` | `(نص) -> نص` | new — **مُنفَّذ (#338)** | `getenv(3)`, `""` when unset. **New Arabic name over an already-implemented orphan symbol** (`trq_env_get`) — implemented, linkable, and unreachable before #338 because no name mapped to it. `مجلد_مستخدم` and `مجلد_مؤقت` both reduce to it. Criterion (b), re-derived at implementation time and **held** — see the note below. Total: an absent variable, an empty name and `لا_شيء` all answer `""`, so set-but-empty is indistinguishable from unset. |
+
+> **The first re-derivation that could not have failed (#338).** Four §1.3 rows have had criterion
+> (a) expire under them — `بتات_نفي` (#312), `بتات_إزاحة_يمين_منطقية` (#322), `ثنائي_إلى_نص` (#333)
+> and `قص_حروف` (#336) — and §6.1 made re-derivation a standing rule because of it. `متغير_بيئة` is
+> the first name to be checked whose criterion is **(b)**, and the check is structurally different:
+> criterion (a) asserts something about *the language*, which every landed increment changes, while
+> (b) asserts that a capability lives in the operating system, which nothing in Tarqeem can move.
+> **A syscall claim cannot expire.** Worth stating because the standing rule reads as "re-derive
+> every row", and for the (b) rows the honest answer is that the derivation is one sentence and will
+> stay true. Re-check the (a) rows; the (b) rows only need their *contract* checked against the
+> value representation, which is the second defect class #333 identified.
+>
+> The contract check did find something, though not a defect: `trq_env_get` was read rather than
+> trusted, because the orphan precedent in this document is `trq_performance_now` — implemented,
+> linkable, and lying about being monotonic. This one is honest. All five of its paths (null pointer,
+> null data, empty name, invalid UTF-8, unset variable) already return `trq_string_new(null, 0)`, an
+> empty `TrqString` rather than a null pointer, so the row's `""`-when-unset clause was satisfied by
+> code that predated the row. **Read an orphan before planning on it; the two in this document
+> disagree about whether they work.**
 | `مجلد_حالي` | `() -> نص` | unchanged | `getcwd(2)` is **process state**, not an environment variable. Deriving it from `$PWD` is wrong: PWD is shell-maintained, absent under non-shell parents, and stale after any chdir. Criterion (b). |
 | `معاملات_البرنامج` | `() -> مصفوفة<نص>` | new | Command-line arguments. Category 8 requires them and **nothing in the system exposes them** — `runtime-rs/src/runtime.rs:346` declares `main(_argc, _argv)` and discards both. **Not a free table entry:** it needs `runtime-rs` to capture argv at init *plus* the full nine-site registration path. Without it, and without `أنهِ_البرنامج`, Tarqeem cannot write a CLI tool. Criterion (b). |
 
@@ -917,7 +936,35 @@ misleading parse errors.
 
 ### 6.7 Increment G — `ملفات` + `طرفية`
 
-Requires the seven new I/O primitives. 21 names. Reserve stream ids `٠/١/٢` and start
+Requires the seven new I/O primitives. 21 names. **19 after #338**, which landed `متغير_بيئة` ahead
+of this increment: `مجلد_مستخدم` and `مجلد_مؤقت` both reduce to it, so they become stdlib one-liners
+rather than syscall wrappers. `trq_dir_home` and `trq_dir_temp` stay live under their own Arabic
+names until then — each is `getenv` with one key hardcoded, which is why they collapse.
+
+**What #338 measured, and it is a fourth cost shape.** Increment A cost two files per name, #324 cost
+the full nine sites, and #336 cost six by repairing a half-wired name. `متغير_بيئة` cost **eight**:
+everything on the nine-site path except the `runtime-rs` function, because the symbol already existed
+as an orphan. So the path has four measured shapes now, and the discriminator is not the tier or the
+return type — it is **which half of the path already exists**. Check that before estimating.
+
+Two things it found that the plan did not state:
+
+1. **The missing-`register_builtin_return_types` failure mode is predictable from the struct layout,
+   and this name's prediction held exactly.** #336 asked for that prediction rather than a
+   loud/quiet dichotomy, and here it produced the right answer in advance: four of five assertions
+   catch it, `طول` included, answering **10 where 5 was right** for the value «مرحبا». The sentinel
+   sends `ArrayLen` to `trq_array_len`, which reads offset 0, and a `TrqString`'s field at offset 0
+   is its *byte* length. Printing passed, as it has every time. **The Arabic test value is what makes
+   `طول` able to catch it at all** — on an ASCII value the byte count and the character count agree
+   and that assertion passes either way. A `نص`-returning builtin tested only on ASCII silently loses
+   one of its four catchers.
+2. **A cross-backend harness cannot set an environment variable in-process.** `cargo` runs tests as
+   threads in one process, so `std::env::set_var` races every other test. All three backend legs are
+   already child processes, so the variable goes on the child:
+   `tarqeem_with_env` / `execute_with_env` / `assert_prints_with_env` were added as additive wrappers
+   and the existing `tarqeem` / `execute` / `assert_prints` became one-liners over them, leaving all
+   147 existing call sites untouched. The native leg must put the variables on the **executed
+   binary**, not on `compile` — the compiler reads no environment on that path. Reserve stream ids `٠/١/٢` and start
 `NEXT_FILE_HANDLE` at 3 — it starts at 1 today and would collide with stdout the moment streams
 unify, silently redirecting a file write to the terminal.
 

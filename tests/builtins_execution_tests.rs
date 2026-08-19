@@ -139,6 +139,16 @@ fn write_program(dir: &Path, name: &str, body: &str) -> PathBuf {
 }
 
 fn tarqeem(args: &[&str], cwd: &Path) -> Output {
+    tarqeem_with_env(args, cwd, &[])
+}
+
+/// `tarqeem` with extra variables in the child's environment.
+///
+/// `متغير_بيئة` is the first builtin whose answer depends on the environment, and
+/// it cannot be tested by setting one here: cargo runs tests as threads in one
+/// process, so `std::env::set_var` races every other test. Every backend leg is
+/// already a child process, so the variable goes on the child instead.
+fn tarqeem_with_env(args: &[&str], cwd: &Path, env: &[(&str, &str)]) -> Output {
     let mut command = Command::new(TARQEEM);
     command.args(args).current_dir(cwd);
 
@@ -146,6 +156,7 @@ fn tarqeem(args: &[&str], cwd: &Path) -> Output {
     // scrubbed on every backend. The runtime archive no longer needs it either:
     // the compiler finds the one built beside its own executable.
     command.env_remove("TARQEEM_HOME");
+    command.envs(env.iter().copied());
 
     let output = command
         .output()
@@ -160,12 +171,21 @@ fn tarqeem(args: &[&str], cwd: &Path) -> Output {
 }
 
 fn execute(backend: Backend, main: &Path, tag: &str) -> Output {
+    execute_with_env(backend, main, tag, &[])
+}
+
+/// `execute` with extra variables in the child's environment.
+///
+/// The native leg puts them on the **executed binary**, not only on `compile`:
+/// the compiler reads no environment on that path, and the binary is what calls
+/// `trq_env_get`.
+fn execute_with_env(backend: Backend, main: &Path, tag: &str, env: &[(&str, &str)]) -> Output {
     let cwd = main.parent().expect("للبرنامج مجلد");
     let arg = main.to_str().expect("مسار غير صالح");
 
     match backend {
-        Backend::Interpreter => tarqeem(&["run", arg], cwd),
-        Backend::Jit => tarqeem(&["run", "--jit", arg], cwd),
+        Backend::Interpreter => tarqeem_with_env(&["run", arg], cwd, env),
+        Backend::Jit => tarqeem_with_env(&["run", "--jit", arg], cwd, env),
         Backend::Native => {
             // The only backend that links, so the only one needing libtrq.a.
             ensure_runtime_library();
@@ -178,6 +198,7 @@ fn execute(backend: Backend, main: &Path, tag: &str) -> Output {
             }
 
             let run = Command::new(&exe)
+                .envs(env.iter().copied())
                 .output()
                 .unwrap_or_else(|e| panic!("تعذّر تشغيل {}: {}", exe.display(), e));
             Output {
@@ -192,11 +213,16 @@ fn execute(backend: Backend, main: &Path, tag: &str) -> Output {
 
 /// Asserts `body` prints exactly `expected` under all three backends.
 fn assert_prints(name: &str, body: &str, expected: &[&str]) {
+    assert_prints_with_env(name, body, &[], expected)
+}
+
+/// `assert_prints` with extra variables in each backend's environment.
+fn assert_prints_with_env(name: &str, body: &str, env: &[(&str, &str)], expected: &[&str]) {
     let temp = TempDir::new().unwrap();
     let main = write_program(temp.path(), name, body);
 
     for backend in Backend::ALL {
-        let output = execute(backend, &main, &format!("{name}_{backend:?}"));
+        let output = execute_with_env(backend, &main, &format!("{name}_{backend:?}"), env);
 
         assert!(
             output.succeeded(),
@@ -2197,6 +2223,143 @@ fn test_user_function_shadows_substr_chars() {
 }
 
 // ---------------------------------------------------------------------------
+// متغير_بيئة — قراءة متغيّرات البيئة (#338)
+// ---------------------------------------------------------------------------
+
+/// The name of every variable these tests inject. Latin, because environment
+/// variable names conventionally are — Arabic reaches the runtime as ordinary
+/// string data either way, and the absent-name test below relies on that.
+const ENV_PROBE: &str = "TARQEEM_ENV_PROBE_338";
+const ENV_EMPTY: &str = "TARQEEM_ENV_EMPTY_338";
+
+/// The Arabic value is not decoration: it is what proves the value survives
+/// `std::env::var` → `TrqString` → print, and it is also what makes `طول` able
+/// to catch a missing return type below. On an ASCII value the byte count and
+/// the character count agree, and the assertion would pass either way.
+#[test]
+fn test_env_var_reads_the_environment_in_every_backend() {
+    assert_prints_with_env(
+        "بيئة_قراءة",
+        concat!(
+            "اطبع(متغير_بيئة(\"TARQEEM_ENV_PROBE_338\"))\n",
+            "اطبع(طول(متغير_بيئة(\"TARQEEM_ENV_PROBE_338\")))",
+        ),
+        &[(ENV_PROBE, "مرحبا")],
+        &["مرحبا", "5"],
+    );
+}
+
+/// The load-bearing test. `متغير_بيئة` lowers to a plain call, so nothing but the
+/// `register_builtin_return_types` entry types its result.
+///
+/// Measured with that entry deleted: `نوع` → `مؤشر`, `"X" + …` → `X` followed by
+/// a pointer in decimal, `== "مرحبا"` → `خطأ`, and `طول` → **10 where 5 was
+/// right** — the sentinel routes `ArrayLen` to `trq_array_len`, which reads
+/// `TrqArray.len` at offset 0, and a `TrqString`'s field at offset 0 is its
+/// *byte* length. Four of five, like `قص_حروف`. Printing alone passed, as it has
+/// every time.
+#[test]
+fn test_env_var_result_composes_as_a_string() {
+    assert_prints_with_env(
+        "بيئة_تركيب",
+        concat!(
+            "اطبع(نوع(متغير_بيئة(\"TARQEEM_ENV_PROBE_338\")))\n",
+            "اطبع(\"X\" + متغير_بيئة(\"TARQEEM_ENV_PROBE_338\"))\n",
+            "اطبع(متغير_بيئة(\"TARQEEM_ENV_PROBE_338\") == \"مرحبا\")\n",
+            "اطبع(طول(متغير_بيئة(\"TARQEEM_ENV_PROBE_338\")))",
+        ),
+        &[(ENV_PROBE, "مرحبا")],
+        &["نص", "Xمرحبا", "صحيح", "5"],
+    );
+}
+
+/// `""` here is a value, not a sentinel: an absent variable and an empty name
+/// both have one unambiguous answer, so there is nothing for a caller to tell
+/// apart. Every one of these is `trq_env_get`'s answer rather than a chosen one.
+#[test]
+fn test_env_var_is_total_for_an_absent_name() {
+    assert_prints(
+        "بيئة_غائب",
+        concat!(
+            "اطبع(طول(متغير_بيئة(\"TARQEEM_ABSENT_338\")))\n",
+            "اطبع(متغير_بيئة(\"TARQEEM_ABSENT_338\") == \"\")\n",
+            "اطبع(طول(متغير_بيئة(\"\")))\n",
+            "اطبع(طول(متغير_بيئة(\"لا_يوجد_متغير_بهذا_الاسم\")))",
+        ),
+        &["0", "صحيح", "0", "0"],
+    );
+}
+
+/// Set-but-empty answers `""` too, so it is indistinguishable from unset. That is
+/// `getenv(3)`'s contract and it is deliberate; a caller needing the distinction
+/// has no route to it. Only reachable with an injected variable — hence the
+/// separate test from the absent cases above.
+#[test]
+fn test_env_var_does_not_distinguish_set_but_empty_from_unset() {
+    assert_prints_with_env(
+        "بيئة_فارغ",
+        concat!(
+            "اطبع(طول(متغير_بيئة(\"TARQEEM_ENV_EMPTY_338\")))\n",
+            "اطبع(متغير_بيئة(\"TARQEEM_ENV_EMPTY_338\") == متغير_بيئة(\"TARQEEM_ABSENT_338\"))",
+        ),
+        &[(ENV_EMPTY, "")],
+        &["0", "صحيح"],
+    );
+}
+
+/// The name is read raw. `trq_env_get` does its own null/len/UTF-8 checks rather
+/// than going through `string.rs`'s `as_str`, which trims — so a trimming
+/// interpreter arm would answer «مرحبا» where native answers `""`, on source that
+/// looks like a typo rather than a bug (#324).
+#[test]
+fn test_env_var_does_not_trim_the_name() {
+    assert_prints_with_env(
+        "بيئة_فراغات",
+        concat!(
+            "اطبع(طول(متغير_بيئة(\" TARQEEM_ENV_PROBE_338 \")))\n",
+            "اطبع(طول(متغير_بيئة(\"TARQEEM_ENV_PROBE_338\")))",
+        ),
+        &[(ENV_PROBE, "مرحبا")],
+        &["0", "5"],
+    );
+}
+
+/// The parameter is a pointer, so the runtime's null guard is a designed answer
+/// rather than the integer-zero artifact an `عدد` parameter would face (#326,
+/// #327). Both routes to a null are covered: an un-narrowed `نص?`, which
+/// `Type::compat` lets into a `نص` parameter, and an `أي` holder.
+#[test]
+fn test_env_var_accepts_a_null_holder() {
+    assert_prints(
+        "بيئة_لا_شيء",
+        concat!(
+            "متغير غائب: نص? = لا_شيء\n",
+            "اطبع(طول(متغير_بيئة(غائب)))\n",
+            "متغير مجهول: أي = لا_شيء\n",
+            "اطبع(طول(متغير_بيئة(مجهول)))",
+        ),
+        &["0", "0"],
+    );
+}
+
+/// Builtins are the last lookup tier, so a user definition must win in every
+/// backend (#262) — including past codegen's `mangle_function_name`, which would
+/// otherwise emit `@trq_env_get` for the user's own function.
+#[test]
+fn test_user_function_shadows_env_var() {
+    assert_prints(
+        "بيئة_مظلل",
+        concat!(
+            "دالة متغير_بيئة(اسم: نص) -> نص {\n",
+            "    أرجع \"دالتي\"\n",
+            "}\n",
+            "اطبع(متغير_بيئة(\"PATH\"))",
+        ),
+        &["دالتي"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // طول over a string — characters, not bytes (#185)
 // ---------------------------------------------------------------------------
 
@@ -2784,6 +2947,14 @@ fn test_every_core_builtin_agrees_across_backends() {
         // «م»'s two octets, so this one line rejects the plausible degradation:
         // reading the array as codepoints answers «Ù…» instead.
         ("ثنائي_إلى_نص", "اطبع(ثنائي_إلى_نص([217، 133]))", &["م"]),
+        // A stub answering `""` for every name passes every absent-variable
+        // case, so this reads one that every process has. Its value is
+        // machine-dependent; that it is non-empty is not.
+        (
+            "متغير_بيئة",
+            "اطبع(طول(متغير_بيئة(\"PATH\")) > 0)",
+            &["صحيح"],
+        ),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();

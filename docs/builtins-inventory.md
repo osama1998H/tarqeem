@@ -14,15 +14,15 @@ backed by a mechanical count that agrees with the hand enumeration.
 
 | | |
 |---|---|
-| Names declared in `Scope` | **193** — 30 `core_builtins()` + 163 `get_stdlib_builtin()` across 7 modules |
-| Names reachable on *some* backend | **244** — the extra 51 exist in a backend but in no registry, so no program can call them |
+| Names declared in `Scope` | **194** — 31 `core_builtins()` + 163 `get_stdlib_builtin()` across 7 modules |
+| Names reachable on *some* backend | **245** — the extra 51 exist in a backend but in no registry, so no program can call them |
 | `runtime-rs` exports | **220** `#[no_mangle] pub extern "C" fn` |
 | … of which ABI-internal (compiler-emitted plumbing) | **22** — excluded from the language surface |
-| … of which orphans (no caller anywhere) | **28** |
-| … reachable from a declared name | **157** |
+| … of which orphans (no caller anywhere) | **27** — `trq_env_get` left the set in #338 |
+| … reachable from a declared name | **158** |
 | Self-hosted `.ترقيم` exports under `stdlib/` | **385** `صدّر` declarations across 44 files |
 | … actually loadable today | **one module** (`مجموعات`); 201 exports are dead by short-circuit |
-| Places to edit to add **one** builtin | **9** for a symbol-mapped name, **2** for an IR-intercepted one — measured on both (see §1) |
+| Places to edit to add **one** builtin | **9** for a symbol-mapped name needing a new runtime symbol, **8** when the symbol already exists (#338), **6** to repair a half-wired one (#336), **2** for an IR-intercepted one — all four measured (see §1) |
 
 **Two planes, counted separately.** `runtime-rs` mixes the language's builtin surface with the
 ABI the compiler emits for ordinary operators and allocation (`trq_alloc`, `trq_retain`,
@@ -77,7 +77,8 @@ the refactor; fixing them is scoped in the plan document, not here.
 > left as measured rather than continuously re-derived — re-running the whole census is a separate
 > pass — so read them as "what the census found", not as current state. The §0 table and §4's rows
 > *are* kept current. Known drift since: #336 moved `قص_حروف` to core tier and removed `قص_نص`, so
-> §2.2's «32 of 41 نص» and §2.10's stdlib-registry figures are each one or two low.
+> §2.2's «32 of 41 نص» and §2.10's stdlib-registry figures are each one or two low. #338 then added
+> `متغير_بيئة`, taking the core tier to 31 and the declared total to 194, and retiring one orphan.
 
 ### 2.1 The default backend is the weakest one
 
@@ -224,7 +225,7 @@ different universes.
 
 ## 4. The inventory
 
-#### `core` — 33
+#### `core` — 34
 
 Rows marked **مُنفَّذ** landed after this census; the backend columns are re-verified,
 not carried over from the original pass.
@@ -249,6 +250,7 @@ not carried over from the original pass.
 | `بتات_و` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#302) |
 | `ثنائي_إلى_نص` | ✓ | ✓ | ✓ | ✓ | `trq_string_from_bytes` | مدمج | primitive، **مُنفَّذ** (#333) |
 | `قص_حروف` | ✓ | ✓ | ✓ | ✓ | `trq_string_substr_chars` | مدمج | primitive، **مُنفَّذ** (#336) — نُقل من `نص` |
+| `متغير_بيئة` | ✓ | ✓ | ✓ | ✓ | `trq_env_get` | مدمج | primitive، **مُنفَّذ** (#338) |
 | `تأكد` | ✓ | ✓ | ✗ | ✓ | `trq_assert` | مكتبة |  |
 | `تأكد_رسالة` | ✓ | ✓ | ✗ | ✓ | `-` | مكتبة |  |
 | `توقف` | ✓ | ✓ | ✗ | ~ | `trq_panic` | مدمج | primitive |

@@ -4,7 +4,7 @@ use std::io::{self, Write};
 
 use crate::interpreter::epoch_millis;
 use crate::interpreter::{
-    bytes_to_string, call_substring_by_chars, RuntimeError, RuntimeResult, Value,
+    bytes_to_string, call_env_var, call_substring_by_chars, RuntimeError, RuntimeResult, Value,
 };
 
 use super::DebugInterpreter;
@@ -34,6 +34,7 @@ impl DebugInterpreter {
                 | "رمز_إلى_حرف"
                 | "نص_إلى_ثنائي"
                 | "ثنائي_إلى_نص"
+                | "متغير_بيئة"
                 // Runtime symbols the IR builder lowers core builtins to
                 // (#222). Without these, stepping through `عدد("٥")` or
                 // `تأكد(...)` aborts with "دالة غير معرّفة".
@@ -252,6 +253,8 @@ impl DebugInterpreter {
                     _ => Err(RuntimeError::type_error("مصفوفة", val.type_name())),
                 }
             }
+
+            "متغير_بيئة" => call_env_var(&args),
 
             "trq_string_len" => {
                 let val = args
@@ -597,6 +600,42 @@ mod tests {
         let null = interpreter
             .call_builtin("قص_حروف", vec![Value::Null, Value::Int(0), Value::Int(1)])
             .expect("قص_حروف أخفقت على لا_شيء");
+        assert_eq!(null.as_string(), Some(""));
+    }
+
+    /// `متغير_بيئة`'s arm, pinned for the same reason as the slicer above: the
+    /// dispatch is shared, so what this checks is that it exists here at all and
+    /// keys on the Arabic name.
+    ///
+    /// Deliberately asserts only the answers that need no variable to exist.
+    /// Setting one here would mean `std::env::set_var`, which races every other
+    /// test in this process; the cross-backend legs in
+    /// `tests/builtins_execution_tests.rs` inject on the child process instead,
+    /// and that is where a present variable is covered.
+    #[test]
+    fn test_env_var_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("متغير_بيئة"),
+            "متغير_بيئة غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        // An absent name, an empty one and `لا_شيء` are the three shapes the
+        // runtime folds into `""`, and none of them needs a variable to exist.
+        for name in ["TARQEEM_ABSENT_DEBUG_338", ""] {
+            let result = interpreter
+                .call_builtin("متغير_بيئة", vec![Value::string(name)])
+                .expect("متغير_بيئة أخفقت في مفسّر التنقيح");
+            assert_eq!(result.as_string(), Some(""), "من {name:?}");
+        }
+
+        let null = interpreter
+            .call_builtin("متغير_بيئة", vec![Value::Null])
+            .expect("متغير_بيئة أخفقت على لا_شيء");
         assert_eq!(null.as_string(), Some(""));
     }
 

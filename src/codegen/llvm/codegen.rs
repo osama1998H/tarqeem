@@ -850,6 +850,10 @@ impl LlvmCodegen {
         emit!(self, "declare i1 @trq_path_is_absolute(ptr)");
         emit!(self, "declare ptr @trq_path_separator()");
 
+        // Beside the directory readers because `trq_dir_home` and `trq_dir_temp`
+        // read the environment too — they are `getenv` with one key hardcoded.
+        emit!(self, "declare ptr @trq_env_get(ptr)");
+
         emit!(self, "declare ptr @trq_date_today()");
         emit!(self, "declare ptr @trq_date_parse(ptr)");
         emit!(self, "declare ptr @trq_date_from_timestamp(i64)");
@@ -2925,6 +2929,9 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "مجلد_حالي" => Some("trq_dir_current"),
         "مجلد_مستخدم" => Some("trq_dir_home"),
         "مجلد_مؤقت" => Some("trq_dir_temp"),
+        // Both names above reduce to this one, and will become stdlib wrappers
+        // over it in Increment G. They stay live under their own symbols here.
+        "متغير_بيئة" => Some("trq_env_get"),
         "ادمج_مسار" => Some("trq_path_join"),
         "مسار_اب" => Some("trq_path_parent"),
         "اسم_ملف" => Some("trq_path_filename"),

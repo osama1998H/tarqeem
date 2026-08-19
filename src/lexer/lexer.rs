@@ -985,10 +985,19 @@ mod tests {
         // here. The next is its mirror, «نص» in trailing position — the same shape
         // `بتات_و` already covers, listed so the pair reads together.
         //
-        // The last is the shape none of the others reach: «و» sits inside «حروف»
+        // Next is the shape none of the others reach: «و» sits inside «حروف»
         // with a *letter* on each side (ر and ف), where every case above has a `_`
         // or a name boundary on at least one side. A scan that treated a keyword
         // match as a boundary regardless of context would cut a word in three.
+        //
+        // The last shares the opening position with «نص_إلى_ثنائي» but not the
+        // keyword class, and that is the point: «نص» is a type name, legal as an
+        // identifier in many positions already, while «متغير» opens a
+        // *statement*. A longest-keyword-prefix scan would emit `Let` then
+        // `_بيئة` — a well-formed variable declaration — so it would surface as a
+        // missing `=` at a position with no visible relation to the call, or not
+        // surface at all. Every case above fails as a token error; this one would
+        // fail as a plausible statement.
         let cases = [
             ("بتات_و(12، 10)", "بتات_و"),
             ("بتات_أو(12، 10)", "بتات_أو"),
@@ -998,6 +1007,7 @@ mod tests {
             ("نص_إلى_ثنائي(\"م\")", "نص_إلى_ثنائي"),
             ("ثنائي_إلى_نص([65])", "ثنائي_إلى_نص"),
             ("قص_حروف(\"مرحبا\"، 1، 2)", "قص_حروف"),
+            ("متغير_بيئة(\"PATH\")", "متغير_بيئة"),
         ];
 
         for (source, name) in cases {

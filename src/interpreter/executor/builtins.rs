@@ -114,6 +114,30 @@ pub(crate) fn bytes_to_string(values: &[Value]) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
+/// `متغير_بيئة`'s whole dispatch, shared the way `call_substring_by_chars` above
+/// is: the contract here lives almost entirely in the argument checks.
+///
+/// The name is read **raw**. `trq_env_get` deliberately does its own null/len/UTF-8
+/// checks instead of going through `as_str`, which trims, so trimming here would
+/// make `متغير_بيئة(" PATH ")` disagree between backends (#324).
+pub(crate) fn call_env_var(args: &[Value]) -> RuntimeResult<Value> {
+    let name = args.first().ok_or_else(|| {
+        RuntimeError::invalid_operation("متغير_بيئة() تتطلب معاملاً واحداً: اسم المتغير")
+    })?;
+
+    match name {
+        // One arm covers every failure the runtime folds into `""`: `env::var` is
+        // the call `trq_env_get` makes too, and it errors alike on an empty name,
+        // an absent one and a value that is not Unicode. Set-but-empty answers
+        // `""` as well, so it is indistinguishable from unset by design.
+        Value::String(s) => Ok(Value::string(std::env::var(s.as_str()).unwrap_or_default())),
+        // A pointer parameter, so this mirrors the runtime's null guard the way
+        // `قص_حروف`'s arm does, rather than encoding an integer-zero artifact.
+        Value::Null => Ok(Value::string("")),
+        _ => Err(RuntimeError::type_error("نص", name.type_name())),
+    }
+}
+
 impl Interpreter {
     pub(crate) fn is_builtin(&self, name: &str) -> bool {
         matches!(
@@ -227,6 +251,7 @@ impl Interpreter {
                 | "رمز_إلى_حرف"
                 | "نص_إلى_ثنائي"
                 | "ثنائي_إلى_نص"
+                | "متغير_بيئة"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
                 | "نص_ينتهي_بـ"
@@ -1132,6 +1157,8 @@ impl Interpreter {
                     _ => Err(RuntimeError::type_error("مصفوفة", val.type_name())),
                 }
             }
+
+            "متغير_بيئة" => call_env_var(&args),
 
             "نص_يحتوي" => {
                 let haystack = args
