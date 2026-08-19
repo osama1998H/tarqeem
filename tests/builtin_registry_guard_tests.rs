@@ -5,7 +5,7 @@
 //! name lists — and until now nothing compared them. They happen to agree today;
 //! that agreement was coincidence, not enforcement.
 //!
-//! These are **ratchet** tests. They pin the registry as it stands (33 core + 165
+//! These are **ratchet** tests. They pin the registry as it stands (33 core + 163
 //! stdlib) while the builtin/stdlib boundary described in `docs/builtins-vs-stdlib.md`
 //! is migrated. A name may only enter or leave the registry by editing the expected
 //! list here, which is exactly the deliberate step the plan requires — a migration
@@ -201,6 +201,12 @@ fn stdlib_registry_size_is_locked() {
     // was `قص_نص`'s removal, the first name the migration has actually dropped
     // rather than moved. Back to 194 with #338, which is a plain addition: a new
     // core name over an existing runtime symbol, no module size touched.
+    //
+    // The pair in this file's header comment read «29 core + 165 stdlib» until #342,
+    // which is 194 — the right total from two wrong halves that cancelled: core was
+    // 31, not 29, and the module sizes summed to 163, not 165. Both are corrected
+    // there. Recount each half against source; a total that matches proves nothing
+    // about the parts.
     //
     // 196 with #342, and it is the first step that moves this number by two for
     // one capability: `أنهِ_البرنامج` ships with its kasra-less spelling, the way
