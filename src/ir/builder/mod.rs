@@ -337,6 +337,14 @@ impl IrBuilder {
         // links and then reads a `TrqString` as whatever the sentinel implies.
         self.function_return_types
             .insert("ثنائي_إلى_نص".to_string(), IrType::String);
+        // Quiet unregistered in the same way, and it fails exactly like `قص_حروف`
+        // above rather than like `ثنائي_إلى_نص`: four of five assertions catch it,
+        // `طول` included, because the sentinel sends `ArrayLen` to
+        // `trq_array_len` and a `TrqString`'s field at offset 0 is its *byte*
+        // length — «مرحبا» answers 10 where 5 is right. Only visible on a
+        // multi-byte value, which is why the test injects an Arabic one.
+        self.function_return_types
+            .insert("متغير_بيئة".to_string(), IrType::String);
 
         // اقرأ_سطر (read_line) returns string
         self.function_return_types

@@ -240,6 +240,11 @@ impl Scope {
                 vec![Type::Int, Type::Int],
                 Type::Int,
             ),
+            // Environment - البيئة
+            // `getenv(3)`, which no composition of the names above can reach.
+            // Total: an absent name, an empty one and `لا_شيء` all answer `""`,
+            // so set-but-empty is deliberately indistinguishable from unset.
+            ("متغير_بيئة", vec![Type::String], Type::String),
         ]
     }
 

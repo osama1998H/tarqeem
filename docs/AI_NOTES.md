@@ -3835,3 +3835,109 @@ names neither the keyword nor the alias.
 §6.6 already warns about this for Increment F. It fired first here, in a **test fixture** — which is
 where it will keep firing, since fixtures are where short identifiers get used. The warning belongs
 next to the diagnostic, not only in the increment that expects it.
+
+
+## #338 — متغير_بيئة, and the first criterion that could not expire
+
+`متغير_بيئة` — `(نص) -> نص`, `getenv(3)` — is the Category 8 environment reader from the 40-name
+registry, and the first name outside Increments A and B. Core tier, no import.
+
+### A (b) criterion is a different kind of claim from an (a) criterion
+
+§6.1 made re-derivation a standing rule because four §1.3 rows had criterion (a) expire under them —
+`بتات_نفي`, `بتات_إزاحة_يمين_منطقية`, `ثنائي_إلى_نص`, `قص_حروف`. This is the first name checked whose
+criterion is **(b)**, and the re-derivation is one sentence: nothing in Tarqeem reads the process
+environment, and nothing that lands later can change that, because the capability lives in the
+operating system rather than in the language.
+
+**Criterion (a) is a statement about the language, which every increment edits. Criterion (b) is a
+statement about the kernel, which no increment can reach.** So the standing rule should be read as
+applying to the (a) rows; for the (b) rows what needs checking is the *contract*, which is the second
+defect class #333 identified.
+
+That check paid off, though not by finding a defect. `trq_env_get` was read rather than trusted,
+because this document's other orphan precedent is `trq_performance_now` — implemented, linkable, and a
+verbatim copy of `trq_time_now`, so it lies about being monotonic. `trq_env_get` is honest: all five of
+its paths (null pointer, null data, empty name, invalid UTF-8, unset variable) already return
+`trq_string_new(null, 0)` — an empty `TrqString`, not a null pointer — so §1.3's `""`-when-unset clause
+was satisfied by code predating the row. **Read the orphan. The two this document leans on disagree
+about whether they work.**
+
+### The fourth cost shape, and what actually discriminates them
+
+Eight sites, not nine and not six: everything on the path except the `runtime-rs` function, which
+already existed. The four measured shapes are now
+
+| Shape | Cost | Example |
+|---|---|---|
+| IR-intercepted | 2 files | `بتات_و` (#302) |
+| Symbol-mapped, new runtime function | 9 sites | `حرف_إلى_رمز` (#324) |
+| Symbol-mapped, symbol already exists | **8 sites** | `متغير_بيئة` (#338) |
+| Repair of a half-wired name | 6 sites | `قص_حروف` (#336) |
+
+The discriminator is not the tier, and not the return type — #330 already showed a "first" that was
+only a first for its tier. **It is which half of the path already exists.** Here the runtime half did
+and the codegen half did not, which is the mirror image of #336.
+
+### The missing return type: predicted from the struct layout, and the prediction held
+
+#336 asked for this to be predicted from the return type's layout rather than sorted into loud or
+quiet, and doing that in advance produced the right answer. Measured natively with the
+`register_builtin_return_types` line deleted, for the value «مرحبا»:
+
+| Assertion | Without the entry | Right |
+|---|---|---|
+| `اطبع(…)` | `مرحبا` | `مرحبا` — **passes either way** |
+| `نوع(…)` | `مؤشر` | `نص` |
+| `"X" + …` | `X4321175728` | `Xمرحبا` |
+| `== "مرحبا"` | `خطأ` | `صحيح` |
+| `طول(…)` | **10** | **5** |
+
+Four of five, `قص_حروف`'s profile rather than `ثنائي_إلى_نص`'s three. `طول` catches it for the same
+reason it did there: the sentinel routes `ArrayLen` to `trq_array_len`, which reads offset 0, and a
+`TrqString`'s field at offset 0 is its byte length.
+
+**The Arabic test value is load-bearing, and this is the generalisable part.** On an ASCII value the
+byte count and the character count agree, so `طول` would pass with the entry deleted and the gate
+would be a three-catcher instead of a four. A `نص`-returning builtin whose tests use only ASCII
+silently gives up one of its assertions.
+
+### A cross-backend harness cannot set an environment variable in-process
+
+`متغير_بيئة` is the first builtin whose answer depends on the environment, and `std::env::set_var` is
+unusable in the harness: cargo runs tests as threads in one process, so setting a variable races every
+other test.
+
+Every backend leg was already a child process — `tarqeem run`, `tarqeem run --jit`, and the compiled
+binary — so the variable goes on the child. `tarqeem_with_env`, `execute_with_env` and
+`assert_prints_with_env` were added, and the three existing helpers became one-line wrappers over them,
+so all 147 existing call sites are untouched. One detail that is easy to get wrong: the native leg must
+put the variables on the **executed binary**, not on `compile` — the compiler reads no environment on
+that path, so setting them there compiles fine and then answers `""`.
+
+The absent-variable cases need none of this and are covered by plain `assert_prints`; only the
+exact-value, set-but-empty, and no-trimming cases need injection. **Set-but-empty is reachable no other
+way**, which is why it is a separate test rather than a row in the totality test.
+
+### Two smaller findings
+
+**The name must be read raw.** `trq_env_get` deliberately does its own null/len/UTF-8 checks instead of
+going through `string.rs`'s `as_str`, which trims — the trap #324 recorded. An interpreter arm using a
+trimming accessor would answer «مرحبا» for `متغير_بيئة(" PATH ")` where native answers `""`, on source
+that reads like a typo rather than a bug. `test_env_var_does_not_trim_the_name` pins both halves.
+
+**The lexer check found a ninth shape, and it is the first whose failure would not look like a lexer
+failure.** `متغير_بيئة` opens with `متغير` (`TokenKind::Let`). Position-wise that matches
+`نص_إلى_ثنائي` (#330), but `نص` is a type name already legal as an identifier, while `متغير` opens a
+*statement*: a longest-keyword-prefix scan would emit `Let` then `_بيئة`, which is a **well-formed
+variable declaration**, so it would surface as a missing `=` somewhere unrelated — or not surface. Nine
+names, nine shapes; the check stays per-name, and this is the fifth consecutive name where "the last
+one needed nothing" would have been the wrong inference.
+
+### Example collision worth knowing about
+
+`examples/مدمجات.ترقيم` is now 990 lines with twelve builtin sections, and top-level names are shared
+across all of them: `متغير غائب: نص? = لا_شيء` already existed at line 560 from the `حرف_إلى_رمز`
+section, so re-declaring it failed with `د٠١٠١`. Renamed to `اسم_غائب`. As that file grows, a new
+section's locals need a section-specific prefix — the failure is loud, but it is not obvious from
+inside the section being written.

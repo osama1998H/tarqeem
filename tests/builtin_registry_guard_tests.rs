@@ -52,6 +52,7 @@ const CORE_BUILTINS: &[&str] = &[
     "طول",
     "طول_مصفوفة",
     "قص_حروف",
+    "متغير_بيئة",
     "عدد",
     "عدد_عشري",
     "منطقي",
@@ -186,13 +187,14 @@ fn stdlib_registry_size_is_locked() {
     );
 
     let total: usize = STDLIB_MODULE_SIZES.iter().map(|(_, n)| n).sum();
-    // 194 until #336. A promotion is size-neutral — `قص_حروف` left `نص` and
-    // joined `CORE_BUILTINS` — so the whole of this step is `قص_نص`'s removal,
-    // and it is the first name the migration has actually dropped rather than
-    // moved.
+    // 194 until #336, which took it to 193: a promotion is size-neutral —
+    // `قص_حروف` left `نص` and joined `CORE_BUILTINS` — so the whole of that step
+    // was `قص_نص`'s removal, the first name the migration has actually dropped
+    // rather than moved. Back to 194 with #338, which is a plain addition: a new
+    // core name over an existing runtime symbol, no module size touched.
     assert_eq!(
         total + CORE_BUILTINS.len(),
-        193,
+        194,
         "total registry size changed; docs/builtins-vs-stdlib.md targets 40 primitives — reached \
          by migrating ~150 names out and adding 21 new ones, so this number moves in both \
          directions, but only ever deliberately"
