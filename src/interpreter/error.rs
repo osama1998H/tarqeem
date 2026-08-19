@@ -36,6 +36,11 @@ pub enum ErrorKind {
     /// `Executor::take_propagating_exception` routes only `UnhandledException`
     /// to a frame's `try_stack`, so `حاول { أنهِ_البرنامج(٣) }` exits 3 in every
     /// backend instead of running its `التقط`.
+    ///
+    /// The two **debug** hosts cannot honour it yet, and not for want of an arm:
+    /// `impl From<RuntimeError> for DebugError` (`src/debug/mod.rs:86`) keeps only
+    /// the message, so the status does not survive the boundary and a clean exit
+    /// is reported red as «خطأ» with the session left un-terminated (#346).
     ProgramExit(i32),
 }
 
