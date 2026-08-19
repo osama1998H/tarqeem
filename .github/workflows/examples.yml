@@ -6,6 +6,16 @@ on:
   pull_request:
     branches: ["main", "develop"]
 
+# A stalled setup step used to hold a superseded run alive indefinitely: run
+# 32230000001 was still executing four `apt-get` steps after a newer push had
+# already started its replacement (#340). Cancelling is scoped to pull requests
+# deliberately — on `main`/`develop` the run *is* the record of whether that
+# integration commit passed, and discarding it to save a runner trades away the
+# thing the record exists for.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -16,6 +26,7 @@ jobs:
   build-compiler:
     name: Build Compiler
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -51,6 +62,7 @@ jobs:
   list-examples:
     name: List Examples
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       names: ${{ steps.collect.outputs.names }}
     steps:
@@ -84,6 +96,7 @@ jobs:
   check-examples:
     name: Check Examples Syntax
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build-compiler
     steps:
       - uses: actions/checkout@v7
@@ -114,8 +127,10 @@ jobs:
               echo "Checking: $filename"
 
               # Bounded like the run-* steps below: a parser that spins (#266)
-              # would otherwise hold this job to the 6-hour job limit with no
-              # diagnostic, since no job here sets timeout-minutes.
+              # would otherwise burn the whole job budget on one file and report
+              # no diagnostic. The job-level timeout-minutes added in #340 is the
+              # backstop, not a replacement — it fails the job without naming the
+              # file, and this names the file.
               if timeout 30s ./bin/tarqeem check "$file" 2>&1; then
                 echo "- :white_check_mark: $filename" >> check-results.md
                 PASS=$((PASS + 1))
@@ -149,6 +164,7 @@ jobs:
   check-stdlib:
     name: Check Stdlib Syntax
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build-compiler
     steps:
       - uses: actions/checkout@v7
@@ -215,6 +231,7 @@ jobs:
   expected-output:
     name: Expected Output (values, not just exit codes)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build-compiler
     steps:
       - uses: actions/checkout@v7
@@ -262,6 +279,7 @@ jobs:
   run-examples-interpreted:
     name: Run Examples (Interpreter)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [build-compiler, list-examples]
     strategy:
       fail-fast: false
@@ -301,6 +319,7 @@ jobs:
   run-examples-jit:
     name: Run Examples (JIT)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [build-compiler, list-examples]
     strategy:
       fail-fast: false
@@ -340,6 +359,7 @@ jobs:
   run-examples-compiled:
     name: Run Examples (Compiled)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [build-compiler, list-examples]
     strategy:
       fail-fast: false
@@ -348,10 +368,51 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The step that hung in #340: it stalled for 33 minutes in four matrix legs
+      # while eight siblings installed in under one, because the Azure Ubuntu
+      # mirror was intermittently unreachable (`Ign:` on every archive URL). A
+      # bare timeout only converts that hang into a failure, which still blocks
+      # the merge, so three things happen here instead:
+      #
+      #   1. Skip entirely when the toolchain is already on the runner image —
+      #      then a mirror outage cannot affect this job at all.
+      #   2. Bound apt's own network waits. Without `Acquire::*` it retries a
+      #      dead mirror with no deadline, which is what produced the 33 minutes.
+      #   3. Retry, because a mirror flake is transient by nature.
+      #
+      # The step timeout is the backstop for all three, not the mechanism.
       - name: Install LLVM/Clang
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang llvm lld zlib1g-dev
+          if command -v clang >/dev/null 2>&1 && command -v ld.lld >/dev/null 2>&1; then
+            echo "already on the image, skipping apt: $(clang --version | head -1)"
+            exit 0
+          fi
+
+          # The runner's mirrorlist puts azure.archive.ubuntu.com first, and that
+          # host is the one that goes dark (#340): every index request `Ign:`s
+          # through its retry budget before apt falls back to the canonical
+          # archive, which then answers in under a second. Dropping the dead
+          # mirror is what actually fixes this — the timeouts and retries below
+          # only bound how long we wait on it.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+            echo "mirrorlist now: $(tr '\n' ' ' < /etc/apt/apt-mirrors.txt)"
+          fi
+
+          APT_OPTS="-o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10"
+          for attempt in 1 2 3; do
+            # shellcheck disable=SC2086
+            if sudo apt-get $APT_OPTS update && \
+               sudo apt-get $APT_OPTS install -y --no-install-recommends clang llvm lld zlib1g-dev; then
+              exit 0
+            fi
+            echo "attempt $attempt failed (mirror flake?), retrying"
+            sleep 10
+          done
+
+          echo "::error::LLVM/Clang unavailable after 3 attempts — apt mirror outage, not a code failure"
+          exit 1
 
       - name: Download compiler
         uses: actions/download-artifact@v8
@@ -412,14 +473,56 @@ jobs:
   compare-backends:
     name: Compare Backends (Interpreter vs JIT vs Native)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: build-compiler
     steps:
       - uses: actions/checkout@v7
 
+      # The step that hung in #340: it stalled for 33 minutes in four matrix legs
+      # while eight siblings installed in under one, because the Azure Ubuntu
+      # mirror was intermittently unreachable (`Ign:` on every archive URL). A
+      # bare timeout only converts that hang into a failure, which still blocks
+      # the merge, so three things happen here instead:
+      #
+      #   1. Skip entirely when the toolchain is already on the runner image —
+      #      then a mirror outage cannot affect this job at all.
+      #   2. Bound apt's own network waits. Without `Acquire::*` it retries a
+      #      dead mirror with no deadline, which is what produced the 33 minutes.
+      #   3. Retry, because a mirror flake is transient by nature.
+      #
+      # The step timeout is the backstop for all three, not the mechanism.
       - name: Install LLVM/Clang
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang llvm lld zlib1g-dev
+          if command -v clang >/dev/null 2>&1 && command -v ld.lld >/dev/null 2>&1; then
+            echo "already on the image, skipping apt: $(clang --version | head -1)"
+            exit 0
+          fi
+
+          # The runner's mirrorlist puts azure.archive.ubuntu.com first, and that
+          # host is the one that goes dark (#340): every index request `Ign:`s
+          # through its retry budget before apt falls back to the canonical
+          # archive, which then answers in under a second. Dropping the dead
+          # mirror is what actually fixes this — the timeouts and retries below
+          # only bound how long we wait on it.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+            echo "mirrorlist now: $(tr '\n' ' ' < /etc/apt/apt-mirrors.txt)"
+          fi
+
+          APT_OPTS="-o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10"
+          for attempt in 1 2 3; do
+            # shellcheck disable=SC2086
+            if sudo apt-get $APT_OPTS update && \
+               sudo apt-get $APT_OPTS install -y --no-install-recommends clang llvm lld zlib1g-dev; then
+              exit 0
+            fi
+            echo "attempt $attempt failed (mirror flake?), retrying"
+            sleep 10
+          done
+
+          echo "::error::LLVM/Clang unavailable after 3 attempts — apt mirror outage, not a code failure"
+          exit 1
 
       - name: Download compiler
         uses: actions/download-artifact@v8
@@ -571,6 +674,7 @@ jobs:
   run-stdlib:
     name: Run Standard Library Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build-compiler
     steps:
       - uses: actions/checkout@v7
@@ -613,6 +717,7 @@ jobs:
   summary:
     name: Examples Summary
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [check-examples, check-stdlib, run-examples-interpreted, run-examples-jit, run-examples-compiled, compare-backends, run-stdlib]
     if: always()
     steps:
