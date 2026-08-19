@@ -300,7 +300,9 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | `وقت_الآن` | `() -> عدد` | unchanged | `clock_gettime(CLOCK_REALTIME)`, epoch ms. Every date value in the language descends from this one read. **Also the entropy source** the stdlib RNG seeds from — that is literally what `runtime-rs` does today, so no separate entropy primitive is proposed. **Repair required now:** register its IR return type (see §1.1 rule 5). Criterion (b). |
 | `وقت_أداء` | `() -> عدد` | unchanged | `clock_gettime(CLOCK_MONOTONIC)`. A distinct OS service from the wall clock. **Its body is wrong today** — `trq_performance_now` is a verbatim copy of `trq_time_now`, so a monotonic promise is served by the wall clock and moves backwards on an NTP step. Fix it in the same PR that registers its return type; a name that lies is worse than a missing name. Criterion (b). |
 | `نم` | `(عدد) -> فراغ` | unchanged | `nanosleep(2)`. A busy-wait over `وقت_أداء` burns a core and cannot yield. Already a clean monomorphic wrapper. Criterion (b). |
-| `متغير_بيئة` | `(نص) -> نص` | new — **مُنفَّذ (#338)** | `getenv(3)`, `""` when unset. **New Arabic name over an already-implemented orphan symbol** (`trq_env_get`) — implemented, linkable, and unreachable before #338 because no name mapped to it. `مجلد_مستخدم` and `مجلد_مؤقت` both reduce to it. Criterion (b), re-derived at implementation time and **held** — see the note below. Total: an absent variable, an empty name and `لا_شيء` all answer `""`, so set-but-empty is indistinguishable from unset. |
+| `متغير_بيئة` | `(نص) -> نص` | new — **مُنفَّذ (#338)** | `getenv(3)`, `""` when unset. **New Arabic name over an already-implemented orphan symbol** (`trq_env_get`) — implemented, linkable, and unreachable before #338 because no name mapped to it. `مجلد_مستخدم` reduces to it exactly (`trq_dir_home` is `getenv("HOME")`); `مجلد_مؤقت` does **not** — `trq_dir_temp` calls `std::env::temp_dir()`, which falls back to `/tmp` when `TMPDIR` is unset. Criterion (b), re-derived at implementation time and **held** — see the note below. Total: an absent variable, an empty name and `لا_شيء` all answer `""`, so set-but-empty is indistinguishable from unset. |
+| `مجلد_حالي` | `() -> نص` | unchanged | `getcwd(2)` is **process state**, not an environment variable. Deriving it from `$PWD` is wrong: PWD is shell-maintained, absent under non-shell parents, and stale after any chdir. Criterion (b). |
+| `معاملات_البرنامج` | `() -> مصفوفة<نص>` | new | Command-line arguments. Category 8 requires them and **nothing in the system exposes them** — `runtime-rs/src/runtime.rs:346` declares `main(_argc, _argv)` and discards both. **Not a free table entry:** it needs `runtime-rs` to capture argv at init *plus* the full nine-site registration path. Without it, and without `أنهِ_البرنامج`, Tarqeem cannot write a CLI tool. Criterion (b). |
 
 > **The first re-derivation that could not have failed (#338).** Four §1.3 rows have had criterion
 > (a) expire under them — `بتات_نفي` (#312), `بتات_إزاحة_يمين_منطقية` (#322), `ثنائي_إلى_نص` (#333)
@@ -320,8 +322,6 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 > empty `TrqString` rather than a null pointer, so the row's `""`-when-unset clause was satisfied by
 > code that predated the row. **Read an orphan before planning on it; the two in this document
 > disagree about whether they work.**
-| `مجلد_حالي` | `() -> نص` | unchanged | `getcwd(2)` is **process state**, not an environment variable. Deriving it from `$PWD` is wrong: PWD is shell-maintained, absent under non-shell parents, and stale after any chdir. Criterion (b). |
-| `معاملات_البرنامج` | `() -> مصفوفة<نص>` | new | Command-line arguments. Category 8 requires them and **nothing in the system exposes them** — `runtime-rs/src/runtime.rs:346` declares `main(_argc, _argv)` and discards both. **Not a free table entry:** it needs `runtime-rs` to capture argv at init *plus* the full nine-site registration path. Without it, and without `أنهِ_البرنامج`, Tarqeem cannot write a CLI tool. Criterion (b). |
 
 #### Category 9 — Optional: **0 primitives in the v1 core**
 
@@ -936,10 +936,12 @@ misleading parse errors.
 
 ### 6.7 Increment G — `ملفات` + `طرفية`
 
-Requires the seven new I/O primitives. 21 names. **19 after #338**, which landed `متغير_بيئة` ahead
-of this increment: `مجلد_مستخدم` and `مجلد_مؤقت` both reduce to it, so they become stdlib one-liners
-rather than syscall wrappers. `trq_dir_home` and `trq_dir_temp` stay live under their own Arabic
-names until then — each is `getenv` with one key hardcoded, which is why they collapse.
+Requires the seven new I/O primitives. 21 names. **20 after #338**, which landed `متغير_بيئة` ahead
+of this increment: `مجلد_مستخدم` reduces to it, so it becomes a stdlib one-liner rather than a syscall
+wrapper — `trq_dir_home` is `getenv("HOME")` and nothing else. `مجلد_مؤقت` does **not** collapse with
+it: `trq_dir_temp` calls `std::env::temp_dir()`, which falls back to `/tmp` when `TMPDIR` is unset and
+walks `TMP`/`TEMP`/`USERPROFILE` on Windows, so `متغير_بيئة("TMPDIR")` would answer `""` on the common
+Linux case. It stays a syscall wrapper. Both symbols stay live under their own Arabic names until then.
 
 **What #338 measured, and it is a fourth cost shape.** Increment A cost two files per name, #324 cost
 the full nine sites, and #336 cost six by repairing a half-wired name. `متغير_بيئة` cost **eight**:
@@ -964,9 +966,10 @@ Two things it found that the plan did not state:
    `tarqeem_with_env` / `execute_with_env` / `assert_prints_with_env` were added as additive wrappers
    and the existing `tarqeem` / `execute` / `assert_prints` became one-liners over them, leaving all
    147 existing call sites untouched. The native leg must put the variables on the **executed
-   binary**, not on `compile` — the compiler reads no environment on that path. Reserve stream ids `٠/١/٢` and start
-`NEXT_FILE_HANDLE` at 3 — it starts at 1 today and would collide with stdout the moment streams
-unify, silently redirecting a file write to the terminal.
+   binary**, not on `compile` — the compiler reads no environment on that path.
+
+Reserve stream ids `٠/١/٢` and start `NEXT_FILE_HANDLE` at 3 — it starts at 1 today and would
+collide with stdout the moment streams unify, silently redirecting a file write to the terminal.
 
 **This increment is nearly all upside:** 19 of the 21 `ملفات` names have no interpreter arm, and the
 family segfaults natively today (probe `p4_files`: the binary prints two lines then dies on

@@ -850,8 +850,10 @@ impl LlvmCodegen {
         emit!(self, "declare i1 @trq_path_is_absolute(ptr)");
         emit!(self, "declare ptr @trq_path_separator()");
 
-        // Beside the directory readers because `trq_dir_home` and `trq_dir_temp`
-        // read the environment too — they are `getenv` with one key hardcoded.
+        // Beside the directory readers because they read the environment too.
+        // `trq_dir_home` *is* this call with `HOME` hardcoded; `trq_dir_temp` is
+        // not — it calls `std::env::temp_dir()`, which falls back to `/tmp` when
+        // `TMPDIR` is unset and walks `TMP`/`TEMP`/`USERPROFILE` on Windows.
         emit!(self, "declare ptr @trq_env_get(ptr)");
 
         emit!(self, "declare ptr @trq_date_today()");
@@ -2929,8 +2931,11 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "مجلد_حالي" => Some("trq_dir_current"),
         "مجلد_مستخدم" => Some("trq_dir_home"),
         "مجلد_مؤقت" => Some("trq_dir_temp"),
-        // Both names above reduce to this one, and will become stdlib wrappers
-        // over it in Increment G. They stay live under their own symbols here.
+        // `مجلد_مستخدم` reduces to this one — `trq_dir_home` is `getenv("HOME")`
+        // and nothing else — so it can become a stdlib wrapper in Increment G.
+        // `مجلد_مؤقت` cannot: `trq_dir_temp` calls `std::env::temp_dir()`, whose
+        // fallback to `/tmp` no single environment read reproduces. Both stay
+        // live under their own symbols here regardless.
         "متغير_بيئة" => Some("trq_env_get"),
         "ادمج_مسار" => Some("trq_path_join"),
         "مسار_اب" => Some("trq_path_parent"),
