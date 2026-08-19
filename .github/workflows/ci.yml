@@ -6,6 +6,16 @@ on:
   pull_request:
     branches: ["main", "develop"]
 
+# A stalled setup step used to hold a superseded run alive indefinitely: run
+# 32230000001 was still executing four `apt-get` steps after a newer push had
+# already started its replacement (#340). Cancelling is scoped to pull requests
+# deliberately — on `main`/`develop` the run *is* the record of whether that
+# integration commit passed, and discarding it to save a runner trades away the
+# thing the record exists for.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -17,6 +27,7 @@ jobs:
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -37,6 +48,7 @@ jobs:
   security:
     name: Security Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -56,6 +68,7 @@ jobs:
   test-modules:
     name: Test ${{ matrix.module }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: lint
     strategy:
       fail-fast: false
@@ -127,6 +140,7 @@ jobs:
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: test-modules
     steps:
       - uses: actions/checkout@v7
@@ -155,6 +169,7 @@ jobs:
   full-test:
     name: Full Test Suite
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: lint
     steps:
       - uses: actions/checkout@v7
@@ -179,6 +194,7 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: full-test
     steps:
       - uses: actions/checkout@v7
@@ -218,6 +234,7 @@ jobs:
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     needs: lint
     strategy:
       fail-fast: false
@@ -244,6 +261,7 @@ jobs:
   docs:
     name: Documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: lint
     steps:
       - uses: actions/checkout@v7

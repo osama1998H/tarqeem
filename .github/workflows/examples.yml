@@ -6,6 +6,16 @@ on:
   pull_request:
     branches: ["main", "develop"]
 
+# A stalled setup step used to hold a superseded run alive indefinitely: run
+# 32230000001 was still executing four `apt-get` steps after a newer push had
+# already started its replacement (#340). Cancelling is scoped to pull requests
+# deliberately — on `main`/`develop` the run *is* the record of whether that
+# integration commit passed, and discarding it to save a runner trades away the
+# thing the record exists for.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -16,6 +26,7 @@ jobs:
   build-compiler:
     name: Build Compiler
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -51,6 +62,7 @@ jobs:
   list-examples:
     name: List Examples
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       names: ${{ steps.collect.outputs.names }}
     steps:
@@ -84,6 +96,7 @@ jobs:
   check-examples:
     name: Check Examples Syntax
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build-compiler
     steps:
       - uses: actions/checkout@v7
@@ -114,8 +127,10 @@ jobs:
               echo "Checking: $filename"
 
               # Bounded like the run-* steps below: a parser that spins (#266)
-              # would otherwise hold this job to the 6-hour job limit with no
-              # diagnostic, since no job here sets timeout-minutes.
+              # would otherwise burn the whole job budget on one file and report
+              # no diagnostic. The job-level timeout-minutes added in #340 is the
+              # backstop, not a replacement — it fails the job without naming the
+              # file, and this names the file.
               if timeout 30s ./bin/tarqeem check "$file" 2>&1; then
                 echo "- :white_check_mark: $filename" >> check-results.md
                 PASS=$((PASS + 1))
@@ -149,6 +164,7 @@ jobs:
   check-stdlib:
     name: Check Stdlib Syntax
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build-compiler
     steps:
       - uses: actions/checkout@v7
@@ -215,6 +231,7 @@ jobs:
   expected-output:
     name: Expected Output (values, not just exit codes)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build-compiler
     steps:
       - uses: actions/checkout@v7
@@ -262,6 +279,7 @@ jobs:
   run-examples-interpreted:
     name: Run Examples (Interpreter)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [build-compiler, list-examples]
     strategy:
       fail-fast: false
@@ -301,6 +319,7 @@ jobs:
   run-examples-jit:
     name: Run Examples (JIT)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [build-compiler, list-examples]
     strategy:
       fail-fast: false
@@ -340,6 +359,7 @@ jobs:
   run-examples-compiled:
     name: Run Examples (Compiled)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [build-compiler, list-examples]
     strategy:
       fail-fast: false
@@ -348,7 +368,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The step that hung in #340: it stalled for 33 minutes in four matrix legs
+      # while eight siblings installed in under one. Bounded here as well as at
+      # job level so a recurrence fails in five minutes and names this step —
+      # the job-level bound would fail the job without saying which step stalled.
       - name: Install LLVM/Clang
+        timeout-minutes: 5
         run: |
           sudo apt-get update
           sudo apt-get install -y clang llvm lld zlib1g-dev
@@ -412,11 +437,17 @@ jobs:
   compare-backends:
     name: Compare Backends (Interpreter vs JIT vs Native)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: build-compiler
     steps:
       - uses: actions/checkout@v7
 
+      # The step that hung in #340: it stalled for 33 minutes in four matrix legs
+      # while eight siblings installed in under one. Bounded here as well as at
+      # job level so a recurrence fails in five minutes and names this step —
+      # the job-level bound would fail the job without saying which step stalled.
       - name: Install LLVM/Clang
+        timeout-minutes: 5
         run: |
           sudo apt-get update
           sudo apt-get install -y clang llvm lld zlib1g-dev
@@ -571,6 +602,7 @@ jobs:
   run-stdlib:
     name: Run Standard Library Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build-compiler
     steps:
       - uses: actions/checkout@v7
@@ -613,6 +645,7 @@ jobs:
   summary:
     name: Examples Summary
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [check-examples, check-stdlib, run-examples-interpreted, run-examples-jit, run-examples-compiled, compare-backends, run-stdlib]
     if: always()
     steps:
