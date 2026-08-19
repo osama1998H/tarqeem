@@ -34,6 +34,8 @@ pub(crate) use executor::builtins::bytes_to_string;
 /// Shared for the same reason: `متغير_بيئة`'s contract is its argument checks,
 /// and the name must be read raw in both (#324).
 pub(crate) use executor::builtins::call_env_var;
+/// Shared so the `& ٢٥٥` masking cannot differ between the two interpreters.
+pub(crate) use executor::builtins::call_exit_program;
 /// Shared with the debug interpreter so `قص_حروف` is total in the same way in
 /// both — the argument checks drift as easily as the slicing does.
 pub(crate) use executor::builtins::call_substring_by_chars;

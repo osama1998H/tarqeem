@@ -345,6 +345,38 @@ impl IrBuilder {
         // multi-byte value, which is why the test injects an Arabic one.
         self.function_return_types
             .insert("متغير_بيئة".to_string(), IrType::String);
+        // `أنهِ_البرنامج` has **no entry here, deliberately** — the one exception to
+        // the rule the rest of this function embodies (`docs/builtins-vs-stdlib.md`
+        // §1.1 rule 5: Scope entry + return type + interpreter arms, "any two of the
+        // three is a landmine"). That rule was written for value-returning
+        // primitives, where the `Ptr(Void)` sentinel gets misread as a value.
+        // `أنهِ_البرنامج` returns `فراغ`, and both halves of the reasoning fail for
+        // it. Measured, not reasoned:
+        //
+        // 1. **Registering `IrType::Void` buys nothing observable.** With it, codegen
+        //    emits `call void @trq_exit(i64 …)`; without it the sentinel emits
+        //    `%v3 = call ptr @trq_exit(i64 %v2)` beside `declare void @trq_exit(i64)`
+        //    — and clang **accepts** the mismatch, because under opaque pointers a
+        //    direct call carries its own function type. Both link, run, print the
+        //    same thing and exit with the same status. `جذر` above is loud
+        //    unregistered because `اطبع` *dereferences* its result, not because the
+        //    signatures disagree. Predict this failure mode from the **use site**,
+        //    never from the declare.
+        //
+        // 2. **Registering it costs cross-backend agreement.** Codegen's `is_void`
+        //    branch emits the call and creates no value for `dest`, while the IR
+        //    still references that `dest` downstream — so
+        //    `متغير س = أنهِ_البرنامج(٣)` fails native compilation with ت٠٠٠١
+        //    «متغير غير معروف» while both interpreters exit 3. Unregistered, all
+        //    three agree (exit 3, identical stdout). The underlying defect is #343
+        //    and predates this name: a plain `دالة ف() { }` with `متغير س = ف()`
+        //    reproduces it with no builtin involved, since a user function's missing
+        //    return type *is* an `IrType::Void`.
+        //
+        // So the choice was between a silent nothing and a divergence, and the
+        // absence wins. **Add the entry once #343 lands** — the source that made it
+        // divergent will no longer compile in any backend, and the emission becomes
+        // `call void`, which is what it should have been all along.
 
         // اقرأ_سطر (read_line) returns string
         self.function_return_types

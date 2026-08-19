@@ -118,6 +118,42 @@ pub extern "C" fn trq_abort(msg: *const TrqString) {
     trq_panic(msg);
 }
 
+/// The exit status an `عدد` reduces to.
+///
+/// A POSIX status is eight bits wide while `عدد` is a signed 64-bit integer, so
+/// the language has to say what the other 56 mean. Masking here rather than
+/// handing the value to `exit(2)` is what keeps the answer the same everywhere:
+/// POSIX truncates to the low byte anyway, but Windows keeps all 32 bits, so a
+/// pass-through would make one program report two statuses depending on the
+/// platform. `أنهِ_البرنامج(٣٠٠)` is 44 on both.
+///
+/// Shared with the interpreter's arm by contract, not by code — the two
+/// implementations are one line each and both are pinned across all three
+/// backends, so they cannot drift silently.
+pub(crate) fn exit_status(status: i64) -> i32 {
+    (status & 0xFF) as i32
+}
+
+/// Terminate the program with an explicit exit status and no message.
+///
+/// Backs the core builtin `أنهِ_البرنامج`. Distinct from `trq_panic` above,
+/// which is always status 1 *and* writes to stderr: nothing in the language
+/// could report a status of its own choosing before this, since all three
+/// `process::exit` calls in the runtime are hardcoded to 1.
+///
+/// The flushes are load-bearing. `process::exit` runs no destructors, so a
+/// buffered `print!` with no trailing newline would be dropped here while the
+/// interpreter's own path still printed it — a cross-backend divergence in the
+/// one direction stdout buffering can produce.
+#[no_mangle]
+pub extern "C" fn trq_exit(status: i64) -> ! {
+    use std::io::Write;
+
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    process::exit(exit_status(status));
+}
+
 /// Suspend the calling thread for `milliseconds`.
 ///
 /// Backs the core builtin `نم`, which codegen has always emitted a call to
@@ -464,5 +500,26 @@ mod tests {
             let r = &*result;
             assert_eq!(r.len, 0);
         }
+    }
+    /// The masking half of `أنهِ_البرنامج`. `trq_exit` itself cannot be unit
+    /// tested — it ends the process, which under `cargo test` is the whole test
+    /// binary — so the arithmetic is factored out and the termination is covered
+    /// end-to-end in `tests/builtins_execution_tests.rs` across all three
+    /// backends.
+    #[test]
+    fn test_exit_status_masks_to_the_low_byte() {
+        assert_eq!(exit_status(0), 0);
+        assert_eq!(exit_status(3), 3);
+        assert_eq!(exit_status(255), 255);
+        // A complete byte's worth past the end wraps to zero, and one short of
+        // zero is the top of the range — the same "describe what the platform
+        // does" rule the shift range contract follows.
+        assert_eq!(exit_status(256), 0);
+        assert_eq!(exit_status(-1), 255);
+        assert_eq!(exit_status(300), 44);
+        // The extremes stay in range rather than overflowing the cast: masking
+        // happens in i64 and only then narrows.
+        assert_eq!(exit_status(i64::MIN), 0);
+        assert_eq!(exit_status(i64::MAX), 255);
     }
 }

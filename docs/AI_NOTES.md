@@ -3941,3 +3941,97 @@ across all of them: `متغير غائب: نص? = لا_شيء` already existed a
 section, so re-declaring it failed with `د٠١٠١`. Renamed to `اسم_غائب`. As that file grows, a new
 section's locals need a section-specific prefix — the failure is loud, but it is not obvious from
 inside the section being written.
+
+---
+
+## #342 — `أنهِ_البرنامج`: terminate with an explicit exit status
+
+Category 6 of the primitive registry, criterion (b). Landed ahead of Increment G because `exit(2)`
+composes with nothing — it needs none of that increment's syscall primitives. The full record is in
+`docs/builtins-vs-stdlib.md` §6.7.1; what follows is the part that changed how the *next* name should
+be approached.
+
+### A `فراغ` primitive must NOT register its return type — the standing rule is wrong for it
+
+`docs/builtins-vs-stdlib.md` §1.1 rule 5 says a primitive needs a `Scope` entry **and** a
+`register_builtin_return_types` entry **and** interpreter arms, and calls any two of the three a
+landmine. That rule protects a *value*: unregistered, a call carries the `Ptr(Void)` sentinel and
+something downstream misreads it. `أنهِ_البرنامج` returns nothing, and both halves were measured
+rather than assumed:
+
+- **The entry buys nothing observable.** Unregistered, codegen emits
+  `%v3 = call ptr @trq_exit(i64 %v2)` beside `declare void @trq_exit(i64)` — and **clang accepts
+  it**. Under opaque pointers a direct call carries its own function type, so a signature mismatch
+  is no longer a parse error. Same stdout, same status, both ways. The prediction going in was a
+  loud `جذر`-style refusal, and it was wrong: `جذر` is loud because `اطبع` *dereferences* its
+  result. **Predict this failure mode from the use site, never from the declare.**
+- **The entry costs cross-backend agreement.** With it, `متغير س = أنهِ_البرنامج(٣)` fails native
+  compilation (`ت٠٠٠١: متغير غير معروف: %3`) while both interpreters exit 3. Codegen's `is_void`
+  branch emits the call and creates no value for `dest`, while the IR still references that `dest`
+  downstream. Unregistered, all three backends agree on every shape probed.
+
+So the name ships with three of the four sites, and the omission is documented *where the entry would
+have gone* — silence there would read as an oversight to the next person, since the rule tells them to
+add one. Filed the underlying defect as **#343**, which reproduces with no builtin involved: a plain
+`دالة ف() { }` with `متغير س = ف()` runs interpreted and fails native compilation, because a user
+function's missing return type *is* an `IrType::Void`. Add the entry once #343 lands.
+
+Generalisable: this is the **third** defect class this project has found in its own design rows, after
+expiring criterion-(a) claims (#312, #322, #333, #336) and unimplementable contracts (#333). A rule can
+be right about the mechanism it was written for and wrong about one that had not appeared yet.
+
+### The interpreter cannot honour an arbitrary status by itself
+
+`src/main.rs` maps every `Err` to status 1, and the interpreter runs in-process, so the status travels
+as `ErrorKind::ProgramExit(i32)` and is honoured in `src/cli/commands/mod.rs` — at three sites
+(interpreter, JIT, REPL), and **before** the «Runtime error» report in each. Order matters more than it
+looks: reporting first both loses the status and prints to stderr where the native binary prints
+nothing, and `compare-backends` diffs stdout only, so CI would not have caught it. The execution helper
+asserts empty stderr for that reason.
+
+`process::exit` inside the builtin arm was the obvious alternative and was rejected twice over: it
+would end the test binary for any in-process debug-interpreter assertion, and it would let a builtin
+terminate a host process it does not own (the REPL, the DAP server). `توقف` gets away with an `Err`
+because its status is always 1 — which the error path already produces — so it is not a template for a
+status the program chooses.
+
+Uncatchability came free: `take_propagating_exception` routes only `ErrorKind::UnhandledException` to a
+frame's `try_stack`, so an exit signal walks past every `حاول`. Asserted anyway — it is one `matches!`
+away from `التقط` swallowing an exit interpreted while native still terminated.
+
+### The composition gate inverts, and the first attempt at one was confounded
+
+Every primitive since #324 has been gated on *composing* its result, because printing a sentinel-typed
+result passes while concatenating it is silently wrong. A `فراغ` name has no result, and the natural
+substitute — "assert that using it as a value is rejected" — failed twice: the call exits before
+anything can be observed, and the analyzer does not reject a `فراغ` result bound to a variable at all
+(#343). The replacement asserts a **non-zero** status through a bound call, so only the call actually
+running can produce the answer. Choose the assertion so that exactly one behaviour produces it.
+
+### Two spellings, one primitive
+
+`أنه_البرنامج` is registered alongside `أنهِ_البرنامج` (owner's decision). The kasra marks the dropped
+ya of the imperative and Arabic writers routinely omit it, which is why the **keyword** table already
+pairs `ارمِ`/`ارم`, `أرجع`/`ارجع` and four more; `normalize_name` is NFC only and does not strip
+tashkeel, so one entry cannot serve both. Consequence to carry: the registry's *name* count (33 core)
+and its *capability* budget (40 primitives) now differ by one on purpose. Both are recorded in the
+guard test and in §1.3 so a later increment does not "fix" the difference.
+
+### The lexer check found a tenth shape — a diacritic, not a keyword
+
+The name embeds no keyword (checked against the full list), so
+`test_identifier_containing_a_keyword_stays_one_token` was deliberately left alone. But it is the first
+builtin name carrying a **diacritic**, and the position is what matters: the kasra sits between a letter
+and the `_`, so a scan ending an identifier at any non-letter would yield `أنه` — a perfectly good
+identifier one invisible codepoint short of the right one, failing later as an undefined function.
+`test_identifier_with_a_diacritic_stays_one_token` pins that, and pins that the two spellings are
+distinct tokens, which is *why* both are registered.
+
+### The example can only demonstrate status ٠
+
+Every job in `.github/workflows/examples.yml` fails on a non-zero exit — `expected-output`, the three
+`run-*` matrices and `compare-backends` alike — so `examples/مدمجات.ترقيم` calls `أنهِ_البرنامج(٠)` and
+the non-zero half lives in the unit tests. The unreachable `اطبع` placed after the call earns its keep:
+its absence from the committed `examples/متوقع/مدمجات.خرج` is the truncation proof. That section must
+stay **last** in the file, and says so — anything appended after it would never run, and the expected
+output would look correct.

@@ -211,8 +211,9 @@ pub use math::{
 
 // Re-export all runtime functions
 pub use runtime::{
-    trq_abort, trq_assert, trq_debug, trq_env_get, trq_env_remove, trq_env_set, trq_panic,
-    trq_performance_now, trq_runtime_cleanup, trq_runtime_init, trq_time_now, trq_version,
+    trq_abort, trq_assert, trq_debug, trq_env_get, trq_env_remove, trq_env_set, trq_exit,
+    trq_panic, trq_performance_now, trq_runtime_cleanup, trq_runtime_init, trq_time_now,
+    trq_version,
 };
 
 // Re-export all network functions

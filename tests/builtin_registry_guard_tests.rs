@@ -5,7 +5,7 @@
 //! name lists — and until now nothing compared them. They happen to agree today;
 //! that agreement was coincidence, not enforcement.
 //!
-//! These are **ratchet** tests. They pin the registry as it stands (29 core + 165
+//! These are **ratchet** tests. They pin the registry as it stands (33 core + 165
 //! stdlib) while the builtin/stdlib boundary described in `docs/builtins-vs-stdlib.md`
 //! is migrated. A name may only enter or leave the registry by editing the expected
 //! list here, which is exactly the deliberate step the plan requires — a migration
@@ -30,6 +30,15 @@ use tarqeem::semantic::Scope;
 /// Adding a name here without an execution probe also fails
 /// `builtins_execution_tests::test_every_core_builtin_agrees_across_backends`.
 const CORE_BUILTINS: &[&str] = &[
+    // One primitive in two spellings (#342), so this list grows by two while the
+    // 40-name budget in docs/builtins-vs-stdlib.md §1.3 grows by one. The kasra
+    // marks the dropped ya of the imperative and is routinely omitted, which is
+    // why the keyword table already carries `ارمِ`/`ارم` and `أرجع`/`ارجع` as
+    // pairs; `normalize_name` is NFC only and does not strip tashkeel, so the two
+    // are distinct identifiers. Count the two lists against different questions:
+    // this one ratchets *names*, the budget counts *capabilities*.
+    "أنه_البرنامج",
+    "أنهِ_البرنامج",
     "ادخل",
     "ادخل_رسالة",
     "اطبع",
@@ -192,9 +201,15 @@ fn stdlib_registry_size_is_locked() {
     // was `قص_نص`'s removal, the first name the migration has actually dropped
     // rather than moved. Back to 194 with #338, which is a plain addition: a new
     // core name over an existing runtime symbol, no module size touched.
+    //
+    // 196 with #342, and it is the first step that moves this number by two for
+    // one capability: `أنهِ_البرنامج` ships with its kasra-less spelling, the way
+    // the keyword table carries `ارمِ`/`ارم`. So this count and the 40-primitive
+    // budget have come apart by one, deliberately — the budget counts what the
+    // language can do, this counts what a program may write.
     assert_eq!(
         total + CORE_BUILTINS.len(),
-        194,
+        196,
         "total registry size changed; docs/builtins-vs-stdlib.md targets 40 primitives — reached \
          by migrating ~150 names out and adding 21 new ones, so this number moves in both \
          directions, but only ever deliberately"

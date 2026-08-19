@@ -114,6 +114,33 @@ pub(crate) fn bytes_to_string(values: &[Value]) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
+/// `أنهِ_البرنامج`'s whole dispatch, shared with the debug interpreter so the
+/// masking cannot drift between them.
+///
+/// Returns `Err` rather than exiting: the interpreter runs inside whatever
+/// process hosts it, and only that host knows whether ending it is right. See
+/// `ErrorKind::ProgramExit`.
+///
+/// The status is `حالة & ٢٥٥`, mirroring `trq_exit`. Masking in both backends
+/// instead of handing the value to the OS is what makes `أنهِ_البرنامج(٣٠٠)`
+/// answer 44 everywhere rather than 44 on POSIX and 300 on Windows.
+///
+/// No `Value::Null` arm, and that is a decision rather than an omission: the
+/// parameter is an `عدد`, so there is no pointer for a runtime null guard to
+/// answer and codegen turns `لا_شيء` into `0` above the runtime. Mirroring one
+/// would encode that artifact as contract — the narrowing #326 recorded for
+/// `رمز_إلى_حرف`, which diverges identically on the same source (#327).
+pub(crate) fn call_exit_program(args: &[Value]) -> RuntimeResult<Value> {
+    let status = args.first().ok_or_else(|| {
+        RuntimeError::invalid_operation("أنهِ_البرنامج() تتطلب معاملاً واحداً: حالة الخروج")
+    })?;
+
+    match status {
+        Value::Int(code) => Err(RuntimeError::program_exit((code & 0xFF) as i32)),
+        other => Err(RuntimeError::type_error("عدد", other.type_name())),
+    }
+}
+
 /// `متغير_بيئة`'s whole dispatch, shared the way `call_substring_by_chars` above
 /// is: the contract here lives almost entirely in the argument checks.
 ///
@@ -242,6 +269,8 @@ impl Interpreter {
                 | "تأكد"
                 | "تأكد_رسالة"
                 | "توقف"
+                | "أنهِ_البرنامج"
+                | "أنه_البرنامج"
                 | "نم"
                 | "وقت_الآن"
                 | "وقت_أداء"
@@ -1159,6 +1188,8 @@ impl Interpreter {
             }
 
             "متغير_بيئة" => call_env_var(&args),
+
+            "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 
             "نص_يحتوي" => {
                 let haystack = args

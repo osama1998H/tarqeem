@@ -10,7 +10,7 @@ pub use debug::{debug, DebugArgs};
 use super::{Cli, Commands, PkgCommands};
 use crate::doc::{DocExtractor, HtmlGenerator, JsonGenerator, MarkdownGenerator, OutputFormat};
 use crate::error::Language;
-use crate::interpreter::Interpreter;
+use crate::interpreter::{ErrorKind, Interpreter, RuntimeError};
 use crate::ir::IrBuilder;
 use crate::jit::{JitConfig, JitExecutor};
 use crate::lexer::Lexer;
@@ -397,6 +397,26 @@ pub fn run(cli: Cli) -> Result<(), String> {
 // Individual Command Implementations
 // ============================================================================
 
+/// Ends the process when the program asked to, before anything is reported.
+///
+/// `أنهِ_البرنامج` reaches here as `ErrorKind::ProgramExit`; every other error
+/// falls through and is reported as usual. It has to run **before** the
+/// «Runtime error» diagnostic, not after: `main` maps every `Err` to status 1,
+/// so reporting first would both lose the requested status and print to stderr
+/// where the native binary prints nothing — a divergence the backend-diff job
+/// cannot see, since it compares stdout only.
+///
+/// Stdout is flushed for the reason `trq_exit` flushes it: `process::exit` runs
+/// no destructors, so a buffered `print!` with no trailing newline would be
+/// dropped.
+fn exit_if_program_asked(err: &RuntimeError) {
+    if let ErrorKind::ProgramExit(status) = err.kind {
+        let _ = io::stdout().flush();
+        let _ = io::stderr().flush();
+        std::process::exit(status);
+    }
+}
+
 fn run_command(
     file: PathBuf,
     jit: bool,
@@ -490,6 +510,7 @@ fn run_command(
                 }
             }
             Err(e) => {
+                exit_if_program_asked(&e);
                 eprintln!(
                     "{} {}",
                     "JIT runtime error / خطأ وقت التشغيل (ترجمة فورية):"
@@ -513,6 +534,7 @@ fn run_command(
                 }
             }
             Err(e) => {
+                exit_if_program_asked(&e);
                 eprintln!("{} {}", "Runtime error / خطأ وقت التشغيل:".red().bold(), e);
                 return Err("Runtime error / خطأ وقت التشغيل".to_string());
             }
@@ -723,6 +745,10 @@ fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
                                                 }
                                             }
                                             Err(e) => {
+                                                // Ending the program ends the
+                                                // session: the REPL *is* the
+                                                // process the program runs in.
+                                                exit_if_program_asked(&e);
                                                 eprintln!(
                                                     "{} {}",
                                                     "Runtime error:".red().bold(),

@@ -887,6 +887,14 @@ impl LlvmCodegen {
             "declare ptr @trq_datetime_format(i64, i64, i64, i64, i64, i64, ptr)"
         );
         emit!(self, "declare void @trq_sleep(i64)");
+        // `أنهِ_البرنامج`. The call site emits `call ptr` against this `void`
+        // declare, because the name deliberately has no return type registered —
+        // clang accepts the mismatch under opaque pointers, and registering the
+        // type would break `متغير س = أنهِ_البرنامج(٣)` natively while both
+        // interpreters ran it. The reasoning and the measurements are on the
+        // matching gap in `IrBuilder::register_builtin_return_types`; #343 is what
+        // has to land before this becomes `call void`.
+        emit!(self, "declare void @trq_exit(i64)");
         emit!(self, "declare i64 @trq_performance_now()");
 
         emit!(self, "declare i64 @trq_tcp_connect(ptr, i64, i64)");
@@ -2937,6 +2945,10 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         // fallback to `/tmp` no single environment read reproduces. Both stay
         // live under their own symbols here regardless.
         "متغير_بيئة" => Some("trq_env_get"),
+        // Both spellings of one primitive, mapped to one symbol — the kasra-less
+        // variant is an orthographic pair like the keyword table's `ارمِ`/`ارم`,
+        // not a second capability.
+        "أنهِ_البرنامج" | "أنه_البرنامج" => Some("trq_exit"),
         "ادمج_مسار" => Some("trq_path_join"),
         "مسار_اب" => Some("trq_path_parent"),
         "اسم_ملف" => Some("trq_path_filename"),
