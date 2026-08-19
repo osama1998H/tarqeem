@@ -369,14 +369,39 @@ jobs:
       - uses: actions/checkout@v7
 
       # The step that hung in #340: it stalled for 33 minutes in four matrix legs
-      # while eight siblings installed in under one. Bounded here as well as at
-      # job level so a recurrence fails in five minutes and names this step —
-      # the job-level bound would fail the job without saying which step stalled.
+      # while eight siblings installed in under one, because the Azure Ubuntu
+      # mirror was intermittently unreachable (`Ign:` on every archive URL). A
+      # bare timeout only converts that hang into a failure, which still blocks
+      # the merge, so three things happen here instead:
+      #
+      #   1. Skip entirely when the toolchain is already on the runner image —
+      #      then a mirror outage cannot affect this job at all.
+      #   2. Bound apt's own network waits. Without `Acquire::*` it retries a
+      #      dead mirror with no deadline, which is what produced the 33 minutes.
+      #   3. Retry, because a mirror flake is transient by nature.
+      #
+      # The step timeout is the backstop for all three, not the mechanism.
       - name: Install LLVM/Clang
-        timeout-minutes: 5
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang llvm lld zlib1g-dev
+          if command -v clang >/dev/null 2>&1 && command -v ld.lld >/dev/null 2>&1; then
+            echo "already on the image, skipping apt: $(clang --version | head -1)"
+            exit 0
+          fi
+
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
+          for attempt in 1 2 3; do
+            # shellcheck disable=SC2086
+            if sudo apt-get $APT_OPTS update && \
+               sudo apt-get $APT_OPTS install -y --no-install-recommends clang llvm lld zlib1g-dev; then
+              exit 0
+            fi
+            echo "attempt $attempt failed (mirror flake?), retrying"
+            sleep 10
+          done
+
+          echo "::error::LLVM/Clang unavailable after 3 attempts — apt mirror outage, not a code failure"
+          exit 1
 
       - name: Download compiler
         uses: actions/download-artifact@v8
@@ -443,14 +468,39 @@ jobs:
       - uses: actions/checkout@v7
 
       # The step that hung in #340: it stalled for 33 minutes in four matrix legs
-      # while eight siblings installed in under one. Bounded here as well as at
-      # job level so a recurrence fails in five minutes and names this step —
-      # the job-level bound would fail the job without saying which step stalled.
+      # while eight siblings installed in under one, because the Azure Ubuntu
+      # mirror was intermittently unreachable (`Ign:` on every archive URL). A
+      # bare timeout only converts that hang into a failure, which still blocks
+      # the merge, so three things happen here instead:
+      #
+      #   1. Skip entirely when the toolchain is already on the runner image —
+      #      then a mirror outage cannot affect this job at all.
+      #   2. Bound apt's own network waits. Without `Acquire::*` it retries a
+      #      dead mirror with no deadline, which is what produced the 33 minutes.
+      #   3. Retry, because a mirror flake is transient by nature.
+      #
+      # The step timeout is the backstop for all three, not the mechanism.
       - name: Install LLVM/Clang
-        timeout-minutes: 5
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang llvm lld zlib1g-dev
+          if command -v clang >/dev/null 2>&1 && command -v ld.lld >/dev/null 2>&1; then
+            echo "already on the image, skipping apt: $(clang --version | head -1)"
+            exit 0
+          fi
+
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
+          for attempt in 1 2 3; do
+            # shellcheck disable=SC2086
+            if sudo apt-get $APT_OPTS update && \
+               sudo apt-get $APT_OPTS install -y --no-install-recommends clang llvm lld zlib1g-dev; then
+              exit 0
+            fi
+            echo "attempt $attempt failed (mirror flake?), retrying"
+            sleep 10
+          done
+
+          echo "::error::LLVM/Clang unavailable after 3 attempts — apt mirror outage, not a code failure"
+          exit 1
 
       - name: Download compiler
         uses: actions/download-artifact@v8
