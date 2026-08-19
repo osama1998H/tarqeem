@@ -389,7 +389,18 @@ jobs:
             exit 0
           fi
 
-          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
+          # The runner's mirrorlist puts azure.archive.ubuntu.com first, and that
+          # host is the one that goes dark (#340): every index request `Ign:`s
+          # through its retry budget before apt falls back to the canonical
+          # archive, which then answers in under a second. Dropping the dead
+          # mirror is what actually fixes this — the timeouts and retries below
+          # only bound how long we wait on it.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+            echo "mirrorlist now: $(tr '\n' ' ' < /etc/apt/apt-mirrors.txt)"
+          fi
+
+          APT_OPTS="-o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10"
           for attempt in 1 2 3; do
             # shellcheck disable=SC2086
             if sudo apt-get $APT_OPTS update && \
@@ -488,7 +499,18 @@ jobs:
             exit 0
           fi
 
-          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
+          # The runner's mirrorlist puts azure.archive.ubuntu.com first, and that
+          # host is the one that goes dark (#340): every index request `Ign:`s
+          # through its retry budget before apt falls back to the canonical
+          # archive, which then answers in under a second. Dropping the dead
+          # mirror is what actually fixes this — the timeouts and retries below
+          # only bound how long we wait on it.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+            echo "mirrorlist now: $(tr '\n' ' ' < /etc/apt/apt-mirrors.txt)"
+          fi
+
+          APT_OPTS="-o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10"
           for attempt in 1 2 3; do
             # shellcheck disable=SC2086
             if sudo apt-get $APT_OPTS update && \
