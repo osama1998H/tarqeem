@@ -182,6 +182,12 @@ fn test_global_scope_has_core_builtins() {
     // Environment (1)
     assert!(scope.lookup("متغير_بيئة").is_some());
 
+    // Termination (2) — one primitive in two spellings, so both need pinning:
+    // `normalize_name` is NFC only and does not strip tashkeel, so a missing
+    // entry for the kasra-less variant only surfaces when someone types it.
+    assert!(scope.lookup("أنهِ_البرنامج").is_some());
+    assert!(scope.lookup("أنه_البرنامج").is_some());
+
     // Verify stdlib functions are NOT in global scope
     assert!(scope.lookup("مطلق").is_none());
     assert!(scope.lookup("جذر").is_none());

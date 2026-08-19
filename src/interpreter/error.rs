@@ -22,6 +22,26 @@ pub enum ErrorKind {
     UnhandledException,
     InvalidOperation,
     Internal,
+    /// `أنهِ_البرنامج` was called: end the program with this exit status.
+    ///
+    /// Not an error, and carried as one deliberately. The interpreter runs
+    /// in-process, so the only faithful alternative would be `process::exit`
+    /// inside the builtin arm — which would end the test binary for any
+    /// in-process assertion and would let a builtin terminate a host process it
+    /// does not own (the REPL, the DAP server). An `Err` instead propagates to
+    /// whoever *does* own the process, and `src/cli/commands/mod.rs` turns it
+    /// into the requested status.
+    ///
+    /// It is uncatchable by construction rather than by a guard:
+    /// `Executor::take_propagating_exception` routes only `UnhandledException`
+    /// to a frame's `try_stack`, so `حاول { أنهِ_البرنامج(٣) }` exits 3 in every
+    /// backend instead of running its `التقط`.
+    ///
+    /// The two **debug** hosts cannot honour it yet, and not for want of an arm:
+    /// `impl From<RuntimeError> for DebugError` (`src/debug/mod.rs:86`) keeps only
+    /// the message, so the status does not survive the boundary and a clean exit
+    /// is reported red as «خطأ» with the session left un-terminated (#346).
+    ProgramExit(i32),
 }
 
 impl RuntimeError {
@@ -84,6 +104,18 @@ impl RuntimeError {
 
     pub fn invalid_operation(msg: impl Into<String>) -> Self {
         Self::new(ErrorKind::InvalidOperation, msg)
+    }
+
+    /// Terminate with `status`, which the caller has already reduced to a byte.
+    ///
+    /// The message is never shown on the normal path — the CLI honours the
+    /// status before it prints any diagnostic — so it exists for the cases that
+    /// print an `Err` generically, such as a `تطابق` over `Display`.
+    pub fn program_exit(status: i32) -> Self {
+        Self::new(
+            ErrorKind::ProgramExit(status),
+            format!("إنهاء البرنامج بالحالة {}", status),
+        )
     }
 
     pub fn internal(msg: impl Into<String>) -> Self {

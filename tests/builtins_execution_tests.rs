@@ -269,6 +269,55 @@ fn assert_fails(name: &str, body: &str) {
     }
 }
 
+/// Asserts `body` exits with `status` under all three backends, having printed
+/// exactly `expected` and nothing on stderr.
+///
+/// `assert_prints` cannot express this — it demands status 0 — and `assert_fails`
+/// cannot either: it demands *some* non-zero status and empty stdout, so it
+/// passes for the wrong reasons on a program that deliberately chooses its own
+/// status after printing.
+///
+/// The `compile_failed` guard is the load-bearing part. A native compile failure
+/// exits non-zero with empty stdout, which is indistinguishable from
+/// `أنهِ_البرنامج(1)` on status alone, so without it a lowering regressing into
+/// an LLVM parse error would keep every non-zero case below green.
+///
+/// stderr is asserted empty because that is where the divergence would hide: the
+/// native binary prints nothing, and an interpreter that reported the exit as a
+/// runtime error would still satisfy both the status and stdout checks — and
+/// `compare-backends` in CI diffs stdout only.
+fn assert_exits_with(name: &str, body: &str, status: i32, expected: &[&str]) {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), name, body);
+
+    for backend in Backend::ALL {
+        let output = execute(backend, &main, &format!("{name}_{backend:?}"));
+
+        assert!(
+            !output.compile_failed,
+            "توقّعنا خروجاً وقت التنفيذ لا فشلاً وقت الترجمة [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.status,
+            Some(status),
+            "حالة خروج غير متوقعة [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.lines(),
+            expected,
+            "خرج غير متطابق [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "توقّعنا ألا يُطبع شيء على stderr [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // تأكد / تأكد_رسالة
 // ---------------------------------------------------------------------------
@@ -2955,6 +3004,13 @@ fn test_every_core_builtin_agrees_across_backends() {
             "اطبع(طول(متغير_بيئة(\"PATH\")) > 0)",
             &["صحيح"],
         ),
+        // Status `٠` so the sweep's `assert_prints` still applies, and a line
+        // before it so the probe distinguishes "exited cleanly" from "never
+        // ran". The status half is covered by the dedicated tests below; both
+        // spellings appear here because `core_builtin_names` lists both and this
+        // sweep is what refuses to let a registered name go unexercised.
+        ("أنهِ_البرنامج", "اطبع(\"قبل\")\nأنهِ_البرنامج(0)", &["قبل"]),
+        ("أنه_البرنامج", "اطبع(\"قبل\")\nأنه_البرنامج(0)", &["قبل"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
@@ -2972,6 +3028,159 @@ fn test_every_core_builtin_agrees_across_backends() {
     for (name, body, expected) in probes {
         assert_prints(&format!("أساسي_{name}"), body, expected);
     }
+}
+
+// ---------------------------------------------------------------------------
+// أنهِ_البرنامج — الإنهاء بحالة خروج صريحة (#342)
+// ---------------------------------------------------------------------------
+//
+// The first builtin whose observable result is the process's **exit status**
+// rather than a value, so every assertion here is on `status` and on what did
+// *not* get printed. Before it, no Tarqeem program could report a status of its
+// own choosing: `توقف` is always 1 and always writes to stderr, and the three
+// `process::exit` calls in `runtime-rs` are all hardcoded.
+
+/// Status `٠` prints what came before and nothing after, on every backend.
+///
+/// The empty-stderr half of `assert_exits_with` is what this pins in particular:
+/// the interpreter reaches the exit as an `Err`, so a CLI that reported it before
+/// honouring it would print a «Runtime error» line the native binary never
+/// prints — invisible to the CI backend-diff, which compares stdout only.
+#[test]
+fn test_exit_zero_terminates_quietly_in_every_backend() {
+    assert_exits_with(
+        "إنهاء_صفر",
+        "اطبع(\"قبل\")\nأنهِ_البرنامج(٠)\nاطبع(\"بعد\")",
+        0,
+        &["قبل"],
+    );
+}
+
+/// A non-zero status survives to the caller, which is the whole point of the
+/// name — and the one thing `توقف` cannot do.
+#[test]
+fn test_exit_reports_a_nonzero_status_in_every_backend() {
+    assert_exits_with(
+        "إنهاء_ثلاثة",
+        "اطبع(\"قبل\")\nأنهِ_البرنامج(٣)\nاطبع(\"بعد\")",
+        3,
+        &["قبل"],
+    );
+}
+
+/// The masking contract, at every edge, in all three backends.
+///
+/// A POSIX status is eight bits and `عدد` is signed 64-bit, so the language has
+/// to answer for the other 56. Masking in both `trq_exit` and the interpreter's
+/// arm — rather than handing the value to the OS — is what makes the answer the
+/// same everywhere: POSIX truncates to the low byte, Windows keeps all 32. These
+/// cases are what stop the two one-line implementations from drifting apart.
+#[test]
+fn test_exit_status_masks_to_the_low_byte_in_every_backend() {
+    let cases: [(&str, i32); 6] = [
+        ("0", 0),
+        ("3", 3),
+        // The top of the range, and the value one past it: a byte's worth beyond
+        // the end wraps rather than saturating or erroring.
+        ("255", 255),
+        ("256", 0),
+        // Negative amounts fold into the same clause instead of getting their
+        // own, exactly as they do in the shift range contract.
+        ("-1", 255),
+        ("300", 44),
+    ];
+
+    for (index, (status, expected)) in cases.iter().enumerate() {
+        assert_exits_with(
+            &format!("إنهاء_قناع_{index}"),
+            &format!("أنهِ_البرنامج({status})"),
+            *expected,
+            &[],
+        );
+    }
+}
+
+/// `حاول` does not intercept it, and that is structural rather than guarded.
+///
+/// `Executor::take_propagating_exception` routes only `ErrorKind::UnhandledException`
+/// to a frame's `try_stack`, so the termination signal walks past every handler.
+/// Worth pinning because the interpreter carries it *as* an `Err`: if it ever
+/// became a catchable one, `التقط` would swallow the exit interpreted while the
+/// native binary still terminated — silent wrong output, in the exact shape this
+/// project keeps finding it.
+#[test]
+fn test_exit_is_not_catchable_in_every_backend() {
+    assert_exits_with(
+        "إنهاء_داخل_حاول",
+        "حاول {\n    أنهِ_البرنامج(٣)\n} التقط (خ) {\n    اطبع(\"لا ينبغي طباعته\")\n}\nاطبع(\"ولا هذا\")",
+        3,
+        &[],
+    );
+}
+
+/// Called from inside a function, the exit ends the program rather than the call.
+#[test]
+fn test_exit_from_inside_a_function_ends_the_program() {
+    assert_exits_with(
+        "إنهاء_من_دالة",
+        "دالة تحقق(س: عدد) {\n    إذا (س < ٠) {\n        أنهِ_البرنامج(٢)\n    }\n    اطبع(\"سليم\")\n}\nتحقق(٥)\nتحقق(-١)\nاطبع(\"لا ينبغي طباعته\")",
+        2,
+        &["سليم"],
+    );
+}
+
+/// The kasra-less spelling is the same primitive, not a near-miss.
+///
+/// `normalize_name` is NFC only and does not strip tashkeel, so the two names are
+/// distinct identifiers reaching one runtime symbol — the arrangement the keyword
+/// table already uses for `ارمِ`/`ارم`.
+#[test]
+fn test_exit_variant_spelling_behaves_identically() {
+    assert_exits_with(
+        "إنهاء_بلا_كسرة",
+        "اطبع(\"قبل\")\nأنه_البرنامج(٧)",
+        7,
+        &["قبل"],
+    );
+}
+
+/// Binding the result changes nothing: the program still exits when told to.
+///
+/// This replaces the composition gate every primitive since #324 has carried,
+/// because a `فراغ` builtin has no result to compose. The first attempt at one
+/// here asserted that `متغير س = أنهِ_البرنامج(٠)` is *rejected*, and it was
+/// confounded twice over: the call exits 0 before anything can be observed, and —
+/// measured — the analyzer does not reject a `فراغ` result bound to a variable at
+/// all. `نم` reproduces that identically, so it is the whole `Type::Void` class
+/// and not this name; filed as #343 rather than fixed here.
+///
+/// What is left worth pinning is the risk that binding introduces: the call now
+/// carries a `dest`, so a regression in how a `Void` result is typed could bind
+/// or discard the wrong thing. A non-zero status is what makes the assertion
+/// two-sided — status 3 can only come from the call actually running.
+#[test]
+fn test_exit_bound_to_a_variable_still_terminates() {
+    assert_exits_with(
+        "إنهاء_مربوط",
+        "اطبع(\"قبل\")\nمتغير س = أنهِ_البرنامج(٣)\nاطبع(\"بعد\")",
+        3,
+        &["قبل"],
+    );
+}
+
+/// A user declaration of the name shadows the builtin, in every backend.
+///
+/// Built-ins are the last lookup tier (LANGUAGE_SPEC §4.9), and the guard in
+/// `expr_builder` is what keeps native in step with the interpreter — an earlier
+/// version of that guard changed only one site, so native called the builtin
+/// while the interpreter ran the user's function. Mirrors the `متغير_بيئة` case.
+#[test]
+fn test_user_function_shadows_the_exit_builtin() {
+    assert_prints(
+        "تظليل_إنهاء",
+        "دالة أنهِ_البرنامج(حالة: عدد) {\n    اطبع(\"دالتي \" + حالة)\n}\nأنهِ_البرنامج(٣)\nاطبع(\"وصلنا\")",
+        &["دالتي 3", "وصلنا"],
+    );
 }
 
 /// `توقف` aborts the program, so it is asserted on exit status rather than

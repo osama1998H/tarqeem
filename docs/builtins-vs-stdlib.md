@@ -74,6 +74,32 @@ free, because one Tarqeem AST reaches interpreter, JIT and native from a single 
    the three is a landmine. Proof: `وقت_الآن` has the Scope entry only, so `وقت_الآن() > 0`
    type-checks and then fails native codegen with *«لا يمكن ترتيب مرجعين بالعامل Gt»*.
 
+   > **Amendment (#342): the return-type clause does not apply to a `فراغ` primitive, and
+   > applying it does harm.** The clause protects a *value* — an unregistered call carries the
+   > `Ptr(Void)` sentinel and something downstream misreads it. A `فراغ` primitive has no value,
+   > and both halves of that were measured for `أنهِ_البرنامج`:
+   >
+   > - **Registering `IrType::Void` buys nothing observable.** Unregistered, codegen emits
+   >   `%v = call ptr @trq_exit(i64 …)` beside `declare void @trq_exit(i64)`, and clang
+   >   **accepts** it — under opaque pointers a direct call carries its own function type, so a
+   >   signature mismatch is no longer a parse error. Same stdout, same status, both ways.
+   > - **Registering it costs cross-backend agreement.** Codegen's `is_void` branch emits the
+   >   call and creates no value for `dest` while the IR still references that `dest`, so
+   >   `متغير س = أنهِ_البرنامج(٣)` fails native compilation (ت٠٠٠١) while both interpreters
+   >   exit 3. Unregistered, all three agree.
+   >
+   > That second defect is [#343](https://github.com/osama1998H/tarqeem/issues/343) and predates
+   > the name — a plain `دالة ف() { }` with `متغير س = ف()` reproduces it with no builtin
+   > involved, because a user function's missing return type *is* an `IrType::Void`. Register the
+   > entry once #343 lands. Until then a `فراغ` primitive is complete with **three** of the four:
+   > `Scope`, both interpreter arms, and the codegen mapping.
+   >
+   > Generalisable, and it is the third defect class this document has found in its own rows
+   > after expiring criterion-(a) claims (#312, #322, #333, #336) and unimplementable contracts
+   > (#333): **a rule can be right about the mechanism it was written for and wrong about a
+   > mechanism that had not appeared yet.** `جذر` is loud unregistered because `اطبع`
+   > *dereferences* its result — predict from the **use site**, never from the declare.
+
 ### 1.2 Category 1 — Memory & object model: **0 primitives**
 
 Deliberately empty, and this is a verdict, not an omission.
@@ -272,7 +298,22 @@ file, not a primitive to add.
 |---|---|---|---|
 | `نوع` | `(أي) -> نص` | unchanged | Type introspection is explicitly criterion (c). **Loud caveat: it is NOT a dispatch mechanism.** Natively it folds at build time to a constant read off the static `IrType`; through an `أي` parameter even the interpreter returns `كائن` for an `عدد`. No stdlib design may depend on it. Should be fixed to report dynamically in the interpreter during this work, since today it silently disagrees with itself. |
 | `توقف` | `(نص) -> فراغ` | unchanged | Abort-with-message: writes to stderr and `process::exit(1)`. No Tarqeem construct can halt the process. Criteria (b)+(c). Fix while here: the stderr text diverges between backends («توقف: X» vs «خطأ فادح: X / Panic: X») though the exit code agrees. |
-| `أنهِ_البرنامج` | `(عدد) -> فراغ` | new | Terminate with an **explicit exit status**, no message. Nothing in the system exposes an exit code — the only three `process::exit` calls are all hardcoded to 1 and none is named in Arabic. Without it no Tarqeem program can signal a status to its caller, which makes the language unusable for CLI tools and for the project's own CI. Criterion (b). |
+| `أنهِ_البرنامج` | `(عدد) -> فراغ` | new — **مُنفَّذ (#342)** | Terminate with an **explicit exit status**, no message. Nothing in the system exposed an exit code — the only three `process::exit` calls are all hardcoded to 1 and none was named in Arabic. Without it no Tarqeem program can signal a status to its caller, which makes the language unusable for CLI tools and for the project's own CI. Criterion (b), re-derived at implementation time and **held** — `exit(2)` is an OS service and, per #338's note, a syscall claim cannot expire. Total: the status is `حالة & ٢٥٥`, so `٣٠٠` → 44, `-١` → 255, `٢٥٦` → 0. Uncatchable by `حاول`. Shipped with the kasra-less spelling `أنه_البرنامج` — **two spellings, one budget slot** (deviation recorded below). |
+
+**Deviation recorded (#342): `أنهِ_البرنامج` ships in two spellings.** §1.1 rule 3 collapses every
+alias group to one surviving spelling, and §1.5 drops 26 names on that basis. The kasra-less
+`أنه_البرنامج` is registered anyway, on the owner's decision, because it is not the kind of alias
+that rule is about: the 26 are *different words* for one operation (`جا`/`جيب`, `طباعة`/`اطبع`),
+while this is one word with and without the diacritic marking its dropped ya — the pairing the
+**keyword table** already carries for `ارمِ`/`ارم`, `أرجع`/`ارجع`, `إذا`/`اذا`, `أخيراً`/`اخيرا`,
+`صدّر`/`صدر` and `عيّن`/`عين`. `normalize_name` is NFC only and does not strip tashkeel, so the two
+cannot share one entry.
+
+The consequence to carry forward: **the registry's name count and its capability budget have come
+apart by one.** The 40 in §1.3 counts capabilities; `Scope::core_builtin_names()` and
+`CORE_BUILTINS` in `tests/builtin_registry_guard_tests.rs` count names, and are 33 rather than 32.
+Recorded rather than argued, the way #336's `قص_نص` removal is, because the failure mode is a later
+increment reconciling the two numbers and "fixing" the difference.
 
 `ارمِ` is a **statement**, not a builtin function, so it consumes no budget. Its machinery stays
 compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠٣` — see §7.
@@ -977,6 +1018,57 @@ family segfaults natively today (probe `p4_files`: the binary prints two lines t
 
 **One documented regression:** `انسخ_ملف` loses permission preservation, since `std::fs::copy`
 carries the mode across and a byte loop does not.
+
+### 6.7.1 `أنهِ_البرنامج` — landed ahead of Increment G (#342)
+
+Category 6, not category 7, and it landed here because it needs none of Increment G's syscall
+primitives: `exit(2)` composes with nothing. Recorded next to G because it is the second name (after
+`متغير_بيئة`) taken out of order for the same reason — a criterion-(b) primitive whose OS service
+has no dependency on the rest of the plan.
+
+**A fifth cost shape, and the discriminator §6.7 named still holds.** The four measured shapes were
+2 files (IR-intercepted), 9 sites (new symbol + new name), 8 (symbol already exists) and 6 (repair a
+half-wired name). This one cost **11**: the nine, *minus* the `register_builtin_return_types` entry
+(see the §1.1 rule 5 amendment), *plus* three the plan did not anticipate —
+`ErrorKind::ProgramExit(i32)` and its constructor, and three call sites in
+`src/cli/commands/mod.rs`. So "which half of the path already exists" still predicts most of it, but
+it does not predict the plumbing a *new kind of effect* needs. `فراغ` was not new; **terminating the
+process from the interpreter** was.
+
+Four things it found that the plan did not state:
+
+1. **A `فراغ` primitive must not register its return type**, and the reason is a defect that
+   predates it (#343). The full measurement is in the §1.1 rule 5 amendment; the short version is
+   that registering it turns a program both interpreters run into a native compile failure, and
+   *not* registering it costs nothing observable because clang accepts the `call ptr`/`declare void`
+   mismatch under opaque pointers. **The next `فراغ` primitive — `اكتب_مجرى` returns `عدد`, but
+   Increment G's `اغلق_ملف` and any later `اطبع`-shaped name — inherits this.**
+2. **The interpreter cannot honour an arbitrary exit status on its own.** It runs in-process and
+   `src/main.rs` maps every `Err` to status 1, so the status has to travel as a signal and be
+   honoured at the CLI boundary — *before* the «Runtime error» report, or the interpreter prints a
+   diagnostic to stderr where the native binary prints nothing. `compare-backends` diffs stdout
+   only, so that divergence would not have been caught in CI; the execution helper asserts empty
+   stderr for exactly that reason. `توقف` gets away with an `Err` because its status is always 1,
+   which is what the error path already produces — do not read it as a template for a status the
+   program chooses.
+3. **Uncatchability is structural, and worth asserting anyway.** `take_propagating_exception`
+   (`src/interpreter/executor/mod.rs:282`) routes only `ErrorKind::UnhandledException` to a frame's
+   `try_stack`, so an exit signal walks past every `حاول`. That is free today, but it is one
+   `matches!` away from being wrong, and the failure would be `التقط` swallowing an exit interpreted
+   while native still terminated.
+4. **The composition gate inverts for a `فراغ` name, and the first attempt at one was
+   confounded.** Every primitive since #324 has been gated on composing its result. This one has no
+   result, so the natural substitute — "assert that using it as a value is rejected" — fails twice
+   over: the call exits before anything is observable, and the analyzer does not reject a `فراغ`
+   result bound to a variable at all (#343). What replaced it asserts a **non-zero** status through
+   a bound call, so only the call actually running can produce the answer. Pick the assertion so
+   that exactly one behaviour produces it.
+
+Also: the keyword-embedding lexer check does **not** apply (the name embeds no keyword — checked
+against the full list), but a new one does. `أنهِ_البرنامج` is the first builtin name carrying a
+**diacritic**, and the kasra sits between a letter and a `_`, where a scan ending the identifier at
+any non-letter would silently yield `أنه` — a perfectly good identifier one invisible codepoint
+short of the right one. Pinned by `lexer::tests::test_identifier_with_a_diacritic_stays_one_token`.
 
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 

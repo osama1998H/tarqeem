@@ -1019,6 +1019,42 @@ mod tests {
         }
     }
 
+    /// A builtin name carrying a **diacritic**, which is a first: `أنهِ_البرنامج`
+    /// (#342) holds a kasra (U+0650) marking the dropped ya of the imperative.
+    ///
+    /// `is_identifier_continue` admits U+064B..=U+0652, so the scan should swallow
+    /// it — but the position is what makes this worth pinning. The mark sits
+    /// between a letter and the `_`, so a scan that ended the identifier at any
+    /// non-letter would emit `أنه` and then `ِ_البرنامج`, and `أنه` is a perfectly
+    /// good identifier: the failure would surface as an undefined function with a
+    /// name one invisible codepoint short of the right one.
+    ///
+    /// The second half is the reason the registry carries two entries rather than
+    /// one. `normalize_name` is NFC only and does not strip tashkeel, and NFC has
+    /// no composition for ه + kasra, so the two spellings stay distinct
+    /// identifiers — the arrangement the keyword table already uses for
+    /// `ارمِ`/`ارم`.
+    #[test]
+    fn test_identifier_with_a_diacritic_stays_one_token() {
+        for source in ["أنهِ_البرنامج(0)", "أنه_البرنامج(0)"] {
+            let mut lexer = Lexer::new(source);
+            let tokens: Vec<_> = lexer.tokenize();
+
+            let name = source.split('(').next().unwrap();
+            assert!(
+                matches!(&tokens[0].kind, TokenKind::Identifier(s) if s == name),
+                "توقّعنا معرِّفاً واحداً من {source:?}، وجدنا {:?}",
+                tokens[0].kind
+            );
+            assert_eq!(tokens[1].kind, TokenKind::LeftParen);
+        }
+
+        // …and they are not the same identifier, which is why both are registered.
+        let with: Vec<_> = Lexer::new("أنهِ_البرنامج").tokenize();
+        let without: Vec<_> = Lexer::new("أنه_البرنامج").tokenize();
+        assert_ne!(with[0].kind, without[0].kind);
+    }
+
     #[test]
     fn test_arabic_identifier_with_underscore() {
         let source = "متغير _خاص = 5";

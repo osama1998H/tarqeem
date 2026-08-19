@@ -4,7 +4,8 @@ use std::io::{self, Write};
 
 use crate::interpreter::epoch_millis;
 use crate::interpreter::{
-    bytes_to_string, call_env_var, call_substring_by_chars, RuntimeError, RuntimeResult, Value,
+    bytes_to_string, call_env_var, call_exit_program, call_substring_by_chars, RuntimeError,
+    RuntimeResult, Value,
 };
 
 use super::DebugInterpreter;
@@ -35,6 +36,13 @@ impl DebugInterpreter {
                 | "نص_إلى_ثنائي"
                 | "ثنائي_إلى_نص"
                 | "متغير_بيئة"
+                // Termination. Absent here, stepping through `أنهِ_البرنامج(٠)`
+                // would abort with «دالة غير معرّفة» while every other backend
+                // ended the program cleanly — the same gap #295 records for
+                // `توقف` and `نم`, which is why the name goes in when it lands
+                // rather than after someone debugs a program that uses it.
+                | "أنهِ_البرنامج"
+                | "أنه_البرنامج"
                 // Runtime symbols the IR builder lowers core builtins to
                 // (#222). Without these, stepping through `عدد("٥")` or
                 // `تأكد(...)` aborts with "دالة غير معرّفة".
@@ -256,6 +264,8 @@ impl DebugInterpreter {
 
             "متغير_بيئة" => call_env_var(&args),
 
+            "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
+
             "trq_string_len" => {
                 let val = args
                     .first()
@@ -393,6 +403,7 @@ impl DebugInterpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::interpreter::ErrorKind;
 
     /// The debug interpreter is the fourth backend and the one that silently
     /// falls behind (#223): `tests/builtins_execution_tests.rs` has no `debug`
@@ -601,6 +612,53 @@ mod tests {
             .call_builtin("قص_حروف", vec![Value::Null, Value::Int(0), Value::Int(1)])
             .expect("قص_حروف أخفقت على لا_شيء");
         assert_eq!(null.as_string(), Some(""));
+    }
+
+    /// `أنهِ_البرنامج`'s arm, and the one builtin whose dispatch could not be
+    /// tested at all if it exited the process: `cargo test` runs these in-process,
+    /// so a `process::exit` here would take the whole test binary with it.
+    ///
+    /// That is exactly why the shared helper returns `ErrorKind::ProgramExit`
+    /// instead of exiting — the host decides. Here the host is the debugger, which
+    /// gets an ordinary `Err` it can report, and a debug session survives stepping
+    /// over the call.
+    ///
+    /// Both spellings, because they are two identifiers reaching one primitive and
+    /// a missing arm for the variant would only surface when someone typed it.
+    #[test]
+    fn test_exit_program_is_dispatchable() {
+        for name in ["أنهِ_البرنامج", "أنه_البرنامج"] {
+            assert!(
+                DebugInterpreter::is_builtin(name),
+                "{name} غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+            );
+        }
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        // The masking contract, asserted through the debugger's own dispatch: the
+        // status is `حالة & ٢٥٥`, so out-of-range values wrap rather than erroring.
+        for (status, expected) in [(0, 0), (3, 3), (255, 255), (256, 0), (-1, 255), (300, 44)] {
+            let err = interpreter
+                .call_builtin("أنهِ_البرنامج", vec![Value::Int(status)])
+                .expect_err("أنهِ_البرنامج تُرجع إشارة إنهاء لا قيمة");
+            assert_eq!(
+                err.kind,
+                ErrorKind::ProgramExit(expected),
+                "الحالة {status} في مفسّر التنقيح"
+            );
+        }
+
+        // No `Value::Null` arm: the parameter is an `عدد`, so there is no pointer
+        // for a runtime guard to answer, and treating `لا_شيء` as `0` would encode
+        // codegen's artifact as contract (#326's narrowing, #327).
+        let err = interpreter
+            .call_builtin("أنه_البرنامج", vec![Value::Null])
+            .expect_err("لا_شيء ليست حالة خروج");
+        assert_eq!(err.kind, ErrorKind::TypeError);
     }
 
     /// `متغير_بيئة`'s arm, pinned for the same reason as the slicer above: the

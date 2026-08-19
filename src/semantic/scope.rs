@@ -245,6 +245,20 @@ impl Scope {
             // Total: an absent name, an empty one and `لا_شيء` all answer `""`,
             // so set-but-empty is deliberately indistinguishable from unset.
             ("متغير_بيئة", vec![Type::String], Type::String),
+            // Termination - إنهاء البرنامج
+            // `exit(2)`, which `توقف` cannot serve: that one is always status 1
+            // and always prints. Total — the status is `حالة & ٢٥٥`, so every
+            // `عدد` is valid — and uncatchable, since `حاول` only intercepts a
+            // thrown `استثناء`.
+            //
+            // Two spellings, one primitive. The kasra marks the dropped ya of
+            // the imperative and Arabic writers routinely omit it, which is why
+            // the keyword table carries `ارمِ`/`ارم` and `أرجع`/`ارجع` as pairs;
+            // `normalize_name` is NFC only and does not strip tashkeel, so the
+            // variant is a genuinely different identifier and needs its own
+            // entry rather than folding into the first.
+            ("أنهِ_البرنامج", vec![Type::Int], Type::Void),
+            ("أنه_البرنامج", vec![Type::Int], Type::Void),
         ]
     }
 
