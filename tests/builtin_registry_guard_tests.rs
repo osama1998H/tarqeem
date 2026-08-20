@@ -5,7 +5,7 @@
 //! name lists — and until now nothing compared them. They happen to agree today;
 //! that agreement was coincidence, not enforcement.
 //!
-//! These are **ratchet** tests. They pin the registry as it stands (33 core + 163
+//! These are **ratchet** tests. They pin the registry as it stands (34 core + 163
 //! stdlib) while the builtin/stdlib boundary described in `docs/builtins-vs-stdlib.md`
 //! is migrated. A name may only enter or leave the registry by editing the expected
 //! list here, which is exactly the deliberate step the plan requires — a migration
@@ -62,6 +62,7 @@ const CORE_BUILTINS: &[&str] = &[
     "طول_مصفوفة",
     "قص_حروف",
     "متغير_بيئة",
+    "اكتب_مجرى",
     "عدد",
     "عدد_عشري",
     "منطقي",
@@ -213,9 +214,12 @@ fn stdlib_registry_size_is_locked() {
     // the keyword table carries `ارمِ`/`ارم`. So this count and the 40-primitive
     // budget have come apart by one, deliberately — the budget counts what the
     // language can do, this counts what a program may write.
+    //
+    // 197 with #347 (`اكتب_مجرى`), one name for one capability, so the gap of one
+    // stays exactly one.
     assert_eq!(
         total + CORE_BUILTINS.len(),
-        196,
+        197,
         "total registry size changed; docs/builtins-vs-stdlib.md targets 40 primitives — reached \
          by migrating ~150 names out and adding 21 new ones, so this number moves in both \
          directions, but only ever deliberately"

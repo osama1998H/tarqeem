@@ -3004,6 +3004,14 @@ fn test_every_core_builtin_agrees_across_backends() {
             "اطبع(طول(متغير_بيئة(\"PATH\")) > 0)",
             &["صحيح"],
         ),
+        // Writes its bytes and answers their count, so one line proves both
+        // halves: «م» is two octets, and a probe that only checked the count
+        // would pass on a primitive that wrote nothing.
+        (
+            "اكتب_مجرى",
+            "اطبع(اكتب_مجرى(1، نص_إلى_ثنائي(\"م\\n\")))",
+            &["م", "3"],
+        ),
         // Status `٠` so the sweep's `assert_prints` still applies, and a line
         // before it so the probe distinguishes "exited cleanly" from "never
         // ran". The status half is covered by the dedicated tests below; both
@@ -3251,4 +3259,297 @@ fn test_time_builtins_read_a_real_clock_in_interpreter_and_native() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// اكتب_مجرى — the write(2) primitive (#347)
+// ---------------------------------------------------------------------------
+
+/// Writing bytes and counting them, in one program, because either half alone
+/// admits a primitive that does not work: a count with no write, or a write
+/// whose answer is invented.
+///
+/// The value is Arabic on purpose. `طول("مرحبا")` is 5 and the write is 10
+/// octets, so the two numbers stand side by side and a primitive that counted
+/// characters would be caught. On an ASCII value they agree and the assertion
+/// could not fail — the lesson #338 recorded for a string length, which holds
+/// for a count too.
+#[test]
+fn test_write_stream_writes_bytes_and_counts_them_in_every_backend() {
+    assert_prints(
+        "مجرى_كتابة",
+        concat!(
+            "اطبع(اكتب_مجرى(1، نص_إلى_ثنائي(\"مرحبا\\n\")))\n",
+            "اطبع(طول(\"مرحبا\"))",
+        ),
+        &["مرحبا", "11", "5"],
+    );
+}
+
+/// Raw bytes, no newline of its own: two writes with no line break between them
+/// land on one line, and the count is what separates them.
+///
+/// This is the difference from `اطبع`, asserted rather than described — `اطبع`
+/// terminates its output and this does not.
+#[test]
+fn test_write_stream_appends_no_newline_of_its_own() {
+    assert_prints(
+        "مجرى_بلا_سطر",
+        concat!(
+            "اكتب_مجرى(1، نص_إلى_ثنائي(\"أ\"))\n",
+            "اكتب_مجرى(1، نص_إلى_ثنائي(\"ب\\n\"))\n",
+            "اطبع(\"تمّ\")",
+        ),
+        &["أب", "تمّ"],
+    );
+}
+
+/// The load-bearing test. `اكتب_مجرى` lowers to a plain `Call`, so nothing but
+/// the `register_builtin_return_types` entry types its result.
+///
+/// Measured with that entry deleted, and it fails in two ways at once — neither
+/// of them the wrong-number mode the array and string primitives produce. `== ٠`
+/// and `+ ١` make **native compilation fail** (ت٠١٠١, clang: «'%v13' defined
+/// with type 'i64' but expected 'ptr'»): a scalar has no struct for the
+/// `Ptr(Void)` sentinel to misread, and `icmp`/`add` on a `ptr` is not valid IR
+/// at all. `نوع` answers `مؤشر`, as it has for every name before this one. And
+/// `اطبع` is **quieter** here than anywhere else — it prints *nothing* for the
+/// count, taking the pointer path, where `ثنائي_إلى_نص` at least printed a
+/// pointer in decimal and `قص_حروف` a wrong length.
+///
+/// So the prediction rule from #336 generalises past struct layouts: predict the
+/// failure from the *return type's representation*. A scalar's missing entry is
+/// caught at build time by any arithmetic, and printing catches nothing.
+#[test]
+fn test_write_stream_result_composes_as_an_integer() {
+    assert_prints(
+        "مجرى_تركيب",
+        concat!(
+            "اطبع(نوع(اكتب_مجرى(1، نص_إلى_ثنائي(\"م\\n\"))))\n",
+            "اطبع(اكتب_مجرى(1، نص_إلى_ثنائي(\"م\\n\")) + 1)\n",
+            "اطبع(اكتب_مجرى(1، نص_إلى_ثنائي(\"م\\n\")) == 3)",
+        ),
+        &["م", "عدد", "م", "4", "م", "صحيح"],
+    );
+}
+
+/// `٢` is stderr, and this is the one contract row `assert_prints` cannot check:
+/// it compares stdout. So the streams are read apart, and both halves are
+/// asserted — the bytes are on stderr **and** absent from stdout.
+///
+/// Worth separating from `اطبع_خطأ`, which is excluded from the cross-backend
+/// sweep precisely because it disagrees about the stream: the interpreter prints
+/// it to stdout and native to stderr (#286). This primitive does not inherit
+/// that, and this test is what says so.
+#[test]
+fn test_write_stream_sends_descriptor_two_to_stderr_in_every_backend() {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(
+        temp.path(),
+        "مجرى_خطأ",
+        concat!(
+            "اطبع(\"مخرج\")\n",
+            "اطبع(اكتب_مجرى(2، نص_إلى_ثنائي(\"خطأ\\n\")))",
+        ),
+    );
+
+    for backend in Backend::ALL {
+        let output = execute(backend, &main, &format!("مجرى_خطأ_{backend:?}"));
+
+        assert!(
+            output.succeeded(),
+            "فشل التنفيذ [{backend:?}]\n{}",
+            output.report()
+        );
+        // The count reaches stdout, the bytes do not.
+        assert_eq!(
+            output.lines(),
+            &["مخرج", "7"],
+            "المجرى ٢ كتب في المخرج القياسي [{backend:?}]\n{}",
+            output.report()
+        );
+        assert!(
+            output.stderr.contains("خطأ"),
+            "المجرى ٢ لم يكتب في مجرى الخطأ [{backend:?}]\n{}",
+            output.report()
+        );
+    }
+}
+
+/// Every descriptor that names nowhere to write, answering `-١`.
+///
+/// `٠` is stdin, so writing to it is an error rather than an alias for stdout.
+/// `٣` upward names a file handle, and nothing in the language opens one yet, so
+/// the table is provably empty — both interpreters and the runtime agree on
+/// `-١` here for the same reason, not by coincidence. A negative descriptor
+/// folds into the same clause instead of getting its own.
+#[test]
+fn test_write_stream_refuses_a_descriptor_it_cannot_write_to() {
+    assert_prints(
+        "مجرى_معرّف",
+        concat!(
+            "اطبع(اكتب_مجرى(0، نص_إلى_ثنائي(\"س\")))\n",
+            "اطبع(اكتب_مجرى(3، نص_إلى_ثنائي(\"س\")))\n",
+            "اطبع(اكتب_مجرى(99، نص_إلى_ثنائي(\"س\")))\n",
+            "اطبع(اكتب_مجرى(-1، نص_إلى_ثنائي(\"س\")))",
+        ),
+        &["-1", "-1", "-1", "-1"],
+    );
+}
+
+/// An element outside `0..=255` is not a byte, and the whole call is refused
+/// rather than the value truncated to its low byte.
+///
+/// Truncation is what makes this load-bearing rather than a taste: `٣٠٠` would
+/// answer as `٤٤` — the comma — so a rejected array and an accepted one would
+/// produce the same output, and there would be no way to tell them apart. Same
+/// reasoning as `ثنائي_إلى_نص` (#333).
+///
+/// The rejection is total: nothing is written. `[٦٥، ٣٠٠]` is the case that
+/// shows it — the `A` before the bad element does not reach the stream, so the
+/// `-١` sits alone on its line.
+///
+/// The accepted boundaries go to **stderr**, not stdout, and that is not
+/// squeamishness: `٢٥٥` and `٠` are not valid UTF-8 on their own, and this
+/// primitive writes them raw where every print builtin would drop them
+/// (`trq_print` is `if let Ok(text) = from_utf8`). Sending them to stdout would
+/// make this test compare a line that is not text. The count still proves they
+/// were accepted, and it arrives on stdout.
+#[test]
+fn test_write_stream_rejects_a_value_that_is_not_a_byte() {
+    assert_prints(
+        "مجرى_بايت",
+        concat!(
+            "اطبع(اكتب_مجرى(1، [300]))\n",
+            "اطبع(اكتب_مجرى(1، [-1]))\n",
+            "اطبع(اكتب_مجرى(1، [256]))\n",
+            "اطبع(اكتب_مجرى(1، [65، 300]))\n",
+            "اطبع(اكتب_مجرى(2، [255]))\n",
+            "اطبع(اكتب_مجرى(2، [0]))",
+        ),
+        &["-1", "-1", "-1", "-1", "1", "1"],
+    );
+}
+
+/// The bytes are written raw, valid UTF-8 or not — `write(2)` does not inspect
+/// what it carries, and neither does this.
+///
+/// It is the one thing no print builtin can do: `trq_print` decodes first and
+/// silently prints nothing when the decode fails, so a lone `٢٥٥` is
+/// unreachable through `اطبع`. Asserted on stderr and read back as bytes,
+/// because the moment it were on stdout the harness's own comparison would be
+/// comparing something that is not a string.
+#[test]
+fn test_write_stream_writes_bytes_that_are_not_text() {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), "مجرى_غير_نص", "اطبع(اكتب_مجرى(2، [255، 254]))");
+
+    for backend in Backend::ALL {
+        let output = execute(backend, &main, &format!("مجرى_غير_نص_{backend:?}"));
+
+        assert!(
+            output.succeeded(),
+            "فشل التنفيذ [{backend:?}]\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.lines(),
+            &["2"],
+            "عدد البايتات [{backend:?}]\n{}",
+            output.report()
+        );
+        // `from_utf8_lossy` turned each undecodable byte into U+FFFD, which is
+        // proof they arrived: dropping them would leave stderr empty.
+        assert_eq!(
+            output.stderr.chars().filter(|c| *c == '\u{FFFD}').count(),
+            2,
+            "البايتان غير القابلين للترميز لم يصلا [{backend:?}]\n{}",
+            output.report()
+        );
+    }
+}
+
+/// Nothing to write is a count of zero, not a failure — `٠` is a value here the
+/// way an empty array is `نص_إلى_ثنائي("")`'s value.
+///
+/// `لا_شيء` answers the same, and that costs nothing: both mean nothing was
+/// written, so giving them one answer loses no information a caller could use.
+/// It is reached through an `أي` holder, since `مصفوفة<عدد>؟` does not parse
+/// (ب٠١٠١) and a bare `لا_شيء` is refused at the argument — the route #333
+/// found for the same shape.
+#[test]
+fn test_write_stream_of_nothing_answers_zero() {
+    assert_prints(
+        "مجرى_فارغ",
+        concat!(
+            "اطبع(اكتب_مجرى(1، []))\n",
+            "اطبع(اكتب_مجرى(1، نص_إلى_ثنائي(\"\")))\n",
+            "متغير غائب: أي = لا_شيء\n",
+            "اطبع(اكتب_مجرى(1، غائب))",
+        ),
+        &["0", "0", "0"],
+    );
+}
+
+/// The bytes survive the round trip: what `نص_إلى_ثنائي` produced is what the
+/// stream received, for every UTF-8 width.
+///
+/// Asserted by reading the written bytes back as output rather than by trusting
+/// the count — a primitive that wrote the right *number* of wrong bytes would
+/// pass the count assertions above.
+#[test]
+fn test_write_stream_writes_the_bytes_it_was_given() {
+    assert_prints(
+        "مجرى_وفاء",
+        concat!(
+            "اكتب_مجرى(1، نص_إلى_ثنائي(\"A﷽م𞸀\\n\"))\n",
+            "اطبع(اكتب_مجرى(1، [72، 105، 10]))",
+        ),
+        &["A﷽م𞸀", "Hi", "3"],
+    );
+}
+
+/// `لا_شيء` as a descriptor is a type error, not a write to stream zero.
+///
+/// The parameter is an `عدد`, so there is no pointer for a runtime guard to
+/// answer and codegen turns `لا_شيء` into `0` above the runtime; mirroring that
+/// would encode the artifact as contract. #326's narrowing, and the same choice
+/// `أنهِ_البرنامج` made — `رمز_إلى_حرف` and `نم` diverge identically on the same
+/// source (#327).
+#[test]
+fn test_write_stream_refuses_an_absent_descriptor() {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(
+        temp.path(),
+        "مجرى_معرّف_غائب",
+        "متغير غائب: أي = لا_شيء\nاطبع(اكتب_مجرى(غائب، [65]))",
+    );
+
+    // Native refuses the `أي` parameter before it runs, so only the two
+    // interpreters can be asked; both must refuse rather than write.
+    for backend in [Backend::Interpreter, Backend::Jit] {
+        let output = execute(backend, &main, &format!("مجرى_معرّف_غائب_{backend:?}"));
+        assert!(
+            !output.succeeded(),
+            "توقّعنا خطأ نوع [{backend:?}]\n{}",
+            output.report()
+        );
+    }
+}
+
+/// A user function named `اكتب_مجرى` shadows the builtin, like every other core
+/// name: builtins are the last lookup tier, not reserved words
+/// (LANGUAGE_SPEC §4.9).
+#[test]
+fn test_user_function_shadows_write_stream() {
+    assert_prints(
+        "مجرى_تظليل",
+        concat!(
+            "دالة اكتب_مجرى(مجرى: عدد، بايتات: مصفوفة<عدد>) -> عدد {\n",
+            "    أرجع 42\n",
+            "}\n",
+            "اطبع(اكتب_مجرى(1، [65]))",
+        ),
+        &["42"],
+    );
 }

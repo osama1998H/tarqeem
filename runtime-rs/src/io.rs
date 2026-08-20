@@ -394,7 +394,15 @@ use std::io::{BufReader, BufWriter};
 use std::sync::atomic::{AtomicI64, Ordering};
 
 /// Global counter for generating unique file handles.
-static NEXT_FILE_HANDLE: AtomicI64 = AtomicI64::new(1);
+///
+/// Starts at 3, not 1: `اكتب_مجرى` names a stream by descriptor, and `٠`, `١`
+/// and `٢` are stdin, stdout and stderr there. Handed out from 1, the first file
+/// a program opened *was* handle 1, so a write meant for it went to the terminal
+/// instead — silently, since both succeed. Blocker B15 in
+/// `docs/builtins-vs-stdlib.md` §7.
+///
+/// `0` was never a valid handle: every `trq_file_open_*` returns it on failure.
+static NEXT_FILE_HANDLE: AtomicI64 = AtomicI64::new(3);
 
 /// File handle types for streaming I/O.
 enum FileHandle {
@@ -582,6 +590,144 @@ pub extern "C" fn trq_file_flush(handle: i64) -> bool {
             false
         }
     })
+}
+
+// ============================================================================
+// Stream Writing
+// ============================================================================
+
+/// The three stream descriptors every program has without opening anything.
+///
+/// Reserved out of the handle space by `NEXT_FILE_HANDLE`, which starts past
+/// them.
+const STREAM_STDIN: i64 = 0;
+const STREAM_STDOUT: i64 = 1;
+const STREAM_STDERR: i64 = 2;
+
+/// Failure. Collision-free as an answer because a byte count is never negative.
+const WRITE_FAILED: i64 = -1;
+
+/// Backs the core builtin `اكتب_مجرى`: writes `bytes` to the stream named by
+/// `fd`, answering the number of bytes written.
+///
+/// `١` is stdout, `٢` is stderr, and `٣` upward is a handle from
+/// [`trq_file_open_write`] or [`trq_file_open_append`]. `٠` is stdin, so writing
+/// to it fails; so does any negative descriptor, and any handle the table does
+/// not hold.
+///
+/// **All or nothing.** Every element is range-checked before the first byte
+/// goes out, so a rejected array leaves the stream untouched. An element outside
+/// `0..=255` is not a byte and answers `-1`; it is *not* truncated to its low
+/// byte, because `[300]` would then be indistinguishable from `[44]` — the same
+/// reason [`crate::string::trq_string_from_bytes`] rejects rather than truncates.
+///
+/// That range check is also what catches a type-confused call. A `TrqArray`
+/// carries no element-kind tag, so a `مصفوفة<نص>` reaching this parameter
+/// through an `أي` holder has the same `elem_size` as a `مصفوفة<عدد>`; its
+/// elements are `TrqString` pointers, whose values are far outside a byte, so
+/// the call is refused instead of writing addresses. `elem_size` is checked
+/// first and separately, before `data` is read, for the reason spelled out in
+/// `trq_string_from_bytes`: a `TrqString` is 24 bytes and its `data` field sits
+/// at offset 24, one past the end.
+///
+/// An empty array answers `0`, and so does a null one. Both mean nothing was
+/// written, so nothing is lost by giving them the same answer — and `0` is a
+/// count here, not a sentinel.
+///
+/// Console writes go through Rust's `Stdout`/`Stderr` rather than a raw `write`,
+/// and flush like every other print in this module. A raw descriptor write would
+/// bypass the buffer `trq_print` shares, and the two would interleave in an
+/// order that depends on buffering rather than on the program.
+///
+/// # Safety
+///
+/// - `bytes` must be a valid pointer to a `TrqArray` or null.
+///
+/// # C Equivalent
+/// ```c
+/// int64_t trq_write_stream(int64_t fd, const TrqArray* bytes);
+/// ```
+#[no_mangle]
+pub extern "C" fn trq_write_stream(fd: i64, bytes: *const TrqArray) -> i64 {
+    // The descriptor is checked before the array: a write to nowhere is refused
+    // whatever it was going to carry.
+    if fd == STREAM_STDIN || fd < 0 {
+        return WRITE_FAILED;
+    }
+
+    let payload = match collect_stream_bytes(bytes) {
+        Some(payload) => payload,
+        None => return WRITE_FAILED,
+    };
+
+    // An unknown handle is still an error even with nothing to send, so the
+    // descriptor is resolved below rather than short-circuited on an empty
+    // payload.
+    let written = payload.len() as i64;
+
+    match fd {
+        STREAM_STDOUT => {
+            let mut out = io::stdout();
+            if out.write_all(&payload).is_err() {
+                return WRITE_FAILED;
+            }
+            out.flush().ok();
+            written
+        }
+        STREAM_STDERR => {
+            let mut err = io::stderr();
+            if err.write_all(&payload).is_err() {
+                return WRITE_FAILED;
+            }
+            err.flush().ok();
+            written
+        }
+        _ => FILE_HANDLES.with(|handles| {
+            let mut handles = handles.borrow_mut();
+            match handles.get_mut(&fd) {
+                Some(FileHandle::Writer(writer)) => {
+                    if writer.write_all(&payload).is_err() {
+                        return WRITE_FAILED;
+                    }
+                    written
+                }
+                // A reader is as wrong a destination as a handle that was never
+                // opened, so both answer the same.
+                _ => WRITE_FAILED,
+            }
+        }),
+    }
+}
+
+/// Reads a `مصفوفة<عدد>` as bytes, or `None` if it is not one.
+///
+/// Separate from the write so the whole array is validated before any of it is
+/// sent. A null or empty array is `Some(empty)` — a count of zero, not a
+/// rejection.
+fn collect_stream_bytes(bytes: *const TrqArray) -> Option<Vec<u8>> {
+    if bytes.is_null() {
+        return Some(Vec::new());
+    }
+
+    unsafe {
+        // `elem_size` 8 for the reason `trq_string_to_bytes` writes 8: a
+        // `مصفوفة<عدد>` element is a raw inline i64 slot. Checked before `data`,
+        // which is why the order matters — see the note above.
+        if (*bytes).elem_size != 8 {
+            return None;
+        }
+
+        if (*bytes).data.is_null() || (*bytes).len <= 0 {
+            return Some(Vec::new());
+        }
+
+        let slots = std::slice::from_raw_parts((*bytes).data as *const i64, (*bytes).len as usize);
+        let mut payload = Vec::with_capacity(slots.len());
+        for slot in slots {
+            payload.push(u8::try_from(*slot).ok()?);
+        }
+        Some(payload)
+    }
 }
 
 // ============================================================================
@@ -1261,5 +1407,146 @@ mod tests {
             crate::memory::trq_release(relative as *mut u8);
             crate::memory::trq_release(base as *mut u8);
         }
+    }
+
+    /// The `٣`-and-up half of `اكتب_مجرى`'s descriptor map: bytes reach a handle
+    /// opened by `trq_file_open_write`.
+    ///
+    /// Driven from Rust because no Arabic name opens a handle yet — `افتح_ملف` is
+    /// still ahead in Increment G — so this path is unreachable from Tarqeem
+    /// source. It is implemented rather than stubbed, and covered here so the
+    /// contract cannot shift under it when the opener lands.
+    #[test]
+    fn test_write_stream_writes_to_a_file_handle() {
+        let test_path = "/tmp/tarqeem_test_write_stream_handle.txt";
+
+        let path = trq_string_new(test_path.as_ptr(), test_path.len() as i64);
+        let handle = trq_file_open_write(path);
+        assert!(handle > 0);
+        // Descriptors 0-2 are the streams, so a handle can never collide with
+        // them. This is blocker B15, and the assertion is what keeps it fixed.
+        assert!(
+            handle >= 3,
+            "المعرِّف {handle} يزاحم مجرى قياسياً / handle collides with a standard stream"
+        );
+
+        let bytes = byte_array(&[b'A', 0xD9, 0x85, b'\n']);
+        assert_eq!(trq_write_stream(handle, bytes), 4);
+
+        assert!(trq_file_flush(handle));
+        assert!(trq_file_close(handle));
+
+        assert_eq!(std::fs::read_to_string(test_path).unwrap(), "Aم\n");
+
+        std::fs::remove_file(test_path).ok();
+        unsafe {
+            crate::memory::trq_release(path as *mut u8);
+            crate::memory::trq_release(bytes as *mut u8);
+        }
+    }
+
+    /// A closed handle, one never opened, and a reader are all "nowhere to
+    /// write", so all three answer `-1`.
+    #[test]
+    fn test_write_stream_refuses_a_handle_it_cannot_write_to() {
+        let test_path = "/tmp/tarqeem_test_write_stream_refuses.txt";
+        std::fs::write(test_path, "سطر\n").unwrap();
+
+        let bytes = byte_array(&[b'x']);
+
+        // Never opened.
+        assert_eq!(trq_write_stream(9_999, bytes), -1);
+
+        // A reader is as wrong a destination as no handle at all.
+        let path = trq_string_new(test_path.as_ptr(), test_path.len() as i64);
+        let reader = trq_file_open_read(path);
+        assert!(reader >= 3);
+        assert_eq!(trq_write_stream(reader, bytes), -1);
+        assert!(trq_file_close(reader));
+
+        // Closed: the handle is gone from the table, so it is the first case
+        // again under a plausible-looking number.
+        let writer = trq_file_open_write(path);
+        assert!(writer >= 3);
+        assert!(trq_file_close(writer));
+        assert_eq!(trq_write_stream(writer, bytes), -1);
+
+        std::fs::remove_file(test_path).ok();
+        unsafe {
+            crate::memory::trq_release(path as *mut u8);
+            crate::memory::trq_release(bytes as *mut u8);
+        }
+    }
+
+    /// Descriptor `٠` is stdin and a negative one names nothing, and both are
+    /// refused before the array is looked at — which is why this can pass a null
+    /// one and still expect `-1`.
+    #[test]
+    fn test_write_stream_resolves_the_descriptor_before_the_bytes() {
+        assert_eq!(trq_write_stream(0, std::ptr::null()), -1);
+        assert_eq!(trq_write_stream(-1, std::ptr::null()), -1);
+    }
+
+    /// Nothing to write is a count of zero: an empty array and a null pointer
+    /// both answer `0` rather than failing.
+    #[test]
+    fn test_write_stream_of_nothing_answers_zero() {
+        let empty = byte_array(&[]);
+        assert_eq!(trq_write_stream(1, empty), 0);
+        assert_eq!(trq_write_stream(1, std::ptr::null()), 0);
+        unsafe {
+            crate::memory::trq_release(empty as *mut u8);
+        }
+    }
+
+    /// The type-confusion guard, and the reason `elem_size` is checked before
+    /// `data` is read.
+    ///
+    /// A `TrqArray` carries no element-kind tag, so an `أي` holder can land a
+    /// `TrqString` on this parameter. A `TrqString` is 24 bytes — `len`, `cap`,
+    /// `data` — and `elem_size` sits at offset 16, *inside* it, while `data` sits
+    /// at offset 24, one past the end. Reading `data` first would be a heap
+    /// over-read; rejecting on `elem_size` first cannot be, because a real `data`
+    /// pointer is never 8. Same guard, same order, as
+    /// `crate::string::trq_string_from_bytes`.
+    #[test]
+    fn test_write_stream_rejects_an_array_whose_elements_are_not_bytes() {
+        let text = "مرحبا";
+        let masquerading = trq_string_new(text.as_ptr(), text.len() as i64);
+        assert_eq!(
+            trq_write_stream(1, masquerading as *const TrqArray),
+            -1,
+            "قُرئ نصٌّ كأنه مصفوفة بايتات / a string was read as a byte array"
+        );
+
+        // And the ordinary case the guard exists for: an element that is not a
+        // byte refuses the whole call, so the good byte beside it is not written.
+        let out_of_range = byte_array_from_slots(&[65, 300]);
+        assert_eq!(trq_write_stream(1, out_of_range), -1);
+
+        unsafe {
+            crate::memory::trq_release(masquerading as *mut u8);
+            crate::memory::trq_release(out_of_range as *mut u8);
+        }
+    }
+
+    /// Builds the `مصفوفة<عدد>` the compiler would hand this primitive: one raw
+    /// `i64` slot per element, `elem_size` 8.
+    fn byte_array(bytes: &[u8]) -> *const TrqArray {
+        let slots: Vec<i64> = bytes.iter().map(|b| *b as i64).collect();
+        byte_array_from_slots(&slots)
+    }
+
+    /// The same, for slots that are deliberately not bytes.
+    fn byte_array_from_slots(slots: &[i64]) -> *const TrqArray {
+        let arr = crate::array::trq_array_new(slots.len() as i64, 8);
+        assert!(!arr.is_null());
+        unsafe {
+            let data = (*arr).data as *mut i64;
+            for (i, slot) in slots.iter().enumerate() {
+                *data.add(i) = *slot;
+            }
+        }
+        arr
     }
 }

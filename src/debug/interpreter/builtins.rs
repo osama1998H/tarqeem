@@ -4,8 +4,8 @@ use std::io::{self, Write};
 
 use crate::interpreter::epoch_millis;
 use crate::interpreter::{
-    bytes_to_string, call_env_var, call_exit_program, call_substring_by_chars, RuntimeError,
-    RuntimeResult, Value,
+    bytes_to_string, call_env_var, call_exit_program, call_substring_by_chars, call_write_stream,
+    RuntimeError, RuntimeResult, Value,
 };
 
 use super::DebugInterpreter;
@@ -36,6 +36,7 @@ impl DebugInterpreter {
                 | "نص_إلى_ثنائي"
                 | "ثنائي_إلى_نص"
                 | "متغير_بيئة"
+                | "اكتب_مجرى"
                 // Termination. Absent here, stepping through `أنهِ_البرنامج(٠)`
                 // would abort with «دالة غير معرّفة» while every other backend
                 // ended the program cleanly — the same gap #295 records for
@@ -263,6 +264,8 @@ impl DebugInterpreter {
             }
 
             "متغير_بيئة" => call_env_var(&args),
+
+            "اكتب_مجرى" => call_write_stream(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 
@@ -695,6 +698,67 @@ mod tests {
             .call_builtin("متغير_بيئة", vec![Value::Null])
             .expect("متغير_بيئة أخفقت على لا_شيء");
         assert_eq!(null.as_string(), Some(""));
+    }
+
+    /// `اكتب_مجرى`'s arm. The dispatch is shared, so what this pins is that the
+    /// debug interpreter reaches it at all and keys on the Arabic name — the
+    /// failure #241 recorded, where a builtin worked in every other backend and
+    /// aborted the moment someone stepped through it.
+    ///
+    /// Asserts the answers that write nothing: a refused descriptor and an empty
+    /// payload. Writing real bytes here would put them on the test harness's own
+    /// stdout, since these tests run in-process.
+    #[test]
+    fn test_write_stream_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("اكتب_مجرى"),
+            "اكتب_مجرى غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        // `٠` is stdin and `٣` upward names a handle nothing can have opened, so
+        // both answer `-١` — the same answers the runtime gives.
+        for descriptor in [0, 3, -1] {
+            let refused = interpreter
+                .call_builtin(
+                    "اكتب_مجرى",
+                    vec![
+                        Value::Int(descriptor),
+                        Value::array_from(vec![Value::Int(65)]),
+                    ],
+                )
+                .expect("اكتب_مجرى تُرجع قيمة لا خطأ");
+            assert_eq!(refused.as_int(), Some(-1), "المجرى {descriptor}");
+        }
+
+        // A byte out of range refuses the whole call, and nothing is written.
+        let out_of_range = interpreter
+            .call_builtin(
+                "اكتب_مجرى",
+                vec![Value::Int(1), Value::array_from(vec![Value::Int(300)])],
+            )
+            .expect("اكتب_مجرى تُرجع قيمة لا خطأ");
+        assert_eq!(out_of_range.as_int(), Some(-1));
+
+        // Nothing to write is a count, not a failure — for an empty array and
+        // for `لا_شيء` alike.
+        for bytes in [Value::array(), Value::Null] {
+            let empty = interpreter
+                .call_builtin("اكتب_مجرى", vec![Value::Int(1), bytes])
+                .expect("اكتب_مجرى تُرجع قيمة لا خطأ");
+            assert_eq!(empty.as_int(), Some(0));
+        }
+
+        // No `Value::Null` arm for the descriptor: it is an `عدد`, so mirroring
+        // codegen's `لا_شيء`-as-zero would encode an artifact as contract (#326).
+        let err = interpreter
+            .call_builtin("اكتب_مجرى", vec![Value::Null, Value::array()])
+            .expect_err("لا_شيء ليست مجرى");
+        assert_eq!(err.kind, ErrorKind::TypeError);
     }
 
     #[test]

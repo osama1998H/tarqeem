@@ -855,6 +855,9 @@ impl LlvmCodegen {
         // not — it calls `std::env::temp_dir()`, which falls back to `/tmp` when
         // `TMPDIR` is unset and walks `TMP`/`TEMP`/`USERPROFILE` on Windows.
         emit!(self, "declare ptr @trq_env_get(ptr)");
+        // `write(2)`. `i64` both ways: the descriptor and the byte count are
+        // `عدد`, and the `ptr` in between is the `TrqArray` of bytes.
+        emit!(self, "declare i64 @trq_write_stream(i64, ptr)");
 
         emit!(self, "declare ptr @trq_date_today()");
         emit!(self, "declare ptr @trq_date_parse(ptr)");
@@ -2945,6 +2948,9 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         // fallback to `/tmp` no single environment read reproduces. Both stay
         // live under their own symbols here regardless.
         "متغير_بيئة" => Some("trq_env_get"),
+        // Core tier. Reached through the plain `Call` fall-through like its
+        // neighbours, so the Arabic name arrives here and is mapped once.
+        "اكتب_مجرى" => Some("trq_write_stream"),
         // Both spellings of one primitive, mapped to one symbol — the kasra-less
         // variant is an orthographic pair like the keyword table's `ارمِ`/`ارم`,
         // not a second capability.

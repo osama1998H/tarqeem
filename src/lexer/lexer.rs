@@ -998,6 +998,15 @@ mod tests {
         // missing `=` at a position with no visible relation to the call, or not
         // surface at all. Every case above fails as a token error; this one would
         // fail as a plausible statement.
+        //
+        // The tenth adds **no new shape** — «ك», the alias specifier, sits inside
+        // «اكتب» with a letter on each side, exactly as «و» does inside «حروف»
+        // above. It is listed anyway, and that is the point: the check is per
+        // name, not per shape. Five of the nine cases already here were added for
+        // a shape their predecessors did not cover, so "the previous one needed
+        // nothing" has been worthless as evidence every time it was tried. «ك» is
+        // also the shortest entry in the keyword table, which makes it the one
+        // most likely to fall inside an ordinary Arabic word by accident.
         let cases = [
             ("بتات_و(12، 10)", "بتات_و"),
             ("بتات_أو(12، 10)", "بتات_أو"),
@@ -1008,6 +1017,7 @@ mod tests {
             ("ثنائي_إلى_نص([65])", "ثنائي_إلى_نص"),
             ("قص_حروف(\"مرحبا\"، 1، 2)", "قص_حروف"),
             ("متغير_بيئة(\"PATH\")", "متغير_بيئة"),
+            ("اكتب_مجرى(1، [65])", "اكتب_مجرى"),
         ];
 
         for (source, name) in cases {

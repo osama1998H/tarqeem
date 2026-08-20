@@ -141,6 +141,110 @@ pub(crate) fn call_exit_program(args: &[Value]) -> RuntimeResult<Value> {
     }
 }
 
+/// The three stream descriptors `اكتب_مجرى` names without anything being opened,
+/// mirroring `runtime-rs/src/io.rs`.
+const STREAM_STDIN: i64 = 0;
+const STREAM_STDOUT: i64 = 1;
+const STREAM_STDERR: i64 = 2;
+
+/// `اكتب_مجرى`'s failure answer. Collision-free, since a byte count is never
+/// negative.
+const WRITE_FAILED: i64 = -1;
+
+/// `اكتب_مجرى`'s whole dispatch, shared with the debug interpreter the way
+/// `call_substring_by_chars` is: three parameters' worth of contract, of which
+/// the argument checks are most.
+///
+/// The descriptor is resolved before the array is read, so a write to nowhere is
+/// refused whatever it was going to carry. `١` is stdout and `٢` is stderr;
+/// `٣` upward names a file handle, and since no Arabic name opens one yet, the
+/// table is provably empty and every such descriptor answers `-١` here **and**
+/// natively. The two agree today for the same reason, not by coincidence — when
+/// `افتح_ملف` lands, this arm needs a handle table of its own.
+///
+/// An element outside `0..=255` is not a byte, and the whole call is refused
+/// rather than the value truncated: `[٣٠٠]` would otherwise be indistinguishable
+/// from `[٤٤]`, the reason `ثنائي_إلى_نص` rejects too. Validation completes
+/// before the first byte goes out, so a refused call leaves the stream untouched.
+///
+/// No `Value::Null` arm for the descriptor, for the reason `call_exit_program`
+/// has none: it is an `عدد`, so there is no pointer for a runtime guard to
+/// answer and codegen turns `لا_شيء` into `0` above the runtime (#326, #327). The
+/// array is a pointer, so it does get one, and answers `٠` — the same count an
+/// empty array answers, which loses nothing because both mean nothing was
+/// written.
+///
+/// The bytes reach the process's own streams even when the host is capturing
+/// `اطبع` (the REPL's `capture_output`, the debugger's output events). That is
+/// deliberate: the descriptor names the *process's* stream, so interposing a
+/// host buffer would change what the program observably did. The cost is that a
+/// DAP console does not mirror these bytes, recorded rather than worked around
+/// because the debug output path needs its own pass either way (#346).
+pub(crate) fn call_write_stream(args: &[Value]) -> RuntimeResult<Value> {
+    let descriptor = args.first().ok_or_else(|| {
+        RuntimeError::invalid_operation("اكتب_مجرى() تتطلب معاملين: المجرى والبايتات")
+    })?;
+    let bytes = args.get(1).ok_or_else(|| {
+        RuntimeError::invalid_operation("اكتب_مجرى() تتطلب معاملين: المجرى والبايتات")
+    })?;
+
+    let stream = match descriptor {
+        Value::Int(fd) => *fd,
+        other => return Err(RuntimeError::type_error("عدد", other.type_name())),
+    };
+
+    if stream == STREAM_STDIN || stream < 0 {
+        return Ok(Value::Int(WRITE_FAILED));
+    }
+
+    let payload = match bytes {
+        Value::Array(arr) => match stream_bytes(&arr.borrow()) {
+            Some(payload) => payload,
+            None => return Ok(Value::Int(WRITE_FAILED)),
+        },
+        // Reached through an `أي` holder, as `ثنائي_إلى_نص`'s is: `مصفوفة<عدد>؟`
+        // does not parse (ب٠١٠١) and a bare `لا_شيء` is refused at the argument.
+        Value::Null => Vec::new(),
+        _ => return Err(RuntimeError::type_error("مصفوفة", bytes.type_name())),
+    };
+
+    let written = payload.len() as i64;
+
+    match stream {
+        STREAM_STDOUT => {
+            let mut out = io::stdout();
+            if out.write_all(&payload).is_err() {
+                return Ok(Value::Int(WRITE_FAILED));
+            }
+            out.flush().ok();
+            Ok(Value::Int(written))
+        }
+        STREAM_STDERR => {
+            let mut err = io::stderr();
+            if err.write_all(&payload).is_err() {
+                return Ok(Value::Int(WRITE_FAILED));
+            }
+            err.flush().ok();
+            Ok(Value::Int(written))
+        }
+        // No handle can exist: nothing in the language opens one yet.
+        _ => Ok(Value::Int(WRITE_FAILED)),
+    }
+}
+
+/// Reads a `مصفوفة<عدد>`'s elements as bytes, or `None` if any is not one.
+///
+/// Split out so the whole array is validated before anything is written. Shaped
+/// like `bytes_to_string`, and rejecting on the same two grounds: an element
+/// that is not an `عدد`, and one outside a byte's range.
+fn stream_bytes(values: &[Value]) -> Option<Vec<u8>> {
+    let mut payload = Vec::with_capacity(values.len());
+    for value in values {
+        payload.push(u8::try_from(value.as_int()?).ok()?);
+    }
+    Some(payload)
+}
+
 /// `متغير_بيئة`'s whole dispatch, shared the way `call_substring_by_chars` above
 /// is: the contract here lives almost entirely in the argument checks.
 ///
@@ -281,6 +385,7 @@ impl Interpreter {
                 | "نص_إلى_ثنائي"
                 | "ثنائي_إلى_نص"
                 | "متغير_بيئة"
+                | "اكتب_مجرى"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
                 | "نص_ينتهي_بـ"
@@ -1188,6 +1293,8 @@ impl Interpreter {
             }
 
             "متغير_بيئة" => call_env_var(&args),
+
+            "اكتب_مجرى" => call_write_stream(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 

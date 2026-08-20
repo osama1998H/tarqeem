@@ -4035,3 +4035,156 @@ the non-zero half lives in the unit tests. The unreachable `اطبع` placed aft
 its absence from the committed `examples/متوقع/مدمجات.خرج` is the truncation proof. That section must
 stay **last** in the file, and says so — anything appended after it would never run, and the expected
 output would look correct.
+
+## #347 — `اكتب_مجرى`: `write(2)`, and the first cost estimate that transferred whole
+
+Category 7 of the primitive registry (`docs/builtins-vs-stdlib.md` §1.3), criterion (b), and the
+first of Increment G's seven I/O primitives. Before it the language had no byte-level output at
+all: `اطبع` and `اطبع_خطأ` are compiler intrinsics whose lowering picks a print symbol off the
+static `IrType`, and §9.1 records why they can never be anything else — a polymorphic print needs
+an `أي` parameter, which native codegen refuses with `ت٠٣٠١`.
+
+### The cost shape was predicted correctly, and that is the result
+
+Five shapes had been measured before this: 2 files for an IR-intercepted name, 9 sites for a new
+symbol under a new name (#324), 8 when the symbol already existed (#338), 6 to repair a half-wired
+one (#336), and 11 for a `فراغ` effect (#342). §6.7 named the discriminator — *which half of the
+path already exists* — and #342 added the caveat that it does not cover a **new kind of effect**.
+
+Applied here in advance: neither half existed, and writing bytes to a stream is not a new effect
+(`trq_print` has always done it). Predicted nine, cost nine, plus the one-line B15 fix this
+primitive's own contract requires.
+
+**Not the first estimate that held — the first that was *forecast*.** #320 and #326 each cost what
+their predecessors cost and found nothing new about the path, and both recorded that as the result.
+Neither was a prediction: the discriminator was only named at #338, so those two agreed with the
+estimate in retrospect. Here the number was written down before the work, and the work agreed with
+it. Worth separating, because "the estimate held" is only informative when the estimate came
+first — and because claiming a first the docs already record is exactly the kind of error the next
+increment would have to correct.
+
+### A scalar's missing return type cannot be assembled, let alone misread
+
+The load-bearing measurement, taken by deleting the `register_builtin_return_types` entry and
+recompiling, as #330/#333/#336/#338 each did. The progression so far had been read as a loudness
+gradient: one caught assertion for an array, three for a `نص`, four for `قص_حروف` and
+`متغير_بيئة`. This name does not sit on that scale.
+
+- `اكتب_مجرى(١، []) == ٠` and `... + ١` **fail native compilation** — `ت٠١٠١`, clang:
+  «'%v13' defined with type 'i64' but expected 'ptr'». A scalar return has no struct for the
+  `Ptr(Void)` sentinel to misread; `icmp`/`add` on a `ptr` is simply not valid IR, so the module is
+  never assembled.
+- `نوع` answers `مؤشر`, as it has for every name.
+- `اطبع` is **quieter than in any previous name**: it prints *nothing at all* for the count, taking
+  the pointer path. `ثنائي_إلى_نص` at least printed a pointer in decimal; `قص_حروف` printed a wrong
+  length. Here the value vanishes.
+
+So #336's "predict from the struct layout" generalises one level up: predict from the return type's
+**representation**. A pointer-shaped return degrades silently and needs the composition test; a
+scalar one fails the build on any arithmetic and cannot be printed wrong because it cannot be
+printed at all. Two names, two opposite ends, and across the five names where the entry has
+been deleted and measured — #330, #333, #336, #338 and this one — printing has caught it zero
+times.
+
+### The withdrawn clause is a third defect class for §1.3 rows
+
+The row promised "returns bytes written so short writes stay visible". Not unimplementable the way
+#333's no-validation clause was — **unreachable**. `write_all` loops until the payload is out or an
+error stops it, so a short write is never in a state that could be reported; the honest answer is
+the full count or `-١`. Reporting partial progress would mean a single `write` returning `n`, which
+silently truncates a large payload and moves the loop into every caller.
+
+After expiring criterion-(a) claims (#312, #322, #333, #336) and contracts no implementation can
+satisfy (#333), that is a third class: **a clause that is implementable, satisfiable, and describes
+a state the operation cannot enter.** Check a row's promises against the shape of the call, not only
+against the language and the value representation.
+
+### The type-confusion guard is the range check, and it was free
+
+A `TrqArray` carries no element-kind tag — `مصفوفة<عدد>` and `مصفوفة<نص>` are both `elem_size == 8`
+and indistinguishable at runtime (`runtime-rs/src/types.rs:94-151`) — so an `أي` holder can land a
+string array, or a `TrqString` itself, on the byte parameter. Nothing new was needed for either:
+
+- A `مصفوفة<نص>` element read as an `i64` is a pointer value, far outside `٠`-`٢٥٥`, so the
+  byte-range rejection already refuses it. The check written for `[٣٠٠]` covers type confusion for
+  free.
+- A `TrqString` is refused on `elem_size` **before `data` is read**, the order
+  `trq_string_from_bytes` established and for its reason: the string is 24 bytes, `elem_size` sits
+  at offset 16 inside it, and `data` sits at offset 24 — one past the end. Reversing the two checks
+  is a heap over-read, not a wrong answer.
+
+Rejection is total for a second reason worth separating from correctness: the array is validated
+**before the first byte goes out**, so `[٦٥، ٣٠٠]` writes nothing rather than writing `A` and then
+failing. A partial write with a `-١` answer would be unrecoverable — the caller cannot know how much
+landed.
+
+### Truncation was rejected again, on #333's grounds
+
+`[٣٠٠]` answers `-١`, not the comma. Truncating to the low byte would make it indistinguishable
+from `[٤٤]`, so a rejected array and an accepted one would produce identical output and there would
+be no way to tell them apart. Same reasoning as `ثنائي_إلى_نص`, and it is the second name to face
+it — the house convention `trq_sha256_bytes` still follows (truncate) is the one being displaced.
+
+### The interpreter and the runtime agree on descriptor `٣`+ for a reason, not by construction
+
+Both answer `-١`. The runtime looks the descriptor up in `FILE_HANDLES` and finds nothing; the
+interpreter has no table at all. They agree because **nothing in the language opens a handle yet** —
+the streaming API in `io.rs` is orphaned and no Arabic name maps to it. That agreement is
+load-bearing and temporary: `افتح_ملف` must give the interpreter a handle table in the same
+increment it lands, or the two diverge the moment a handle exists. The runtime's handle path is
+implemented and unit-tested now (`trq_file_open_write` → `trq_write_stream` → `trq_file_close`), so
+the contract will not shift under the opener when it arrives.
+
+### B15 was fixed here because this is the change that made it reachable
+
+`NEXT_FILE_HANDLE` moved from 1 to 3. The blocker was filed as "collides with stdout once streams
+unify", and this is the unification: descriptor `١` now means stdout, so a handle numbered 1 would
+have sent a file write to the terminal — silently, since both succeed. Nothing depended on the old
+numbering: `0` was never a valid handle (every `trq_file_open_*` returns it on failure) and every
+existing test asserts `handle > 0` rather than `== 1`. A new assertion pins `handle >= 3`.
+
+### Raw bytes constrain the CI example, not just the tests
+
+Bytes that are not valid UTF-8 reach stdout intact — that is the primitive's point, and it is what
+no print builtin can do (`trq_print` is `if let Ok(text) = from_utf8`, so a lone `٢٥٥` prints
+nothing with no error). Two consequences for the example:
+
+- Writing `٢٥٥` there would commit a golden file that is not text.
+- `scripts/جدد_المتوقع.sh` captures `2>&1`, so a descriptor-`٢` write in the example would make the
+  committed output depend on stdout/stderr interleaving.
+
+Both rows are covered in tests that read the streams apart instead. The rule for the rest of
+Increment G: **the example demonstrates the contract's text rows; its byte and stream rows belong
+where the streams can be read separately.**
+
+One test bug is worth recording because it is how the property was found: the first draft asserted
+`[٢٥٥]` through stdout and failed with `left: ["...", "\u{FFFD}1"]`. The primitive was correct; the
+test was comparing bytes as text.
+
+### The lexer check found no new shape, and was run anyway
+
+`اكتب_مجرى` embeds `ك` — `TokenKind::As`, the alias specifier — inside `اكتب`, with a letter on each
+side. That is the same shape `قص_حروف`'s `و` has. It was added to
+`test_identifier_containing_a_keyword_stays_one_token` regardless, because five of the nine cases
+already there were added for a shape their predecessors did not cover — mid-name (#309), keyword
+followed by a letter (#322), keyword opening the name (#330), a keyword inside a word with letters
+on both sides (#336), and a *statement* keyword opening it (#338) — so "the last one needed nothing"
+has been worthless as evidence every time it was tried. `ك` is also the shortest entry in the keyword
+table, which makes it the likeliest to fall inside an ordinary Arabic word by accident.
+
+### Smaller findings
+
+- **B14 fired immediately, and the plan's discriminator identified it.** The first native attempt
+  failed with `ld: symbol(s) not found`, not a clang parse error — a stale `libtrq.a`, because
+  `cargo build --release` alone does not rebuild the runtime crate. `--workspace` does. Also worth
+  knowing: `nm -g` reports nothing for this archive on macOS (it finds `trq_env_get` zero times
+  too), so it is useless as a presence check — `strings` works.
+- **`اكتب_مجرى` does not participate in output capture.** The main interpreter's `capture_output`
+  and the debug interpreter's `context.add_output` both mirror `اطبع`; this writes straight to the
+  process stream in both. Deliberate: the descriptor names the *process's* stream, so interposing a
+  host buffer would change what the program observably did. The cost is that a DAP console does not
+  mirror these bytes, which is recorded rather than worked around because the debug output path
+  needs its own pass either way (#346).
+- **No `Value::Null` arm for the descriptor**, and one for the array. #326's narrowing predicted
+  both: the descriptor is an `عدد` with no pointer for a runtime guard to answer, so `لا_شيء` is a
+  type error; the array is a pointer whose null answer is designed, so it answers `٠`.
