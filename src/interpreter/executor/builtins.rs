@@ -348,6 +348,86 @@ fn stream_bytes(values: &[Value]) -> Option<Vec<u8>> {
     Some(payload)
 }
 
+/// `حالة_مسار`'s kind answers and its no-answer value, mirroring
+/// `runtime-rs/src/io.rs`.
+///
+/// The fourth kind is load-bearing: a device exists and is not a file, so
+/// `ملف_موجود` and `هل_ملف` disagree about it and three values could not fold
+/// both names.
+const PATH_KIND_ABSENT: i64 = 0;
+const PATH_KIND_FILE: i64 = 1;
+const PATH_KIND_DIR: i64 = 2;
+const PATH_KIND_OTHER: i64 = 3;
+const STAT_FIELD_KIND: i64 = 0;
+const STAT_FIELD_SIZE: i64 = 1;
+const STAT_NO_ANSWER: i64 = -1;
+
+/// `حالة_مسار`'s whole dispatch, shared with the debug interpreter the way
+/// `call_env_var` below is: two parameters' worth of contract, of which the
+/// argument checks and the kind mapping are all of it.
+///
+/// The mapping is **duplicated** in `trq_path_status` and cannot be shared — the
+/// compiler crate does not depend on `tarqeem-runtime`, and an `extern "C"`
+/// function taking a `*const TrqString` could not read a `Value` anyway. So every
+/// row of the contract is pinned cross-backend rather than only here, because
+/// nothing but a test stops the two copies from drifting.
+///
+/// The path is read **raw**, like `متغير_بيئة`'s name: a filename with a leading
+/// or trailing space is a legitimate filename, and `trq_path_status` does not
+/// trim either.
+pub(crate) fn call_path_status(args: &[Value]) -> RuntimeResult<Value> {
+    const ARITY: &str = "حالة_مسار() تتطلب معاملين: المسار والحقل";
+
+    let path = args
+        .first()
+        .ok_or_else(|| RuntimeError::invalid_operation(ARITY))?;
+    let field = args
+        .get(1)
+        .ok_or_else(|| RuntimeError::invalid_operation(ARITY))?;
+    let field = field
+        .as_int()
+        .ok_or_else(|| RuntimeError::type_error("عدد", field.type_name()))?;
+
+    // The field is settled before the path: a question with no field has no
+    // answer whatever the path holds, and an unknown one never touches the
+    // filesystem. `trq_path_status` checks in the same order.
+    if field != STAT_FIELD_KIND && field != STAT_FIELD_SIZE {
+        return Ok(Value::Int(STAT_NO_ANSWER));
+    }
+
+    let path = match path {
+        Value::String(text) => Some(text.as_str().to_string()),
+        // A pointer parameter, so this mirrors the runtime's null guard the way
+        // `call_env_var`'s arm does rather than encoding an artifact. Reached by
+        // an un-narrowed `نص؟` through `Type::compat` and by an `أي` holder; the
+        // `عدد` field gets no such arm (#327).
+        Value::Null => None,
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+
+    // `fs::metadata` follows symlinks, and so do all four of the names this
+    // folds, so a broken link reads as absent. An absent path, an unreadable one
+    // and an empty name all land in the same `None`, deliberately.
+    let metadata = path.and_then(|p| std::fs::metadata(p).ok());
+
+    if field == STAT_FIELD_SIZE {
+        return Ok(Value::Int(match metadata {
+            // A byte length is a property of a regular file. A directory's
+            // `st_size` is 4096 on ext4 and 64-96 on APFS, so answering it would
+            // put a platform-dependent number in the contract.
+            Some(meta) if meta.is_file() => meta.len() as i64,
+            _ => STAT_NO_ANSWER,
+        }));
+    }
+
+    Ok(Value::Int(match metadata {
+        None => PATH_KIND_ABSENT,
+        Some(meta) if meta.is_file() => PATH_KIND_FILE,
+        Some(meta) if meta.is_dir() => PATH_KIND_DIR,
+        Some(_) => PATH_KIND_OTHER,
+    }))
+}
+
 /// `متغير_بيئة`'s whole dispatch, shared the way `call_substring_by_chars` above
 /// is: the contract here lives almost entirely in the argument checks.
 ///
@@ -490,6 +570,7 @@ impl Interpreter {
                 | "متغير_بيئة"
                 | "اكتب_مجرى"
                 | "اقرأ_مجرى"
+                | "حالة_مسار"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
                 | "نص_ينتهي_بـ"
@@ -1401,6 +1482,8 @@ impl Interpreter {
             "اكتب_مجرى" => call_write_stream(&args),
 
             "اقرأ_مجرى" => call_read_stream(&args),
+
+            "حالة_مسار" => call_path_status(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 

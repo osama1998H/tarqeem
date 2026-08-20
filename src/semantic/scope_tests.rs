@@ -186,6 +186,9 @@ fn test_global_scope_has_core_builtins() {
     assert!(scope.lookup("اكتب_مجرى").is_some());
     assert!(scope.lookup("اقرأ_مجرى").is_some());
 
+    // Path status (1) — the one name four `ملفات` names reduce to.
+    assert!(scope.lookup("حالة_مسار").is_some());
+
     // Termination (2) — one primitive in two spellings, so both need pinning:
     // `normalize_name` is NFC only and does not strip tashkeel, so a missing
     // entry for the kasra-less variant only surfaces when someone types it.

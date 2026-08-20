@@ -389,6 +389,29 @@ impl IrBuilder {
             "اقرأ_مجرى".to_string(),
             IrType::Array(Box::new(IrType::Int), 0),
         );
+        // `حالة_مسار` answers an `عدد`, so rule 5 applies in full. Measured with
+        // this entry deleted, and #347's prediction for a **scalar** return held
+        // exactly — unlike #330's array prediction, which #350 found did not
+        // transfer even to another array:
+        //
+        //   `اطبع(…)`          native prints **nothing** and exits 0; both
+        //                      interpreters print `2` — silent wrong output
+        //   `نوع(…)`           `مؤشر` in all three — caught everywhere
+        //   `… + ١`            native **compile failure** (ت٠١٠١, clang:
+        //                      «'%v2' defined with type 'ptr' but expected
+        //                      'i64'»)
+        //   `… == ٢`           native **compile failure** (ت٠١٠١) — and the
+        //                      mismatch is reported the *other* way round,
+        //                      «'%v3' defined with type 'i64' but expected
+        //                      'ptr'», because the constant is the typed operand
+        //   bound, then printed  prints nothing, exit 0 — binding hides it too
+        //
+        // So a scalar cannot be assembled the moment it is arithmetic, and hides
+        // completely when it is only printed. Predict from the **use site**: the
+        // composition test asserts `نوع`, `+` and `==` for exactly the three
+        // modes above, and printing alone would pass either way.
+        self.function_return_types
+            .insert("حالة_مسار".to_string(), IrType::Int);
         // `أنهِ_البرنامج` has **no entry here, deliberately** — the one exception to
         // the rule the rest of this function embodies (`docs/builtins-vs-stdlib.md`
         // §1.1 rule 5: Scope entry + return type + interpreter arms, "any two of the
