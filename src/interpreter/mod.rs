@@ -43,6 +43,10 @@ pub(crate) use executor::builtins::call_substring_by_chars;
 /// map, the byte-range rejection and the empty-versus-failed answers are all
 /// contract, and all live in the one dispatch.
 pub(crate) use executor::builtins::call_write_stream;
+
+/// Shared with the debug interpreter for the same reason, and its sibling:
+/// the read half of the byte-level stream pair.
+pub(crate) use executor::builtins::call_read_stream;
 pub use executor::Interpreter;
 pub use value::Value;
 

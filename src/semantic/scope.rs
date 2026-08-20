@@ -257,6 +257,20 @@ impl Scope {
                 vec![Type::Int, Type::Array(Box::new(Type::Int))],
                 Type::Int,
             ),
+            // Stream reading - القراءة من مجرى
+            // `read(2)`, the byte-level input path `ادخل` cannot be: that one
+            // frames a line in Rust and answers a decoded `نص`, so no program
+            // can read one byte or do its own framing. Answers bytes, so
+            // `ثنائي_إلى_نص` decodes them. `٠` is stdin and `٣` upward a file
+            // handle; the answer is an empty array whenever there is nothing to
+            // read — at EOF, and for a stream that cannot be read from. An array
+            // has no value to spare for a sentinel, so those two cases are
+            // deliberately indistinguishable.
+            (
+                "اقرأ_مجرى",
+                vec![Type::Int, Type::Int],
+                Type::Array(Box::new(Type::Int)),
+            ),
             // Termination - إنهاء البرنامج
             // `exit(2)`, which `توقف` cannot serve: that one is always status 1
             // and always prints. Total — the status is `حالة & ٢٥٥`, so every
