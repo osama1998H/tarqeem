@@ -4303,6 +4303,7 @@ example therefore demonstrates only refusals — every row it covers answers zer
 
 The general rule for the rest of Increment G: **an example can only exercise a primitive whose inputs
 the example itself can supply.** `افتح_ملف` and `حالة_ملف` will be able to; this one cannot.
+(#352 renamed that name to `حالة_مسار` and found the prediction half right — see below.)
 
 One thing that *did* become available: `اطبع` on an empty array was probed across all three backends
 before the fixtures were written (#333 finding 3's habit) and all three print `[]`. No committed
@@ -4334,3 +4335,83 @@ have been caution rather than a known divergence.
 - **`runtime-rs`'s export count in `docs/builtins-inventory.md` was two low before this change.**
   Recounted to 223 from source. The row says recount rather than increment; it earned that wording
   again.
+
+---
+
+## #352 — `حالة_مسار`: `stat(2)`, and a fold claim that needed a fourth value
+
+**Increment G's third primitive** (`docs/builtins-vs-stdlib.md` §6.7.4), after `اكتب_مجرى` (#347) and
+`اقرأ_مجرى` (#350). `(نص، عدد) -> عدد`: `حقل ٠` answers what is at a path — `٠` absent, `١` file,
+`٢` directory, `٣` exists and is neither — and `حقل ١` the byte length of a regular file. Anything
+else answers `-١`.
+
+### Two decisions taken before the work
+
+- **`حالة_مسار`, not the registry's `حالة_ملف`.** The operation reports on a path, which may hold a
+  file, a directory or neither, and a directory is not a `ملف`. Its own category-7 sibling
+  `احذف_مسار` already uses `مسار` for the identical scope. Recorded as a §1.3 correction on the #302
+  precedent rather than changed silently.
+- **A directory answers `-١` for its size.** `trq_file_size` answers the OS `st_size` there — 4096 on
+  ext4, 64–96 on APFS — and a number that changes with the filesystem cannot be asserted in a test or
+  a golden file. So size is the byte length of a regular file and `-١` for everything else. The future
+  `حجم_ملف` wrapper inherits the delta.
+
+### What it found
+
+- **A fold claim needs enough *range*, and this row did not have it — a fifth §1.3 defect class.**
+  The row promised to fold four names with three kind values. It cannot: `ملف_موجود` is
+  `Path::exists()` and answers **true** for `/dev/null` while `هل_ملف` answers false for the same
+  path. Hence `٣`, and hence `ملف_موجود` reduces to `!= ٠` rather than `== ١`. The check that found it
+  was to read each folded name's implementation one at a time — the other three map onto
+  `١`/`٢`/size directly, so a plausible reading of the row would have missed exactly the one that
+  breaks it.
+- **A scalar's missing-return-type mode is predictable across names; an array's is not.** #347's
+  measurement for `اكتب_مجرى` transferred here exactly — `اطبع` prints nothing and exits 0, `نوع`
+  answers `مؤشر`, and `+ ١` / `== ٢` fail native compilation with ت٠١٠١ — where #330's array
+  measurement did not survive #350's second array. A small new detail: the two compile failures
+  report the mismatch in **opposite directions**, because in the comparison the typed operand is the
+  literal.
+- **A *contextually* reserved keyword needs a parser check, not only the lexer row.** `حالة_مسار`
+  opens with `حالة` = `TokenKind::Case`, reserved in exactly one construct. The mechanical sweep over
+  all 69 keywords found `حالة` and nothing else; the lexer row proves the name stays one token, and
+  `test_path_status_is_callable_inside_a_match` proves the parser accepts it inside `تطابق`, in the
+  scrutinee and in an arm body. Both passed — no defect to file — but the next contextual keyword
+  (`احصل`, `عيّن`, `ك`) needs the same second half.
+- **The example's input capability splits along invariance, not supply.** #347 could not put byte rows
+  in the example (the golden is a `2>&1` capture) and #350 could not put success rows there (the
+  golden is generated with stdin inherited). Here `"."` and an absent path work perfectly and a
+  *regular file* does not — nothing in the language creates one, and a relative repo path would make
+  the golden depend on the working directory. `/dev/null` is out for a third reason: Unix-only, and
+  the golden is regenerated on a developer machine. So the rule is **rows whose inputs are invariant
+  under where and on what the program runs**, which is narrower than "inputs the example can supply".
+- **The first primitive whose kernel is duplicated across the crate boundary.** The kind/size mapping
+  exists in `trq_path_status` and in `call_path_status`, because the root crate does not depend on
+  `tarqeem-runtime` and an `extern "C"` function taking a `*const TrqString` could not read a `Value`.
+  Two copies by construction; what holds them together is that every row × both fields is asserted
+  cross-backend, not in either implementation's own unit tests. #336's share-the-dispatch rule still
+  applies *within* the compiler — one `pub(crate)` dispatch for both interpreters — which keeps it at
+  two copies rather than three.
+- **Landed ahead of `افتح_ملف` on purpose.** The opener needs an interpreter handle table in the same
+  change, which is two primitives' work under a one-per-change rule. The remaining Increment G names
+  are not equally sized, and the path-taking ones can land alone.
+
+### Cost
+
+**Nine registration sites**, forecast from §6.7's discriminator before the work — neither half of the
+path existed — and the third consecutive forecast to hit. Fourteen files, which is #350's seventeen
+minus the four docs plus the lexer test. One additive harness helper (`assert_prints_with_files`,
+absolute fixture paths, because the native leg inherits no working directory), following the
+`_with_env` / `_with_stdin` precedent so all existing call sites stayed untouched.
+
+**Nothing removed.** The four folded names are `مكتبة`, not `يُحذف`, and B16 makes the `ملفات` flip
+all-or-nothing, so they stay registered and mapped until Increment G flips the module. `trq_file_size`
+and the three predicates keep their own symbols under standing rule 3.
+
+The 12 new `unnecessary unsafe block` warnings in `runtime-rs`'s tests are the pre-existing class #310
+tracks (98 before this change) and follow the neighbouring tests' `trq_release` pattern verbatim;
+`runtime-rs` is outside CI's clippy coverage and #310 will sweep all of them mechanically. The main
+crate is clippy-clean.
+
+Surfaced and filed rather than fixed here: `trq_string_to_path` does not guard a negative `len` before
+`from_raw_parts` (#353). It is the shared reader for every path function in the module, so it belongs
+in its own change.

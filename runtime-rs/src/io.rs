@@ -385,6 +385,102 @@ pub extern "C" fn trq_file_size(path: *const TrqString) -> i64 {
 }
 
 // ============================================================================
+// Path Status
+// ============================================================================
+
+/// What `حالة_مسار`'s kind field answers: what is *at* a path.
+///
+/// `PATH_KIND_OTHER` is not decoration. [`trq_file_exists`] is `Path::exists()`,
+/// which is true for a device, a socket or a fifo, while [`trq_file_is_file`] is
+/// false for the same path — so a three-value kind could not reproduce both of
+/// the names this folds. A row that promises to fold N names needs enough range
+/// to answer for all N.
+const PATH_KIND_ABSENT: i64 = 0;
+const PATH_KIND_FILE: i64 = 1;
+const PATH_KIND_DIR: i64 = 2;
+const PATH_KIND_OTHER: i64 = 3;
+
+/// The fields this function knows. One field per call, which is what keeps the
+/// answer an `عدد` and keeps a struct off the FFI — the mistake the nine date
+/// constructors made (#298).
+const STAT_FIELD_KIND: i64 = 0;
+const STAT_FIELD_SIZE: i64 = 1;
+
+/// No answer: a field this function does not know, or a size asked of something
+/// that has no byte length. Collision-free for the kind field, which never
+/// answers negative.
+const STAT_NO_ANSWER: i64 = -1;
+
+/// Backs the core builtin `حالة_مسار`: `stat(2)`, one field per call.
+///
+/// `حقل ٠` answers what is at the path — `٠` absent, `١` a file, `٢` a
+/// directory, `٣` something that exists and is neither. `حقل ١` answers the byte
+/// length of a **regular file**, and `-١` for everything else. Any other field
+/// answers `-١`.
+///
+/// **The field is checked before the path.** A question with no field has no
+/// answer whatever the path holds, so an unknown field never touches the
+/// filesystem. Same order as [`trq_write_stream`], which settles the descriptor
+/// before reading the payload.
+///
+/// **Symlinks are followed**, because `fs::metadata` follows them and so do all
+/// four of the names this folds. A broken symlink therefore reads as absent —
+/// the link exists, but nothing is at the path it names.
+///
+/// **A directory has no size.** `trq_file_size` answers the OS `st_size` here,
+/// which is 4096 on ext4 and 64–96 on APFS; no test and no golden file can
+/// assert a number that changes with the filesystem. So the size is a property
+/// of a regular file and `-١` otherwise, which makes the row assertable. This is
+/// a deliberate delta from `trq_file_size`, recorded because the future
+/// `حجم_ملف` wrapper inherits it.
+///
+/// **Absent, unreadable, empty and null are one answer.** A missing path, a
+/// permission error, an empty name and a null pointer all answer `٠` / `-١`. A
+/// caller that must tell them apart checks the path it passed — the same
+/// conflation [`trq_env_get`](crate::runtime::trq_env_get) makes for an unset
+/// versus an empty variable, and [`trq_file_read_line`] for EOF versus an
+/// unknown handle.
+///
+/// The path is read as given, with no trimming: a filename with a leading or
+/// trailing space is a legitimate filename.
+///
+/// # Returns
+///
+/// The requested field, or `-١` where there is no answer. Total — every
+/// `(path, field)` pair is a valid call, and none can panic.
+///
+/// # Safety
+///
+/// - `path` must be a valid pointer to a `TrqString` or null.
+///
+/// # C Equivalent
+/// ```c
+/// int64_t trq_path_status(const TrqString* path, int64_t field);
+/// ```
+#[no_mangle]
+pub extern "C" fn trq_path_status(path: *const TrqString, field: i64) -> i64 {
+    if field != STAT_FIELD_KIND && field != STAT_FIELD_SIZE {
+        return STAT_NO_ANSWER;
+    }
+
+    let metadata = trq_string_to_path(path).and_then(|p| std::fs::metadata(p).ok());
+
+    if field == STAT_FIELD_SIZE {
+        return match metadata {
+            Some(meta) if meta.is_file() => meta.len() as i64,
+            _ => STAT_NO_ANSWER,
+        };
+    }
+
+    match metadata {
+        None => PATH_KIND_ABSENT,
+        Some(meta) if meta.is_file() => PATH_KIND_FILE,
+        Some(meta) if meta.is_dir() => PATH_KIND_DIR,
+        Some(_) => PATH_KIND_OTHER,
+    }
+}
+
+// ============================================================================
 // File Handle/Stream Operations
 // ============================================================================
 
@@ -1845,6 +1941,137 @@ mod tests {
                 return Vec::new();
             }
             std::slice::from_raw_parts((*arr).data as *const i64, (*arr).len as usize).to_vec()
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // trq_path_status — حالة_مسار
+    // ────────────────────────────────────────────────────────────────────
+
+    /// Builds the `TrqString` the compiler would hand a path parameter.
+    fn path_string(text: &str) -> *mut TrqString {
+        trq_string_new(text.as_ptr(), text.len() as i64)
+    }
+
+    /// The two fields over a regular file.
+    ///
+    /// The content is Arabic on purpose: «مرحبا» is five characters and ten
+    /// bytes, so an implementation that counted characters would pass this test
+    /// with an ASCII fixture and fail it here.
+    #[test]
+    fn test_path_status_reads_a_file_kind_and_its_byte_size() {
+        let test_path = "/tmp/tarqeem_test_path_status_file.txt";
+        std::fs::write(test_path, "مرحبا").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(test_path);
+        assert_eq!(trq_path_status(path, STAT_FIELD_KIND), PATH_KIND_FILE);
+        assert_eq!(trq_path_status(path, STAT_FIELD_SIZE), 10);
+
+        std::fs::remove_file(test_path).ok();
+        unsafe {
+            crate::memory::trq_release(path as *mut u8);
+        }
+    }
+
+    /// A directory answers its kind and **no** size.
+    ///
+    /// `trq_file_size` answers the OS `st_size` for the same path — 4096 on
+    /// ext4, 64–96 on APFS — which is why this function does not: a number that
+    /// changes with the filesystem cannot be asserted here or in a golden file.
+    #[test]
+    fn test_path_status_answers_a_directory_without_a_size() {
+        let path = path_string("/tmp");
+        assert_eq!(trq_path_status(path, STAT_FIELD_KIND), PATH_KIND_DIR);
+        assert_eq!(trq_path_status(path, STAT_FIELD_SIZE), STAT_NO_ANSWER);
+        unsafe {
+            crate::memory::trq_release(path as *mut u8);
+        }
+    }
+
+    /// An absent path, an empty name and a null pointer are one answer.
+    #[test]
+    fn test_path_status_reads_nothing_as_absent() {
+        for name in ["/tmp/tarqeem_test_path_status_absent_xyz", ""] {
+            let path = path_string(name);
+            assert_eq!(
+                trq_path_status(path, STAT_FIELD_KIND),
+                PATH_KIND_ABSENT,
+                "المسار «{name}» ليس معدوماً / path is not read as absent"
+            );
+            assert_eq!(trq_path_status(path, STAT_FIELD_SIZE), STAT_NO_ANSWER);
+            unsafe {
+                crate::memory::trq_release(path as *mut u8);
+            }
+        }
+
+        assert_eq!(
+            trq_path_status(std::ptr::null(), STAT_FIELD_KIND),
+            PATH_KIND_ABSENT
+        );
+        assert_eq!(
+            trq_path_status(std::ptr::null(), STAT_FIELD_SIZE),
+            STAT_NO_ANSWER
+        );
+    }
+
+    /// A field this function does not know has no answer, whatever the path
+    /// holds — `/tmp` exists and is readable, and every one of these is `-1`.
+    #[test]
+    fn test_path_status_has_no_answer_for_an_unknown_field() {
+        let path = path_string("/tmp");
+        for field in [2, 9, -1, i64::MIN, i64::MAX] {
+            assert_eq!(
+                trq_path_status(path, field),
+                STAT_NO_ANSWER,
+                "الحقل {field} أجاب بغير -١ / unknown field answered something"
+            );
+        }
+        unsafe {
+            crate::memory::trq_release(path as *mut u8);
+        }
+    }
+
+    /// The fourth kind, and the reason it exists: `/dev/null` **exists** and is
+    /// **not** a file, so `trq_file_exists` and `trq_file_is_file` disagree
+    /// about it. A three-value kind could not fold both names.
+    #[test]
+    #[cfg(unix)]
+    fn test_path_status_marks_a_device_as_neither_file_nor_directory() {
+        let path = path_string("/dev/null");
+        assert!(trq_file_exists(path), "الجهاز غير موجود / device is absent");
+        assert!(!trq_file_is_file(path));
+        assert!(!trq_file_is_dir(path));
+
+        assert_eq!(trq_path_status(path, STAT_FIELD_KIND), PATH_KIND_OTHER);
+        assert_eq!(trq_path_status(path, STAT_FIELD_SIZE), STAT_NO_ANSWER);
+        unsafe {
+            crate::memory::trq_release(path as *mut u8);
+        }
+    }
+
+    /// Symlinks are followed, so a link to a file reads as a file — and a link
+    /// whose target is gone reads as **absent**: the link is there, nothing is
+    /// at the path it names.
+    #[test]
+    #[cfg(unix)]
+    fn test_path_status_follows_a_symlink_and_reads_a_broken_one_as_absent() {
+        let target = "/tmp/tarqeem_test_path_status_symlink_target.txt";
+        let link = "/tmp/tarqeem_test_path_status_symlink";
+        std::fs::remove_file(link).ok();
+        std::fs::write(target, "ab").expect("تعذّر إنشاء الملف / could not create the file");
+        std::os::unix::fs::symlink(target, link).expect("تعذّر إنشاء الوصلة / could not link");
+
+        let path = path_string(link);
+        assert_eq!(trq_path_status(path, STAT_FIELD_KIND), PATH_KIND_FILE);
+        assert_eq!(trq_path_status(path, STAT_FIELD_SIZE), 2);
+
+        std::fs::remove_file(target).ok();
+        assert_eq!(trq_path_status(path, STAT_FIELD_KIND), PATH_KIND_ABSENT);
+        assert_eq!(trq_path_status(path, STAT_FIELD_SIZE), STAT_NO_ANSWER);
+
+        std::fs::remove_file(link).ok();
+        unsafe {
+            crate::memory::trq_release(path as *mut u8);
         }
     }
 

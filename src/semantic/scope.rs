@@ -271,6 +271,19 @@ impl Scope {
                 vec![Type::Int, Type::Int],
                 Type::Array(Box::new(Type::Int)),
             ),
+            // Path status - حالة المسار
+            // `stat(2)`, one field per call so the answer stays an `عدد` and no
+            // struct crosses the FFI. `حقل ٠` is the kind — `٠` معدوم، `١` ملف،
+            // `٢` مجلد، `٣` موجود وليس أحدهما — and `حقل ١` the byte length of a
+            // regular file. Any other field, and the size of anything that is
+            // not a file, answer `-١`. Total, and the field is settled before the
+            // path, so an unknown field never touches the filesystem.
+            //
+            // The fourth kind is what lets this one name answer for
+            // `ملف_موجود`، `هل_ملف`، `هل_مجلد` and `حجم_ملف` together: a device
+            // exists and is not a file, so those first two disagree about it and
+            // three values could not carry both.
+            ("حالة_مسار", vec![Type::String, Type::Int], Type::Int),
             // Termination - إنهاء البرنامج
             // `exit(2)`, which `توقف` cannot serve: that one is always status 1
             // and always prints. Total — the status is `حالة & ٢٥٥`, so every

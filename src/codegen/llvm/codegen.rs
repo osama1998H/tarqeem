@@ -834,6 +834,7 @@ impl LlvmCodegen {
         emit!(self, "declare i1 @trq_file_copy(ptr, ptr)");
         emit!(self, "declare i1 @trq_file_move(ptr, ptr)");
         emit!(self, "declare i64 @trq_file_size(ptr)");
+        emit!(self, "declare i64 @trq_path_status(ptr, i64)");
         emit!(self, "declare i1 @trq_dir_create(ptr)");
         emit!(self, "declare i1 @trq_dir_create_all(ptr)");
         emit!(self, "declare i1 @trq_dir_delete(ptr)");
@@ -2955,6 +2956,12 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         // neighbours, so the Arabic name arrives here and is mapped once.
         "اكتب_مجرى" => Some("trq_write_stream"),
         "اقرأ_مجرى" => Some("trq_read_stream"),
+        // Core tier as well, and the one name that answers for four of the
+        // `ملفات` names above: `ملف_موجود`، `هل_ملف`، `هل_مجلد` and `حجم_ملف` all
+        // reduce to a field of this. They stay mapped here until Increment G
+        // flips `ملفات` to disk — standing rule 3: a symbol is not deleted just
+        // because a name that folds it landed.
+        "حالة_مسار" => Some("trq_path_status"),
         // Both spellings of one primitive, mapped to one symbol — the kasra-less
         // variant is an orthographic pair like the keyword table's `ارمِ`/`ارم`,
         // not a second capability.

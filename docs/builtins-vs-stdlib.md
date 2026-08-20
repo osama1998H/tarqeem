@@ -328,7 +328,7 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | `اقرأ_مجرى` | `(عدد، عدد) -> مصفوفة<عدد>` | new — **مُنفَّذ (#350)** | `read(2)`. Byte-oriented so a multi-byte Arabic codepoint straddling a chunk boundary survives — decoding happens once, in stdlib. Line framing moves out of Rust. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: `٠` stdin, `٣`+ a handle; `١`, `٢`, a negative descriptor, one the table does not hold, a non-positive count, and EOF **all** answer an empty array. **The "a zero-length result *is* EOF" clause is withdrawn as written** — see the correction below. The read loops until the count or EOF, mirroring `اكتب_مجرى`'s `write_all`. |
 | `افتح_ملف` | `(نص، عدد) -> عدد` | new | `open(2)`. Folds `trq_file_open_read/write/append` into one; the mode is `٠` قراءة / `١` كتابة / `٢` إلحاق, exported from stdlib as named `ثابت`s so no user writes the integer. Criterion (b). |
 | `اغلق_ملف` | `(عدد) -> منطقي` | new | `close(2)`. Existing implementation (`trq_file_close`) reused unchanged. Criterion (b). |
-| `حالة_ملف` | `(نص، عدد) -> عدد` | new | `stat(2)`, one field per call: `حقل ٠` = kind (٠ absent / ١ file / ٢ dir), `حقل ١` = size (`-١` if absent). **Folds four syscall wrappers into one** — `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` all become stdlib one-liners. Criterion (b). |
+| `حالة_مسار` | `(نص، عدد) -> عدد` | new — **مُنفَّذ (#352)** | `stat(2)`, one field per call, so the answer stays an `عدد` and no struct crosses the FFI. `حقل ٠` = kind, `حقل ١` = size. **Folds four syscall wrappers into one** — `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` all become stdlib one-liners. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). **Renamed from `حالة_ملف`, and the kind gained a fourth value; the size clause was completed** — see the correction below. Total: the field is settled before the path, symlinks are followed, and an absent path, an unreadable one, an empty name and `لا_شيء` all answer `٠` / `-١`. |
 | `احذف_مسار` | `(نص) -> منطقي` | new | `unlink(2)` for a file, `rmdir(2)` for an empty directory, chosen by stat. Folds two symbols; `احذف_ملف` and `احذف_مجلد` survive as stdlib wrappers. Criterion (b). |
 | `انشئ_مجلد` | `(نص) -> منطقي` | unchanged | `mkdir(2)`. No composition of open/read/write/close/stat creates a directory. Recursive creation becomes a stdlib loop, not a second primitive. Criterion (b). |
 | `قائمة_مجلد` | `(نص) -> مصفوفة<نص>` | unchanged | `readdir(3)`. Directory entries are not readable through a byte stream. One array-returning primitive is a smaller surface than an opendir/readdir/closedir triple. Criterion (b). |
@@ -381,6 +381,33 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 > answer whatever a pipe happened to hold, so the length would depend on buffering and one program
 > would answer differently between runs and between backends. That is a flake, not a bug, and
 > `compare-backends` would surface it as one.
+
+> **Correction (#352): `حالة_ملف` is renamed `حالة_مسار`, its kind gains a fourth value, and its
+> size clause is completed.** Three changes to one row, and none of them is a defect class this
+> document has seen before.
+>
+> - **The name.** `مسار`, not `ملف`: the operation reports on a path, which may hold a file, a
+>   directory or neither, and a directory is not a `ملف`. Its own category-7 sibling `احذف_مسار`
+>   already uses `مسار` for the identical file-or-directory scope, as do `مسار_اب`, `ادمج_مسار` and
+>   `فاصل_مسار`. A naming correction on the #302 precedent, taken by the owner before the work.
+> - **The kind needs `٣`.** The row lists three values — `٠` absent / `١` file / `٢` dir — and
+>   promises to fold four names. It cannot: `ملف_موجود` is `Path::exists()` and answers **true** for
+>   `/dev/null`, while `هل_ملف` answers false for the same path, so no three-value encoding
+>   reproduces both. Verified rather than argued — `runtime-rs/src/io.rs:243` and the unit test
+>   `test_path_status_marks_a_device_as_neither_file_nor_directory`. Hence `٣` = exists and is
+>   neither, and `ملف_موجود` reduces to `!= ٠` rather than `== ١`.
+> - **The size of a directory.** The row says `حقل ١` = size, "`-١` if absent", and says nothing
+>   about a directory. `trq_file_size` answers the OS `st_size` there — 4096 on ext4, 64–96 on APFS
+>   — which no test and no golden file can assert. So the size is the byte length of a **regular
+>   file** and `-١` for everything else. A documented delta the future `حجم_ملف` wrapper inherits.
+>
+> A **fifth** defect class for §1.3 rows, after expiring criterion-(a) claims, contracts no
+> implementation can satisfy (#333), clauses describing an unreachable state (#347) and a return
+> type with no spare value for a refusal (#350): **a row promising to fold N names must have enough
+> *range* in its return to reproduce all N.** It is close to #350's and genuinely distinct — #350 is
+> about a return type having no value left to signal a *refusal*, this is about it having too few
+> values to express the *answers*. Check a fold claim against every name it folds, one at a time; the
+> one that breaks it here is the least specific of the four.
 
 #### Category 8 — Environment & time (6)
 
@@ -521,7 +548,7 @@ Two rules, and together they make same-name collision structurally impossible:
    | Primitive (mechanism) | Stdlib (task) |
    |---|---|
    | `اكتب_مجرى` | `اطبع_ملف`, `اكتب_ملف`, `الحق_ملف` |
-   | `حالة_ملف` | `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` |
+   | `حالة_مسار` | `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` |
    | `قص_حروف` | `قص`, `اول_حروف`, `حرف_في`, `موضع` |
    | `نص_إلى_ثنائي` | `احسب_بصمة`, `إلى_ست_عشري`, `اضغط` |
    | `حرف_إلى_رمز` | `كبير`, `صغير`, `رقمي`, `عربي`, `نص_لعدد` |
@@ -1025,8 +1052,8 @@ misleading parse errors.
 
 ### 6.7 Increment G — `ملفات` + `طرفية`
 
-Requires the seven new I/O primitives; **two have landed** — `اكتب_مجرى` (#347, §6.7.2) and
-`اقرأ_مجرى` (#350, §6.7.3), the byte-level stream pair. 21 names. **20 after #338**, which landed `متغير_بيئة` ahead
+Requires the seven new I/O primitives; **three have landed** — `اكتب_مجرى` (#347, §6.7.2) and
+`اقرأ_مجرى` (#350, §6.7.3), the byte-level stream pair, and `حالة_مسار` (#352, §6.7.4). 21 names. **20 after #338**, which landed `متغير_بيئة` ahead
 of this increment: `مجلد_مستخدم` reduces to it, so it becomes a stdlib one-liner rather than a syscall
 wrapper — `trq_dir_home` is `getenv("HOME")` and nothing else. `مجلد_مؤقت` does **not** collapse with
 it: `trq_dir_temp` calls `std::env::temp_dir()`, which falls back to `/tmp` when `TMPDIR` is unset and
@@ -1226,7 +1253,7 @@ Four things it found that the plan did not state:
    a terminal, so any positive-count read on `٠` would wait for input and never finish. The example
    therefore demonstrates only what the primitive refuses — every row it *does* cover is a zero. The
    general rule for the rest of Increment G: **an example can only exercise a primitive whose inputs
-   the example itself can supply**; `افتح_ملف` and `حالة_ملف` will be able to, `اقرأ_مجرى` cannot.
+   the example itself can supply**; `افتح_ملف` and `حالة_ملف` will be able to, `اقرأ_مجرى` cannot. (#352 found that half right — see §6.7.4.)
 
 Two smaller results, both recorded because they were *run* rather than assumed:
 
@@ -1244,6 +1271,88 @@ Finally, the `≥٣` note from §6.7.2 now applies to **both** halves of the pai
 handle table and the runtime's is provably empty from Tarqeem source, so both answer an empty array
 for the same reason. `افتح_ملف` must give the interpreter a handle table in the same increment it
 lands, or two primitives diverge at once instead of one.
+
+### 6.7.4 `حالة_مسار` — the third Increment G primitive (#352)
+
+**The forecast held a third consecutive time, and this one was the least like its predecessors.**
+§6.7's discriminator — *which half of the path already exists* — said nine: no `trq_path_status`, no
+registered name. It cost nine, plus the one additive harness helper its own fixtures require. #342's
+caveat was checked and does not apply: reading filesystem metadata is not a new kind of effect,
+`trq_file_exists` has always done it. Three forecasts, three hits — and the two before this were a
+matched pair, where this one shares nothing with them but the cost shape.
+
+Landed **ahead of `افتح_ملف`** deliberately, and that is the ordering result worth keeping: §6.7.2
+and §6.7.3 both record that the opener must give the interpreter a handle table in the same increment
+it lands, which makes it two primitives' worth of work under a one-per-change rule. `حالة_مسار` takes
+a path, not a handle, so it needs none of that — the remaining Increment G names are not equally
+sized, and the path-taking ones are the ones that can land alone.
+
+Five things it found that the plan did not state:
+
+1. **The row's fold promise did not fit its own return values — a fifth §1.3 defect class.** Recorded
+   in full in the §1.3 correction above. The short version: `ملف_موجود` is `Path::exists()`, true for
+   a device; `هل_ملف` is false for the same path; three kind values cannot answer for both. The check
+   that found it was mechanical and cheap — *read each folded name's implementation, one at a time* —
+   and it is the only one of the four that a plausible reading of the row would have missed, because
+   the other three map onto `١`/`٢`/size directly.
+
+2. **The missing-return-type mode was *predicted* correctly for the first time from a sibling's
+   measurement.** #347 measured a scalar return and found it fatal natively on arithmetic and silent
+   on printing; that transferred here exactly, where #330's array measurement did **not** transfer to
+   #350's array. Measured with the entry deleted:
+
+   | use | interpreters | native |
+   |---|---|---|
+   | `اطبع(…)` | `2` | prints **nothing**, exit 0 |
+   | `نوع(…)` | `مؤشر` — caught | `مؤشر` — caught |
+   | `… + ١` | `3` | **compile failure**, ت٠١٠١ |
+   | `… == ٢` | `صحيح` | **compile failure**, ت٠١٠١ |
+   | bound to a variable, then printed | `2` | prints nothing, exit 0 |
+
+   One detail worth the line: the two compile failures report the mismatch in **opposite directions**
+   — «'%v2' defined with type 'ptr' but expected 'i64'» for `+`, and «'%v3' defined with type 'i64'
+   but expected 'ptr'» for `==`, because in the comparison the typed operand is the literal. So the
+   refined rule from #350 stands and now has a positive case: predict from the **use site**, and a
+   *scalar* use site is predictable across names in a way an array one is not.
+
+3. **A contextually reserved keyword in a builtin name needs a parser check, not only the lexer
+   row.** `حالة_مسار` opens with `حالة`, which is `TokenKind::Case` — the first embedded keyword in
+   this family that is reserved in exactly one construct. The lexer row proves the name stays one
+   token; it cannot prove the parser accepts the name *inside* `تطابق`, where the token it embeds is
+   actually a keyword. Both were checked — the mechanical substring sweep over all 69 keywords found
+   `حالة` and nothing else, and `test_path_status_is_callable_inside_a_match` calls the name in the
+   scrutinee and in an arm body. **It passed**, so there is no parser defect to file; recorded anyway,
+   because the check is new and the next contextual keyword (`احصل`, `عيّن`, `ك`) will need it too.
+
+4. **The example's input capability was half of what §6.7.3 predicted, and the split is not the one
+   that section drew.** #347 found an output primitive cannot put its *byte* rows in the example;
+   #350 found an input primitive cannot put its *success* rows there; both split along what the
+   golden file can represent. Here the line falls somewhere else: the example supplies the
+   *directory* and *absent* rows perfectly — `"."` exists wherever a program runs — and cannot supply
+   a **regular file**, because nothing in the language creates one yet and a relative path into the
+   repository would make the golden depend on the working directory. `/dev/null` is out for a third
+   reason again: it is Unix-only and the golden is regenerated on a developer machine. So the rule
+   generalises one level up: **an example can exercise the rows whose inputs are invariant under
+   where and on what the program runs** — not "inputs the example can supply", which `"."` also is.
+   `افتح_ملف` will move this line, since a program that can create a file can then stat it.
+
+5. **The one primitive so far whose logic is duplicated across the crate boundary, and it is
+   structural.** Every name since #324 either lowered to an IR instruction or delegated to one
+   `runtime-rs` function with the interpreters keying on the Arabic name. This one has a *kernel* —
+   the kind/size mapping — that both sides must compute, and the root crate does not depend on
+   `tarqeem-runtime` (verified: no such dependency in `Cargo.toml`), while an `extern "C"` function
+   taking a `*const TrqString` could not read a `Value` anyway. So there are two copies by
+   construction, and the only thing holding them together is that **every row × both fields is
+   asserted cross-backend** rather than in one implementation's unit tests. #336's "share at the
+   widest point where the two backends must agree" is still followed *within* the compiler —
+   `call_path_status` is one `pub(crate)` dispatch shared by both interpreters — which keeps the count
+   at two copies rather than three.
+
+One smaller result: `trq_string_to_path` (`runtime-rs/src/io.rs`) guards a null pointer and null
+`data` but **not a negative `len`**, which then reaches `from_raw_parts` as a huge `usize`. It is
+unreachable from compiled code today — lengths come from real strings — and the helper is shared by
+every path function, so it was left alone rather than changed here. Filed as
+[#353](https://github.com/osama1998H/tarqeem/issues/353).
 
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 

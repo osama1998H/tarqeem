@@ -47,6 +47,12 @@ pub(crate) use executor::builtins::call_write_stream;
 /// Shared with the debug interpreter for the same reason, and its sibling:
 /// the read half of the byte-level stream pair.
 pub(crate) use executor::builtins::call_read_stream;
+
+/// Shared for a reason the others do not have: the kind/size mapping is already
+/// duplicated once, in `trq_path_status`, because the compiler crate does not
+/// depend on `tarqeem-runtime`. A third copy in the debug interpreter would give
+/// it two ways to drift instead of one.
+pub(crate) use executor::builtins::call_path_status;
 pub use executor::Interpreter;
 pub use value::Value;
 

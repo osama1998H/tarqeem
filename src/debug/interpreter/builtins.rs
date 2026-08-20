@@ -4,8 +4,8 @@ use std::io::{self, Write};
 
 use crate::interpreter::epoch_millis;
 use crate::interpreter::{
-    bytes_to_string, call_env_var, call_exit_program, call_read_stream, call_substring_by_chars,
-    call_write_stream, RuntimeError, RuntimeResult, Value,
+    bytes_to_string, call_env_var, call_exit_program, call_path_status, call_read_stream,
+    call_substring_by_chars, call_write_stream, RuntimeError, RuntimeResult, Value,
 };
 
 use super::DebugInterpreter;
@@ -38,6 +38,7 @@ impl DebugInterpreter {
                 | "متغير_بيئة"
                 | "اكتب_مجرى"
                 | "اقرأ_مجرى"
+                | "حالة_مسار"
                 // Termination. Absent here, stepping through `أنهِ_البرنامج(٠)`
                 // would abort with «دالة غير معرّفة» while every other backend
                 // ended the program cleanly — the same gap #295 records for
@@ -268,6 +269,7 @@ impl DebugInterpreter {
 
             "اكتب_مجرى" => call_write_stream(&args),
             "اقرأ_مجرى" => call_read_stream(&args),
+            "حالة_مسار" => call_path_status(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 
@@ -823,6 +825,70 @@ mod tests {
                 .expect_err("لا_شيء ليست مجرى ولا عدداً");
             assert_eq!(err.kind, ErrorKind::TypeError);
         }
+    }
+
+    /// `حالة_مسار` under the debug interpreter, which is the only backend a
+    /// cross-backend test cannot reach.
+    ///
+    /// It matters more here than for its siblings: this primitive's kind/size
+    /// mapping is shared with the main interpreter through `call_path_status`
+    /// precisely because it is *already* duplicated once in `trq_path_status`. A
+    /// third copy would give it two ways to drift, and #295 is what a skipped
+    /// debug leg looks like afterwards.
+    #[test]
+    fn test_path_status_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("حالة_مسار"),
+            "حالة_مسار غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let status = |interpreter: &mut DebugInterpreter, path: Value, field: i64| {
+            interpreter
+                .call_builtin("حالة_مسار", vec![path, Value::Int(field)])
+                .expect("حالة_مسار تُرجع قيمة لا خطأ")
+        };
+
+        // A directory answers its kind and no size.
+        assert_eq!(
+            status(&mut interpreter, Value::string("/tmp"), 0),
+            Value::Int(2)
+        );
+        assert_eq!(
+            status(&mut interpreter, Value::string("/tmp"), 1),
+            Value::Int(-1)
+        );
+
+        // An absent path, an empty name and a null one are one answer — the last
+        // through the arm the `نص` parameter has and the `عدد` field does not.
+        for path in [
+            Value::string("/tmp/tarqeem_debug_path_status_absent_xyz"),
+            Value::string(""),
+            Value::Null,
+        ] {
+            assert_eq!(status(&mut interpreter, path.clone(), 0), Value::Int(0));
+            assert_eq!(status(&mut interpreter, path, 1), Value::Int(-1));
+        }
+
+        // An unknown field has no answer whatever the path holds.
+        for field in [2, 9, -1] {
+            assert_eq!(
+                status(&mut interpreter, Value::string("/tmp"), field),
+                Value::Int(-1),
+                "الحقل {field}"
+            );
+        }
+
+        // The field is `عدد`, so `لا_شيء` there is a type error rather than a
+        // designed answer (#326, #327).
+        let err = interpreter
+            .call_builtin("حالة_مسار", vec![Value::string("/tmp"), Value::Null])
+            .expect_err("لا_شيء ليست حقلاً");
+        assert_eq!(err.kind, ErrorKind::TypeError);
     }
 
     #[test]

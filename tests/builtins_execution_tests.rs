@@ -311,6 +311,70 @@ fn assert_prints_with_stdin(name: &str, body: &str, stdin: &[u8], expected: &[&s
     }
 }
 
+/// `assert_prints` with fixture files on disk, whose **absolute** paths are
+/// substituted into `body`.
+///
+/// Each `(name, contents)` pair is written into the same `TempDir` the program
+/// lives in, and every `{مسار}` in `body` becomes the absolute path of the
+/// first pair, `{مسار٢}` the second, and so on.
+///
+/// Absolute, not relative: the native leg runs the compiled binary directly and
+/// inherits no working directory from the source's location, so a relative
+/// fixture name would resolve against wherever `cargo test` was invoked and the
+/// three backends would disagree. That is the same lesson `_with_env` and
+/// `_with_stdin` learned in their own currency — the fixture goes where the
+/// child can reach it, not where the harness happens to stand.
+///
+/// A second fixture is `{مسار2}`, a third `{مسار3}`. Latin digits, because the
+/// Tarqeem programs in this file use Latin digits throughout — the Arabic-Indic
+/// ones here are all prose. `examples/` is where the other convention lives.
+///
+/// Additive, like both of those: `assert_prints` is untouched, and a test only
+/// pays for a fixture if it names one.
+fn assert_prints_with_files(name: &str, files: &[(&str, &str)], body: &str, expected: &[&str]) {
+    let temp = TempDir::new().unwrap();
+
+    let mut resolved = body.to_string();
+    for (index, (file_name, contents)) in files.iter().enumerate() {
+        let path = temp.path().join(file_name);
+        fs::write(&path, contents).expect("تعذّر كتابة ملف التجربة");
+        let placeholder = match index {
+            0 => "{مسار}".to_string(),
+            other => format!("{{مسار{}}}", other + 1),
+        };
+        resolved = resolved.replace(&placeholder, path.to_str().expect("مسار غير صالح"));
+    }
+
+    // An unsubstituted placeholder is silent otherwise: it reaches the program as
+    // a literal path, which every path primitive reads as *absent* — so a row
+    // asserting the absent answer would pass while testing nothing. Fail here,
+    // where the mismatch is, rather than in an assertion that cannot see it.
+    assert!(
+        !resolved.contains("{مسار"),
+        "بقي موضع مسار بلا استبدال في {name} / an unsubstituted path placeholder remains — \
+         the fixture list has {} entries, so the placeholders are {{مسار}} then {{مسار2}}, …",
+        files.len()
+    );
+
+    let main = write_program(temp.path(), name, &resolved);
+
+    for backend in Backend::ALL {
+        let output = execute(backend, &main, &format!("{name}_{backend:?}"));
+
+        assert!(
+            output.succeeded(),
+            "فشل التنفيذ [{backend:?}] لـ {name}\nالمتوقع/expected: {expected:?}\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.lines(),
+            expected,
+            "خرج غير متطابق [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+    }
+}
+
 /// `assert_prints` with extra variables in each backend's environment.
 fn assert_prints_with_env(name: &str, body: &str, env: &[(&str, &str)], expected: &[&str]) {
     let temp = TempDir::new().unwrap();
@@ -3119,6 +3183,12 @@ fn test_every_core_builtin_agrees_across_backends() {
         // sweep is what refuses to let a registered name go unexercised.
         ("أنهِ_البرنامج", "اطبع(\"قبل\")\nأنهِ_البرنامج(0)", &["قبل"]),
         ("أنه_البرنامج", "اطبع(\"قبل\")\nأنه_البرنامج(0)", &["قبل"]),
+        // `"."` is the one path every backend can reach without the sweep
+        // supplying anything: the program's own directory exists wherever it is
+        // run, so the answer does not depend on a working directory the three
+        // legs do not share. A *file* row would, which is why it lives in the
+        // fixture-backed tests below.
+        ("حالة_مسار", "اطبع(حالة_مسار(\".\"، 0))", &["2"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
@@ -3897,5 +3967,231 @@ fn test_user_function_shadows_read_stream() {
             "اطبع(اقرأ_مجرى(0، 4)[0])",
         ),
         &["42"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// حالة_مسار — `stat(2)`, one field per call (#352)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Every row here is pinned in all three backends for a reason this family has
+// not had before: the kind/size mapping exists **twice** — once in
+// `trq_path_status` and once in `call_path_status` — because the compiler crate
+// does not depend on `tarqeem-runtime` and an `extern "C"` function taking a
+// `*const TrqString` could not read a `Value` anyway. Nothing but these tests
+// stops the two copies from drifting apart.
+
+/// A directory answers its kind and **no** size.
+///
+/// `"."` is the fixture the harness does not have to supply: the program's own
+/// directory exists wherever the program runs, so the row does not depend on a
+/// working directory the three legs would have to share.
+///
+/// The `-١` for the size is the deliberate delta from `trq_file_size`, which
+/// answers the OS `st_size` here — 4096 on ext4, 64–96 on APFS. A number that
+/// changes with the filesystem could not be asserted at all.
+#[test]
+fn test_path_status_answers_a_directory_without_a_size() {
+    assert_prints(
+        "حالة_مجلد",
+        concat!("اطبع(حالة_مسار(\".\"، 0))\n", "اطبع(حالة_مسار(\".\"، 1))",),
+        &["2", "-1"],
+    );
+}
+
+/// A regular file: kind `١`, and the size in **bytes**.
+///
+/// The fixture's content is Arabic on purpose. «مرحبا» is five characters and
+/// ten bytes, so an implementation that counted characters — or a missing
+/// `register_builtin_return_types` entry routing `ArrayLen` at a `TrqString`
+/// header — would pass this with an ASCII fixture and fail it here. The same
+/// catcher #338 relied on.
+#[test]
+fn test_path_status_reads_a_regular_file_and_its_byte_size() {
+    assert_prints_with_files(
+        "حالة_ملف",
+        &[("بيانات.نص", "مرحبا")],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 1))",
+        ),
+        &["1", "10"],
+    );
+}
+
+/// An absent path and an empty name are one answer, in both fields.
+#[test]
+fn test_path_status_reads_nothing_as_absent() {
+    assert_prints(
+        "حالة_معدوم",
+        concat!(
+            "اطبع(حالة_مسار(\"لا_يوجد_هذا_المسار\"، 0))\n",
+            "اطبع(حالة_مسار(\"لا_يوجد_هذا_المسار\"، 1))\n",
+            "اطبع(حالة_مسار(\"\"، 0))\n",
+            "اطبع(حالة_مسار(\"\"، 1))",
+        ),
+        &["0", "-1", "0", "-1"],
+    );
+}
+
+/// A field this function does not know has no answer, whatever the path holds —
+/// `"."` exists and is readable, and every one of these is `-١`.
+///
+/// The field is settled before the path, so an unknown field never reaches the
+/// filesystem; that ordering is invisible from here, which is why the two
+/// implementations state it in the same words.
+#[test]
+fn test_path_status_has_no_answer_for_an_unknown_field() {
+    assert_prints(
+        "حالة_حقل_مجهول",
+        concat!(
+            "اطبع(حالة_مسار(\".\"، 2))\n",
+            "اطبع(حالة_مسار(\".\"، 9))\n",
+            "اطبع(حالة_مسار(\".\"، -1))",
+        ),
+        &["-1", "-1", "-1"],
+    );
+}
+
+/// A null path reads as absent through **both** routes that can produce one.
+///
+/// An un-narrowed `نص?` gets in through `Type::compat` (#324) and native lowers
+/// it to `ptr null`, where the runtime's guard answers; an `أي` holder is the
+/// other route, and the one that still works where the optional syntax does not
+/// (#333). The `عدد` field deliberately has no such arm — there native turns
+/// `لا_شيء` into `0` as an artifact of the call path, not as a designed answer
+/// (#326, #327).
+#[test]
+fn test_path_status_reads_a_null_path_as_absent() {
+    assert_prints(
+        "حالة_لا_شيء",
+        concat!(
+            "متغير غائب: نص? = لا_شيء\n",
+            "اطبع(حالة_مسار(غائب، 0))\n",
+            "اطبع(حالة_مسار(غائب، 1))\n",
+            "متغير مجهول: أي = لا_شيء\n",
+            "اطبع(حالة_مسار(مجهول، 0))\n",
+            "اطبع(حالة_مسار(مجهول، 1))",
+        ),
+        &["0", "-1", "0", "-1"],
+    );
+}
+
+/// **The load-bearing test.** `حالة_مسار` lowers to a plain call, so nothing but
+/// the `register_builtin_return_types` entry types its result.
+///
+/// Measured with that entry deleted, and #347's prediction for a *scalar* return
+/// held exactly — where #330's prediction for an array did not survive a second
+/// array (#350):
+///
+/// | use | interpreters | native |
+/// |---|---|---|
+/// | `اطبع(…)` | `2` | prints **nothing**, exit 0 |
+/// | `نوع(…)` | `مؤشر` | `مؤشر` |
+/// | `… + ١` | `3` | **compile failure** ت٠١٠١ |
+/// | `… == ٢` | `صحيح` | **compile failure** ت٠١٠١ |
+///
+/// So printing alone passes either way, and the two arithmetic rows are what
+/// make the entry non-optional. Which is also why this runs over `"."` — a real
+/// answer — rather than over a refusal: `-١` composes just as well as `٢`, but a
+/// row that answers `0` would not distinguish a sentinel from a value (#350).
+#[test]
+fn test_path_status_result_composes_as_an_integer() {
+    assert_prints(
+        "حالة_تركيب",
+        concat!(
+            "اطبع(نوع(حالة_مسار(\".\"، 0)))\n",
+            "اطبع(حالة_مسار(\".\"، 0) + 1)\n",
+            "اطبع(حالة_مسار(\".\"، 0) == 2)",
+        ),
+        &["عدد", "3", "صحيح"],
+    );
+}
+
+/// The name opens with `حالة`, which is `TokenKind::Case` — and unlike every
+/// other keyword embedded in a builtin name, that one is reserved **only** inside
+/// a `تطابق` block.
+///
+/// The lexer test pins that the name stays one token; this pins the half the
+/// lexer cannot reach, which is the parser accepting it in the one construct
+/// where the token it embeds *is* a keyword. Both the scrutinee and an arm body
+/// call it, since those are the two positions inside `تطابق` where an expression
+/// appears.
+#[test]
+fn test_path_status_is_callable_inside_a_match() {
+    assert_prints(
+        "حالة_داخل_تطابق",
+        concat!(
+            "تطابق (حالة_مسار(\".\"، 0)) {\n",
+            "    حالة 1 => اطبع(\"ملف\")\n",
+            "    حالة 2 => اطبع(حالة_مسار(\".\"، 1))\n",
+            "    غير_ذلك => اطبع(\"غير ذلك\")\n",
+            "}",
+        ),
+        &["-1"],
+    );
+}
+
+/// The four names this one folds, written as the stdlib wrappers they become —
+/// which is the whole case for the primitive, executed rather than asserted.
+///
+/// `هل_موجود` is `!= ٠` and not `== ١`, and that is the point of the fourth kind:
+/// `ملف_موجود` is `Path::exists()`, true for a device, while `هل_ملف` is false
+/// for the same path. Three values could not answer for both.
+#[test]
+fn test_path_status_folds_the_four_file_predicates() {
+    assert_prints_with_files(
+        "حالة_أغلفة",
+        &[("بيانات.نص", "abc")],
+        concat!(
+            "دالة هل_موجود(م: نص) -> منطقي { أرجع حالة_مسار(م، 0) != 0 }\n",
+            "دالة هل_ملف(م: نص) -> منطقي { أرجع حالة_مسار(م، 0) == 1 }\n",
+            "دالة هل_مجلد(م: نص) -> منطقي { أرجع حالة_مسار(م، 0) == 2 }\n",
+            "دالة حجم(م: نص) -> عدد { أرجع حالة_مسار(م، 1) }\n",
+            "اطبع(هل_موجود(\"{مسار}\"))\n",
+            "اطبع(هل_ملف(\"{مسار}\"))\n",
+            "اطبع(هل_مجلد(\"{مسار}\"))\n",
+            "اطبع(حجم(\"{مسار}\"))\n",
+            "اطبع(هل_موجود(\".\"))\n",
+            "اطبع(هل_ملف(\".\"))\n",
+            "اطبع(هل_مجلد(\".\"))",
+        ),
+        &["صحيح", "صحيح", "خطأ", "3", "صحيح", "خطأ", "صحيح"],
+    );
+}
+
+/// The fourth kind, from Tarqeem source: `/dev/null` exists and is neither a
+/// file nor a directory.
+///
+/// Unix-only, and therefore not in `examples/مدمجات.ترقيم` — the golden file is
+/// regenerated on a developer machine and a Windows contributor would produce a
+/// different one.
+#[test]
+#[cfg(unix)]
+fn test_path_status_marks_a_device_as_neither_file_nor_directory() {
+    assert_prints(
+        "حالة_جهاز",
+        concat!(
+            "اطبع(حالة_مسار(\"/dev/null\"، 0))\n",
+            "اطبع(حالة_مسار(\"/dev/null\"، 1))",
+        ),
+        &["3", "-1"],
+    );
+}
+
+/// A user function named `حالة_مسار` shadows the builtin, like every other core
+/// name: builtins are the last lookup tier, not reserved words
+/// (LANGUAGE_SPEC §4.9).
+#[test]
+fn test_user_function_shadows_path_status() {
+    assert_prints(
+        "حالة_تظليل",
+        concat!(
+            "دالة حالة_مسار(م: نص، حقل: عدد) -> عدد {\n",
+            "    أرجع 99\n",
+            "}\n",
+            "اطبع(حالة_مسار(\".\"، 0))",
+        ),
+        &["99"],
     );
 }

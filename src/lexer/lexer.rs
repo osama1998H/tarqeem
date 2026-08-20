@@ -1007,6 +1007,17 @@ mod tests {
         // nothing" has been worthless as evidence every time it was tried. «ك» is
         // also the shortest entry in the keyword table, which makes it the one
         // most likely to fall inside an ordinary Arabic word by accident.
+        //
+        // The eleventh is the first whose embedded keyword is **contextual**.
+        // «حالة» opens `حالة_مسار` and is `TokenKind::Case`, reserved only inside
+        // a `تطابق` block — so unlike every case above, the token this could be
+        // mistaken for is not always a keyword. It is checked here for the same
+        // reason as «متغير»: a longest-keyword-prefix scan would emit `Case` then
+        // `_مسار`, which is a well-formed match arm opening rather than a token
+        // error. The lexer is not the whole check for a contextual keyword — the
+        // parser has to accept the name *inside* `تطابق`, where the token is
+        // actually reserved, and that is pinned in
+        // `tests/builtins_execution_tests.rs` instead, since it needs a parse.
         let cases = [
             ("بتات_و(12، 10)", "بتات_و"),
             ("بتات_أو(12، 10)", "بتات_أو"),
@@ -1018,6 +1029,7 @@ mod tests {
             ("قص_حروف(\"مرحبا\"، 1، 2)", "قص_حروف"),
             ("متغير_بيئة(\"PATH\")", "متغير_بيئة"),
             ("اكتب_مجرى(1، [65])", "اكتب_مجرى"),
+            ("حالة_مسار(\".\"، 0)", "حالة_مسار"),
         ];
 
         for (source, name) in cases {

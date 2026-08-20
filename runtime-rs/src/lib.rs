@@ -135,6 +135,7 @@ pub use io::{
     trq_path_is_absolute,
     trq_path_join,
     trq_path_parent,
+    trq_path_status,
     trq_path_stem,
     trq_print,
     trq_print_bool,
