@@ -14,15 +14,15 @@ backed by a mechanical count that agrees with the hand enumeration.
 
 | | |
 |---|---|
-| Names declared in `Scope` | **199** — 36 `core_builtins()` + 163 `get_stdlib_builtin()` across 7 modules. Recounted from source at #352, both halves separately. `أنهِ_البرنامج` ships with its kasra-less spelling, so this number and the 40-primitive budget differ by one on purpose; #347, #350 and #352 each added one name for one capability, so the gap of one is unchanged. #352 folds four `ملفات` names but removes none — they are `مكتبة`, not `يُحذف` — so the stdlib half is untouched |
-| Names reachable on *some* backend | **247** — the surplus over the declared count exists in a backend but in no registry, so no program can call them. The census stated that surplus as 51 while the two totals differ by 48; the discrepancy predates #350 and is still left for a full recount rather than patched here — #352 moved this by the one name it added and nothing else |
-| `runtime-rs` exports | **224** `#[no_mangle] pub extern "C" fn`, recounted from source at #352 (unique names across every `runtime-rs/src/*.rs`). The count was two low before #350 recounted it, so recount rather than increment |
+| Names declared in `Scope` | **200** — 37 `core_builtins()` + 163 `get_stdlib_builtin()` across 7 modules. Recounted at #355 from the two ratchet lists in `tests/builtin_registry_guard_tests.rs`, which are mechanically checked against `Scope` by a passing test — a hand-written regex over `scope.rs` undercounts, because rustfmt wraps the longer entries onto several lines. `أنهِ_البرنامج` ships with its kasra-less spelling, so this number and the 40-primitive budget differ by one on purpose; #347, #350, #352 and #355 each added one name for one capability, so the gap of one is unchanged. #355 folds two `ملفات` names but removes neither — they are `مكتبة`, not `يُحذف` — so the stdlib half is untouched, exactly as at #352 |
+| Names reachable on *some* backend | **248** — the surplus over the declared count exists in a backend but in no registry, so no program can call them. The census stated that surplus as 51 while the two totals differ by 48; the discrepancy predates #350 and is still left for a full recount rather than patched here — #352 and #355 each moved this by the one name they added and nothing else |
+| `runtime-rs` exports | **225** `#[no_mangle] pub extern "C" fn`, recounted from source at #355 (unique names across every `runtime-rs/src/*.rs`). The count was two low before #350 recounted it, so recount rather than increment |
 | … of which ABI-internal (compiler-emitted plumbing) | **22** — excluded from the language surface |
 | … of which orphans (no caller anywhere) | **27** — `trq_env_get` left the set in #338 |
-| … reachable from a declared name | **160** — `trq_path_status` joined the set at #352. Note it is the one symbol so far that four *other* declared names also reduce to; the folding is a stdlib change still ahead, so nothing left the set |
+| … reachable from a declared name | **161** — `trq_path_delete` joined the set at #355, as `trq_path_status` did at #352. Both are symbols that *other* declared names reduce to (four and two respectively); the folding is a stdlib change still ahead, so nothing left the set |
 | Self-hosted `.ترقيم` exports under `stdlib/` | **385** `صدّر` declarations across 44 files |
 | … actually loadable today | **one module** (`مجموعات`); 201 exports are dead by short-circuit |
-| Places to edit to add **one** builtin | **9** for a symbol-mapped name needing a new runtime symbol (#324, confirmed again at #347 and #350 — the last two were *forecast* from §6.7's discriminator before the work, not matched afterwards), **8** when the symbol already exists (#338), **6** to repair a half-wired one (#336), **2** for an IR-intercepted one, and **11** for one returning `فراغ` (#342: the nine, minus the return-type entry, plus `ErrorKind` and three CLI sites) — all five measured (see §1). #352 is the **third** consecutive nine forecast before the work from §6.7's discriminator, and the third hit |
+| Places to edit to add **one** builtin | **9** for a symbol-mapped name needing a new runtime symbol (#324, confirmed again at #347, #350, #352 and #355 — all four *forecast* from §6.7's discriminator before the work, not matched afterwards), **8** when the symbol already exists (#338), **6** to repair a half-wired one (#336), **2** for an IR-intercepted one, and **11** for one returning `فراغ` (#342: the nine, minus the return-type entry, plus `ErrorKind` and three CLI sites) — all five measured (see §1). #355 is the **fourth** consecutive nine forecast before the work from §6.7's discriminator, and the fourth hit, so the discriminator is now worth trusting rather than re-measuring |
 
 **Two planes, counted separately.** `runtime-rs` mixes the language's builtin surface with the
 ABI the compiler emits for ordinary operators and allocation (`trq_alloc`, `trq_retain`,
@@ -41,8 +41,8 @@ nothing enforces that it is present on all of them.
 |---|---|---|
 | Semantic | `src/semantic/scope.rs` | `core_builtins()` — a `Vec` of 36 `(name, params, ret)` tuples registered into the global scope. `get_stdlib_builtin(module, name)` — a two-level `match` with 163 arms, manufactured on demand at import. `get_stdlib_module_exports()` — a **second, hand-maintained copy** of the same 163 names. No longer untested: `every_stdlib_signature_arm_is_exported` proves every `match` arm appears in the export list, and `stdlib_registry_size_is_locked` pins each module's export count — containment plus equal size is what makes the two lists provably the same set, so *neither test alone* would do it. Recounted from source at #352 alongside the summary row above; these three figures were once the stale 28/165/165 that row was corrected away from. |
 | Interpreter | `src/interpreter/executor/builtins.rs` | `is_builtin` string membership + a dispatch `match`. Two edits per name, same file. |
-| Debug interpreter | `src/debug/interpreter/builtins.rs` | A private duplicate of the above, used by DAP. Knows **36** names — 29 Arabic plus 7 `trq_*` symbols, and `is_builtin` and the dispatch `match` list the same 36. Recounted from source at #352, and again at #350 with comment lines stripped and each half counted separately, and the two sets compared for equality rather than only their sizes — **not** incremented, which is the move this row exists to forbid. Recounted the same way at #347. Recounted from source at #342, which added two (`أنهِ_البرنامج` and its variant); recounted again at #338, which added one; the **29** before that was already one low, so the row has been wrong at four separate counts (18, 29, 29+1, 31+2) — recount it rather than incrementing it. The original census recorded 18; that figure was already stale when written, since the #185/#222/#241 repairs had added runtime-symbol arms. **Count it excluding comments:** the comment lines inside `is_builtin` quote Arabic diagnostics («دالة غير معرّفة») and call syntax (`عدد("٥")`), so a regex over the block that does not strip `//` lines over-counts — that is how a wrong 29 reached this row once already. |
-| Native | `src/ir/builder/expr_builder.rs` + `src/codegen/llvm/codegen.rs` | Either intercepted in the IR builder (**20** names) or looked up in `get_runtime_function_name` (**222** names) and emitted as a `trq_*` call. Both recounted from source at #350, and both were stale independently of it: the census's 15 predates Increment A, whose seven bitwise names are all intercepted, and the 216 was four low before `اقرأ_مجرى` added the 221st. Count **names**, not arms — `"أنهِ_البرنامج" | "أنه_البرنامج" => Some("trq_exit")` is one arm and two names, so an arm count reads low. |
+| Debug interpreter | `src/debug/interpreter/builtins.rs` | A private duplicate of the above, used by DAP. Knows **37** names — 30 Arabic plus 7 `trq_*` symbols. Recounted from source at #355 with comment lines stripped and each half counted separately, and this time every `is_builtin` name was checked for a dispatch *mention* rather than the two sizes being compared — a size match can hide two offsetting errors. None is missing. Recounted the same way at #352 and at #350, and in each case **not** incremented, which is the move this row exists to forbid. Recounted the same way at #347. Recounted from source at #342, which added two (`أنهِ_البرنامج` and its variant); recounted again at #338, which added one; the **29** before that was already one low, so the row has been wrong at four separate counts (18, 29, 29+1, 31+2) — recount it rather than incrementing it. The original census recorded 18; that figure was already stale when written, since the #185/#222/#241 repairs had added runtime-symbol arms. **Count it excluding comments:** the comment lines inside `is_builtin` quote Arabic diagnostics («دالة غير معرّفة») and call syntax (`عدد("٥")`), so a regex over the block that does not strip `//` lines over-counts — that is how a wrong 29 reached this row once already. |
+| Native | `src/ir/builder/expr_builder.rs` + `src/codegen/llvm/codegen.rs` | Either intercepted in the IR builder (**20** names) or looked up in `get_runtime_function_name` (**223** names) and emitted as a `trq_*` call. Both recounted from source at #350, and both were stale independently of it: the census's 15 predates Increment A, whose seven bitwise names are all intercepted, and the 216 was four low before `اقرأ_مجرى` added the 221st. Count **names**, not arms — `"أنهِ_البرنامج" | "أنه_البرنامج" => Some("trq_exit")` is one arm and two names, so an arm count reads low. |
 | JIT | `src/jit/{baseline,optimizing}/compiler.rs` | **Compiles zero builtins.** `run_with_profiling` always returns `interpreter.run()`; `get_function_ptr` has no callers. The JIT column agrees with the interpreter by delegation, not by compiling. |
 | Editor | `src/lsp/handlers/{completion,semantic_tokens,inlay_hints}.rs` | Three hardcoded lists (10 / 14 / 18 names) that derive from nothing and agree with neither the registry nor each other. |
 
@@ -225,7 +225,7 @@ different universes.
 
 ## 4. The inventory
 
-#### `core` — 39
+#### `core` — 40
 
 Rows marked **مُنفَّذ** landed after this census; the backend columns are re-verified,
 not carried over from the original pass.
@@ -254,6 +254,7 @@ not carried over from the original pass.
 | `اكتب_مجرى` | ✓ | ✓ | ✓ | ✓ | `trq_write_stream` | مدمج | primitive، **مُنفَّذ** (#347) — أول عمليات الإدخال/الإخراج |
 | `اقرأ_مجرى` | ✓ | ✓ | ✓ | ✓ | `trq_read_stream` | مدمج | primitive، **مُنفَّذ** (#350) — النصف القارئ من زوج المجرى |
 | `حالة_مسار` | ✓ | ✓ | ✓ | ✓ | `trq_path_status` | مدمج | primitive، **مُنفَّذ** (#352) — أول ما يسأل نظام الملفات، وتُجمَع فيها أربعة أسماء من `ملفات` بلا حذف أحدها |
+| `احذف_مسار` | ✓ | ✓ | ✓ | ✓ | `trq_path_delete` | مدمج | primitive، **مُنفَّذ** (#355) — أول ما يُغيّر نظام الملفات، و`lstat` لا `stat`: تعمل على الاسم حيث تسأل أختها عن الهدف |
 | `أنهِ_البرنامج` | ✓ | ✓ | ✓ | ✓ | `trq_exit` | مدمج | primitive، **مُنفَّذ** (#342) — الوحيدة بلا نوع إرجاع مسجَّل، قصداً |
 | `أنه_البرنامج` | ✓ | ✓ | ✓ | ✓ | `trq_exit` | مدمج | هجاء ثانٍ للسابقة، لا عملية ثانية |
 | `تأكد` | ✓ | ✓ | ✗ | ✓ | `trq_assert` | مكتبة |  |
@@ -395,8 +396,8 @@ not carried over from the original pass.
 
 | الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
 |---|:-:|:-:|:-:|:-:|---|---|---|
-| `احذف_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_dir_delete` | مكتبة |  |
-| `احذف_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_delete` | مكتبة |  |
+| `احذف_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_dir_delete` | مكتبة | غلافٌ على `احذف_مسار` (#355)، بفرقٍ موثَّق عند الوصلة |
+| `احذف_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_delete` | مكتبة | غلافٌ على `احذف_مسار` (#355)، بفرقٍ موثَّق عند الوصلة |
 | `ادمج_مسار` | ✓ | ✗ | ✗ | ~ | `trq_path_join` | مكتبة |  |
 | `اسم_ملف` | ✓ | ✗ | ✗ | ~ | `trq_path_filename` | مكتبة |  |
 | `اقرأ_ملف` | ✓ | ✓ | ✗ | ✓ | `trq_file_read` | مكتبة |  |

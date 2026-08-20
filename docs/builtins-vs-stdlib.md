@@ -329,7 +329,7 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | `افتح_ملف` | `(نص، عدد) -> عدد` | new | `open(2)`. Folds `trq_file_open_read/write/append` into one; the mode is `٠` قراءة / `١` كتابة / `٢` إلحاق, exported from stdlib as named `ثابت`s so no user writes the integer. Criterion (b). |
 | `اغلق_ملف` | `(عدد) -> منطقي` | new | `close(2)`. Existing implementation (`trq_file_close`) reused unchanged. Criterion (b). |
 | `حالة_مسار` | `(نص، عدد) -> عدد` | new — **مُنفَّذ (#352)** | `stat(2)`, one field per call, so the answer stays an `عدد` and no struct crosses the FFI. `حقل ٠` = kind, `حقل ١` = size. **Folds four syscall wrappers into one** — `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` all become stdlib one-liners. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). **Renamed from `حالة_ملف`, and the kind gained a fourth value; the size clause was completed** — see the correction below. Total: the field is settled before the path, symlinks are followed, and an absent path, an unreadable one, an empty name and `لا_شيء` all answer `٠` / `-١`. |
-| `احذف_مسار` | `(نص) -> منطقي` | new | `unlink(2)` for a file, `rmdir(2)` for an empty directory, chosen by stat. Folds two symbols; `احذف_ملف` and `احذف_مجلد` survive as stdlib wrappers. Criterion (b). |
+| `احذف_مسار` | `(نص) -> منطقي` | new — **مُنفَّذ (#355)** | `unlink(2)` for a file, `rmdir(2)` for an empty directory, chosen by **`lstat`** — **the row said `stat`, and that was wrong; see the correction below.** Folds two symbols; `احذف_ملف` and `احذف_مجلد` survive as stdlib wrappers, each with one documented delta. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: an absent path, an empty name, `لا_شيء`, an unreadable path and a non-empty directory all answer `خطأ`, indistinguishably. Not recursive. |
 | `انشئ_مجلد` | `(نص) -> منطقي` | unchanged | `mkdir(2)`. No composition of open/read/write/close/stat creates a directory. Recursive creation becomes a stdlib loop, not a second primitive. Criterion (b). |
 | `قائمة_مجلد` | `(نص) -> مصفوفة<نص>` | unchanged | `readdir(3)`. Directory entries are not readable through a byte stream. One array-returning primitive is a smaller surface than an opendir/readdir/closedir triple. Criterion (b). |
 | `انقل_ملف` | `(نص، نص) -> منطقي` | unchanged | `rename(2)` is **atomic**; copy-then-delete is not, and the difference is observable. A capability that cannot be composed from the others is exactly criterion (b). |
@@ -408,6 +408,35 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 > about a return type having no value left to signal a *refusal*, this is about it having too few
 > values to express the *answers*. Check a fold claim against every name it folds, one at a time; the
 > one that breaks it here is the least specific of the four.
+
+> **Correction (#355): `احذف_مسار` is chosen by `lstat`, not `stat`, and its fold is approximate at
+> exactly the edge where the two disagree.**
+>
+> The row's selector is wrong, and reading the two names it folds is what shows it:
+> `trq_file_delete` is `remove_file`, which unlinks a symlink whatever it points at, and
+> `trq_dir_delete` is `remove_dir`, which refuses one. So `metadata` (stat, which follows) sends a
+> symlink-to-directory to `remove_dir` and answers `خطأ` where `احذف_ملف` answers `صحيح` today.
+> Measured, not argued: `stat` on such a link reports `is_dir() == true`, `remove_dir` on it fails
+> and `remove_file` succeeds leaving the target intact.
+>
+> Worse, and this is what settles it: `حالة_مسار` reads a **broken** symlink as absent, so a
+> `stat`-based selector would find nothing to delete and strand every dangling link permanently. The
+> selector is `symlink_metadata`. **This name acts on the *name*; its sibling answers about the
+> *target*.** They disagree about symlinks deliberately.
+>
+> A **sixth** defect class, adjacent to #352's fifth and genuinely distinct. #352: a fold claim needs
+> enough *range* in its return to reproduce all N names. Here the range is ample — both folded names
+> return `منطقي`. What breaks is the **dispatch**: a row that names its own selection mechanism can
+> name the wrong one. The same cheap check finds both — *read each folded name's implementation, one
+> at a time* — which is now two consecutive increments where that check paid for itself.
+>
+> **And the fold is approximate, which is recorded rather than papered over.** `احذف_مسار` is
+> strictly more permissive than either name it folds, so the wrappers need a kind check, and the only
+> kind available comes from `حالة_مسار`, which follows symlinks. So `احذف_ملف` refuses a
+> symlink-to-directory where `remove_file` succeeds, and `احذف_مجلد` accepts one where `remove_dir`
+> fails — one edge, two faces. Closing it needs a non-following kind, which nothing in the registry
+> answers. Blast radius is nil: neither name has an interpreter arm, so neither ever worked outside
+> native compilation, and no test or example uses either.
 
 #### Category 8 — Environment & time (6)
 
@@ -549,6 +578,7 @@ Two rules, and together they make same-name collision structurally impossible:
    |---|---|
    | `اكتب_مجرى` | `اطبع_ملف`, `اكتب_ملف`, `الحق_ملف` |
    | `حالة_مسار` | `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` |
+   | `احذف_مسار` | `احذف_ملف`, `احذف_مجلد` |
    | `قص_حروف` | `قص`, `اول_حروف`, `حرف_في`, `موضع` |
    | `نص_إلى_ثنائي` | `احسب_بصمة`, `إلى_ست_عشري`, `اضغط` |
    | `حرف_إلى_رمز` | `كبير`, `صغير`, `رقمي`, `عربي`, `نص_لعدد` |
@@ -1052,8 +1082,9 @@ misleading parse errors.
 
 ### 6.7 Increment G — `ملفات` + `طرفية`
 
-Requires the seven new I/O primitives; **three have landed** — `اكتب_مجرى` (#347, §6.7.2) and
-`اقرأ_مجرى` (#350, §6.7.3), the byte-level stream pair, and `حالة_مسار` (#352, §6.7.4). 21 names. **20 after #338**, which landed `متغير_بيئة` ahead
+Requires the seven new I/O primitives; **four have landed** — `اكتب_مجرى` (#347, §6.7.2) and
+`اقرأ_مجرى` (#350, §6.7.3), the byte-level stream pair, `حالة_مسار` (#352, §6.7.4) and
+`احذف_مسار` (#355, §6.7.5), the path pair. 21 names. **20 after #338**, which landed `متغير_بيئة` ahead
 of this increment: `مجلد_مستخدم` reduces to it, so it becomes a stdlib one-liner rather than a syscall
 wrapper — `trq_dir_home` is `getenv("HOME")` and nothing else. `مجلد_مؤقت` does **not** collapse with
 it: `trq_dir_temp` calls `std::env::temp_dir()`, which falls back to `/tmp` when `TMPDIR` is unset and
@@ -1353,6 +1384,85 @@ One smaller result: `trq_string_to_path` (`runtime-rs/src/io.rs`) guards a null 
 unreachable from compiled code today — lengths come from real strings — and the helper is shared by
 every path function, so it was left alone rather than changed here. Filed as
 [#353](https://github.com/osama1998H/tarqeem/issues/353).
+
+### 6.7.5 `احذف_مسار` — the fourth Increment G primitive (#355)
+
+**The forecast held a fourth consecutive time.** §6.7's discriminator — *which half of the path
+already exists* — said nine: no `trq_path_delete`, `trq_unlink` or `trq_rmdir` anywhere, and no
+registered name. It cost nine, plus the harness change its own contract requires (below). #342's
+caveat was checked and does not apply: deleting a path is not a new kind of effect, `trq_file_delete`
+has always done it. Four forecasts, four hits — the discriminator is now worth trusting rather than
+re-measuring, which is what §6.7 hoped for when it named it.
+
+Landed as the **second** path-taking primitive rather than the opener, on §6.7.4's ordering result,
+which now has a second instance behind it: `افتح_ملف` still owes the interpreter a handle table in
+the same change, and the ground confirms why that is two primitives' work — every shared interpreter
+helper (`call_write_stream`, `call_read_stream`, `call_path_status`, `call_path_delete`) is a
+**stateless free function** taking `&[Value]`, so a handle table would be the first cross-interpreter
+mutable state in the codebase.
+
+Five things it found that the plan did not state:
+
+1. **The row named the wrong syscall — a sixth §1.3 defect class.** Recorded in full in the §1.3
+   correction above. The short version: the selector must be `lstat`, because the two names this
+   folds disagree about symlinks and because a `stat`-based selector could never delete a broken link
+   at all. The check that found it is the *same* one #352 used — read each folded name's
+   implementation, one at a time — which is the first time a check from a previous increment has paid
+   for itself twice. Prefer it to reading a row's prose.
+
+2. **A `منطقي` return loses the arithmetic catcher entirely, and that is a property of the *semantic*
+   type, not the IR representation.** Every measurement since #347 has used `+ ١` as one of its
+   missing-return-type catchers. It is unavailable here: `منطقي + عدد` is refused in the **semantic
+   analyzer** («لا يمكن تطبيق العامل '+' على منطقي و عدد»), which never sees the IR return type at
+   all, so the row cannot be written. `ليس` takes its place. Measured with the entry deleted:
+
+   | use | interpreters | native |
+   |---|---|---|
+   | `اطبع(…)` | `خطأ` | prints **nothing**, exit 0 |
+   | `نوع(…)` | `مؤشر` — caught | `مؤشر` — caught |
+   | `… + ١` | *unreachable* — semantic error either way | *unreachable* |
+   | `… == خطأ` | `صحيح` | **compile failure**, ت٠١٠١ |
+   | `ليس …` in `إذا` | takes the branch | **compile failure**, ت٠١٠١ |
+
+   The two failures again report in **opposite directions** — «'%v2' defined with type 'i1' but
+   expected 'ptr'» for the comparison, where the typed operand is the literal, and «'%v1' defined
+   with type 'ptr' but expected 'i1'» for the negation. So #347's scalar prediction transferred a
+   second time, and #350's rule sharpens once more: predict from the **use site**, and check which
+   use sites the *semantic* layer even admits before planning the measurement.
+
+3. **The fixture harness could not express this primitive's rows, in two independent ways, and both
+   were found by reading it rather than by a red test.** `assert_prints_with_files` wrote fixtures
+   **once, before** `for backend in Backend::ALL` — invisible for a primitive that only reads, and
+   fatal for one that deletes: the interpreter leg consumes the fixture and the JIT and native legs
+   then run against an absent path. And `fs::write` makes plain files only, so the directory and
+   symlink rows had nowhere to live, and the program cannot create them itself because `انشئ_مجلد`
+   has no interpreter arm. Both fixed in one additive `assert_prints_with_tree` with a `File` /
+   `EmptyDir` / `Symlink` spec re-materialized per leg, `assert_prints_with_files` becoming one line
+   over it — the fourth consecutive increment whose contract forced a harness change (env #338,
+   stdin #350, files #352, a **restored** tree here). **Generalisable: ask what the harness does
+   between backend legs, not just what it can create.**
+
+4. **A destructive primitive's CI example is more constrained than either #347's or #350's, and the
+   line is not where §6.7.4 predicted.** #347 could not put its byte rows in the example (the golden
+   is a `2>&1` capture) and #350 could not put its success rows there (the golden is generated with
+   stdin inherited); §6.7.4 generalised that to *rows whose inputs are invariant under where and on
+   what the program runs*, and predicted `افتح_ملف` would move the line by making a file creatable.
+   **For a destructive name the line does not move at all**: an example must not delete anything,
+   whatever the language can create. Every row it covers is a refusal. The rule generalises one
+   level further: an example covers rows that are invariant **and** whose effects are none.
+
+5. **A banner collision and a redeclared variable, both caught only by running the example.** The
+   `متغير غائب` this section wanted is already declared in `متغير_بيئة`'s section — `د٠١٠١` at
+   *parse* time, because `examples/مدمجات.ترقيم` is one flat scope 1200 lines long — and its `أغلفة`
+   banner would have duplicated `حالة_مسار`'s in the golden. Neither is a language defect and both
+   are cheap; recorded because the file's single-scope shape makes both inevitable again, and the
+   next section should suffix its own names the way `تركيب الناتج (حذف)` already does.
+
+One smaller result: the keyword-embedding check does not apply. `احذف_مسار` embeds none of the 77
+Arabic keyword literals in `src/lexer/keywords.rs`, swept mechanically the way #350 did rather than by
+eye, so it gets **no** row in `test_identifier_containing_a_keyword_stays_one_token` — adding one
+dilutes what that test tests. No diacritic either, and no contextual keyword, so neither #342's lexer
+check nor #352's parser check applies.
 
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 

@@ -4415,3 +4415,100 @@ crate is clippy-clean.
 Surfaced and filed rather than fixed here: `trq_string_to_path` does not guard a negative `len` before
 `from_raw_parts` (#353). It is the shared reader for every path function in the module, so it belongs
 in its own change.
+
+---
+
+## #355 — `احذف_مسار`: `unlink(2)`/`rmdir(2)`, and a row that named the wrong syscall
+
+`docs/builtins-vs-stdlib.md` §1.3 category 7, the fourth of eleven to land, after `اكتب_مجرى` (#347),
+`اقرأ_مجرى` (#350) and `حالة_مسار` (#352). `(نص) -> منطقي`, folding `احذف_ملف` and `احذف_مجلد`.
+
+### Two decisions taken before the work
+
+- **Which name.** §6.7.4's ordering result picked it: the path-taking primitives land alone, and the
+  ground confirmed why the alternatives do not. `افتح_ملف` still owes the interpreter a handle table
+  in the same change, and every shared interpreter helper is a *stateless free function* taking
+  `&[Value]`, so that table would be the first cross-interpreter mutable state in the codebase.
+  `معاملات_البرنامج` is a new kind of effect and there is no CLI syntax to pass a program's arguments
+  at all — no `trailing_var_arg` anywhere in `src/cli/mod.rs`. `احذف_آخر` is **B10**, and
+  `trq_array_pop` returns a *borrowed pointer into the array buffer*, so a name→symbol mapping cannot
+  even use it.
+- **`lstat`, not `stat`.** Taken before writing any code, by reading the two folded implementations.
+  See below.
+
+### What it found
+
+- **The row named the wrong syscall — a sixth §1.3 defect class.** §1.3 said the choice between
+  `unlink` and `rmdir` is "chosen by stat". Reading `trq_file_delete` (`remove_file`, which unlinks a
+  symlink whatever it points at) against `trq_dir_delete` (`remove_dir`, which refuses one) shows it
+  cannot be: following the link sends a symlink-to-directory to `rmdir` and answers `خطأ` where
+  `احذف_ملف` answers `صحيح` today. **And a `stat`-based selector could never delete a broken symlink
+  at all**, because `حالة_مسار` reads one as absent — it would strand every dangling link
+  permanently. Adjacent to #352's fifth class and distinct: there the *range* of the return could not
+  reproduce all N folded names, here the **dispatch** is wrong. The check that found both is the
+  same — *read each folded name's implementation, one at a time* — which is the first time a check
+  from a previous increment has paid for itself twice.
+- **The fold is approximate, and the edge cannot be closed today.** `احذف_مسار` is more permissive
+  than either name it folds, so the wrappers need a kind check, and the only kind available comes
+  from `حالة_مسار`, which follows symlinks. So `احذف_ملف` refuses a symlink-to-directory where
+  `remove_file` succeeds, and `احذف_مجلد` accepts one where `remove_dir` fails. One edge, two faces,
+  documented rather than papered over — the move #352 made for `حجم_ملف` on directories. Blast radius
+  is nil: neither name has an interpreter arm, so neither ever worked outside native compilation.
+- **A `منطقي` return loses the arithmetic catcher entirely, and that is a property of the *semantic*
+  type rather than the IR representation.** Every missing-return-type measurement since #347 has used
+  `+ ١` as a catcher. It is unreachable here: `منطقي + عدد` is refused in the semantic analyzer, which
+  never sees the IR return type, so the row cannot be written at all. `ليس` replaces it. Measured with
+  the entry deleted, `اطبع` prints nothing natively and exits 0, `نوع` answers `مؤشر` in all three,
+  and `== خطأ` and `ليس …` each fail native compilation with ت٠١٠١ — in **opposite directions**
+  («'%v2' … 'i1' but expected 'ptr'» for the comparison, where the typed operand is the literal, and
+  «'%v1' … 'ptr' but expected 'i1'» for the negation). So #347's scalar prediction transferred a
+  second time, and #350's rule sharpens: predict from the use site, and check which use sites the
+  *semantic* layer even admits before planning the measurement.
+- **The fixture harness could not express this primitive's rows, in two independent ways, and both
+  were found by reading it rather than by a red test.** `assert_prints_with_files` wrote fixtures
+  once, *before* the backend loop — invisible for a primitive that only reads, fatal for one that
+  deletes, since the interpreter leg consumes the fixture and the other two then see an absent path.
+  And `fs::write` makes plain files only, so the directory and symlink rows had nowhere to live, and
+  the program cannot create them itself because `انشئ_مجلد` has no interpreter arm. One additive
+  `assert_prints_with_tree` fixed both: a `File`/`EmptyDir`/`Symlink` spec re-materialized per leg,
+  with `assert_prints_with_files` becoming one line over it. **Generalisable: ask what the harness
+  does *between* backend legs, not only what it can create.**
+- **A destructive primitive's CI example is more constrained than #347's or #350's, and not where
+  §6.7.4 predicted.** That section generalised the limit to *rows whose inputs are invariant under
+  where and on what the program runs*, and predicted `افتح_ملف` would move the line by making a file
+  creatable. For a destructive name the line does not move at all: an example must not delete
+  anything, whatever the language can create. Every row it covers is a refusal.
+- **Two example-file traps, caught only by running it.** `متغير غائب` was already declared in the
+  `متغير_بيئة` section — `د٠١٠١` at parse time, because `examples/مدمجات.ترقيم` is one flat scope
+  1200 lines long — and an `أغلفة` banner would have duplicated `حالة_مسار`'s in the golden. Neither
+  is a language defect; recorded because the file's single-scope shape makes both inevitable again,
+  and the next section should suffix its own names the way `تركيب الناتج (حذف)` already does.
+
+### Cost
+
+**Nine registration sites**, forecast from §6.7's discriminator before the work — neither half of the
+path existed — and the **fourth consecutive** forecast to hit. Fourteen code files plus four docs.
+One additive harness helper, which is the fourth consecutive increment whose own contract forced one:
+env on the child (#338), stdin on the child (#350), fixture files (#352), and a fixture tree
+*restored per leg* here.
+
+**Nothing removed.** `احذف_ملف` and `احذف_مجلد` are `مكتبة`, not `يُحذف`, and **B16** makes the
+`ملفات` flip all-or-nothing, so both stay registered and mapped until Increment G. `trq_file_delete`
+and `trq_dir_delete` keep their symbols under standing rule 3.
+
+The registry counts were **recounted** rather than incremented, per that row's own instruction, and
+the recount corrected the method as well as the number: a regex over `scope.rs` undercounts, because
+rustfmt wraps the longer `core_builtins()` entries across lines. The authoritative figures are the two
+ratchet lists in `tests/builtin_registry_guard_tests.rs`, which a passing test checks against `Scope`
+mechanically — 37 core + 163 stdlib = **200**. The debug interpreter is **37**, and this time every
+`is_builtin` name was checked for a dispatch *mention* rather than the two sizes being compared, since
+equal sizes can hide two offsetting errors.
+
+`runtime-rs` clippy is unchanged at **79** warning lines under `--all-targets` (measured against
+`develop`, not assumed — the first claim written here said 41→41 and was wrong on both numbers). It
+would have been 80: the new test helper picked up an `unnecessary unsafe block` by copying the
+neighbouring `trq_release` pattern verbatim. Dropping the block is the right copy to *not* make —
+#310 is going to sweep all 55 of the existing ones, so new code should not add to the sweep. The main
+crate is clippy-clean at `--all-targets`. Full suite green: 1453 unit tests and 193 builtin
+execution tests, zero failures, and `examples/مدمجات.ترقيم` byte-identical across interpreter, JIT and
+native.
