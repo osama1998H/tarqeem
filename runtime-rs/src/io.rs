@@ -487,26 +487,21 @@ pub extern "C" fn trq_path_status(path: *const TrqString, field: i64) -> i64 {
 /// Backs the core builtin `احذف_مسار`: `unlink(2)` for a file, `rmdir(2)` for an
 /// empty directory, chosen by `lstat`.
 ///
-/// **`lstat`, not `stat`** — [`symlink_metadata`](std::fs::symlink_metadata), not
-/// `metadata`. The registry row specified `stat`, and reading the two names this
-/// folds shows why that is wrong: [`trq_file_delete`] is `remove_file`, which
-/// unlinks a symlink whatever it points at, while [`trq_dir_delete`] is
-/// `remove_dir`, which refuses one. Following the link would send a
-/// symlink-to-directory to `remove_dir` and answer `false` where `احذف_ملف`
-/// answers `true` today — and worse, [`trq_path_status`] reads a **broken**
-/// symlink as absent, so a `stat`-based selector could never delete one at all.
+/// **`lstat`, not `stat`** — [`symlink_metadata`](std::fs::symlink_metadata). The
+/// registry row specified `stat`, and the two names this folds show why that is
+/// wrong: [`trq_file_delete`] is `remove_file`, which unlinks a symlink whatever
+/// it points at, while [`trq_dir_delete`] is `remove_dir`, which refuses one. And
+/// [`trq_path_status`] reads a **broken** symlink as absent, so a `stat`-based
+/// selector could never delete one at all.
 ///
 /// So this acts on the **name** while [`trq_path_status`] answers about the
 /// **target**. The two disagree about symlinks on purpose.
 ///
 /// **Not recursive.** A non-empty directory answers `false`, keeping
-/// [`trq_dir_delete`]'s `rmdir` contract. Recursive deletion belongs in a stdlib
-/// loop, the way §1.3 assigns recursive *creation* to one rather than to a second
-/// primitive.
+/// [`trq_dir_delete`]'s `rmdir` contract.
 ///
 /// **Absent, unreadable, empty and null are one answer**, as in
-/// [`trq_path_status`]: a missing path, a permission error, an empty name and a
-/// null pointer all answer `false`. The path is read as given, with no trimming.
+/// [`trq_path_status`]. The path is read as given, with no trimming.
 ///
 /// # Returns
 ///
