@@ -345,6 +345,19 @@ impl IrBuilder {
         // multi-byte value, which is why the test injects an Arabic one.
         self.function_return_types
             .insert("متغير_بيئة".to_string(), IrType::String);
+        // `اكتب_مجرى` returns a byte count, so rule 5 applies to it in full — it
+        // is not the `فراغ` exception described below. Measured with this entry
+        // deleted, and it fails in **two** ways rather than one, neither of them
+        // the wrong-number mode the array and string names above produce:
+        // `== ٠` and `+ ١` make native compilation fail outright (ت٠١٠١, clang:
+        // «'%v13' defined with type 'i64' but expected 'ptr'»), because a scalar
+        // has no struct for the sentinel to misread — an `icmp`/`add` on a `ptr`
+        // is simply not valid IR. `نوع` answers `مؤشر`. And `اطبع` is *quieter*
+        // here than anywhere else: it prints **nothing at all** for the count,
+        // taking the pointer path, where the string and array names at least
+        // printed something wrong.
+        self.function_return_types
+            .insert("اكتب_مجرى".to_string(), IrType::Int);
         // `أنهِ_البرنامج` has **no entry here, deliberately** — the one exception to
         // the rule the rest of this function embodies (`docs/builtins-vs-stdlib.md`
         // §1.1 rule 5: Scope entry + return type + interpreter arms, "any two of the

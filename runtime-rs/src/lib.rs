@@ -143,6 +143,8 @@ pub use io::{
     trq_print_int,
     trq_print_newline,
     trq_print_optional_scalar,
+    // Stream writing
+    trq_write_stream,
 };
 
 // Re-export all math functions

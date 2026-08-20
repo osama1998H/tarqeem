@@ -324,7 +324,7 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 |---|---|---|---|
 | `اطبع` | `(أي) -> فراغ` | unchanged | **A compiler intrinsic, and irreducibly so** — see §9.1. Its `Instruction::Print` lowering selects among the print symbols on the static `IrType`; *that selection is the dispatch*, and it cannot exist in Tarqeem. Criterion (c). |
 | `اطبع_خطأ` | `(أي) -> فراغ` | unchanged | Same intrinsic, differing only in destination stream. Cannot be a stdlib wrapper over `اطبع` either — the wrapper would need an `أي` parameter and hit `ت٠٣٠١`. |
-| `اكتب_مجرى` | `(عدد، مصفوفة<عدد>) -> عدد` | new | `write(2)`. **One** write primitive for stdout, stderr and any open handle. Returns bytes written so short writes stay visible. Replaces eight formatting-in-Rust exports. Criterion (b). |
+| `اكتب_مجرى` | `(عدد، مصفوفة<عدد>) -> عدد` | new — **مُنفَّذ (#347)** | `write(2)`. **One** write primitive for stdout, stderr and any open handle. Replaces eight formatting-in-Rust exports. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: `١` stdout, `٢` stderr, `٣`+ a handle; `٠`, a negative descriptor, one the table does not hold, and an element outside `٠`-`٢٥٥` all answer `-١`, which is collision-free because a count is never negative. An empty or `لا_شيء` array answers `٠` as a value. Rejection is **complete** — the array is validated before the first byte goes out. **The "short writes stay visible" clause is withdrawn** — see the correction below. |
 | `اقرأ_مجرى` | `(عدد، عدد) -> مصفوفة<عدد>` | new | `read(2)`. A zero-length result *is* EOF. Byte-oriented so a multi-byte Arabic codepoint straddling a chunk boundary survives — decoding happens once, in stdlib. Line framing moves out of Rust. Criterion (b). |
 | `افتح_ملف` | `(نص، عدد) -> عدد` | new | `open(2)`. Folds `trq_file_open_read/write/append` into one; the mode is `٠` قراءة / `١` كتابة / `٢` إلحاق, exported from stdlib as named `ثابت`s so no user writes the integer. Criterion (b). |
 | `اغلق_ملف` | `(عدد) -> منطقي` | new | `close(2)`. Existing implementation (`trq_file_close`) reused unchanged. Criterion (b). |
@@ -333,6 +333,30 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | `انشئ_مجلد` | `(نص) -> منطقي` | unchanged | `mkdir(2)`. No composition of open/read/write/close/stat creates a directory. Recursive creation becomes a stdlib loop, not a second primitive. Criterion (b). |
 | `قائمة_مجلد` | `(نص) -> مصفوفة<نص>` | unchanged | `readdir(3)`. Directory entries are not readable through a byte stream. One array-returning primitive is a smaller surface than an opendir/readdir/closedir triple. Criterion (b). |
 | `انقل_ملف` | `(نص، نص) -> منطقي` | unchanged | `rename(2)` is **atomic**; copy-then-delete is not, and the difference is observable. A capability that cannot be composed from the others is exactly criterion (b). |
+
+> **Correction (#347): the "returns bytes written so short writes stay visible" clause is
+> withdrawn.** It is not unimplementable the way #333's no-validation clause was — it is
+> *unreachable*. `write_all` loops until the buffer is out or an error stops it, so a short write is
+> never observed to report; the honest answer is the full count or `-١`. Exposing partial progress
+> would mean calling `write` once and returning `n`, which silently truncates a large payload and
+> puts the loop in every caller. The clause was written as though the primitive were a thin syscall
+> shim; it is a thin syscall *operation*, and the difference is the loop.
+>
+> A **third** defect class for §1.3 rows, after expiring criterion-(a) claims and contracts no
+> implementation can satisfy: a clause that is implementable and satisfiable but describes a state
+> the operation cannot enter. Check a row's promises against the *shape of the call*, not only
+> against the language and the value representation.
+>
+> Recorded, not silently changed, because a later increment could otherwise build a stdlib retry
+> loop against a partial count that never arrives.
+>
+> **One property the row did not anticipate, and it is the primitive's point.** `اكتب_مجرى` puts
+> bytes on a stream **without decoding them**, which no print builtin can: `trq_print` is
+> `if let Ok(text) = std::str::from_utf8(slice)`, so a byte sequence that is not UTF-8 prints
+> *nothing*, with no error (`runtime-rs/src/io.rs:27`). A lone `٢٥٥` is therefore unreachable
+> through `اطبع` and ordinary through this. So the byte-out direction #334 was filed to find needs
+> no value-representation change after all — though this name reaches files and the console, not
+> sockets, so Increment K still owes its own destination. See §6.7.2.
 
 #### Category 8 — Environment & time (6)
 
@@ -1011,6 +1035,8 @@ Two things it found that the plan did not state:
 
 Reserve stream ids `٠/١/٢` and start `NEXT_FILE_HANDLE` at 3 — it starts at 1 today and would
 collide with stdout the moment streams unify, silently redirecting a file write to the terminal.
+**Done in #347**, which is the increment that made descriptor `١` mean stdout, so it is the change
+that needed it. Blocker **B15** is closed.
 
 **This increment is nearly all upside:** 19 of the 21 `ملفات` names have no interpreter arm, and the
 family segfaults natively today (probe `p4_files`: the binary prints two lines then dies on
@@ -1070,6 +1096,54 @@ against the full list), but a new one does. `أنهِ_البرنامج` is the f
 any non-letter would silently yield `أنه` — a perfectly good identifier one invisible codepoint
 short of the right one. Pinned by `lexer::tests::test_identifier_with_a_diacritic_stays_one_token`.
 
+### 6.7.2 `اكتب_مجرى` — the first Increment G primitive (#347)
+
+**The cost shape was the #324 nine, and it held exactly — the first time it was *forecast* rather
+than matched afterwards.** Five shapes had been measured (2 files IR-intercepted, 9 new symbol +
+new name, 8 symbol already exists, 6 repair a half-wired name, 11 for a `فراغ` effect), and §6.7's
+discriminator — *which half of the path already exists* — was applied here **before** the work:
+neither half existed, so nine. It cost nine, plus the B15 one-line fix this primitive's own contract
+requires. #320 and #326 also cost what their predecessors cost and recorded that as the result, but
+neither was a prediction — the discriminator was only named at #338, so those two agreed with the
+estimate in retrospect. #342's caveat is what keeps the forecast non-trivial: the discriminator does
+not cover a **new kind of effect**, and writing bytes to a stream is not one — `trq_print` has
+always done it.
+
+Four things it found that the plan did not state:
+
+1. **The missing-return-type failure mode is not "loud or quiet" — for a scalar it is
+   *fatal*, and printing catches nothing at all.** #330 measured one caught assertion for an array,
+   #333 three for a `نص`, #336 and #338 four. Measured here: `== ٠` and `+ ١` make **native
+   compilation fail** — `ت٠١٠١`, clang «'%v13' defined with type 'i64' but expected 'ptr'» — because
+   a scalar return has no struct for the `Ptr(Void)` sentinel to misread, and an `icmp`/`add` on a
+   `ptr` is not valid IR at all. `نوع` answers `مؤشر` as always. And `اطبع` is **quieter than in any
+   previous name**: it prints *nothing* for the count, taking the pointer path, where the string and
+   array names at least printed something wrong. So #336's rule generalises past struct layouts —
+   predict from the return type's **representation**: a pointer-shaped return degrades silently, a
+   scalar one cannot even be assembled.
+2. **The interpreter's descriptor `٣`+ answer agrees with native for a *reason*, not by
+   construction.** Both answer `-١`, because nothing in the language opens a handle yet, so the
+   runtime's table is provably empty and the interpreter has no table to consult. That agreement is
+   load-bearing and temporary: `افتح_ملف` must give the interpreter a handle table in the same
+   increment it lands, or the two backends diverge the moment a handle exists. The runtime's handle
+   path is implemented and unit-tested now, so the contract will not move under it.
+3. **#334's *shape* is answered here, though not its destination.** #333 recorded that
+   `ثنائي_إلى_نص` cannot carry arbitrary bytes — a `TrqString` that is not UTF-8 prints as nothing —
+   and filed #334 to find a byte-array path. `اكتب_مجرى` demonstrates that path works: bytes leave
+   the language without being decoded, verified on a lone `٢٥٥`. What it does **not** do is reach a
+   socket: the descriptor is resolved against `FILE_HANDLES`, which holds files, so Increment K still
+   needs its sockets in a table this can see or its own send primitive. Recorded precisely because
+   the tempting summary — "#334 is half done" — would send a later increment looking for a
+   capability that is not there. What is settled is that the byte-out direction needs no new value
+   representation.
+4. **A raw-byte primitive constrains its own CI example.** Bytes that are not valid UTF-8 reach
+   stdout intact, so an example that wrote `٢٥٥` would commit a golden file that is not text, and
+   `scripts/جدد_المتوقع.sh` merges stderr into it (`2>&1`), so writing to descriptor `٢` there would
+   make the file depend on interleaving. Both are covered in unit tests reading the streams apart
+   instead. The general rule for the remaining Increment G names: **an example demonstrates the
+   contract's *text* rows; the byte and stream rows belong where the streams can be read
+   separately.**
+
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 
 Requires the linker change (§5.2) and the `stdlib/أخطاء/فهرس.ترقيم` parse fix. `تأكد` /
@@ -1112,7 +1186,7 @@ the same disease as the nine `#298` date constructors.
 | **B12** | **The linker treats prelude-origin declarations as fatal collisions** rather than displaceable. | `P3_collision`, `P3_linkercollide` vs `P3b` | Increment H; all prelude-gated names |
 | **B13** | **`ارمِ` is still refused by native codegen (`ت٠٣٠٣`).** Migrated stdlib **must not use it**. Error signalling uses sentinels (`-١`, `i64::MIN`) or `توقف`. | LANGUAGE_SPEC §11.3 | All increments |
 | **B14** | **`target/release/libtrq.a` is stale** — missing `trq_string_to_int_checked`, `trq_string_to_float_checked`, `trq_string_to_int`, `trq_time_now`. Produces phantom native failures. Build hygiene, not a design defect. **Distinguish a clang IR-parse error (real bug) from an `ld` undefined-symbol error (stale archive).** | `nm`/mtime; `وقت_الآن` link failure | Any native verification |
-| **B15** | **`NEXT_FILE_HANDLE` starts at 1** and collides with stdout once streams unify. | `io.rs:397` | Increment G |
+| ~~**B15**~~ | **Closed (#347).** `NEXT_FILE_HANDLE` starts at 3, reserving `٠/١/٢`, and a `runtime-rs` test asserts every handle is `≥ ٣`. Fixed in the change that made descriptor `١` mean stdout, since that is what made the collision reachable. `0` was never a valid handle — every `trq_file_open_*` returns it on failure — so nothing depended on the old numbering. | `io.rs:397` | ~~Increment G~~ |
 | **B16** | **The stdlib short-circuit is per-specifier and all-or-nothing** (§4.4). A module leaves `get_stdlib_modules()` exactly when its disk/embedded file answers **every** one of its names — not before, or every existing program using it breaks at once. | `stmt_analyzer.rs:1122-1128`, `modules.rs:299` | Every module flip |
 
 ---

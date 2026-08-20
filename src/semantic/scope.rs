@@ -245,6 +245,18 @@ impl Scope {
             // Total: an absent name, an empty one and `لا_شيء` all answer `""`,
             // so set-but-empty is deliberately indistinguishable from unset.
             ("متغير_بيئة", vec![Type::String], Type::String),
+            // Stream writing - الكتابة في مجرى
+            // `write(2)`, the byte-level output path the print intrinsics cannot
+            // be: their lowering picks a symbol from the static type, and that
+            // selection is the dispatch. Takes bytes, so `نص_إلى_ثنائي` feeds it
+            // directly. `١` is stdout, `٢` is stderr, `٣` upward a file handle;
+            // the answer is the byte count, and `-١` when nothing could be
+            // written.
+            (
+                "اكتب_مجرى",
+                vec![Type::Int, Type::Array(Box::new(Type::Int))],
+                Type::Int,
+            ),
             // Termination - إنهاء البرنامج
             // `exit(2)`, which `توقف` cannot serve: that one is always status 1
             // and always prints. Total — the status is `حالة & ٢٥٥`, so every

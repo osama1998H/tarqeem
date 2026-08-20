@@ -39,6 +39,10 @@ pub(crate) use executor::builtins::call_exit_program;
 /// Shared with the debug interpreter so `قص_حروف` is total in the same way in
 /// both — the argument checks drift as easily as the slicing does.
 pub(crate) use executor::builtins::call_substring_by_chars;
+/// Shared so `اكتب_مجرى` refuses and counts identically in both: the descriptor
+/// map, the byte-range rejection and the empty-versus-failed answers are all
+/// contract, and all live in the one dispatch.
+pub(crate) use executor::builtins::call_write_stream;
 pub use executor::Interpreter;
 pub use value::Value;
 
