@@ -639,6 +639,18 @@ const WRITE_FAILED: i64 = -1;
 /// bypass the buffer `trq_print` shares, and the two would interleave in an
 /// order that depends on buffering rather than on the program.
 ///
+/// **A failed flush answers `-1`, unlike the prints here, which discard it.**
+/// That convention was set by functions returning nothing: `trq_print` has no
+/// answer to falsify. This one does. `Stdout` is line-buffered, so a payload
+/// with no trailing newline sits in the buffer and a closed pipe fails at the
+/// flush rather than at the `write_all` — reporting the count there would claim
+/// bytes reached the descriptor when none did.
+///
+/// The handle path does **not** flush, matching `trq_file_write_line`: a
+/// `BufWriter` exists to batch, and `trq_file_flush` is how a caller asks. So the
+/// count means "accepted by the stream" for a handle and "left for the
+/// descriptor" for a console stream — the difference the two APIs already had.
+///
 /// # Safety
 ///
 /// - `bytes` must be a valid pointer to a `TrqArray` or null.
@@ -668,18 +680,16 @@ pub extern "C" fn trq_write_stream(fd: i64, bytes: *const TrqArray) -> i64 {
     match fd {
         STREAM_STDOUT => {
             let mut out = io::stdout();
-            if out.write_all(&payload).is_err() {
+            if out.write_all(&payload).is_err() || out.flush().is_err() {
                 return WRITE_FAILED;
             }
-            out.flush().ok();
             written
         }
         STREAM_STDERR => {
             let mut err = io::stderr();
-            if err.write_all(&payload).is_err() {
+            if err.write_all(&payload).is_err() || err.flush().is_err() {
                 return WRITE_FAILED;
             }
-            err.flush().ok();
             written
         }
         _ => FILE_HANDLES.with(|handles| {
@@ -1452,7 +1462,7 @@ mod tests {
         let test_path = "/tmp/tarqeem_test_write_stream_refuses.txt";
         std::fs::write(test_path, "سطر\n").unwrap();
 
-        let bytes = byte_array(&[b'x']);
+        let bytes = byte_array(b"x");
 
         // Never opened.
         assert_eq!(trq_write_stream(9_999, bytes), -1);

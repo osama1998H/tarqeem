@@ -4106,12 +4106,34 @@ and indistinguishable at runtime (`runtime-rs/src/types.rs:94-151`) — so an `�
 string array, or a `TrqString` itself, on the byte parameter. Nothing new was needed for either:
 
 - A `مصفوفة<نص>` element read as an `i64` is a pointer value, far outside `٠`-`٢٥٥`, so the
-  byte-range rejection already refuses it. The check written for `[٣٠٠]` covers type confusion for
-  free.
+  byte-range rejection already refuses it. The check written for `[٣٠٠]` covers *that* type
+  confusion for free.
 - A `TrqString` is refused on `elem_size` **before `data` is read**, the order
   `trq_string_from_bytes` established and for its reason: the string is 24 bytes, `elem_size` sits
   at offset 16 inside it, and `data` sits at offset 24 — one past the end. Reversing the two checks
   is a heap over-read, not a wrong answer.
+
+**But "covers type confusion for free" is not general, and the exception is measured.** A
+`مصفوفة<عدد_عشري>` is also `elem_size == 8`, and its slots are IEEE-754 bit patterns — so an
+element whose pattern happens to land in `٠`-`٢٥٥` passes the range check. `٠.٠` is exactly that:
+its pattern is all zeroes, so it reads as the byte `٠`.
+
+```tarqeem
+متغير ف: أي = [0.0]
+اطبع(اكتب_مجرى(١، ف))   // المفسّر: -1 — والترجمة الأصلية: 1، وتكتب بايت NUL
+```
+
+The interpreter answers `-١` because `Value::as_int` is strict on `Value::Float`; native answers `١`
+and puts a NUL byte on the stream. **This is not new and not specific to this primitive** — the same
+source through `ثنائي_إلى_نص` answers `٠` interpreted and `١` natively, so the hole belongs to every
+`مصفوفة<عدد>` parameter reached through an `أي` holder, and predates #347. It is recorded here
+because this bullet is where a later increment would look for the guarantee and find it overstated.
+
+Fixing it in the runtime is not possible — there is no element-kind tag to read, which is the
+premise of this whole subsection. The fix belongs in the semantic layer: widening `أي` to
+`مصفوفة<عدد>` is what makes the confusion reachable at all, and narrowing that widening would close
+it for every name at once rather than one primitive at a time. Until then, treat the range check as
+refusing *pointers*, not as refusing *non-`عدد` arrays*.
 
 Rejection is total for a second reason worth separating from correctness: the array is validated
 **before the first byte goes out**, so `[٦٥، ٣٠٠]` writes nothing rather than writing `A` and then
@@ -4185,6 +4207,16 @@ table, which makes it the likeliest to fall inside an ordinary Arabic word by ac
   host buffer would change what the program observably did. The cost is that a DAP console does not
   mirror these bytes, which is recorded rather than worked around because the debug output path
   needs its own pass either way (#346).
+- **A failed flush answers `-١`, and the module's convention was the wrong one to inherit.** Every
+  `trq_print*` here discards the flush result, and the first draft copied that. But those functions
+  **return nothing** — they have no answer to falsify. `Stdout` is line-buffered, so a payload with
+  no trailing newline sits in the buffer and a closed pipe fails at the *flush*, not at the
+  `write_all`: reporting the count there claims bytes reached the descriptor when none did. Changed
+  in both the runtime and the interpreter together, since a split would make the two disagree about
+  a closed pipe. Generalisable: **a convention adopted from void functions does not transfer to one
+  that returns a count.** The handle path still does not flush, matching `trq_file_write_line` — a
+  `BufWriter` exists to batch and `trq_file_flush` is how a caller asks — so the count means
+  "accepted by the stream" for a handle and "left for the descriptor" for a console stream.
 - **No `Value::Null` arm for the descriptor**, and one for the array. #326's narrowing predicted
   both: the descriptor is an `عدد` with no pointer for a runtime guard to answer, so `لا_شيء` is a
   type error; the array is a pointer whose null answer is designed, so it answers `٠`.

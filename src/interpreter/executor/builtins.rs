@@ -174,6 +174,11 @@ const WRITE_FAILED: i64 = -1;
 /// empty array answers, which loses nothing because both mean nothing was
 /// written.
 ///
+/// A failed flush answers `-١`, where the prints in this file discard it: that
+/// convention belongs to functions returning nothing, which have no answer to
+/// falsify. Kept identical to `trq_write_stream`, or the two backends would
+/// disagree about a closed pipe.
+///
 /// The bytes reach the process's own streams even when the host is capturing
 /// `اطبع` (the REPL's `capture_output`, the debugger's output events). That is
 /// deliberate: the descriptor names the *process's* stream, so interposing a
@@ -213,18 +218,16 @@ pub(crate) fn call_write_stream(args: &[Value]) -> RuntimeResult<Value> {
     match stream {
         STREAM_STDOUT => {
             let mut out = io::stdout();
-            if out.write_all(&payload).is_err() {
+            if out.write_all(&payload).is_err() || out.flush().is_err() {
                 return Ok(Value::Int(WRITE_FAILED));
             }
-            out.flush().ok();
             Ok(Value::Int(written))
         }
         STREAM_STDERR => {
             let mut err = io::stderr();
-            if err.write_all(&payload).is_err() {
+            if err.write_all(&payload).is_err() || err.flush().is_err() {
                 return Ok(Value::Int(WRITE_FAILED));
             }
-            err.flush().ok();
             Ok(Value::Int(written))
         }
         // No handle can exist: nothing in the language opens one yet.
