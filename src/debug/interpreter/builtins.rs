@@ -37,7 +37,7 @@ impl DebugInterpreter {
                 | "ثنائي_إلى_نص"
                 | "متغير_بيئة"
                 | "اكتب_مجرى"
-            | "اقرأ_مجرى"
+                | "اقرأ_مجرى"
                 // Termination. Absent here, stepping through `أنهِ_البرنامج(٠)`
                 // would abort with «دالة غير معرّفة» while every other backend
                 // ended the program cleanly — the same gap #295 records for
