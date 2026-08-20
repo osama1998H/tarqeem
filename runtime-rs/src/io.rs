@@ -834,7 +834,11 @@ pub extern "C" fn trq_read_stream(fd: i64, count: i64) -> *mut TrqArray {
 /// nothing about the stream; any other error stops the loop and keeps whatever
 /// arrived before it.
 fn fill_from(source: &mut impl io::Read, count: i64) -> Vec<u8> {
-    let wanted = count as usize;
+    // Saturating rather than `as usize`: `عدد` is 64-bit but `usize` is 32 on a
+    // wasm32 target, where `as` would truncate `٢**٣٢ + ٤` to `٤` and answer four
+    // bytes for a request of four billion. Saturating reads to EOF instead, which
+    // is the honest answer to "more bytes than this machine can address".
+    let wanted = usize::try_from(count).unwrap_or(usize::MAX);
     let mut payload = Vec::new();
     let mut chunk = vec![0u8; wanted.min(READ_CHUNK)];
 
