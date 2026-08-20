@@ -858,6 +858,9 @@ impl LlvmCodegen {
         // `write(2)`. `i64` both ways: the descriptor and the byte count are
         // `عدد`, and the `ptr` in between is the `TrqArray` of bytes.
         emit!(self, "declare i64 @trq_write_stream(i64, ptr)");
+        // `read(2)`. Two `i64` in — the descriptor and the count, both `عدد` —
+        // and a `ptr` out, the `TrqArray` of bytes it answers.
+        emit!(self, "declare ptr @trq_read_stream(i64, i64)");
 
         emit!(self, "declare ptr @trq_date_today()");
         emit!(self, "declare ptr @trq_date_parse(ptr)");
@@ -2951,6 +2954,7 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         // Core tier. Reached through the plain `Call` fall-through like its
         // neighbours, so the Arabic name arrives here and is mapped once.
         "اكتب_مجرى" => Some("trq_write_stream"),
+        "اقرأ_مجرى" => Some("trq_read_stream"),
         // Both spellings of one primitive, mapped to one symbol — the kasra-less
         // variant is an orthographic pair like the keyword table's `ارمِ`/`ارم`,
         // not a second capability.

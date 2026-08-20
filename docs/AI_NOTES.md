@@ -4220,3 +4220,117 @@ table, which makes it the likeliest to fall inside an ordinary Arabic word by ac
 - **No `Value::Null` arm for the descriptor**, and one for the array. #326's narrowing predicted
   both: the descriptor is an `عدد` with no pointer for a runtime guard to answer, so `لا_شيء` is a
   type error; the array is a pointer whose null answer is designed, so it answers `٠`.
+
+---
+
+## #350 — `اقرأ_مجرى`: `read(2)`, and what a missing return type actually costs
+
+`اقرأ_مجرى` — `(عدد، عدد) -> مصفوفة<عدد>` — is the second Increment G primitive and the read half of
+the byte-level stream pair `اكتب_مجرى` (#347) opened. Contract, scope and precedents are in
+`docs/builtins-vs-stdlib.md` §1.3 (category 7), its correction blockquote, and §6.7.3.
+
+### The cost forecast held, for the second consecutive name
+
+§6.7's discriminator — *which half of the path already exists* — was applied before the work:
+neither half did, so the #324 nine. It cost nine, plus the harness change the contract requires.
+#342's caveat was checked and does not apply, because reading bytes from a stream is not a new kind
+of effect: `trq_input` has always done it. Two forecasts, two hits, so the discriminator is now worth
+trusting rather than re-deriving each time.
+
+### The measurement that contradicted the plan
+
+The plan predicted a **quiet** missing `register_builtin_return_types` entry, on #330's finding for
+`نص_إلى_ثنائي` — "only `نوع` catches it". Measured by deleting the entry and running seven use sites
+across all three backends, that is wrong, and the shape of the wrongness is the useful part:
+
+| use | interpreters | native |
+|---|---|---|
+| `اطبع(بايتات)` | correct | prints **nothing** — silent wrong output |
+| `طول(بايتات)` | correct | correct (`ArrayLen` → `trq_array_len` regardless) |
+| `ثنائي_إلى_نص(بايتات)` | correct | correct (a `ptr` parameter takes the sentinel unchanged) |
+| `نوع(بايتات)` | `مؤشر` | `مؤشر` |
+| `اطبع(بايتات[٠])` | correct | **run-time abort** — «misaligned pointer dereference … 0x41» |
+| `بايتات[٠] + ١` | correct | **compile failure**, ت٠١٠١ |
+| `بايتات[٣] == ٦٨` | correct | **compile failure**, ت٠١٠١ |
+
+Three modes at once — silent, fatal at run time, fatal at build time — for one return type. The abort
+is the instructive row: with `Ptr(Void)` the *element* is a pointer too, so `trq_print` dereferences
+the byte value `65` as an address.
+
+**So the loudness ranking this file has been building since #330 is the wrong abstraction.** One
+catcher for an array, three for a `نص`, four for `قص_حروف` and `متغير_بيئة`, fatal for a scalar —
+each of those was a real measurement, but the quantity does not belong to the return type. It belongs
+to the **use site**, which is what `builtins-vs-stdlib.md` §1.1's own note says and what the ranking
+kept obscuring. Two names with the *same* return type disagree, because #330's array was only counted
+and printed while this one's elements are indexed and added.
+
+Practical consequence for the next primitive: do not ask "how loud is this return type". Ask which of
+the caller's operations *cannot be assembled* if the result is a pointer. Those are the assertions to
+gate on.
+
+### The composition gate has a trap when the empty answer is a contract row
+
+Every primitive since #324 is gated on composing its result. The convenient fixture here is a
+descriptor the primitive refuses — it needs no stdin, so it is far easier to write. It is also
+worthless: an empty array cannot be indexed and `طول` answers `0` either way, so all three assertions
+pass on a sentinel. The gate has to run over bytes actually read, which is what forced the harness
+change to land first rather than beside the tests.
+
+Generalises to any primitive whose refusal answer is a *legitimate value* of the return type.
+
+### The harness gained stdin, and the default turned out to be a contract row
+
+`cargo` runs tests as threads in one process, so a test can no more redirect its own stdin than it can
+`set_var` (#338). All three backend legs are child processes, so the bytes go on the child: one shared
+innermost driver plus `_with_stdin` peers, existing call sites untouched. Three things worth keeping:
+
+- The parameter is `&[u8]`, not `&str` — one contract row is a byte sequence that is not text.
+- `Command::output`'s default stdin is **null**, not inherited. So the EOF row is assertable through
+  the plain `assert_prints` with no piping at all, which is why there is no `_with_stdin` variant of
+  the empty-stream test.
+- The native leg pipes to the **executed binary**, never to `compile` — #338's environment lesson
+  transposed unchanged.
+
+A speculative `tarqeem_with_stdin` wrapper was written and then deleted: nothing called it, and a
+dead helper is a warning the crate did not have before.
+
+### An input primitive's CI example is worse off than an output one's
+
+#347 found that an output primitive's *byte* rows cannot go in the example, because the golden file is
+a `2>&1` capture. The inverse holds here and bites harder: the golden is generated with stdin inherited
+from a terminal, so any positive-count read on descriptor `٠` waits for input and never finishes. The
+example therefore demonstrates only refusals — every row it covers answers zero or `[]`.
+
+The general rule for the rest of Increment G: **an example can only exercise a primitive whose inputs
+the example itself can supply.** `افتح_ملف` and `حالة_ملف` will be able to; this one cannot.
+
+One thing that *did* become available: `اطبع` on an empty array was probed across all three backends
+before the fixtures were written (#333 finding 3's habit) and all three print `[]`. No committed
+example printed an empty array before, so the avoidance in the `نص_إلى_ثنائي` section turns out to
+have been caution rather than a known divergence.
+
+### Smaller findings
+
+- **The keyword-embedding check was run mechanically for the first time**, against all 69 keywords
+  harvested from `src/lexer/keywords.rs` rather than by eye. `اقرأ_مجرى` embeds none; its sibling
+  `اكتب_مجرى` embeds `ك`. Per #317/#320 it therefore gets **no** row in
+  `test_identifier_containing_a_keyword_stays_one_token`. A generic "add-a-builtin" checklist calls
+  that site mandatory; it generalises from #347, whose name does embed a keyword, and the precedent
+  wins.
+- **A new lexer shape was probed and passed.** The name carries a precomposed hamza (`أ`, U+0623)
+  whose NFD form is two codepoints, so source written decomposed must still resolve. It does — the
+  lexer normalises the file to NFC before tokenising. Not pinned in a test, because the
+  normalisation is a whole-file property rather than anything about this name.
+- **No `Value::Null` arm anywhere**, the first primitive since #324 with none: both parameters are
+  `عدد`, so there is no pointer for a runtime guard to answer and codegen turns `لا_شيء` into `0`
+  above the runtime (#326, #327). The debug-interpreter test asserts a `TypeError` for both
+  positions, so nobody adds one by pattern-matching from `اكتب_مجرى`'s array parameter.
+- **The `≥٣` note from §6.7.2 now covers both halves of the pair.** The interpreter has no handle
+  table and the runtime's is provably empty from Tarqeem source, so both answer empty for the same
+  reason. `افتح_ملف` must give the interpreter a handle table in the increment it lands, or two
+  primitives diverge at once. The runtime's handle path is implemented and unit-tested now
+  (`trq_file_open_read` → `trq_read_stream` → `trq_file_close`, plus a writer, a closed handle and a
+  >64 KiB file that makes the read loop run more than once).
+- **`runtime-rs`'s export count in `docs/builtins-inventory.md` was two low before this change.**
+  Recounted to 223 from source. The row says recount rather than increment; it earned that wording
+  again.

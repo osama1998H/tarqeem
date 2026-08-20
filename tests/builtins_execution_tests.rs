@@ -11,8 +11,9 @@
 //! and `test_every_core_builtin_agrees_across_backends` walks the whole core
 //! list so a newly added builtin cannot skip the matrix.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::{fs, str};
 
@@ -149,6 +150,27 @@ fn tarqeem(args: &[&str], cwd: &Path) -> Output {
 /// process, so `std::env::set_var` races every other test. Every backend leg is
 /// already a child process, so the variable goes on the child instead.
 fn tarqeem_with_env(args: &[&str], cwd: &Path, env: &[(&str, &str)]) -> Output {
+    tarqeem_with_env_and_stdin(args, cwd, env, None)
+}
+
+/// The one place a `tarqeem` child is spawned.
+///
+/// `اقرأ_مجرى` is the first builtin whose answer depends on stdin, and — exactly
+/// as with the environment above — a test cannot supply it in-process: cargo runs
+/// tests as threads in one process, so there is no per-test stdin to redirect.
+/// Every backend leg is already a child process, so the bytes go on the child.
+/// `&[u8]` rather than `&str` on purpose: the primitive answers bytes, and one of
+/// its contract rows is a byte sequence that is not text at all.
+///
+/// `stdin` of `None` keeps `Command::output`'s default, which is a **null** stdin
+/// — an immediate EOF, not the parent's terminal. That is what lets the EOF row
+/// of `اقرأ_مجرى`'s contract be asserted through the plain `assert_prints`.
+fn tarqeem_with_env_and_stdin(
+    args: &[&str],
+    cwd: &Path,
+    env: &[(&str, &str)],
+    stdin: Option<&[u8]>,
+) -> Output {
     let mut command = Command::new(TARQEEM);
     command.args(args).current_dir(cwd);
 
@@ -158,9 +180,12 @@ fn tarqeem_with_env(args: &[&str], cwd: &Path, env: &[(&str, &str)]) -> Output {
     command.env_remove("TARQEEM_HOME");
     command.envs(env.iter().copied());
 
-    let output = command
-        .output()
-        .unwrap_or_else(|e| panic!("تعذّر تشغيل {} {:?}: {}", TARQEEM, args, e));
+    let output = match stdin {
+        None => command
+            .output()
+            .unwrap_or_else(|e| panic!("تعذّر تشغيل {} {:?}: {}", TARQEEM, args, e)),
+        Some(bytes) => spawn_with_stdin(&mut command, bytes, &format!("{TARQEEM} {args:?}")),
+    };
 
     Output {
         status: output.status.code(),
@@ -168,6 +193,30 @@ fn tarqeem_with_env(args: &[&str], cwd: &Path, env: &[(&str, &str)]) -> Output {
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         compile_failed: false,
     }
+}
+
+/// Spawns `command` with `bytes` piped to its stdin, then closes the pipe.
+///
+/// Closing it is what produces EOF, so a program asking for more bytes than were
+/// given gets a short answer instead of hanging. The payloads here are a handful
+/// of bytes, well inside a pipe buffer, so writing before waiting cannot deadlock.
+fn spawn_with_stdin(command: &mut Command, bytes: &[u8], what: &str) -> std::process::Output {
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("تعذّر تشغيل {what}: {e}"));
+
+    {
+        let mut pipe = child.stdin.take().expect("للعملية مدخل قياسي");
+        pipe.write_all(bytes)
+            .unwrap_or_else(|e| panic!("تعذّر الكتابة في مدخل {what}: {e}"));
+    }
+
+    child
+        .wait_with_output()
+        .unwrap_or_else(|e| panic!("تعذّر انتظار {what}: {e}"))
 }
 
 fn execute(backend: Backend, main: &Path, tag: &str) -> Output {
@@ -180,12 +229,31 @@ fn execute(backend: Backend, main: &Path, tag: &str) -> Output {
 /// the compiler reads no environment on that path, and the binary is what calls
 /// `trq_env_get`.
 fn execute_with_env(backend: Backend, main: &Path, tag: &str, env: &[(&str, &str)]) -> Output {
+    execute_with_env_and_stdin(backend, main, tag, env, None)
+}
+
+/// `execute` with bytes on the child's standard input.
+///
+/// The native leg pipes them to the **executed binary**, never to `compile` — the
+/// same split `execute_with_env` makes for the environment, and for the same
+/// reason: the compiler reads neither on that path.
+fn execute_with_stdin(backend: Backend, main: &Path, tag: &str, stdin: &[u8]) -> Output {
+    execute_with_env_and_stdin(backend, main, tag, &[], Some(stdin))
+}
+
+fn execute_with_env_and_stdin(
+    backend: Backend,
+    main: &Path,
+    tag: &str,
+    env: &[(&str, &str)],
+    stdin: Option<&[u8]>,
+) -> Output {
     let cwd = main.parent().expect("للبرنامج مجلد");
     let arg = main.to_str().expect("مسار غير صالح");
 
     match backend {
-        Backend::Interpreter => tarqeem_with_env(&["run", arg], cwd, env),
-        Backend::Jit => tarqeem_with_env(&["run", "--jit", arg], cwd, env),
+        Backend::Interpreter => tarqeem_with_env_and_stdin(&["run", arg], cwd, env, stdin),
+        Backend::Jit => tarqeem_with_env_and_stdin(&["run", "--jit", arg], cwd, env, stdin),
         Backend::Native => {
             // The only backend that links, so the only one needing libtrq.a.
             ensure_runtime_library();
@@ -197,10 +265,14 @@ fn execute_with_env(backend: Backend, main: &Path, tag: &str, env: &[(&str, &str
                 return compiled;
             }
 
-            let run = Command::new(&exe)
-                .envs(env.iter().copied())
-                .output()
-                .unwrap_or_else(|e| panic!("تعذّر تشغيل {}: {}", exe.display(), e));
+            let mut runner = Command::new(&exe);
+            runner.envs(env.iter().copied());
+            let run = match stdin {
+                None => runner
+                    .output()
+                    .unwrap_or_else(|e| panic!("تعذّر تشغيل {}: {}", exe.display(), e)),
+                Some(bytes) => spawn_with_stdin(&mut runner, bytes, &exe.display().to_string()),
+            };
             Output {
                 status: run.status.code(),
                 stdout: String::from_utf8_lossy(&run.stdout).into_owned(),
@@ -214,6 +286,29 @@ fn execute_with_env(backend: Backend, main: &Path, tag: &str, env: &[(&str, &str
 /// Asserts `body` prints exactly `expected` under all three backends.
 fn assert_prints(name: &str, body: &str, expected: &[&str]) {
     assert_prints_with_env(name, body, &[], expected)
+}
+
+/// Asserts `body` prints exactly `expected` under all three backends, with
+/// `stdin` piped to each.
+fn assert_prints_with_stdin(name: &str, body: &str, stdin: &[u8], expected: &[&str]) {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), name, body);
+
+    for backend in Backend::ALL {
+        let output = execute_with_stdin(backend, &main, &format!("{name}_{backend:?}"), stdin);
+
+        assert!(
+            output.succeeded(),
+            "فشل التنفيذ [{backend:?}] لـ {name}\nالمتوقع/expected: {expected:?}\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.lines(),
+            expected,
+            "خرج غير متطابق [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+    }
 }
 
 /// `assert_prints` with extra variables in each backend's environment.
@@ -3012,6 +3107,11 @@ fn test_every_core_builtin_agrees_across_backends() {
             "اطبع(اكتب_مجرى(1، نص_إلى_ثنائي(\"م\\n\")))",
             &["م", "3"],
         ),
+        // The sweep's helper gives the child a null stdin, so descriptor `٠`
+        // would answer nothing here and prove little. `١` is an output stream,
+        // which is a refusal the primitive decides on its own — and `طول` over
+        // the answer is what proves an array came back rather than a sentinel.
+        ("اقرأ_مجرى", "اطبع(طول(اقرأ_مجرى(1، 4)))", &["0"]),
         // Status `٠` so the sweep's `assert_prints` still applies, and a line
         // before it so the probe distinguishes "exited cleanly" from "never
         // ran". The status half is covered by the dedicated tests below; both
@@ -3549,6 +3649,252 @@ fn test_user_function_shadows_write_stream() {
             "    أرجع 42\n",
             "}\n",
             "اطبع(اكتب_مجرى(1، [65]))",
+        ),
+        &["42"],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// اقرأ_مجرى — the read(2) primitive (#350)
+// ---------------------------------------------------------------------------
+
+/// Reads stdin and answers the bytes, in all three backends.
+///
+/// The Arabic value is not decoration: it is what separates the byte count from
+/// the character count. «مرحبا» is five characters and ten octets, so a
+/// primitive that answered characters — or a `طول` reading the wrong field —
+/// would print `5` here. #338 measured that an ASCII value silently loses that
+/// catcher, and a byte primitive tested on ASCII would lose it twice over.
+#[test]
+fn test_read_stream_reads_stdin_in_every_backend() {
+    assert_prints_with_stdin(
+        "قراءة_مجرى",
+        concat!(
+            "متغير بايتات = اقرأ_مجرى(0، 32)\n",
+            "اطبع(طول(بايتات))\n",
+            "اطبع(ثنائي_إلى_نص(بايتات))\n",
+            "اطبع(طول(ثنائي_إلى_نص(بايتات)))",
+        ),
+        "مرحبا".as_bytes(),
+        &["10", "مرحبا", "5"],
+    );
+}
+
+/// The load-bearing test, and it runs over bytes that were actually read.
+///
+/// `اقرأ_مجرى` lowers to a plain `Call`, so nothing but the
+/// `register_builtin_return_types` entry types its result. #330 measured that a
+/// missing entry on an array return is **quiet** — "only `نوع` catches it".
+/// Measured here with the entry deleted, that does not hold for this name, and
+/// the reason is instructive: what catches it depends on what the caller does
+/// with the **elements**, not on the return type.
+///
+/// `نوع` answers `مؤشر` in all three backends. `طول` answers `10` — right either
+/// way, since `ArrayLen` routes to `trq_array_len` regardless — and printing the
+/// whole array is *silent* wrong output, correct in the interpreters and empty
+/// natively. But printing an indexed element **aborts** the native binary
+/// («misaligned pointer dereference … 0x41»: with `Ptr(Void)` the element is a
+/// pointer, so `trq_print` dereferences the byte value), and `+ ١` or `== ٦٨` on
+/// one makes native **compilation fail** with ت٠١٠١.
+///
+/// Which is why this test indexes, adds and compares rather than printing the
+/// array — and why it must not run over a refusal: an empty answer cannot be
+/// indexed, and `طول` answers `0` with or without the entry, so every assertion
+/// would pass on a sentinel.
+#[test]
+fn test_read_stream_result_composes_as_a_byte_array() {
+    assert_prints_with_stdin(
+        "قراءة_تركيب",
+        concat!(
+            "متغير بايتات = اقرأ_مجرى(0، 4)\n",
+            "اطبع(نوع(بايتات))\n",
+            "اطبع(بايتات[0])\n",
+            "اطبع(بايتات[0] + 1)\n",
+            "اطبع(بايتات[3] == 68)\n",
+            "اطبع(نوع(بايتات[0]))",
+        ),
+        b"ABCD",
+        &["مصفوفة", "65", "66", "صحيح", "عدد"],
+    );
+}
+
+/// Successive calls continue where the last one stopped, and each answers
+/// exactly what it asked for while there is that much left.
+#[test]
+fn test_read_stream_reads_the_stream_in_order() {
+    assert_prints_with_stdin(
+        "قراءة_تتابع",
+        concat!(
+            "متغير أول = اقرأ_مجرى(0، 2)\n",
+            "متغير ثان = اقرأ_مجرى(0، 3)\n",
+            "اطبع(ثنائي_إلى_نص(أول))\n",
+            "اطبع(ثنائي_إلى_نص(ثان))\n",
+            "اطبع(طول(اقرأ_مجرى(0، 9)))",
+        ),
+        b"abcdef",
+        // Two, then three, then the single byte that was left.
+        &["ab", "cde", "1"],
+    );
+}
+
+/// The property §1.3's row exists for: a multi-byte character split across two
+/// reads survives, because the primitive moves octets and never decodes.
+///
+/// «مرحبا» is `D9 85 D8 B1 …`, so three bytes cuts «ر» in half. The first read
+/// ends on `216` and the second begins on `177` — the two halves of that
+/// character, contiguous across the boundary with nothing dropped or substituted.
+/// `ثنائي_إلى_نص` of the truncated piece answers `""`, which is the point:
+/// decoding is the caller's business and happens once, after the bytes are whole.
+#[test]
+fn test_read_stream_splits_a_codepoint_without_losing_it() {
+    assert_prints_with_stdin(
+        "قراءة_حدود",
+        concat!(
+            "متغير أول = اقرأ_مجرى(0، 3)\n",
+            "متغير بقية = اقرأ_مجرى(0، 7)\n",
+            "اطبع(طول(أول))\n",
+            "اطبع(أول[2])\n",
+            "اطبع(بقية[0])\n",
+            // The straddled character cannot be decoded from either piece.
+            "اطبع(طول(ثنائي_إلى_نص(أول)))\n",
+            "اطبع(طول(بقية))",
+        ),
+        "مرحبا".as_bytes(),
+        &["3", "216", "177", "0", "7"],
+    );
+}
+
+/// Asking for more than the stream holds answers what there was, and the next
+/// call answers nothing. That is what "loops until the count or EOF" means, and
+/// it is why a short answer has exactly one meaning.
+#[test]
+fn test_read_stream_stops_at_end_of_stream() {
+    assert_prints_with_stdin(
+        "قراءة_نهاية",
+        concat!(
+            "اطبع(طول(اقرأ_مجرى(0، 100)))\n",
+            "اطبع(طول(اقرأ_مجرى(0، 100)))",
+        ),
+        b"abc",
+        &["3", "0"],
+    );
+}
+
+/// An empty stdin is EOF from the first call. Uses the plain `assert_prints`,
+/// whose child gets a **null** stdin rather than the parent's terminal — which is
+/// why this row needs no piping at all.
+#[test]
+fn test_read_stream_answers_nothing_on_an_empty_stream() {
+    assert_prints("قراءة_فراغ", "اطبع(طول(اقرأ_مجرى(0، 4)))", &["0"]);
+}
+
+/// Reading `ن` bytes at once and `ن` times one byte answer the same thing.
+///
+/// The equivalence shape #322, #333 and #336 used. Here it is not a check against
+/// a hand-written alternative but against the primitive's own contract: if the
+/// read did not loop, the batched call could answer short and the two columns
+/// would part.
+#[test]
+fn test_read_stream_matches_the_loop_it_names() {
+    let expected = &["97", "98", "99", "100"];
+
+    assert_prints_with_stdin(
+        "قراءة_دفعة",
+        concat!(
+            "متغير كل = اقرأ_مجرى(0، 4)\n",
+            "لكل (متغير ي = 0؛ ي < طول(كل)؛ ي++) {\n",
+            "    اطبع(كل[ي])\n",
+            "}",
+        ),
+        b"abcd",
+        expected,
+    );
+
+    assert_prints_with_stdin(
+        "قراءة_بايت_بايت",
+        concat!(
+            "لكل (متغير ي = 0؛ ي < 4؛ ي++) {\n",
+            "    متغير واحد = اقرأ_مجرى(0، 1)\n",
+            "    اطبع(واحد[0])\n",
+            "}",
+        ),
+        b"abcd",
+        expected,
+    );
+}
+
+/// Bytes that are not text arrive intact, which no input path had before: `ادخل`
+/// decodes to a `نص`, so a byte outside UTF-8 could not survive it. The mirror of
+/// `اكتب_مجرى` putting a lone `٢٥٥` on stdout.
+#[test]
+fn test_read_stream_reads_bytes_that_are_not_text() {
+    assert_prints_with_stdin(
+        "قراءة_غير_نص",
+        concat!(
+            "متغير بايتات = اقرأ_مجرى(0، 3)\n",
+            "اطبع(بايتات[0])\n",
+            "اطبع(بايتات[1])\n",
+            "اطبع(بايتات[2])\n",
+            // Not an encoding, so decoding refuses rather than inventing text.
+            "اطبع(طول(ثنائي_إلى_نص(بايتات)))",
+        ),
+        &[0xFF, 0x00, 0x41],
+        &["255", "0", "65", "0"],
+    );
+}
+
+/// The refusal rows. `١` and `٢` carry bytes the other way, `٣` upward names a
+/// handle nothing can have opened yet, and a negative descriptor names nothing.
+///
+/// All four answer the same empty array EOF does — an array return has no value
+/// to spare for a sentinel, the way `اكتب_مجرى` has `-١`. The stdin bytes are
+/// piped and deliberately left unread: they prove the refusals are decided on the
+/// descriptor and do not fall through to stdin.
+#[test]
+fn test_read_stream_refuses_a_stream_it_cannot_read() {
+    assert_prints_with_stdin(
+        "قراءة_مرفوضة",
+        concat!(
+            "اطبع(طول(اقرأ_مجرى(1، 4)))\n",
+            "اطبع(طول(اقرأ_مجرى(2، 4)))\n",
+            "اطبع(طول(اقرأ_مجرى(3، 4)))\n",
+            "اطبع(طول(اقرأ_مجرى(-1، 4)))\n",
+            // Untouched, so it is all still there.
+            "اطبع(طول(اقرأ_مجرى(0، 4)))",
+        ),
+        b"abcd",
+        &["0", "0", "0", "0", "4"],
+    );
+}
+
+/// A non-positive count answers nothing **and consumes nothing**, which the next
+/// call proves: the bytes are still there.
+#[test]
+fn test_read_stream_of_nothing_consumes_nothing() {
+    assert_prints_with_stdin(
+        "قراءة_صفر",
+        concat!(
+            "اطبع(طول(اقرأ_مجرى(0، 0)))\n",
+            "اطبع(طول(اقرأ_مجرى(0، -5)))\n",
+            "اطبع(ثنائي_إلى_نص(اقرأ_مجرى(0، 3)))",
+        ),
+        b"abc",
+        &["0", "0", "abc"],
+    );
+}
+
+/// A user function named `اقرأ_مجرى` shadows the builtin, like every other core
+/// name: builtins are the last lookup tier, not reserved words
+/// (LANGUAGE_SPEC §4.9).
+#[test]
+fn test_user_function_shadows_read_stream() {
+    assert_prints(
+        "قراءة_تظليل",
+        concat!(
+            "دالة اقرأ_مجرى(مجرى: عدد، عدد_البايتات: عدد) -> مصفوفة<عدد> {\n",
+            "    أرجع [42]\n",
+            "}\n",
+            "اطبع(اقرأ_مجرى(0، 4)[0])",
         ),
         &["42"],
     );

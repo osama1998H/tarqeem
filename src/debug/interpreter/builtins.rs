@@ -4,8 +4,8 @@ use std::io::{self, Write};
 
 use crate::interpreter::epoch_millis;
 use crate::interpreter::{
-    bytes_to_string, call_env_var, call_exit_program, call_substring_by_chars, call_write_stream,
-    RuntimeError, RuntimeResult, Value,
+    bytes_to_string, call_env_var, call_exit_program, call_read_stream, call_substring_by_chars,
+    call_write_stream, RuntimeError, RuntimeResult, Value,
 };
 
 use super::DebugInterpreter;
@@ -37,6 +37,7 @@ impl DebugInterpreter {
                 | "ثنائي_إلى_نص"
                 | "متغير_بيئة"
                 | "اكتب_مجرى"
+            | "اقرأ_مجرى"
                 // Termination. Absent here, stepping through `أنهِ_البرنامج(٠)`
                 // would abort with «دالة غير معرّفة» while every other backend
                 // ended the program cleanly — the same gap #295 records for
@@ -266,6 +267,7 @@ impl DebugInterpreter {
             "متغير_بيئة" => call_env_var(&args),
 
             "اكتب_مجرى" => call_write_stream(&args),
+            "اقرأ_مجرى" => call_read_stream(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 
@@ -759,6 +761,68 @@ mod tests {
             .call_builtin("اكتب_مجرى", vec![Value::Null, Value::array()])
             .expect_err("لا_شيء ليست مجرى");
         assert_eq!(err.kind, ErrorKind::TypeError);
+    }
+
+    /// `اقرأ_مجرى`'s arm, pinning the same thing its sibling above does: that the
+    /// debug interpreter reaches the shared dispatch and keys on the Arabic name.
+    ///
+    /// Asserts only the answers that **read nothing**. These tests run
+    /// in-process, so a positive-count read on descriptor `٠` would take the test
+    /// harness's own stdin and block — the mirror of the write test asserting
+    /// only the answers that write nothing.
+    #[test]
+    fn test_read_stream_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("اقرأ_مجرى"),
+            "اقرأ_مجرى غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        // How many bytes an answer holds, and a failure if it is not an array at
+        // all — `Value` has no `as_array`, and a wrong variant must not read as
+        // "empty".
+        fn byte_count(answer: &Value) -> Option<usize> {
+            match answer {
+                Value::Array(arr) => Some(arr.borrow().len()),
+                _ => None,
+            }
+        }
+
+        // `١` and `٢` carry bytes the other way, `٣` upward names a handle
+        // nothing can have opened, and a negative descriptor names nothing — all
+        // answer the empty array, as the runtime does.
+        for descriptor in [1, 2, 3, -1] {
+            let refused = interpreter
+                .call_builtin("اقرأ_مجرى", vec![Value::Int(descriptor), Value::Int(4)])
+                .expect("اقرأ_مجرى تُرجع قيمة لا خطأ");
+            assert_eq!(byte_count(&refused), Some(0), "المجرى {descriptor}");
+        }
+
+        // A non-positive count reads nothing, and stdin is never touched — which
+        // is what lets this case name descriptor `٠` at all.
+        for count in [0, -5] {
+            let nothing = interpreter
+                .call_builtin("اقرأ_مجرى", vec![Value::Int(0), Value::Int(count)])
+                .expect("اقرأ_مجرى تُرجع قيمة لا خطأ");
+            assert_eq!(byte_count(&nothing), Some(0), "العدد {count}");
+        }
+
+        // No `Value::Null` arm for either parameter — both are `عدد`, so there is
+        // no pointer for a runtime guard to answer (#326, #327). This is the
+        // first primitive since #324 with none, so the assertion covers both.
+        for args in [
+            vec![Value::Null, Value::Int(4)],
+            vec![Value::Int(0), Value::Null],
+        ] {
+            let err = interpreter
+                .call_builtin("اقرأ_مجرى", args)
+                .expect_err("لا_شيء ليست مجرى ولا عدداً");
+            assert_eq!(err.kind, ErrorKind::TypeError);
+        }
     }
 
     #[test]

@@ -235,6 +235,102 @@ pub(crate) fn call_write_stream(args: &[Value]) -> RuntimeResult<Value> {
     }
 }
 
+/// `اقرأ_مجرى`'s whole dispatch, shared with the debug interpreter the way
+/// `call_write_stream` above is.
+///
+/// The descriptor is settled before anything is read, the order its sibling
+/// checks in: a read from nowhere is refused whatever it was going to hold. `٠`
+/// is stdin; `١` and `٢` carry bytes the other way, so reading them answers
+/// nothing. `٣` upward names a file handle, and since no Arabic name opens one
+/// yet, the table is provably empty and every such descriptor answers an empty
+/// array here **and** natively. The two agree today for the same reason, not by
+/// coincidence — when `افتح_ملف` lands, this arm needs a handle table of its own.
+///
+/// **The read loops until `count` bytes or EOF**, mirroring `write_all` on the
+/// other side. A single read answers whatever a pipe happens to hold, so the
+/// length would depend on buffering and one program would answer differently
+/// between runs and between backends. Kept identical to `trq_read_stream`, or the
+/// two backends would disagree about a slow pipe.
+///
+/// **An empty array cannot be told apart from a refusal, deliberately.** A byte
+/// count could use `-١` because a count is never negative, but every array is a
+/// legitimate answer, so EOF, an unreadable descriptor and a zero `count` all
+/// answer the same thing. `runtime-rs` already conflates the first two —
+/// `trq_file_read_line` answers `""` for EOF and for an unknown handle alike.
+///
+/// **No `Value::Null` arm at all**, which makes this the first primitive since
+/// #324 with none. Both parameters are `عدد`, so there is no pointer for a
+/// runtime guard to answer and codegen turns `لا_شيء` into `0` above the runtime
+/// (#326, #327). Do not add one by pattern-matching from `call_write_stream`,
+/// whose *array* parameter is a pointer and so does get one.
+///
+/// Reads the process's own stdin even when the host has its own input path, for
+/// the reason `call_write_stream` writes to the process's own streams: the
+/// descriptor names the *process's* stream, so interposing a host buffer would
+/// change what the program observably did. Bytes go through `io::stdin()`, the
+/// shared buffered handle `ادخل` uses, so anything that call has already
+/// buffered is not stepped past and lost.
+pub(crate) fn call_read_stream(args: &[Value]) -> RuntimeResult<Value> {
+    let descriptor = args.first().ok_or_else(|| {
+        RuntimeError::invalid_operation("اقرأ_مجرى() تتطلب معاملين: المجرى وعدد البايتات")
+    })?;
+    let count = args.get(1).ok_or_else(|| {
+        RuntimeError::invalid_operation("اقرأ_مجرى() تتطلب معاملين: المجرى وعدد البايتات")
+    })?;
+
+    let stream = match descriptor {
+        Value::Int(fd) => *fd,
+        other => return Err(RuntimeError::type_error("عدد", other.type_name())),
+    };
+    let wanted = match count {
+        Value::Int(n) => *n,
+        other => return Err(RuntimeError::type_error("عدد", other.type_name())),
+    };
+
+    // Stdin is the only readable stream there is, so one comparison covers every
+    // refusal the runtime spells out separately: `١` and `٢` carry bytes the
+    // other way, a negative descriptor names nothing, and `٣` upward names a
+    // handle that cannot exist while nothing in the language opens one. Written
+    // as one test rather than four so it does not read as more than it is —
+    // **`افتح_ملف` must split the `≥٣` case out**, and that is the whole change
+    // this arm needs when handles arrive.
+    if stream != STREAM_STDIN || wanted <= 0 {
+        return Ok(Value::array_from(Vec::new()));
+    }
+
+    let payload = fill_from_stdin(wanted);
+    Ok(Value::array_from(
+        payload.into_iter().map(|b| Value::Int(b as i64)).collect(),
+    ))
+}
+
+/// Reads until `wanted` bytes have arrived or stdin ends.
+///
+/// Kept byte-for-byte equivalent to `fill_from` in `runtime-rs/src/io.rs`,
+/// including the chunk bound: `wanted` is an `i64`, so allocating it up front
+/// would let a typo'd `١٠**١٢` reserve a terabyte before a byte arrived.
+fn fill_from_stdin(wanted: i64) -> Vec<u8> {
+    const READ_CHUNK: usize = 64 * 1024;
+
+    let wanted = wanted as usize;
+    let mut payload = Vec::new();
+    let mut chunk = vec![0u8; wanted.min(READ_CHUNK)];
+    let stdin = io::stdin();
+    let mut source = stdin.lock();
+
+    while payload.len() < wanted {
+        let room = (wanted - payload.len()).min(chunk.len());
+        match source.read(&mut chunk[..room]) {
+            Ok(0) => break,
+            Ok(read) => payload.extend_from_slice(&chunk[..read]),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        }
+    }
+
+    payload
+}
+
 /// Reads a `مصفوفة<عدد>`'s elements as bytes, or `None` if any is not one.
 ///
 /// Split out so the whole array is validated before anything is written. Shaped
@@ -389,6 +485,7 @@ impl Interpreter {
                 | "ثنائي_إلى_نص"
                 | "متغير_بيئة"
                 | "اكتب_مجرى"
+            | "اقرأ_مجرى"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
                 | "نص_ينتهي_بـ"
@@ -1298,6 +1395,8 @@ impl Interpreter {
             "متغير_بيئة" => call_env_var(&args),
 
             "اكتب_مجرى" => call_write_stream(&args),
+
+            "اقرأ_مجرى" => call_read_stream(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 

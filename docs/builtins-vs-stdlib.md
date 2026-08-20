@@ -325,7 +325,7 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | `اطبع` | `(أي) -> فراغ` | unchanged | **A compiler intrinsic, and irreducibly so** — see §9.1. Its `Instruction::Print` lowering selects among the print symbols on the static `IrType`; *that selection is the dispatch*, and it cannot exist in Tarqeem. Criterion (c). |
 | `اطبع_خطأ` | `(أي) -> فراغ` | unchanged | Same intrinsic, differing only in destination stream. Cannot be a stdlib wrapper over `اطبع` either — the wrapper would need an `أي` parameter and hit `ت٠٣٠١`. |
 | `اكتب_مجرى` | `(عدد، مصفوفة<عدد>) -> عدد` | new — **مُنفَّذ (#347)** | `write(2)`. **One** write primitive for stdout, stderr and any open handle. Replaces eight formatting-in-Rust exports. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: `١` stdout, `٢` stderr, `٣`+ a handle; `٠`, a negative descriptor, one the table does not hold, and an element outside `٠`-`٢٥٥` all answer `-١`, which is collision-free because a count is never negative. An empty or `لا_شيء` array answers `٠` as a value. Rejection is **complete** — the array is validated before the first byte goes out. **The "short writes stay visible" clause is withdrawn** — see the correction below. |
-| `اقرأ_مجرى` | `(عدد، عدد) -> مصفوفة<عدد>` | new | `read(2)`. A zero-length result *is* EOF. Byte-oriented so a multi-byte Arabic codepoint straddling a chunk boundary survives — decoding happens once, in stdlib. Line framing moves out of Rust. Criterion (b). |
+| `اقرأ_مجرى` | `(عدد، عدد) -> مصفوفة<عدد>` | new — **مُنفَّذ (#350)** | `read(2)`. Byte-oriented so a multi-byte Arabic codepoint straddling a chunk boundary survives — decoding happens once, in stdlib. Line framing moves out of Rust. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: `٠` stdin, `٣`+ a handle; `١`, `٢`, a negative descriptor, one the table does not hold, a non-positive count, and EOF **all** answer an empty array. **The "a zero-length result *is* EOF" clause is withdrawn as written** — see the correction below. The read loops until the count or EOF, mirroring `اكتب_مجرى`'s `write_all`. |
 | `افتح_ملف` | `(نص، عدد) -> عدد` | new | `open(2)`. Folds `trq_file_open_read/write/append` into one; the mode is `٠` قراءة / `١` كتابة / `٢` إلحاق, exported from stdlib as named `ثابت`s so no user writes the integer. Criterion (b). |
 | `اغلق_ملف` | `(عدد) -> منطقي` | new | `close(2)`. Existing implementation (`trq_file_close`) reused unchanged. Criterion (b). |
 | `حالة_ملف` | `(نص، عدد) -> عدد` | new | `stat(2)`, one field per call: `حقل ٠` = kind (٠ absent / ١ file / ٢ dir), `حقل ١` = size (`-١` if absent). **Folds four syscall wrappers into one** — `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` all become stdlib one-liners. Criterion (b). |
@@ -357,6 +357,30 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 > through `اطبع` and ordinary through this. So the byte-out direction #334 was filed to find needs
 > no value-representation change after all — though this name reaches files and the console, not
 > sockets, so Increment K still owes its own destination. See §6.7.2.
+
+> **Correction (#350): `اقرأ_مجرى`'s "a zero-length result *is* EOF" clause is withdrawn as
+> written.** It is not unimplementable (#333) and not unreachable (#347) — it is **incomplete**, and
+> it was written as though EOF were the only way to get a zero-length answer. It is not: an
+> unreadable descriptor, a handle the table does not hold and a non-positive count all produce one
+> too, and **an array return has no value left over to distinguish them.** `اكتب_مجرى` could answer
+> `-١` because a byte count is never negative; every array, empty included, is a legitimate read.
+>
+> A **fourth** defect class for §1.3 rows, then, after expiring criterion-(a) claims, contracts no
+> implementation can satisfy, and clauses describing a state the operation cannot enter: **a row
+> whose return type has no spare value cannot report a refusal at all.** Check what the return type
+> leaves room for before promising that a particular answer means a particular thing.
+>
+> The conflation is kept rather than worked around, because `runtime-rs` already made the same
+> choice one layer down: `trq_file_read_line` answers `""` for EOF, for a read error *and* for an
+> unknown handle, and `trq_file_eof` answers `true` for a handle that was never opened
+> (`runtime-rs/src/io.rs:510-531,569-576`). `متغير_بيئة`'s indistinguishable set-empty and unset is
+> the same shape in §1.3 itself. A caller that must tell them apart checks the descriptor it passed.
+>
+> Also settled here, before the fact rather than corrected after it: the read **loops** until the
+> count or EOF. #347 had to withdraw the mirror-image clause on the write side; reading once would
+> answer whatever a pipe happened to hold, so the length would depend on buffering and one program
+> would answer differently between runs and between backends. That is a flake, not a bug, and
+> `compare-backends` would surface it as one.
 
 #### Category 8 — Environment & time (6)
 
@@ -1001,7 +1025,8 @@ misleading parse errors.
 
 ### 6.7 Increment G — `ملفات` + `طرفية`
 
-Requires the seven new I/O primitives. 21 names. **20 after #338**, which landed `متغير_بيئة` ahead
+Requires the seven new I/O primitives; **two have landed** — `اكتب_مجرى` (#347, §6.7.2) and
+`اقرأ_مجرى` (#350, §6.7.3), the byte-level stream pair. 21 names. **20 after #338**, which landed `متغير_بيئة` ahead
 of this increment: `مجلد_مستخدم` reduces to it, so it becomes a stdlib one-liner rather than a syscall
 wrapper — `trq_dir_home` is `getenv("HOME")` and nothing else. `مجلد_مؤقت` does **not** collapse with
 it: `trq_dir_temp` calls `std::env::temp_dir()`, which falls back to `/tmp` when `TMPDIR` is unset and
@@ -1143,6 +1168,82 @@ Four things it found that the plan did not state:
    instead. The general rule for the remaining Increment G names: **an example demonstrates the
    contract's *text* rows; the byte and stream rows belong where the streams can be read
    separately.**
+
+### 6.7.3 `اقرأ_مجرى` — the second Increment G primitive (#350)
+
+**The forecast held again, and this is the second consecutive one made before the work.** §6.7's
+discriminator — *which half of the path already exists* — said nine: no `trq_read_stream` symbol, no
+registered name. It cost nine, plus the harness change its own contract requires (stdin, below).
+#342's caveat was checked and does not apply: reading bytes from a stream is not a new kind of
+effect, `trq_input` has always done it. So the discriminator now has two forecasts and two hits,
+which is what makes it worth trusting rather than re-measuring each time.
+
+Four things it found that the plan did not state:
+
+1. **The missing-return-type failure mode is not a property of the return type — it is a property
+   of the *use site*, and #330's finding does not generalise even to another name with the same
+   return type.** #330 measured "only `نوع` catches it" for `نص_إلى_ثنائي` and this document has been
+   refining a loudness ranking ever since (one catcher for an array, three for a `نص`, four for
+   `قص_حروف` and `متغير_بيئة`, fatal for `اكتب_مجرى`'s scalar). Measured here with the entry deleted,
+   an array return produces **three different modes at once**:
+
+   | use | interpreters | native |
+   |---|---|---|
+   | `اطبع(بايتات)` | correct | prints **nothing** — silent wrong output |
+   | `طول(بايتات)` | correct | correct — `ArrayLen` routes to `trq_array_len` regardless |
+   | `ثنائي_إلى_نص(بايتات)` | correct | correct — a `ptr` parameter takes the sentinel unchanged |
+   | `نوع(بايتات)` | `مؤشر` — caught | `مؤشر` — caught |
+   | `اطبع(بايتات[٠])` | correct | **run-time abort** — «misaligned pointer dereference … 0x41» |
+   | `بايتات[٠] + ١` | correct | **compile failure**, ت٠١٠١ |
+   | `بايتات[٣] == ٦٨` | correct | **compile failure**, ت٠١٠١ |
+
+   The abort is the interesting row: with `Ptr(Void)` the *element* is a pointer too, so `trq_print`
+   dereferences the byte value `65` as an address. So the honest rule is the one §1.1's own note
+   already gives — **predict from the use site, never from the declare** — and the loud/quiet
+   ranking this document has been building is the thing that obscured it. An array whose elements
+   are only counted or handed on hides the sentinel completely; one whose elements are arithmetic
+   cannot be assembled at all.
+
+2. **A composition test over a *refusal* proves nothing, and that is a trap specific to a primitive
+   whose empty answer is a contract row.** Every name since #324 is gated on composing its result,
+   and the natural fixture here — a descriptor the primitive refuses — needs no stdin and so is much
+   easier to write. It is also worthless: an empty array cannot be indexed, and `طول` answers `0`
+   with or without the entry, so all three assertions pass on a sentinel. The gate has to run over
+   bytes actually read, which is what forced the harness change below to land *first*.
+
+3. **The harness gained stdin, and the null default turned out to be a contract row for free.**
+   `cargo` runs tests as threads in one process, so a test cannot redirect its own stdin any more
+   than it can `set_var` (#338). The bytes go on the child, through one shared innermost driver with
+   `_with_stdin` peers, leaving all existing call sites untouched. Two things worth keeping: the
+   parameter is `&[u8]`, not `&str`, because one contract row is a byte sequence that is not text;
+   and `Command::output`'s default stdin is **null**, not inherited, so the EOF row is assertable
+   through the plain `assert_prints` with no piping at all. The native leg pipes to the executed
+   binary, never to `compile` — #338's lesson transposed.
+
+4. **An input primitive's CI example is the inverse of #347's, and strictly worse off.** #347 found
+   that an output primitive's *byte* rows cannot go in the example, because the golden file is a
+   `2>&1` capture. Here the *success* rows cannot: the golden is generated with stdin inherited from
+   a terminal, so any positive-count read on `٠` would wait for input and never finish. The example
+   therefore demonstrates only what the primitive refuses — every row it *does* cover is a zero. The
+   general rule for the rest of Increment G: **an example can only exercise a primitive whose inputs
+   the example itself can supply**; `افتح_ملف` and `حالة_ملف` will be able to, `اقرأ_مجرى` cannot.
+
+Two smaller results, both recorded because they were *run* rather than assumed:
+
+- **The keyword-embedding check does not apply, and this is the first name checked mechanically
+  against the whole list rather than by eye.** `اقرأ_مجرى` embeds none of the 69 keywords, where its
+  sibling `اكتب_مجرى` embeds `ك`. Per #317/#320 it therefore gets no row in
+  `test_identifier_containing_a_keyword_stays_one_token` — adding one dilutes what that test tests.
+- **A new lexer shape *was* probed, and it passed.** The name carries a precomposed hamza (`أ`,
+  U+0623) whose NFD form is two codepoints, so source written decomposed must still resolve to the
+  registered name. It does: the lexer normalises the file to NFC before tokenising, and the
+  decomposed spelling ran and answered correctly in the interpreter. Recorded rather than pinned in
+  a test, because the normalisation is a whole-file property and not specific to this name.
+
+Finally, the `≥٣` note from §6.7.2 now applies to **both** halves of the pair: the interpreter has no
+handle table and the runtime's is provably empty from Tarqeem source, so both answer an empty array
+for the same reason. `افتح_ملف` must give the interpreter a handle table in the same increment it
+lands, or two primitives diverge at once instead of one.
 
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 

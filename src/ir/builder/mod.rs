@@ -358,6 +358,37 @@ impl IrBuilder {
         // printed something wrong.
         self.function_return_types
             .insert("اكتب_مجرى".to_string(), IrType::Int);
+        // `اقرأ_مجرى` answers an array, and this entry was expected to fail
+        // **quietly** the way #330 measured for `نص_إلى_ثنائي` — "only `نوع`
+        // catches it". Measured with the entry deleted, that is wrong, and this
+        // is the **loudest** missing entry yet: three different modes at once,
+        // depending entirely on what the caller does with the *elements*.
+        //
+        //   `اطبع(بايتات)`      native prints **nothing**; interpreters print
+        //                        the array correctly — silent wrong output
+        //   `طول`               `4` in every backend, right either way, because
+        //                        `ArrayLen` routes to `trq_array_len` regardless
+        //   `ثنائي_إلى_نص`      right either way — a `ptr` parameter takes the
+        //                        sentinel unchanged
+        //   `نوع`               `مؤشر` instead of `مصفوفة` — caught, in all three
+        //   `اطبع(بايتات[٠])`   native **aborts at run time**: with `Ptr(Void)`
+        //                        the element is a pointer, so `trq_print`
+        //                        dereferences the byte value — «misaligned
+        //                        pointer dereference: address … is 0x41» for the
+        //                        byte 65
+        //   `بايتات[٠] + ١`     native **compile failure** (ت٠١٠١) — `add i64`
+        //   `بايتات[٣] == ٦٨`   native **compile failure** (ت٠١٠١)
+        //
+        // So #330's finding does not generalise even to another name with the
+        // same return type: loudness is a property of the **use site**, not of
+        // the return type, which is what §1.1's own note says and what the
+        // loud/quiet dichotomy keeps obscuring. An array whose elements are only
+        // counted or handed on hides the sentinel; one whose elements are
+        // *arithmetic* cannot be assembled at all.
+        self.function_return_types.insert(
+            "اقرأ_مجرى".to_string(),
+            IrType::Array(Box::new(IrType::Int), 0),
+        );
         // `أنهِ_البرنامج` has **no entry here, deliberately** — the one exception to
         // the rule the rest of this function embodies (`docs/builtins-vs-stdlib.md`
         // §1.1 rule 5: Scope entry + return type + interpreter arms, "any two of the
