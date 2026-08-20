@@ -130,6 +130,7 @@ pub use io::{
     trq_input_prompt,
     // Path operations
     trq_path_absolute,
+    trq_path_delete,
     trq_path_extension,
     trq_path_filename,
     trq_path_is_absolute,

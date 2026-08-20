@@ -481,6 +481,61 @@ pub extern "C" fn trq_path_status(path: *const TrqString, field: i64) -> i64 {
 }
 
 // ============================================================================
+// Path Deletion
+// ============================================================================
+
+/// Backs the core builtin `احذف_مسار`: `unlink(2)` for a file, `rmdir(2)` for an
+/// empty directory, chosen by `lstat`.
+///
+/// **`lstat`, not `stat`** — [`symlink_metadata`](std::fs::symlink_metadata), not
+/// `metadata`. The registry row specified `stat`, and reading the two names this
+/// folds shows why that is wrong: [`trq_file_delete`] is `remove_file`, which
+/// unlinks a symlink whatever it points at, while [`trq_dir_delete`] is
+/// `remove_dir`, which refuses one. Following the link would send a
+/// symlink-to-directory to `remove_dir` and answer `false` where `احذف_ملف`
+/// answers `true` today — and worse, [`trq_path_status`] reads a **broken**
+/// symlink as absent, so a `stat`-based selector could never delete one at all.
+///
+/// So this acts on the **name** while [`trq_path_status`] answers about the
+/// **target**. The two disagree about symlinks on purpose.
+///
+/// **Not recursive.** A non-empty directory answers `false`, keeping
+/// [`trq_dir_delete`]'s `rmdir` contract. Recursive deletion belongs in a stdlib
+/// loop, the way §1.3 assigns recursive *creation* to one rather than to a second
+/// primitive.
+///
+/// **Absent, unreadable, empty and null are one answer**, as in
+/// [`trq_path_status`]: a missing path, a permission error, an empty name and a
+/// null pointer all answer `false`. The path is read as given, with no trimming.
+///
+/// # Returns
+///
+/// `true` only if something was removed. Total — every path is a valid call, and
+/// none can panic.
+///
+/// # Safety
+///
+/// - `path` must be a valid pointer to a `TrqString` or null.
+///
+/// # C Equivalent
+/// ```c
+/// bool trq_path_delete(const TrqString* path);
+/// ```
+#[no_mangle]
+pub extern "C" fn trq_path_delete(path: *const TrqString) -> bool {
+    let path = match trq_string_to_path(path) {
+        Some(p) => p,
+        None => return false,
+    };
+
+    match std::fs::symlink_metadata(&path) {
+        Ok(meta) if meta.is_dir() => std::fs::remove_dir(&path).is_ok(),
+        Ok(_) => std::fs::remove_file(&path).is_ok(),
+        Err(_) => false,
+    }
+}
+
+// ============================================================================
 // File Handle/Stream Operations
 // ============================================================================
 
@@ -2073,6 +2128,116 @@ mod tests {
         unsafe {
             crate::memory::trq_release(path as *mut u8);
         }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // trq_path_delete — احذف_مسار
+    // ────────────────────────────────────────────────────────────────────
+
+    /// Frees a path built by [`path_string`].
+    ///
+    /// Without the `unsafe` block the neighbouring tests wrap this call in:
+    /// `trq_release` is a safe function, so the block is a lint (#310 tracks the
+    /// 55 others) and new code should not add to the sweep.
+    fn release_path(path: *mut TrqString) {
+        crate::memory::trq_release(path as *mut u8);
+    }
+
+    #[test]
+    fn test_path_delete_removes_a_regular_file() {
+        let target = "/tmp/tarqeem_test_path_delete_file.txt";
+        std::fs::write(target, "مرحبا").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        assert!(trq_path_delete(path));
+        assert!(!std::path::Path::new(target).exists());
+
+        release_path(path);
+    }
+
+    #[test]
+    fn test_path_delete_removes_an_empty_directory() {
+        let target = "/tmp/tarqeem_test_path_delete_empty_dir";
+        std::fs::remove_dir_all(target).ok();
+        std::fs::create_dir(target).expect("تعذّر إنشاء المجلد / could not create the directory");
+
+        let path = path_string(target);
+        assert!(trq_path_delete(path));
+        assert!(!std::path::Path::new(target).exists());
+
+        release_path(path);
+    }
+
+    /// `rmdir`, not `rm -r`: a directory with anything in it survives, which is
+    /// what keeps `احذف_مجلد`'s contract when it becomes a wrapper.
+    #[test]
+    fn test_path_delete_refuses_a_non_empty_directory() {
+        let dir = "/tmp/tarqeem_test_path_delete_full_dir";
+        std::fs::remove_dir_all(dir).ok();
+        std::fs::create_dir(dir).expect("تعذّر إنشاء المجلد / could not create the directory");
+        std::fs::write(format!("{dir}/ساكن.نص"), "x").expect("تعذّر إنشاء الملف");
+
+        let path = path_string(dir);
+        assert!(!trq_path_delete(path));
+        assert!(std::path::Path::new(dir).exists());
+
+        release_path(path);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// An absent path, an empty name and a null pointer are one answer.
+    #[test]
+    fn test_path_delete_removes_nothing_that_is_not_there() {
+        for name in ["/tmp/tarqeem_test_path_delete_absent_xyz", ""] {
+            let path = path_string(name);
+            assert!(!trq_path_delete(path), "حذف ما ليس موجوداً: {name:?}");
+            release_path(path);
+        }
+
+        assert!(!trq_path_delete(std::ptr::null()));
+    }
+
+    /// The lstat decision, and the row that makes it load-bearing. Following the
+    /// link would call `remove_dir` on it and fail; the link is unlinked instead,
+    /// and the directory it named survives.
+    #[test]
+    #[cfg(unix)]
+    fn test_path_delete_unlinks_a_symlink_to_a_directory_and_spares_its_target() {
+        let target = "/tmp/tarqeem_test_path_delete_link_target_dir";
+        let link = "/tmp/tarqeem_test_path_delete_link_to_dir";
+        std::fs::remove_file(link).ok();
+        std::fs::remove_dir_all(target).ok();
+        std::fs::create_dir(target).expect("تعذّر إنشاء المجلد / could not create the directory");
+        std::os::unix::fs::symlink(target, link).expect("تعذّر إنشاء الوصلة / could not link");
+
+        // What a `stat`-based selector would have seen, and why it is wrong here.
+        assert!(std::fs::metadata(link).expect("الوصلة تُتبَع").is_dir());
+
+        let path = path_string(link);
+        assert!(trq_path_delete(path));
+        assert!(std::fs::symlink_metadata(link).is_err(), "الوصلة باقية");
+        assert!(std::path::Path::new(target).is_dir(), "الهدف حُذف");
+
+        release_path(path);
+        std::fs::remove_dir_all(target).ok();
+    }
+
+    /// A broken link is removable — the row a `stat`-based selector could never
+    /// reach, since [`trq_path_status`] reads it as absent.
+    #[test]
+    #[cfg(unix)]
+    fn test_path_delete_unlinks_a_broken_symlink() {
+        let link = "/tmp/tarqeem_test_path_delete_broken_link";
+        std::fs::remove_file(link).ok();
+        std::os::unix::fs::symlink("/tmp/tarqeem_test_path_delete_never_existed", link)
+            .expect("تعذّر إنشاء الوصلة / could not link");
+
+        let path = path_string(link);
+        assert_eq!(trq_path_status(path, STAT_FIELD_KIND), PATH_KIND_ABSENT);
+        assert!(trq_path_delete(path));
+        assert!(std::fs::symlink_metadata(link).is_err(), "الوصلة باقية");
+
+        release_path(path);
     }
 
     /// Builds the `مصفوفة<عدد>` the compiler would hand this primitive: one raw

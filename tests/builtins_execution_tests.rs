@@ -311,12 +311,55 @@ fn assert_prints_with_stdin(name: &str, body: &str, stdin: &[u8], expected: &[&s
     }
 }
 
-/// `assert_prints` with fixture files on disk, whose **absolute** paths are
+/// What `assert_prints_with_tree` puts on disk for one fixture name.
+///
+/// `Symlink`'s target is another name in the same directory and **need not
+/// exist** — a dangling link is a contract row for `احذف_مسار`, not a mistake.
+/// A fixture that is the target of a later `Symlink` must come before it.
+#[derive(Clone, Copy)]
+enum Fixture<'a> {
+    File(&'a str),
+    #[allow(dead_code)]
+    EmptyDir,
+    #[cfg(unix)]
+    #[allow(dead_code)]
+    Symlink {
+        to: &'a str,
+    },
+}
+
+/// Builds the fixture tree from scratch, removing whatever the previous backend
+/// leg left behind.
+///
+/// `remove_file` comes first because it is what unlinks a **symlink**;
+/// `remove_dir_all` refuses one rather than following it.
+fn materialize(dir: &Path, fixtures: &[(&str, Fixture)]) {
+    for (fixture_name, _) in fixtures {
+        let path = dir.join(fixture_name);
+        if fs::remove_file(&path).is_err() {
+            let _ = fs::remove_dir_all(&path);
+        }
+    }
+
+    for (fixture_name, fixture) in fixtures {
+        let path = dir.join(fixture_name);
+        match fixture {
+            Fixture::File(contents) => fs::write(&path, contents).expect("تعذّر كتابة ملف التجربة"),
+            Fixture::EmptyDir => fs::create_dir(&path).expect("تعذّر إنشاء مجلد التجربة"),
+            #[cfg(unix)]
+            Fixture::Symlink { to } => {
+                std::os::unix::fs::symlink(dir.join(to), &path).expect("تعذّر إنشاء وصلة التجربة")
+            }
+        }
+    }
+}
+
+/// `assert_prints` with a fixture tree on disk, whose **absolute** paths are
 /// substituted into `body`.
 ///
-/// Each `(name, contents)` pair is written into the same `TempDir` the program
-/// lives in, and every `{مسار}` in `body` becomes the absolute path of the
-/// first pair, `{مسار٢}` the second, and so on.
+/// Each fixture is created inside the same `TempDir` the program lives in, and
+/// every `{مسار}` in `body` becomes the absolute path of the first fixture,
+/// `{مسار2}` the second, and so on.
 ///
 /// Absolute, not relative: the native leg runs the compiled binary directly and
 /// inherits no working directory from the source's location, so a relative
@@ -329,15 +372,26 @@ fn assert_prints_with_stdin(name: &str, body: &str, stdin: &[u8], expected: &[&s
 /// Tarqeem programs in this file use Latin digits throughout — the Arabic-Indic
 /// ones here are all prose. `examples/` is where the other convention lives.
 ///
-/// Additive, like both of those: `assert_prints` is untouched, and a test only
-/// pays for a fixture if it names one.
-fn assert_prints_with_files(name: &str, files: &[(&str, &str)], body: &str, expected: &[&str]) {
+/// **The tree is rebuilt inside the backend loop, once per leg.** It used to be
+/// built once, before the loop, which is invisible for a primitive that only
+/// *reads* — and wrong for one that deletes: the interpreter leg would consume
+/// the fixture and the JIT and native legs would then run against an absent
+/// path, failing however correct the implementation was.
+///
+/// Additive, like `_with_env` and `_with_stdin`: `assert_prints_with_files` is
+/// one line over this, so its existing callers are untouched — rewriting the
+/// same file contents per leg is idempotent.
+fn assert_prints_with_tree(
+    name: &str,
+    fixtures: &[(&str, Fixture)],
+    body: &str,
+    expected: &[&str],
+) {
     let temp = TempDir::new().unwrap();
 
     let mut resolved = body.to_string();
-    for (index, (file_name, contents)) in files.iter().enumerate() {
-        let path = temp.path().join(file_name);
-        fs::write(&path, contents).expect("تعذّر كتابة ملف التجربة");
+    for (index, (fixture_name, _)) in fixtures.iter().enumerate() {
+        let path = temp.path().join(fixture_name);
         let placeholder = match index {
             0 => "{مسار}".to_string(),
             other => format!("{{مسار{}}}", other + 1),
@@ -353,12 +407,14 @@ fn assert_prints_with_files(name: &str, files: &[(&str, &str)], body: &str, expe
         !resolved.contains("{مسار"),
         "بقي موضع مسار بلا استبدال في {name} / an unsubstituted path placeholder remains — \
          the fixture list has {} entries, so the placeholders are {{مسار}} then {{مسار2}}, …",
-        files.len()
+        fixtures.len()
     );
 
     let main = write_program(temp.path(), name, &resolved);
 
     for backend in Backend::ALL {
+        materialize(temp.path(), fixtures);
+
         let output = execute(backend, &main, &format!("{name}_{backend:?}"));
 
         assert!(
@@ -373,6 +429,16 @@ fn assert_prints_with_files(name: &str, files: &[(&str, &str)], body: &str, expe
             output.report()
         );
     }
+}
+
+/// `assert_prints_with_tree` where every fixture is a plain file.
+fn assert_prints_with_files(name: &str, files: &[(&str, &str)], body: &str, expected: &[&str]) {
+    let fixtures: Vec<(&str, Fixture)> = files
+        .iter()
+        .map(|(file_name, contents)| (*file_name, Fixture::File(contents)))
+        .collect();
+
+    assert_prints_with_tree(name, &fixtures, body, expected)
 }
 
 /// `assert_prints` with extra variables in each backend's environment.
@@ -3189,6 +3255,11 @@ fn test_every_core_builtin_agrees_across_backends() {
         // legs do not share. A *file* row would, which is why it lives in the
         // fixture-backed tests below.
         ("حالة_مسار", "اطبع(حالة_مسار(\".\"، 0))", &["2"]),
+        (
+            "احذف_مسار",
+            "اطبع(احذف_مسار(\"لا_يوجد_هذا_المسار\"))",
+            &["خطأ"],
+        ),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
@@ -4193,5 +4264,201 @@ fn test_user_function_shadows_path_status() {
             "اطبع(حالة_مسار(\".\"، 0))",
         ),
         &["99"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// احذف_مسار — `unlink(2)` for a file, `rmdir(2)` for an empty directory (#355)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Pinned cross-backend for `حالة_مسار`'s reason and one more of its own. The
+// lstat-then-choose mapping exists **twice** — in `trq_path_delete` and in
+// `call_path_delete` — for the reason that block records. And this primitive has
+// an *effect*, so a test that only reads the return value cannot tell a working
+// implementation from one that answers `صحيح` and deletes nothing: every row that
+// should remove something asks `حالة_مسار` afterwards.
+
+/// The effect gate. A `منطقي` return composes weakly on its own, so the sibling
+/// primitive supplies the proof that the file is actually gone — in all three
+/// backends, not just in the one that happens to run first.
+#[test]
+fn test_path_delete_removes_a_file_and_the_sibling_sees_it_go() {
+    assert_prints_with_files(
+        "حذف_ملف",
+        &[("بيانات.نص", "مرحبا")],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))",
+        ),
+        &["1", "صحيح", "0"],
+    );
+}
+
+/// An empty directory goes the same way, through `rmdir` rather than `unlink`.
+#[test]
+fn test_path_delete_removes_an_empty_directory() {
+    assert_prints_with_tree(
+        "حذف_مجلد",
+        &[("فارغ", Fixture::EmptyDir)],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))",
+        ),
+        &["2", "صحيح", "0"],
+    );
+}
+
+/// **The contract decision, executed.** `حالة_مسار` follows the link and answers
+/// `٢`, so a `stat`-based selector would call `rmdir` on it and fail. This unlinks
+/// the link and leaves the directory it named — the row that would silently drift
+/// if either copy of the kernel switched to `metadata`.
+#[test]
+#[cfg(unix)]
+fn test_path_delete_unlinks_a_symlink_to_a_directory_and_spares_its_target() {
+    assert_prints_with_tree(
+        "حذف_وصلة",
+        &[
+            ("هدف", Fixture::EmptyDir),
+            ("وصلة", Fixture::Symlink { to: "هدف" }),
+        ],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار2}\"، 0))\n",
+            "اطبع(احذف_مسار(\"{مسار2}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار2}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))",
+        ),
+        &["2", "صحيح", "0", "2"],
+    );
+}
+
+/// A broken link is removable, and this is the row a `stat`-based selector could
+/// never reach at all: `حالة_مسار` reads it as **absent**, so a selector that
+/// asked would find nothing to delete and strand the link permanently.
+#[test]
+#[cfg(unix)]
+fn test_path_delete_unlinks_a_broken_symlink() {
+    assert_prints_with_tree(
+        "حذف_وصلة_مقطوعة",
+        &[(
+            "معلقة",
+            Fixture::Symlink {
+                to: "لا_يوجد_هدف"
+            },
+        )],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))",
+        ),
+        &["0", "صحيح", "خطأ"],
+    );
+}
+
+/// `rmdir`, not `rm -r`. `"."` is a non-empty directory wherever a program runs,
+/// and POSIX refuses `rmdir(".")` regardless — so the row needs no fixture and
+/// cannot delete anything.
+#[test]
+fn test_path_delete_refuses_a_non_empty_directory() {
+    assert_prints(
+        "حذف_مجلد_عامر",
+        concat!("اطبع(احذف_مسار(\".\"))\n", "اطبع(حالة_مسار(\".\"، 0))",),
+        &["خطأ", "2"],
+    );
+}
+
+/// An absent path and an empty name are one answer, as they are for `حالة_مسار`.
+#[test]
+fn test_path_delete_removes_nothing_that_is_not_there() {
+    assert_prints(
+        "حذف_معدوم",
+        concat!(
+            "اطبع(احذف_مسار(\"لا_يوجد_هذا_المسار\"))\n",
+            "اطبع(احذف_مسار(\"\"))",
+        ),
+        &["خطأ", "خطأ"],
+    );
+}
+
+/// `لا_شيء` answers `خطأ` rather than raising. Both spellings of a null reach the
+/// arm: an un-narrowed `نص?` through `Type::compat`, and an `أي` holder (#333).
+#[test]
+fn test_path_delete_reads_a_null_path_as_nothing() {
+    assert_prints(
+        "حذف_لا_شيء",
+        concat!(
+            "متغير غائب: نص? = لا_شيء\n",
+            "متغير مجهول: أي = لا_شيء\n",
+            "اطبع(احذف_مسار(غائب))\n",
+            "اطبع(احذف_مسار(مجهول))",
+        ),
+        &["خطأ", "خطأ"],
+    );
+}
+
+/// The two names this folds, written as the stdlib wrappers they become.
+///
+/// Both carry a **documented delta** at one edge: the only kind they can ask for
+/// comes from `حالة_مسار`, which follows symlinks, so a symlink-to-directory is
+/// refused by `احذف_ملف` where `remove_file` succeeds today, and accepted by
+/// `احذف_مجلد` where `remove_dir` fails. One edge, two faces. Blast radius is
+/// nil: neither name has an interpreter arm today, so neither ever worked outside
+/// native compilation.
+#[test]
+fn test_path_delete_folds_the_two_delete_names() {
+    assert_prints_with_tree(
+        "حذف_أغلفة",
+        &[("و.نص", Fixture::File("x")), ("د", Fixture::EmptyDir)],
+        concat!(
+            "دالة احذف_ملف(م: نص) -> منطقي {\n",
+            "    إذا (حالة_مسار(م، 0) == 2) { أرجع خطأ }\n",
+            "    أرجع احذف_مسار(م)\n",
+            "}\n",
+            "دالة احذف_مجلد(م: نص) -> منطقي {\n",
+            "    إذا (حالة_مسار(م، 0) != 2) { أرجع خطأ }\n",
+            "    أرجع احذف_مسار(م)\n",
+            "}\n",
+            "اطبع(احذف_مجلد(\"{مسار}\"))\n",
+            "اطبع(احذف_ملف(\"{مسار2}\"))\n",
+            "اطبع(احذف_ملف(\"{مسار}\"))\n",
+            "اطبع(احذف_مجلد(\"{مسار2}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار2}\"، 0))",
+        ),
+        &["خطأ", "خطأ", "صحيح", "صحيح", "0", "0"],
+    );
+}
+
+/// The load-bearing test for the `register_builtin_return_types` entry. Printing
+/// alone passes without it — natively it prints nothing at all, which `اطبع` has
+/// done for every scalar since #347 — so the assertions that matter are `نوع` and
+/// the comparison, which fails native compilation outright with ت٠١٠١.
+#[test]
+fn test_path_delete_result_composes_as_a_boolean() {
+    assert_prints(
+        "حذف_تركيب",
+        concat!(
+            "اطبع(نوع(احذف_مسار(\"لا_يوجد_هذا_المسار\")))\n",
+            "اطبع(احذف_مسار(\"لا_يوجد_هذا_المسار\") == خطأ)\n",
+            "إذا (ليس احذف_مسار(\"لا_يوجد_هذا_المسار\")) { اطبع(\"لم يُحذف\") }",
+        ),
+        &["منطقي", "صحيح", "لم يُحذف"],
+    );
+}
+
+/// A user function named `احذف_مسار` shadows the builtin, like every other core
+/// name (LANGUAGE_SPEC §4.9).
+#[test]
+fn test_user_function_shadows_path_delete() {
+    assert_prints(
+        "حذف_تظليل",
+        concat!(
+            "دالة احذف_مسار(م: نص) -> منطقي {\n",
+            "    أرجع صحيح\n",
+            "}\n",
+            "اطبع(احذف_مسار(\"لا_يوجد_هذا_المسار\"))",
+        ),
+        &["صحيح"],
     );
 }

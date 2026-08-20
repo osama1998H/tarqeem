@@ -284,6 +284,14 @@ impl Scope {
             // exists and is not a file, so those first two disagree about it and
             // three values could not carry both.
             ("حالة_مسار", vec![Type::String, Type::Int], Type::Int),
+            // Path deletion - حذف المسار
+            // `unlink(2)` for a file, `rmdir(2)` for an empty directory, chosen
+            // by **lstat**: a symlink is unlinked, never rmdir'd, so this acts on
+            // the name where `حالة_مسار` answers about the target. Not recursive
+            // — a non-empty directory answers `خطأ`, which keeps `احذف_مجلد`'s
+            // contract when it becomes a wrapper. Total: absent, empty and
+            // `لا_شيء` all answer `خطأ`.
+            ("احذف_مسار", vec![Type::String], Type::Bool),
             // Termination - إنهاء البرنامج
             // `exit(2)`, which `توقف` cannot serve: that one is always status 1
             // and always prints. Total — the status is `حالة & ٢٥٥`, so every

@@ -4,8 +4,9 @@ use std::io::{self, Write};
 
 use crate::interpreter::epoch_millis;
 use crate::interpreter::{
-    bytes_to_string, call_env_var, call_exit_program, call_path_status, call_read_stream,
-    call_substring_by_chars, call_write_stream, RuntimeError, RuntimeResult, Value,
+    bytes_to_string, call_env_var, call_exit_program, call_path_delete, call_path_status,
+    call_read_stream, call_substring_by_chars, call_write_stream, RuntimeError, RuntimeResult,
+    Value,
 };
 
 use super::DebugInterpreter;
@@ -39,6 +40,7 @@ impl DebugInterpreter {
                 | "اكتب_مجرى"
                 | "اقرأ_مجرى"
                 | "حالة_مسار"
+                | "احذف_مسار"
                 // Termination. Absent here, stepping through `أنهِ_البرنامج(٠)`
                 // would abort with «دالة غير معرّفة» while every other backend
                 // ended the program cleanly — the same gap #295 records for
@@ -270,6 +272,7 @@ impl DebugInterpreter {
             "اكتب_مجرى" => call_write_stream(&args),
             "اقرأ_مجرى" => call_read_stream(&args),
             "حالة_مسار" => call_path_status(&args),
+            "احذف_مسار" => call_path_delete(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 
@@ -889,6 +892,67 @@ mod tests {
             .call_builtin("حالة_مسار", vec![Value::string("/tmp"), Value::Null])
             .expect_err("لا_شيء ليست حقلاً");
         assert_eq!(err.kind, ErrorKind::TypeError);
+    }
+
+    /// `احذف_مسار` under the debug interpreter, for `حالة_مسار`'s reason plus one
+    /// of its own: the lstat-versus-stat choice is the whole contract, and it is
+    /// the only place the two copies of the kernel can silently disagree.
+    #[test]
+    #[cfg(unix)]
+    fn test_path_delete_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("احذف_مسار"),
+            "احذف_مسار غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let delete = |interpreter: &mut DebugInterpreter, path: Value| {
+            interpreter
+                .call_builtin("احذف_مسار", vec![path])
+                .expect("احذف_مسار تُرجع قيمة لا خطأ")
+        };
+
+        // An absent path, an empty name and a null one are one answer.
+        for path in [
+            Value::string("/tmp/tarqeem_debug_path_delete_absent_xyz"),
+            Value::string(""),
+            Value::Null,
+        ] {
+            assert_eq!(delete(&mut interpreter, path), Value::Bool(false));
+        }
+
+        // A non-empty directory is refused: `rmdir`, not `rm -r`.
+        assert_eq!(
+            delete(&mut interpreter, Value::string("/tmp")),
+            Value::Bool(false)
+        );
+
+        let target = "/tmp/tarqeem_debug_path_delete_target_dir";
+        let link = "/tmp/tarqeem_debug_path_delete_link";
+        std::fs::remove_file(link).ok();
+        std::fs::remove_dir_all(target).ok();
+        std::fs::create_dir(target).expect("تعذّر إنشاء المجلد");
+        std::os::unix::fs::symlink(target, link).expect("تعذّر إنشاء الوصلة");
+
+        // The contract decision: the link is unlinked and its target survives.
+        // Following the link would call `rmdir` on it and answer `خطأ`.
+        assert_eq!(
+            delete(&mut interpreter, Value::string(link)),
+            Value::Bool(true)
+        );
+        assert!(std::fs::symlink_metadata(link).is_err(), "الوصلة باقية");
+        assert!(std::path::Path::new(target).is_dir(), "الهدف حُذف");
+
+        // And an empty directory goes, through the other branch.
+        assert_eq!(
+            delete(&mut interpreter, Value::string(target)),
+            Value::Bool(true)
+        );
+        assert!(!std::path::Path::new(target).exists());
     }
 
     #[test]

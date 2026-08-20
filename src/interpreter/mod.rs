@@ -48,6 +48,7 @@ pub(crate) use executor::builtins::call_write_stream;
 /// the read half of the byte-level stream pair.
 pub(crate) use executor::builtins::call_read_stream;
 
+pub(crate) use executor::builtins::call_path_delete;
 /// Shared for a reason the others do not have: the kind/size mapping is already
 /// duplicated once, in `trq_path_status`, because the compiler crate does not
 /// depend on `tarqeem-runtime`. A third copy in the debug interpreter would give
