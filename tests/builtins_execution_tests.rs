@@ -325,6 +325,10 @@ fn assert_prints_with_stdin(name: &str, body: &str, stdin: &[u8], expected: &[&s
 /// `_with_stdin` learned in their own currency — the fixture goes where the
 /// child can reach it, not where the harness happens to stand.
 ///
+/// A second fixture is `{مسار2}`, a third `{مسار3}`. Latin digits, because the
+/// Tarqeem programs in this file use Latin digits throughout — the Arabic-Indic
+/// ones here are all prose. `examples/` is where the other convention lives.
+///
 /// Additive, like both of those: `assert_prints` is untouched, and a test only
 /// pays for a fixture if it names one.
 fn assert_prints_with_files(name: &str, files: &[(&str, &str)], body: &str, expected: &[&str]) {
@@ -340,6 +344,17 @@ fn assert_prints_with_files(name: &str, files: &[(&str, &str)], body: &str, expe
         };
         resolved = resolved.replace(&placeholder, path.to_str().expect("مسار غير صالح"));
     }
+
+    // An unsubstituted placeholder is silent otherwise: it reaches the program as
+    // a literal path, which every path primitive reads as *absent* — so a row
+    // asserting the absent answer would pass while testing nothing. Fail here,
+    // where the mismatch is, rather than in an assertion that cannot see it.
+    assert!(
+        !resolved.contains("{مسار"),
+        "بقي موضع مسار بلا استبدال في {name} / an unsubstituted path placeholder remains — \
+         the fixture list has {} entries, so the placeholders are {{مسار}} then {{مسار2}}, …",
+        files.len()
+    );
 
     let main = write_program(temp.path(), name, &resolved);
 
