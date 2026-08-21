@@ -326,7 +326,7 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | `اطبع_خطأ` | `(أي) -> فراغ` | unchanged | Same intrinsic, differing only in destination stream. Cannot be a stdlib wrapper over `اطبع` either — the wrapper would need an `أي` parameter and hit `ت٠٣٠١`. |
 | `اكتب_مجرى` | `(عدد، مصفوفة<عدد>) -> عدد` | new — **مُنفَّذ (#347)** | `write(2)`. **One** write primitive for stdout, stderr and any open handle. Replaces eight formatting-in-Rust exports. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: `١` stdout, `٢` stderr, `٣`+ a handle; `٠`, a negative descriptor, one the table does not hold, and an element outside `٠`-`٢٥٥` all answer `-١`, which is collision-free because a count is never negative. An empty or `لا_شيء` array answers `٠` as a value. Rejection is **complete** — the array is validated before the first byte goes out. **The "short writes stay visible" clause is withdrawn** — see the correction below. |
 | `اقرأ_مجرى` | `(عدد، عدد) -> مصفوفة<عدد>` | new — **مُنفَّذ (#350)** | `read(2)`. Byte-oriented so a multi-byte Arabic codepoint straddling a chunk boundary survives — decoding happens once, in stdlib. Line framing moves out of Rust. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: `٠` stdin, `٣`+ a handle; `١`, `٢`, a negative descriptor, one the table does not hold, a non-positive count, and EOF **all** answer an empty array. **The "a zero-length result *is* EOF" clause is withdrawn as written** — see the correction below. The read loops until the count or EOF, mirroring `اكتب_مجرى`'s `write_all`. |
-| `افتح_ملف` | `(نص، عدد) -> عدد` | new — **مُنفَّذ (#362)** | `open(2)`. Folds `trq_file_open_read/write/append` into one; the mode is `٠` قراءة / `١` كتابة / `٢` إلحاق, and `stdlib/ملفات/ملف.ترقيم` already declares those three as named `ثابت`s. **It also declares a fourth, `وضع_قراءة_كتابة = ٣`, which is refused** — see the correction below. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: the mode is settled before the path, so an unknown one creates nothing; a handle is always `٣`+; and an absent or unreadable path, an empty name and `لا_شيء` all answer **`-١`, never `٠`**. |
+| `افتح_ملف` | `(نص، عدد) -> عدد` | new — **مُنفَّذ (#362)** | `open(2)`. Folds `trq_file_open_read/write/append` into one; the mode is `٠` قراءة / `١` كتابة / `٢` إلحاق, and `stdlib/ملفات/ملف.ترقيم` already declares those three as named `ثابت`s. **It also declares a fourth, `وضع_قراءة_كتابة = ٣`, which is refused** — see the correction below. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: the mode is settled before the path, so an unknown one creates nothing; a handle is always `٣`+; a **directory is refused in every mode**, deliberately unlike `open(2)`, so the answer does not depend on the platform; and an absent or unreadable path, an empty name and `لا_شيء` all answer **`-١`, never `٠`**. |
 | `اغلق_ملف` | `(عدد) -> منطقي` | new | `close(2)`. Existing implementation (`trq_file_close`) reused unchanged. Criterion (b). |
 | `حالة_مسار` | `(نص، عدد) -> عدد` | new — **مُنفَّذ (#352)** | `stat(2)`, one field per call, so the answer stays an `عدد` and no struct crosses the FFI. `حقل ٠` = kind, `حقل ١` = size. **Folds four syscall wrappers into one** — `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` all become stdlib one-liners. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). **Renamed from `حالة_ملف`, and the kind gained a fourth value; the size clause was completed** — see the correction below. Total: the field is settled before the path, symlinks are followed, and an absent path, an unreadable one, an empty name and `لا_شيء` all answer `٠` / `-١`. |
 | `احذف_مسار` | `(نص) -> منطقي` | new — **مُنفَّذ (#355)** | `unlink(2)` for a file, `rmdir(2)` for an empty directory, chosen by **`lstat`** — **the row said `stat`, and that was wrong; see the correction below.** Folds two symbols; `احذف_ملف` and `احذف_مجلد` survive as stdlib wrappers, each with one documented delta. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: an absent path, an empty name, `لا_شيء`, an unreadable path and a non-empty directory all answer `خطأ`, indistinguishably. Not recursive. |
@@ -454,11 +454,15 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 >   `FileHandle` is `Reader | Writer`, and a read-write variant would touch all eight functions that
 >   read `FILE_HANDLES`. Refused with every other unknown mode rather than served silently by one of
 >   its halves.
-> - **A directory opens for reading.** Found by *running* the CI example, not by reasoning: the line
->   `افتح_ملف(".", ٠)` was written expecting `-١` and answered a handle, because `File::open`
->   succeeds on a directory and `read` on it then fails. Faithful to `open(2)`/`read(2)`, so it is
->   kept and documented; write and append do refuse a directory. It is also why that line left the
->   example — it consumes a handle and would put its number in the golden.
+> - **A directory is refused in every mode, deviating from `open(2)` deliberately.** Found by
+>   *running* the CI example, not by reasoning: the line `افتح_ملف(".", ٠)` was written expecting `-١`
+>   and answered a handle, because `File::open` succeeds on a directory under POSIX. Keeping that
+>   would have put a **platform** split in a contract row — Windows refuses the same open, since
+>   `CreateFile` needs a flag `std` does not pass — and `cargo test` never runs on Windows, so nothing
+>   could have caught it. Refused on both sides instead, checked through the *opened handle* so there
+>   is no window between test and open, and provably a no-op where the open already failed. The shape
+>   #355 chose over a `cfg(windows)` arm: one documented behaviour, one implementation. Devices and
+>   FIFOs are **not** refused. It is also why that line left the example.
 >
 > No new defect class. The first point is #352's and #360's shape again — a row whose prose leaves a
 > contract question open — and it is worth noting *which* question: the row named what the primitive
@@ -1701,11 +1705,17 @@ Six things it found that the plan did not state:
    pair. See the §1.3 correction; the check that finds it is #352's and #355's, applied to the return
    value.
 
-3. **A directory opens for reading, and running the example is what found it.** Written expecting
-   `-١`, it answered a handle. Kept — it is `open(2)` faithfully — documented, and moved out of the
-   example into a cross-backend test, because it consumes a handle and would put the number in the
-   golden. **Third increment running where a check on the *example* found a contract row**, after
-   #355's banner collision and #360's `--`.
+3. **A directory is refused in every mode, and running the example is what found the question.**
+   Written expecting `-١`, it answered a handle: `File::open` succeeds on a directory under POSIX and
+   fails on Windows, where `CreateFile` needs a flag `std` does not pass. Documenting the split was
+   the first answer and it was the wrong one — `cargo test` never runs on Windows (that job only
+   builds), so the cross-backend test would have encoded a Unix-only answer with nothing able to catch
+   it. **This is #355's review lesson inverted**: there, a `cfg(unix)` suite could not see a contract
+   the docs stated unconditionally; here an *ungated* test could not see a platform the docs had just
+   carved out. Same remedy both times — one documented behaviour, one implementation — so the
+   directory is refused on both sides, checked through the opened handle. **Third increment running
+   where a check on the *example* found a contract row**, after #355's banner collision and #360's
+   `--`.
 
 4. **A scalar's missing-return-type mode is predictable across names in its two composition rows and
    *not* in its printing row.** #347 measured a scalar as fatal on arithmetic and silent on printing;

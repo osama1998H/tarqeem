@@ -678,9 +678,14 @@ const OPEN_FAILED: i64 = -1;
 /// nothing in the language closes a handle yet. [`flush_open_writers`] is what
 /// makes them land; `اغلق_ملف` will be what makes them land sooner.
 ///
+/// **A directory is refused in every mode**, so the answer does not depend on the
+/// platform — see the note in the body.
+///
 /// # Returns
-/// * The handle, or `-1` for an unknown mode, an absent or unreadable path, an
-///   empty name, or a null pointer.
+/// * The handle, or `-1` for an unknown mode, a directory, an absent path *in read
+///   mode*, a path that cannot be opened or created, an empty name, or a null
+///   pointer. Write and append modes create an absent path rather than refusing
+///   it.
 ///
 /// # Safety
 ///
@@ -700,10 +705,43 @@ pub extern "C" fn trq_file_open(path: *const TrqString, mode: i64) -> i64 {
     };
 
     if handle == 0 {
-        OPEN_FAILED
-    } else {
-        handle
+        return OPEN_FAILED;
     }
+
+    // A directory is refused, and this is what makes the answer the same on every
+    // platform. `File::open` succeeds on one under POSIX and fails on Windows,
+    // where opening a directory handle needs `FILE_FLAG_BACKUP_SEMANTICS` that
+    // `std` does not pass — so honouring `open(2)` literally would make one
+    // program answer a handle on Linux and `-1` on Windows, in a contract row.
+    // The handle would be useless either way: `اقرأ_مجرى` reads nothing from it
+    // and `قائمة_مجلد` is how a directory is listed.
+    //
+    // Checked through the open handle rather than the path, so there is no window
+    // between the test and the open. Provably a no-op on Windows, where the open
+    // already failed — the shape #355 chose over a `cfg(windows)` arm, because one
+    // documented behaviour should have one implementation. Devices and FIFOs are
+    // **not** refused: `/dev/null` opens usefully and portably enough.
+    if handle_is_directory(handle) {
+        trq_file_close(handle);
+        return OPEN_FAILED;
+    }
+
+    handle
+}
+
+/// Whether an open handle names a directory, answering `false` if it cannot tell.
+fn handle_is_directory(handle: i64) -> bool {
+    FILE_HANDLES.with(|handles| {
+        let handles = handles.borrow();
+        match handles.get(&handle) {
+            Some(FileHandle::Reader(reader)) => reader
+                .get_ref()
+                .metadata()
+                .map(|data| data.is_dir())
+                .unwrap_or(false),
+            _ => false,
+        }
+    })
 }
 
 /// Close a file handle.
@@ -2446,6 +2484,32 @@ mod tests {
         release_path(empty);
 
         assert_eq!(trq_file_open(std::ptr::null(), OPEN_READ), OPEN_FAILED);
+    }
+
+    /// A directory is refused in every mode, which is a deliberate deviation from
+    /// `open(2)`: POSIX opens a directory read-only and Windows does not, so a
+    /// literal reading would answer a handle on one platform and `-1` on the other
+    /// in a contract row. The handle is useless either way.
+    ///
+    /// Also asserts the handle is not leaked — the refusal closes what it opened,
+    /// so a following open answers the *next* id rather than skipping two.
+    #[test]
+    fn test_file_open_refuses_a_directory_in_every_mode() {
+        let target = "/tmp/tarqeem_test_file_open_dir";
+        std::fs::remove_dir_all(target).ok();
+        std::fs::create_dir(target).expect("تعذّر إنشاء المجلد / could not create the directory");
+
+        let path = path_string(target);
+        for mode in [OPEN_READ, OPEN_WRITE, OPEN_APPEND] {
+            assert_eq!(trq_file_open(path, mode), OPEN_FAILED, "الوضع {mode}");
+        }
+        assert!(
+            std::path::Path::new(target).is_dir(),
+            "المجلد تغيّر / the directory was disturbed"
+        );
+
+        std::fs::remove_dir_all(target).ok();
+        release_path(path);
     }
 
     /// Two opens are two handles. They must differ, or a program holding both

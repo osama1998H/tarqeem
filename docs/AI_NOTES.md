@@ -4735,11 +4735,25 @@ across interpreter, JIT and native and equal to its committed golden.
 #342's caveat was checked with the question that has now predicted it three times for three — *does
 the effect have anywhere to arrive?* Natively **yes** (both stream functions already resolve `٣`+
 against `FILE_HANDLES`); interpreted **no**, and there is no `thread_local!` anywhere in `src/` to
-copy. Forecast: **nine plus handle-table and flush plumbing, ≈15-16**. It cost **sixteen** — the nine,
-plus the interpreter table and its `store_handle`, `call_write_stream`'s `≥٣` arm,
-`call_read_stream`'s split condition, `flush_program_files`, `flush_open_writers`, and four
-program-end call sites (`trq_runtime_cleanup`, `trq_exit`, the CLI's normal completion and its
-`ProgramExit` path).
+copy. Forecast: **nine plus handle-table and flush plumbing, ≈15-16**. It cost **seventeen** — the
+nine, plus the interpreter handle table (its `store_handle`, `flush_program_files` and the runtime's
+`flush_open_writers` counted with it, since neither flush function exists without the table),
+`call_write_stream`'s `≥٣` arm, `call_read_stream`'s split condition, and five program-end call
+sites: `trq_runtime_cleanup`, `trq_exit`, the CLI's normal completion, its `ProgramExit` path, and
+the REPL's exit. That is 9 + 1 + 2 + 5, the decomposition the inventory row carries — stated as
+arithmetic because the first pass wrote "sixteen" over a list that enumerated eighteen.
+
+**The fifth site was found in review, and the asymmetry is what gave it away.** The first pass
+counted four and left the REPL's normal exit unflushed while `أنهِ_البرنامج` *inside the same
+session* flushed through `exit_if_program_asked` — so one session lost bytes on one exit route and
+kept them on the other, and which one it took decided the file's contents. Reachable in **one line**
+(`اكتب_مجرى(افتح_ملف(…، ١)، …)`), not two: the REPL evaluates each line in a fresh scope and does not
+persist bindings, while the handle table is process-wide — verified both halves. The session is the
+process the program ran in, so leaving it is a program end like any other; every `break` in the
+REPL loop converges on one tail, so one call covers `خروج`, EOF and an I/O error alike. Not
+per-evaluation, because buffering is observable contract. Generalisable: **when a resource is
+released "at program end", enumerate the *ends*, not the exits you happened to write** — the DAP
+session remains a documented gap (adjacent to #346), which is a flag raised rather than one missed.
 
 **What the three deferrals got wrong is the useful part.** They called this "two primitives' work".
 It is not — `اغلق_ملف` did not have to come along. What they were actually measuring is that the
@@ -4767,13 +4781,18 @@ language can ask for it.
 is #352's and #355's «read each folded name's implementation», applied to the **return value** rather
 than the dispatch. Not a new defect class; a new place to point the same check.
 
-**A directory opens for reading, and running the example is what found it.** The line
-`افتح_ملف(".", ٠)` was written expecting `-١` and answered a handle: `File::open` succeeds on a
-directory and `read` on it then fails. Kept — it is `open(2)` faithfully — documented in
-LANGUAGE_SPEC, and moved out of the example into a cross-backend test, because it consumes a handle
-and would put the number in the golden. Write and append do refuse a directory. **Third increment
-running where a check on the example found a contract row**, after #355's banner collision and #360's
-leading `--`.
+**A directory is refused in every mode, and running the example is what found the question.** The
+line `افتح_ملف(".", ٠)` was written expecting `-١` and answered a handle, because `File::open`
+succeeds on a directory under POSIX. The first answer was to document the platform split — Windows
+refuses the same open, `CreateFile` there needing a flag `std` does not pass — and that was wrong:
+`cargo test` never runs on Windows (the matrix job only builds), so the cross-backend test would have
+encoded a Unix-only answer with nothing able to catch it. **#355's review lesson inverted** — there a
+`cfg(unix)` suite could not see a contract the docs stated unconditionally; here an ungated test could
+not see a platform the docs had just carved out. Same remedy: one documented behaviour, one
+implementation. Refused on both sides, checked through the *opened* handle so there is no window
+between test and open, and provably a no-op where the open already failed. Devices and FIFOs are not
+refused — `/dev/null` stays useful. **Third increment running where a check on the example found a
+contract row**, after #355's banner collision and #360's leading `--`.
 
 **A scalar's missing-return-type mode transfers in its two composition rows and not in its printing
 row.** Measured with the entry deleted: `نوع` → `مؤشر` and `+ ١` → native ت٠١٠١ «'%v3' defined with

@@ -803,6 +803,14 @@ fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
         }
     }
 
+    // The session *is* the process the program ran in, so leaving it is a program
+    // end like `run_command`'s: every `break` above converges here, so one call
+    // covers `خروج`, EOF and an I/O error alike. Not flushed per evaluation —
+    // buffering is observable contract, and a REPL that flushed each line would
+    // disagree with a compiled program about a handle read back before its
+    // writer landed.
+    flush_program_files();
+
     Ok(())
 }
 

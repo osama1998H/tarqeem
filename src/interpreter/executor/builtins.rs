@@ -260,10 +260,28 @@ pub(crate) fn call_file_open(args: &[Value]) -> RuntimeResult<Value> {
             .map(|f| InterpreterFileHandle::Writer(io::BufWriter::new(f))),
     };
 
-    match opened {
-        Ok(handle) => Ok(Value::Int(store_handle(handle))),
-        Err(_) => Ok(Value::Int(OPEN_FAILED)),
+    let handle = match opened {
+        Ok(handle) => handle,
+        Err(_) => return Ok(Value::Int(OPEN_FAILED)),
+    };
+
+    // A directory is refused, mirroring `trq_file_open`, and for the reason given
+    // there: `File::open` succeeds on one under POSIX and fails on Windows, so
+    // honouring `open(2)` literally would put a platform split in a contract row.
+    // Checked through the opened handle, so there is no window between the test
+    // and the open, and it is a no-op where the open already failed.
+    if let InterpreterFileHandle::Reader(reader) = &handle {
+        if reader
+            .get_ref()
+            .metadata()
+            .map(|data| data.is_dir())
+            .unwrap_or(false)
+        {
+            return Ok(Value::Int(OPEN_FAILED));
+        }
     }
+
+    Ok(Value::Int(store_handle(handle)))
 }
 
 /// Flush every open writer, closing nothing.

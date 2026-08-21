@@ -5022,30 +5022,31 @@ fn test_file_open_handles_carry_their_direction() {
     );
 }
 
-/// A directory **opens** for reading and then reads nothing, which is `open(2)`
-/// and `read(2)` faithfully: a directory fd is readable in the syscall sense and
-/// `read` on it fails (`EISDIR` on Linux).
+/// A directory is refused in **every** mode, and that is a deliberate deviation
+/// from `open(2)` rather than a faithful reading of it.
 ///
-/// Found by running the CI example rather than by reasoning — the line
-/// `افتح_ملف(".", 0)` was written expecting `-1` and answered a handle. Recorded
-/// here rather than in the example, because it consumes a handle and would put its
-/// number in the golden.
+/// Found by running the CI example — the line `افتح_ملف(".", 0)` was written
+/// expecting `-1` and answered a handle, because `File::open` succeeds on a
+/// directory under POSIX. Left that way it would have been a **platform** split in
+/// a contract row: Windows refuses the same open, since `CreateFile` needs a flag
+/// `std` does not pass, and `cargo test` never runs there — the Windows CI job
+/// only builds. So this test would have encoded a Unix-only answer with nothing
+/// able to catch it, which is #355's review lesson inverted.
 ///
-/// Write and append modes do refuse a directory, so the two halves differ and
-/// both are pinned.
+/// Refused on both sides instead, checked through the opened handle so there is no
+/// window between the test and the open. One documented behaviour, one
+/// implementation — the shape #355 chose over a `cfg(windows)` arm.
 #[test]
-fn test_file_open_opens_a_directory_for_reading_and_reads_nothing_from_it() {
+fn test_file_open_refuses_a_directory_in_every_mode() {
     assert_prints_with_tree(
         "فتح_مجلد",
         &[("مجلد", Fixture::EmptyDir)],
         concat!(
-            "متغير م = افتح_ملف(\"{مسار}\", 0)\n",
-            "اطبع(م >= 3)\n",
-            "اطبع(طول(اقرأ_مجرى(م, 64)))\n",
+            "اطبع(افتح_ملف(\"{مسار}\", 0))\n",
             "اطبع(افتح_ملف(\"{مسار}\", 1))\n",
             "اطبع(افتح_ملف(\"{مسار}\", 2))"
         ),
-        &["صحيح", "0", "-1", "-1"],
+        &["-1", "-1", "-1"],
     );
 }
 

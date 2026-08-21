@@ -2965,10 +2965,13 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         // flips `ملفات` to disk — standing rule 3: a symbol is not deleted just
         // because a name that folds it landed.
         "حالة_مسار" => Some("trq_path_status"),
-        // Core tier too, and the sibling that *acts* where that one asks. It
+        // Core tier too, and the first name that hands out a resource. It folds
+        // the three path-only `trq_file_open_*` openers behind one mode, which
+        // stay exported under their own symbols — standing rule 3.
+        "افتح_ملف" => Some("trq_file_open"),
+        // Core tier too, and the sibling that *acts* where `حالة_مسار` asks. It
         // folds `احذف_ملف` and `احذف_مجلد`, which stay mapped above until
         // Increment G flips `ملفات` — standing rule 3.
-        "افتح_ملف" => Some("trq_file_open"),
         "احذف_مسار" => Some("trq_path_delete"),
         // Core tier, and the only one of these whose answer the compiler crate
         // does not also compute: the runtime reads its own `main`'s argv while
