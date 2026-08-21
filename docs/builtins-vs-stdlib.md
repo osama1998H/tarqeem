@@ -331,7 +331,7 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | `حالة_مسار` | `(نص، عدد) -> عدد` | new — **مُنفَّذ (#352)** | `stat(2)`, one field per call, so the answer stays an `عدد` and no struct crosses the FFI. `حقل ٠` = kind, `حقل ١` = size. **Folds four syscall wrappers into one** — `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` all become stdlib one-liners. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). **Renamed from `حالة_ملف`, and the kind gained a fourth value; the size clause was completed** — see the correction below. Total: the field is settled before the path, symlinks are followed, and an absent path, an unreadable one, an empty name and `لا_شيء` all answer `٠` / `-١`. |
 | `احذف_مسار` | `(نص) -> منطقي` | new — **مُنفَّذ (#355)** | `unlink(2)` for a file, `rmdir(2)` for an empty directory, chosen by **`lstat`** — **the row said `stat`, and that was wrong; see the correction below.** Folds two symbols; `احذف_ملف` and `احذف_مجلد` survive as stdlib wrappers, each with one documented delta. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: an absent path, an empty name, `لا_شيء`, an unreadable path and a non-empty directory all answer `خطأ`, indistinguishably. Not recursive. |
 | `انشئ_مجلد` | `(نص) -> منطقي` | narrowed — **مُنفَّذ (#366)** | `mkdir(2)`. No composition of open/read/write/close/stat creates a directory. Recursive creation becomes a stdlib loop, not a second primitive. **Narrowed** because it moves from the `ملفات` module tier to the core tier (no import), the promotion `قص_حروف` made at #336. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: `صحيح` means this call created it; an existing entry of any kind — a dangling symlink included, since the *entry* blocks the name and the target is never consulted — a missing parent, an empty name and `لا_شيء` all answer `خطأ`, indistinguishably. |
-| `قائمة_مجلد` | `(نص) -> مصفوفة<نص>` | unchanged | `readdir(3)`. Directory entries are not readable through a byte stream. One array-returning primitive is a smaller surface than an opendir/readdir/closedir triple. Criterion (b). |
+| `قائمة_مجلد` | `(نص) -> مصفوفة<نص>` | narrowed — **مُنفَّذ (#370)** | `readdir(3)`. Directory entries are not readable through a byte stream. One array-returning primitive is a smaller surface than an opendir/readdir/closedir triple. **Narrowed** because it moves from the `ملفات` module tier to the core tier (no import), the #336/#366/#368 promotion with the spelling unchanged. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). **Its two contract silences were decided at planning time** — see the correction below. Total: entries are bare names **sorted by code point**, `.`/`..` excluded, a non-UTF-8 name decoded lossily rather than dropped; an absent path, a file, an unreadable directory, an empty name and `لا_شيء` all answer the **empty array**, indistinguishable from an empty directory; the path follows symlinks the way `حالة_مسار` does, so a dangling link lists as absent. |
 | `انقل_مسار` | `(نص، نص) -> منطقي` | renamed — **مُنفَّذ (#368)** | `rename(2)` is **atomic**; copy-then-delete is not, and the difference is observable. A capability that cannot be composed from the others is exactly criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). **Renamed from `انقل_ملف`, and its destination rule was decided where the row was silent** — see the correction below. Total: acts on the *name* at both ends, so a symlink moves as itself, dangling included; an existing destination is replaced only when it is a **regular file**, and any other occupied destination — directory, symlink, device — answers `خطأ` on every platform alike; an absent source, a missing destination parent, a cross-device move, empty names and `لا_شيء` in either argument all answer `خطأ`, indistinguishably. |
 
 > **Correction (#347): the "returns bytes written so short writes stay visible" clause is
@@ -498,6 +498,31 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 > row-leaves-a-contract-question-open shape from #352, #360 and #362 — answered before the work
 > this time, because the question ("what does the syscall do to an occupied destination, per
 > platform?") is the one #362's directory refusal taught this family to ask.
+
+> **Correction (#370): `قائمة_مجلد`'s answer is sorted, and a non-UTF-8 name is kept rather
+> than skipped.** Two contract decisions where the row was silent, both taken at planning time
+> on the #368 pattern, plus one conflation kept deliberately.
+>
+> - **The order.** The row said nothing about it, and the implementation returned raw
+>   `read_dir` order — filesystem-dependent and run-dependent, which no golden file and no
+>   `compare-backends` leg can tolerate; it was one of the two recorded deferral reasons. The
+>   contract is **sorted ascending by Unicode code point** (bytewise UTF-8 sort — one
+>   comparison, every platform), applied in both kernels after the lossy decode so the two sort
+>   the same strings.
+> - **The lossy decode.** `trq_dir_list` silently *dropped* an entry whose name is not valid
+>   UTF-8 (`to_str()` guard), so `طول` lied about the directory. The contract is
+>   `معاملات_البرنامج`'s argv rule — decoded lossily (U+FFFD), never dropped — with the
+>   honesty clause recorded where argv did not need one: a lossy name does **not** round-trip
+>   (`حالة_مسار` on it answers absent), and two distinct non-UTF-8 names may decode to the same
+>   string. قصدٌ لا سهو.
+> - **The refusal conflation is kept.** Absent, a file, unreadable, empty and `لا_شيء` all
+>   answer the empty array, indistinguishable from an empty directory — an array return has no
+>   spare value for a refusal (#350's class), the choice `اقرأ_مجرى` already made. A caller
+>   distinguishes through `حالة_مسار`.
+>
+> No new defect class. Both decisions are the row-leaves-a-contract-question-open shape from
+> #352, #360, #362 and #368 — answered before the work, as #368 taught; the read-the-reused-
+> implementation check (#364's) is what surfaced the drop-vs-decode question.
 
 #### Category 8 — Environment & time (6)
 
@@ -1866,10 +1891,11 @@ contextual, so neither #342's nor #352's extra check applies.
 **Category 7's new registrations are complete.** The remaining three names in it — `انشئ_مجلد`,
 `قائمة_مجلد`, `انقل_ملف` — are `unchanged` rows already in the registry, so they are repairs (no
 interpreter arm) rather than new registrations. **`انشئ_مجلد` landed first (#366, §6.7.9)**, promoted
-to the core tier on the #336 precedent, **and the mover second (#368, §6.7.10)** — the same
-promotion carrying the #352 rename, so its core name is `انقل_مسار`. One remains: `قائمة_مجلد`,
-whose deferral reasons (#359 and an unspecified readdir order) are still standing, and the `ملفات`
-module now holds 19 names. Increment G's `ملفات` names can now be written as self-hosted Tarqeem on
+to the core tier on the #336 precedent, **the mover second (#368, §6.7.10)** — the same
+promotion carrying the #352 rename, so its core name is `انقل_مسار` — **and `قائمة_مجلد` third
+(#370, §6.7.11)**, spelling unchanged, its two deferral reasons (#359 and an unspecified readdir
+order) answered as contract rows rather than inherited. **Category 7 is complete**, the `ملفات`
+module holds 18 names, and Increment G's `ملفات` names can now be written as self-hosted Tarqeem on
 top of these primitives, which is what the increment was waiting for.
 
 ### 6.7.9 `انشئ_مجلد` — the first Category-7 repair, and the first re-measured cost shape (#366)
@@ -1995,6 +2021,67 @@ recount) found none embedded in `انقل_مسار`, so it gets no row in
 `test_identifier_containing_a_keyword_stays_one_token`; no diacritic, and nothing contextual, so
 neither #342's nor #352's extra check applies. And no harness helper was needed — the third
 increment running, which is #364's point about building the last two general still paying out.
+
+### 6.7.11 `قائمة_مجلد` — the third Category-7 repair, and Category 7 complete (#370)
+
+**The first exact hit on a re-measured shape.** §6.7's question — *which half of the path already
+exists?* — found the whole runtime and codegen half present (`trq_dir_list` defined, re-exported,
+mapped in `get_runtime_function_name`, `declare`d) and the name registered, import-gated, in the
+`ملفات` tier: #366's promotion-repair, taken as the base per #368's rule — pick the nearer measured
+shape, do not reach past a promotion because something about the name is new. Forecast **seven**:
+the six, plus #364's `+1` contract change to `trq_dir_list` (the sort and the lossy decode). It
+cost **seven**. Neither #368 delta applied — the mapping already existed and the unchanged spelling
+forced no stdlib callee fix, so `stdlib/ملفات/مجلد.ترقيم:77` kept resolving with zero edits.
+#342's caveat was forecast quiet — `std::fs::read_dir` is in-process on both sides and the runtime
+already performs it — and stayed quiet, the fourth correct quiet forecast.
+
+Landed as §6.7.9 and §6.7.10 ordered it, and on their inversion: the two questions this name had
+been passed over for — #359 and the readdir order — were answered at *planning* time, the #368
+move repeating. The order became a contract row (sorted by code point, in both kernels, after the
+lossy decode so they sort the same strings), and #359 became a test-shape rule rather than a
+blocker: everything indexes, measures `طول` or iterates, exactly as `معاملات_البرنامج`'s rows do,
+and the only printed array is an empty one.
+
+Four things it found that the plan did not state:
+
+1. **The `Array(String)` catcher profile transferred from #360, and re-measuring it bought one row
+   #360 could not see.** With the `register_builtin_return_types` entry deleted: `نوع` answers
+   `مؤشر` on all three, `م[0] + "!"` is a run-time type error (exit 1) interpreted and a printed
+   pointer (exit 0) natively, and `طول` and printing an element alone pass either way. The new row:
+   `م[0] == "…"` — *unreached* in #360's single-program measurement because the `+` row aborted
+   first — measured here in a program of its own as **`صحيح` interpreted and `خطأ` natively**, so
+   the comparison catcher is real on the native leg and silent nowhere else. Measure with one row
+   per program; a shared program lets an early loud row hide a late silent one.
+
+2. **A contract row can be testable on only one platform *by the filesystem's choice*, and the
+   honest gate is self-skipping, not `cfg`.** The lossy-decode row needs a file whose name is not
+   UTF-8; ext4 accepts one and APFS refuses to create it. A `cfg(target_os = "linux")` gate would
+   claim the row is Linux-specific — it is not; the *fixture* is — so the `runtime-rs` test tries
+   to create the name and returns early if the filesystem refuses, which runs meaningfully on the
+   Linux CI leg and vacuously on a Mac. The Windows question was asked at planning time (#355
+   f.6's class): `read_dir` + `to_string_lossy` + a bytewise sort behave identically there —
+   unpaired surrogates decode lossily the same way — so no `cfg` split exists anywhere in the
+   contract or the kernels.
+
+3. **The siblings can populate a fixture from inside the program, which retires the last reason a
+   listing test needed harness help.** The sort row needs entries created in anti-sorted order;
+   `اغلق_ملف(افتح_ملف("{مسار}/ب.نص"، ١))` and `انشئ_مجلد("{مسار}/أ")` build them inside the
+   backend loop, so the tree helper only supplies the parent. #368 used one sibling to *observe*
+   an effect `حالة_مسار` cannot see; this is the same move inverted — siblings as *builders* — and
+   it is why no harness helper was needed for the third increment running (#364's point about
+   building the last two general, still paying out).
+
+4. **"Implemented" had been quietly carrying "exercised" again — #368's finding 4, one increment
+   later.** `trq_dir_list`'s only checked-in exercise anywhere was `assert!(trq_array_len(entries)
+   >= 1)` in a runtime integration test: no name row, no order row, no refusal row. The unit tests
+   this increment adds are the symbol's first, and the read-the-implementation check (four
+   increments paying, now five) is what turned up the silent `to_str()` drop the lossy-decode
+   contract replaces.
+
+One smaller result: the keyword sweep over the **69** literals in `src/lexer/keywords.rs` (#366's
+recount) found none embedded in `قائمة_مجلد`, so it gets no row in
+`test_identifier_containing_a_keyword_stays_one_token`; no diacritic, and nothing contextual, so
+neither #342's nor #352's extra check applies.
 
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 

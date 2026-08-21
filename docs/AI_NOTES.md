@@ -5131,3 +5131,87 @@ nothing contextual. And no harness helper was needed — the third increment run
 Registry: 42 core + 161 stdlib = 203 (size-neutral; `ملفات` 20 → 19). Category 7 has **one** repair
 left: `قائمة_مجلد`, which owes answers to #359 (native `اطبع` on a populated `مصفوفة<نص>`) and to
 readdir ordering before its rows can be written.
+## #370 — `قائمة_مجلد`: `readdir(3)`, the deferred questions answered at planning time, and Category 7 complete
+
+The third and last of Category 7's repairs, and the second promotion in a row with nothing renamed:
+`قائمة_مجلد` was declared in the `ملفات` tier with a live `trq_dir_list`, a codegen mapping and a
+`declare`, no interpreter arm, no debug arm, no IR return type — and one `>= 1` length assertion as
+its only exercise anywhere. It moves to the core tier under its own spelling, and the two questions
+it had been passed over for three increments running are answered as contract rows rather than
+inherited.
+
+### Decisions taken before the work
+
+- **The readdir order became a contract row: sorted ascending by code point.** Raw `read_dir`
+  order is filesystem-dependent and run-dependent, so it can never sit in a golden file or a
+  `compare-backends` leg. Bytewise UTF-8 `sort()` is code-point order, one comparison on every
+  platform, applied in **both** kernels after the lossy decode so the two sort identical strings.
+  The #368 inversion repeating: the syscall's open contract question asked at planning time, not
+  found mid-increment.
+- **#359 became a test-shape rule, not a blocker.** Printing a populated `مصفوفة<نص>` is wrong
+  natively with or without this name, so every assertion indexes, measures `طول` or iterates —
+  `معاملات_البرنامج`'s rows exactly — and the only printed array is an empty one, where the
+  element loop never runs. The CI example is refusal-only on the #355/#366 rule, doubly forced
+  here: a populated listing of the repository root is not invariant either.
+- **A non-UTF-8 entry name is decoded lossily, never dropped.** The read-the-implementation check
+  (five increments paying) found `trq_dir_list`'s `to_str()` guard silently *skipping* such an
+  entry, so `طول` lied about the directory. The contract is argv's («تُقرأ قراءةً متساهلة»), with
+  an honesty clause argv never needed: a lossy name does not round-trip — `حالة_مسار` on it
+  answers absent — and two distinct bad names may decode to one string. قصدٌ لا سهو.
+- **The refusal conflation is kept.** Absent, a file, unreadable, empty and `لا_شيء` all answer
+  the empty array, indistinguishable from an empty directory: an array return has no spare value
+  (#350's class), the choice `اقرأ_مجرى` made. A caller distinguishes through `حالة_مسار`.
+
+### The cost forecast, and what it cost — the first exact hit on a re-measured shape
+
+Forecast **seven**, counted from #366's six-site promotion-repair — the nearer base, per #368's
+overforecast lesson — plus #364's `+1` contract change to `trq_dir_list` (sort + lossy decode).
+Cost **seven**: `Scope` (core tuple added; module arm and export entry deleted in the same file),
+the `IrType::Array(Box::new(IrType::String), 0)` return type (#360's precedent, now with a
+sibling), `call_dir_list` and its `interpreter/mod.rs` re-export, the debug arm, the guard
+ratchets, and the runtime contract change. Neither #368 delta applied: the codegen mapping already
+existed, and the unchanged spelling forced no stdlib callee fix — `stdlib/ملفات/مجلد.ترقيم:77`
+kept resolving with zero edits. #342's caveat was forecast quiet (`read_dir` is in-process on both
+sides) and stayed quiet — the fourth correct quiet forecast, every one from the same question.
+
+### What it found that the plan did not state
+
+**1. Re-measuring #360's `Array(String)` profile bought a row #360 could not see.** Measured with
+the entry deleted, one row per program:
+
+| use | interpreters | native |
+|---|---|---|
+| `طول(م)` | correct | correct |
+| `اطبع(م[0])` | correct | correct |
+| `نوع(م)` | `مؤشر` — caught | `مؤشر` — caught |
+| `م[0] + "!"` | **run-time type error**, exit 1 | **printed pointer**, exit 0 |
+| `م[0] == "أول.نص"` | `صحيح` — correct | **`خطأ`**, exit 0 |
+
+The `==` row was *unreached* in #360's single-program measurement, because its `+` row aborted the
+interpreter first. Split the rows into one program each: a shared program lets an early loud row
+hide a late silent one.
+
+**2. A contract row can be testable on one platform by the *filesystem's* choice, and the honest
+gate is self-skipping, not `cfg`.** The lossy-decode fixture is a file whose name is not UTF-8;
+ext4 creates it, APFS refuses. A `cfg(target_os = "linux")` would misfile the row as
+Linux-specific when only the fixture is, so the `runtime-rs` test tries to create the name and
+returns early if refused — meaningful on the Linux CI leg, vacuous on a Mac, honest on both. The
+Windows question was asked at planning time (#355 f.6's class): `read_dir` + `to_string_lossy` +
+bytewise sort behave identically there, so no `cfg` split exists anywhere in the contract.
+
+**3. Siblings can *build* a fixture, not only observe one.** The sort row needs entries created in
+anti-sorted order; `اغلق_ملف(افتح_ملف("{مسار}/ب.نص"، 1))` and `انشئ_مجلد("{مسار}/أ")` create them
+inside the backend loop, so the tree helper only supplies the parent. #368 used `احذف_مسار` to
+observe what `حالة_مسار` cannot see; this is the same move inverted, and it is why no harness
+helper was needed for the third increment running.
+
+**4. The keyword sweep found none of the 69 literals embedded**, so no lexer row; no diacritic,
+nothing contextual, so neither #342's nor #352's extra check applies.
+
+### State after #370
+
+Registry: 43 core + 160 stdlib = 203 (size-neutral; `ملفات` 19 → 18). **Category 7's repairs are
+complete** — every name it marks `new` or promotes is `✓ ✓ ✓ ✓` — so Increment G's `ملفات` rewrite
+now has every primitive it was waiting for. The remaining half-wired rows in the plan's own tables
+are Category 8's: `مجلد_حالي` (a promotion candidate with `trq_dir_current` live), and the
+`وقت_الآن` return-type / `وقت_أداء` monotonic repairs §1.3 already orders.
