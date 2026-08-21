@@ -4663,6 +4663,32 @@ definition #355 had to pin after a review pass read the number as an off-by-one;
 `#[no_mangle] pub extern "C" fn` gives 227, the extra being the C entry point `main`.
 `get_runtime_function_name` is **224**; the IR-intercepted set is **20**, unchanged since Increment A.
 
+### What a review pass found
+
+**`*const i8` is not `*const c_char`, and the difference is a whole target.** `program_args_from`
+and `main` spelled argv's element type `i8`, which is what the pre-existing `main(_argc, _argv)`
+signature already used — but nothing had ever *dereferenced* it, so nothing type-checked it against
+anything. `CStr::from_ptr` takes `*const c_char`, and `c_char` is **`u8`** on aarch64/arm/riscv64
+Linux, so `cargo check -p tarqeem-runtime --target aarch64-unknown-linux-gnu` failed with
+«expected `*const u8`, found `*const i8`». `aarch64-unknown-linux-gnu` is a documented supported
+target in `ARCHITECTURE.md` §4.6 and needs `libtrq.a` to run a compiled program at all. Fixed by
+spelling the type `std::ffi::c_char` in all three places (the two signatures and the test helper's
+`Vec`); the C ABI is identical either way. Verified both directions — the `i8` spelling fails on that
+target and the `c_char` spelling checks clean there and on the host.
+
+**Why no gate caught it, which is the part worth carrying.** CI's cross-platform matrix builds the
+**workspace root package**, and `tarqeem-runtime` is excluded from the default members — the same
+gap as #310, seen from a different angle. A host-only `cargo check` cannot see a `c_char` mismatch,
+because `c_char` *is* `i8` on macOS and x86_64 Linux. **Inheriting a signature is not evidence it is
+right; it is evidence nothing has used it yet.**
+
+**And one doc line went stale the moment `trailing_var_arg` landed.** `CLAUDE.md:447` showed
+`cargo run -- run test.ترقيم --jit`, which now runs the *interpreter* and hands `--jit` to the
+program. Reordered to `run --jit test.ترقيم`, which also makes the claim two paragraphs above — that
+every in-repo invocation puts the flag before the file — true rather than aspirational. Swept the
+rest of the repo: the only remaining post-file `--jit` occurrences are the two that *demonstrate* the
+new behaviour deliberately.
+
 `runtime-rs` clippy is unchanged: **76 diagnostics**, multiset identical to `develop`'s — 55
 `unnecessary unsafe block`, 20 `manually constructing a nul-terminated string`, one `match` reducible
 to `?` — plus the 7 pre-existing deny-level `approx_constant` errors in `math.rs` test code (#310).

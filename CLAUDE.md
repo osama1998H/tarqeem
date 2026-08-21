@@ -444,7 +444,7 @@ cargo run -- compile test.ترقيم --emit-llvm
 cargo run -- run test.ترقيم
 
 # Run with JIT (experimental)
-cargo run -- run test.ترقيم --jit
+cargo run -- run --jit test.ترقيم
 ```
 
 ## Architecture Decisions

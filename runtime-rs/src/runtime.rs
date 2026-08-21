@@ -374,11 +374,18 @@ static CAPTURED_ARGV: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::ne
 /// `trq_exit`: `main` is `#[cfg(not(test))]` and never runs under `cargo test`,
 /// so this is the only part of the capture a unit test can reach.
 ///
+/// `c_char`, not `i8`: the alias is `u8` on aarch64/arm/riscv64 Linux, so
+/// spelling the element type `i8` would refuse to compile there — `CStr::from_ptr`
+/// takes `*const c_char`. The C ABI is identical either way.
+///
 /// # Safety
 ///
 /// - `argv` must be null, or an array of `argc` pointers each null or to a
 ///   null-terminated C string.
-pub(crate) unsafe fn program_args_from(argc: i32, argv: *const *const i8) -> Vec<String> {
+pub(crate) unsafe fn program_args_from(
+    argc: i32,
+    argv: *const *const std::ffi::c_char,
+) -> Vec<String> {
     if argv.is_null() || argc <= 1 {
         return Vec::new();
     }
@@ -473,7 +480,7 @@ mod entry_point {
     /// This function calls the external `__main__` function which must be
     /// provided by the compiled Tarqeem program.
     #[no_mangle]
-    pub extern "C" fn main(argc: i32, argv: *const *const i8) -> i32 {
+    pub extern "C" fn main(argc: i32, argv: *const *const std::ffi::c_char) -> i32 {
         // Captured here rather than read here: `trq_program_args` prefers
         // `std::env::args_os`, and this is only the fallback for a target where
         // std captured nothing. Storing it costs one allocation at startup and
@@ -518,7 +525,7 @@ mod tests {
             .iter()
             .map(|b| std::ffi::CString::new(*b).unwrap())
             .collect();
-        let ptrs: Vec<*const i8> = owned.iter().map(|c| c.as_ptr()).collect();
+        let ptrs: Vec<*const std::ffi::c_char> = owned.iter().map(|c| c.as_ptr()).collect();
         unsafe { program_args_from(ptrs.len() as i32, ptrs.as_ptr()) }
     }
 
