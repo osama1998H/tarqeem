@@ -341,6 +341,25 @@ impl Scope {
             // cross-device move, empty names and `لا_شيء` in either argument
             // all answer `خطأ`, indistinguishably.
             ("انقل_مسار", vec![Type::String, Type::String], Type::Bool),
+            // Directory listing - قائمة المجلد
+            // `readdir(3)`, the enumerating quarter of the path family:
+            // `حالة_مسار` asks, `احذف_مسار` removes, `انشئ_مجلد` creates, and
+            // this lists — entries are not readable through a byte stream, so
+            // no composition of the others reaches them. Entries are **bare
+            // names, sorted by code point** (raw readdir order is
+            // filesystem-dependent, so it cannot sit in a contract row), with
+            // `.`/`..` excluded and a non-UTF-8 name decoded lossily rather
+            // than dropped, on `معاملات_البرنامج`'s argv rule. Total: absent,
+            // a file, unreadable, empty and `لا_شيء` all answer the empty
+            // array, indistinguishable from an empty directory — an array has
+            // no spare value for a refusal, the conflation `اقرأ_مجرى` already
+            // carries — and the path *follows* a symlink the way `حالة_مسار`
+            // does.
+            (
+                "قائمة_مجلد",
+                vec![Type::String],
+                Type::Array(Box::new(Type::String)),
+            ),
             // Program arguments - معاملات البرنامج
             // The vector the OS hands over at `execve`, which nothing in the
             // language can otherwise reach: `متغير_بيئة` reads a different
@@ -737,12 +756,9 @@ impl Scope {
 
                 // Directory operations. `انشئ_مجلد` used to sit here and is now
                 // core tier (#366), so it needs no import — the same promotion
-                // `قص_حروف` made out of `نص` at #336.
-                "قائمة_مجلد" => Some(builtin(
-                    "قائمة_مجلد",
-                    vec![Type::String],
-                    Type::Array(Box::new(Type::String)),
-                )),
+                // `قص_حروف` made out of `نص` at #336 — and `قائمة_مجلد`
+                // followed it out at #370, spelling unchanged, closing
+                // Category 7.
                 "احذف_مجلد" => Some(builtin("احذف_مجلد", vec![Type::String], Type::Bool)),
                 "مجلد_حالي" => Some(builtin("مجلد_حالي", vec![], Type::String)),
                 "مجلد_مستخدم" => Some(builtin("مجلد_مستخدم", vec![], Type::String)),
@@ -1067,7 +1083,6 @@ impl Scope {
                 "احذف_ملف",
                 "انسخ_ملف",
                 "حجم_ملف",
-                "قائمة_مجلد",
                 "احذف_مجلد",
                 "مجلد_حالي",
                 "مجلد_مستخدم",

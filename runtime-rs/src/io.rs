@@ -1255,13 +1255,55 @@ pub extern "C" fn trq_dir_delete(path: *const TrqString) -> bool {
     }
 }
 
-/// List directory entries.
-/// Returns an array of TrqString pointers.
+/// Backs the core builtin `قائمة_مجلد`: `readdir(3)`, the enumerating quarter
+/// of the path family — [`trq_path_status`] asks, [`trq_path_delete`] removes,
+/// [`trq_dir_create`] creates, and this lists.
+///
+/// **Entries are bare names, sorted ascending by Unicode code point.** Raw
+/// `readdir` order is filesystem-dependent, so it can never sit in a contract
+/// row: the sort is what makes the answer identical across platforms,
+/// filesystems and backends. `.` and `..` never appear — that exclusion is
+/// [`read_dir`](std::fs::read_dir)'s, not this function's.
+///
+/// **A non-UTF-8 entry name is decoded lossily (U+FFFD), never dropped** — the
+/// argv rule from `trq_program_args`; skipping it would make the length lie
+/// about the directory. Deliberate consequence, recorded rather than
+/// rediscovered later: a lossy name does not round-trip through
+/// [`trq_path_status`], and two distinct non-UTF-8 names may decode to the same
+/// string. The lossy decode happens *before* the sort, so the interpreter
+/// kernel sorts the very same strings.
+///
+/// **Absent, a file, unreadable, empty and null are one answer** — the empty
+/// array, indistinguishable from a genuinely empty directory: an array return
+/// has no spare value for a refusal, the conflation [`trq_read_stream`] already
+/// carries. A caller that must tell them apart asks [`trq_path_status`]. The
+/// path is read as given, with no trimming, and it *follows* a symlink the way
+/// [`trq_path_status`] does, so a dangling link lists as absent; entries that
+/// are symlinks are listed by name, and nothing follows them. A mid-iteration
+/// read error drops that entry and keeps the rest — the interpreter kernel
+/// swallows the same way, so the two copies cannot disagree on a row no test
+/// can build.
+///
+/// # Returns
+///
+/// A `TrqArray` of `TrqString*`, laid out as `trq_program_args`'s is. Total —
+/// every path is a valid call, and none can panic. Null only on allocation
+/// failure.
+///
+/// # Safety
+///
+/// - `path` must be a valid pointer to a `TrqString` or null.
+///
+/// # C Equivalent
+/// ```c
+/// TrqArray* trq_dir_list(const TrqString* path);
+/// ```
 #[no_mangle]
 pub extern "C" fn trq_dir_list(path: *const TrqString) -> *mut TrqArray {
-    use crate::array::trq_array_new;
+    use crate::array::{trq_array_new, trq_array_push};
 
-    let result = trq_array_new(0, std::mem::size_of::<*mut TrqString>() as i64);
+    let elem_size = std::mem::size_of::<*mut TrqString>() as i64;
+    let result = trq_array_new(0, elem_size);
     if result.is_null() {
         return result;
     }
@@ -1271,17 +1313,19 @@ pub extern "C" fn trq_dir_list(path: *const TrqString) -> *mut TrqArray {
         None => return result,
     };
 
-    if let Ok(entries) = std::fs::read_dir(&path_str) {
-        for entry in entries.flatten() {
-            if let Some(name) = entry.file_name().to_str() {
-                let name_str = trq_string_new(name.as_ptr(), name.len() as i64);
-                crate::array::trq_array_push(
-                    result,
-                    &name_str as *const _ as *const u8,
-                    std::mem::size_of::<*mut TrqString>() as i64,
-                );
-            }
-        }
+    let mut names: Vec<String> = match std::fs::read_dir(&path_str) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect(),
+        Err(_) => return result,
+    };
+    names.sort();
+
+    for name in &names {
+        let bytes = name.as_bytes();
+        let entry = trq_string_new(bytes.as_ptr(), bytes.len() as i64);
+        trq_array_push(result, &entry as *const _ as *const u8, elem_size);
     }
 
     result

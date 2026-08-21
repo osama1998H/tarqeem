@@ -459,6 +459,24 @@ impl IrBuilder {
         self.function_return_types
             .insert("انقل_مسار".to_string(), IrType::Bool);
 
+        // `قائمة_مجلد` answers `مصفوفة<نص>` — the second `Array(String)` after
+        // `معاملات_البرنامج`, and the first whose siblings can hand it a
+        // populated fixture. Measured with this entry deleted rather than
+        // forecast, one row per program (table in `docs/AI_NOTES.md`): `طول`
+        // and printing an element alone stay correct, `نوع` answers `مؤشر` on
+        // all three backends — the one catcher every leg shares — and
+        // **element composition** degrades: `م[0] + "!"` is a run-time type
+        // error (exit 1) interpreted and a printed pointer (exit 0) natively,
+        // and `م[0] == "…"` answers `خطأ` natively while staying correct
+        // interpreted. The composition test therefore asserts `نوع`,
+        // concatenation and comparison, and deliberately does not print a
+        // populated array — #359 makes that wrong natively with or without
+        // this entry.
+        self.function_return_types.insert(
+            "قائمة_مجلد".to_string(),
+            IrType::Array(Box::new(IrType::String), 0),
+        );
+
         // `معاملات_البرنامج` answers `مصفوفة<نص>` — the first `Array(String)` any
         // builtin has registered, so #330's `Array(Int)` measurement does not
         // transfer and neither does #350's. Measured with this entry deleted,
