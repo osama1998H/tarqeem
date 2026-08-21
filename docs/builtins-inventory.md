@@ -14,15 +14,15 @@ backed by a mechanical count that agrees with the hand enumeration.
 
 | | |
 |---|---|
-| Names declared in `Scope` | **192** — 27 `core_builtins()` + 165 `get_stdlib_builtin()` across 7 modules |
-| Names reachable on *some* backend | **244** — the extra 52 exist in a backend but in no registry, so no program can call them |
-| `runtime-rs` exports | **220** `#[no_mangle] pub extern "C" fn` |
+| Names declared in `Scope` | **199** — 36 `core_builtins()` + 163 `get_stdlib_builtin()` across 7 modules. Recounted from source at #352, both halves separately. `أنهِ_البرنامج` ships with its kasra-less spelling, so this number and the 40-primitive budget differ by one on purpose; #347, #350 and #352 each added one name for one capability, so the gap of one is unchanged. #352 folds four `ملفات` names but removes none — they are `مكتبة`, not `يُحذف` — so the stdlib half is untouched |
+| Names reachable on *some* backend | **247** — the surplus over the declared count exists in a backend but in no registry, so no program can call them. The census stated that surplus as 51 while the two totals differ by 48; the discrepancy predates #350 and is still left for a full recount rather than patched here — #352 moved this by the one name it added and nothing else |
+| `runtime-rs` exports | **224** `#[no_mangle] pub extern "C" fn`, recounted from source at #352 (unique names across every `runtime-rs/src/*.rs`). The count was two low before #350 recounted it, so recount rather than increment |
 | … of which ABI-internal (compiler-emitted plumbing) | **22** — excluded from the language surface |
-| … of which orphans (no caller anywhere) | **28** |
-| … reachable from a declared name | **156** |
+| … of which orphans (no caller anywhere) | **27** — `trq_env_get` left the set in #338 |
+| … reachable from a declared name | **160** — `trq_path_status` joined the set at #352. Note it is the one symbol so far that four *other* declared names also reduce to; the folding is a stdlib change still ahead, so nothing left the set |
 | Self-hosted `.ترقيم` exports under `stdlib/` | **385** `صدّر` declarations across 44 files |
 | … actually loadable today | **one module** (`مجموعات`); 201 exports are dead by short-circuit |
-| Places to edit to add **one** builtin | **9** for a symbol-mapped name, **2** for an IR-intercepted one — measured on both (see §1) |
+| Places to edit to add **one** builtin | **9** for a symbol-mapped name needing a new runtime symbol (#324, confirmed again at #347 and #350 — the last two were *forecast* from §6.7's discriminator before the work, not matched afterwards), **8** when the symbol already exists (#338), **6** to repair a half-wired one (#336), **2** for an IR-intercepted one, and **11** for one returning `فراغ` (#342: the nine, minus the return-type entry, plus `ErrorKind` and three CLI sites) — all five measured (see §1). #352 is the **third** consecutive nine forecast before the work from §6.7's discriminator, and the third hit |
 
 **Two planes, counted separately.** `runtime-rs` mixes the language's builtin surface with the
 ABI the compiler emits for ordinary operators and allocation (`trq_alloc`, `trq_retain`,
@@ -39,10 +39,10 @@ nothing enforces that it is present on all of them.
 
 | Surface | File | Mechanism |
 |---|---|---|
-| Semantic | `src/semantic/scope.rs` | `core_builtins()` — a `Vec` of 27 `(name, params, ret)` tuples registered into the global scope. `get_stdlib_builtin(module, name)` — a two-level `match` with 165 arms, manufactured on demand at import. `get_stdlib_module_exports()` — a **second, hand-maintained copy** of the same 165 names with no consistency test. |
+| Semantic | `src/semantic/scope.rs` | `core_builtins()` — a `Vec` of 36 `(name, params, ret)` tuples registered into the global scope. `get_stdlib_builtin(module, name)` — a two-level `match` with 163 arms, manufactured on demand at import. `get_stdlib_module_exports()` — a **second, hand-maintained copy** of the same 163 names. No longer untested: `every_stdlib_signature_arm_is_exported` proves every `match` arm appears in the export list, and `stdlib_registry_size_is_locked` pins each module's export count — containment plus equal size is what makes the two lists provably the same set, so *neither test alone* would do it. Recounted from source at #352 alongside the summary row above; these three figures were once the stale 28/165/165 that row was corrected away from. |
 | Interpreter | `src/interpreter/executor/builtins.rs` | `is_builtin` string membership + a dispatch `match`. Two edits per name, same file. |
-| Debug interpreter | `src/debug/interpreter/builtins.rs` | A private duplicate of the above, used by DAP. Knows **27** names — 20 Arabic plus 7 `trq_*` symbols, and `is_builtin` and the dispatch `match` list the same 27. The original census recorded 18; that figure was already stale when written, since the #185/#222/#241 repairs had added runtime-symbol arms. **Count it excluding comments:** the comment lines inside `is_builtin` quote Arabic diagnostics («دالة غير معرّفة») and call syntax (`عدد("٥")`), so a regex over the block that does not strip `//` lines over-counts — that is how a wrong 29 reached this row once already. |
-| Native | `src/ir/builder/expr_builder.rs` + `src/codegen/llvm/codegen.rs` | Either intercepted in the IR builder (15 names) or looked up in `get_runtime_function_name` (215 names) and emitted as a `trq_*` call. |
+| Debug interpreter | `src/debug/interpreter/builtins.rs` | A private duplicate of the above, used by DAP. Knows **36** names — 29 Arabic plus 7 `trq_*` symbols, and `is_builtin` and the dispatch `match` list the same 36. Recounted from source at #352, and again at #350 with comment lines stripped and each half counted separately, and the two sets compared for equality rather than only their sizes — **not** incremented, which is the move this row exists to forbid. Recounted the same way at #347. Recounted from source at #342, which added two (`أنهِ_البرنامج` and its variant); recounted again at #338, which added one; the **29** before that was already one low, so the row has been wrong at four separate counts (18, 29, 29+1, 31+2) — recount it rather than incrementing it. The original census recorded 18; that figure was already stale when written, since the #185/#222/#241 repairs had added runtime-symbol arms. **Count it excluding comments:** the comment lines inside `is_builtin` quote Arabic diagnostics («دالة غير معرّفة») and call syntax (`عدد("٥")`), so a regex over the block that does not strip `//` lines over-counts — that is how a wrong 29 reached this row once already. |
+| Native | `src/ir/builder/expr_builder.rs` + `src/codegen/llvm/codegen.rs` | Either intercepted in the IR builder (**20** names) or looked up in `get_runtime_function_name` (**222** names) and emitted as a `trq_*` call. Both recounted from source at #350, and both were stale independently of it: the census's 15 predates Increment A, whose seven bitwise names are all intercepted, and the 216 was four low before `اقرأ_مجرى` added the 221st. Count **names**, not arms — `"أنهِ_البرنامج" | "أنه_البرنامج" => Some("trq_exit")` is one arm and two names, so an arm count reads low. |
 | JIT | `src/jit/{baseline,optimizing}/compiler.rs` | **Compiles zero builtins.** `run_with_profiling` always returns `interpreter.run()`; `get_function_ptr` has no callers. The JIT column agrees with the interpreter by delegation, not by compiling. |
 | Editor | `src/lsp/handlers/{completion,semantic_tokens,inlay_hints}.rs` | Three hardcoded lists (10 / 14 / 18 names) that derive from nothing and agree with neither the registry nor each other. |
 
@@ -73,9 +73,16 @@ type-checks clean.** So the disk loader is production machinery, not a thing to 
 These are the defects the inventory surfaced. They are recorded here because they set the cost of
 the refactor; fixing them is scoped in the plan document, not here.
 
+> **Snapshot notice.** §2's counts are the original census's, taken before any name landed. They are
+> left as measured rather than continuously re-derived — re-running the whole census is a separate
+> pass — so read them as "what the census found", not as current state. The §0 table and §4's rows
+> *are* kept current. Known drift since: #336 moved `قص_حروف` to core tier and removed `قص_نص`, so
+> §2.2's «32 of 41 نص» and §2.10's stdlib-registry figures are each one or two low. #338 then added
+> `متغير_بيئة`, taking the core tier to 31 and the declared total to 194, and retiring one orphan.
+
 ### 2.1 The default backend is the weakest one
 
-**78 of 192 declared names (41%) have no interpreter arm**, so `tarqeem run` fails on them after
+**78 of 193 declared names (40%) have no interpreter arm**, so `tarqeem run` fails on them after
 the import type-checks cleanly: all 23 `شبكة` names, 19 of 21 `ملفات`, 32 of 41 `نص`, plus
 `الحق، طول_مصفوفة، باقي، بذرة_عشوائي`. Both JIT tiers inherit every one of these holes by
 delegation.
@@ -209,7 +216,7 @@ the dispatch matrix (`يُحذف`), otherwise `مكتبة`, which is the criteri
 deterministic; no row was assigned by judgement outside those rules.
 
 **Reconciling with the plan document.** Its executive summary counts 26 alias collapses and 11 dead
-names against the **192 declared** names; this table counts 48 against the **244 reachable** names,
+names against the **193 declared** names; this table counts 48 against the **245 reachable** names,
 which additionally covers the 52 that exist in a backend but in no registry. Likewise the plan
 defers **12 socket primitives** while this table marks **47 socket-family names** deferred — 12 is
 the primitive count after collapse, 47 is the raw name count. Both are correct; they count
@@ -218,7 +225,7 @@ different universes.
 
 ## 4. The inventory
 
-#### `core` — 30
+#### `core` — 39
 
 Rows marked **مُنفَّذ** landed after this census; the backend columns are re-verified,
 not carried over from the original pass.
@@ -241,11 +248,20 @@ not carried over from the original pass.
 | `بتات_إزاحة_يمين_منطقية` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#322) |
 | `بتات_نفي` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#312) |
 | `بتات_و` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#302) |
+| `ثنائي_إلى_نص` | ✓ | ✓ | ✓ | ✓ | `trq_string_from_bytes` | مدمج | primitive، **مُنفَّذ** (#333) |
+| `قص_حروف` | ✓ | ✓ | ✓ | ✓ | `trq_string_substr_chars` | مدمج | primitive، **مُنفَّذ** (#336) — نُقل من `نص` |
+| `متغير_بيئة` | ✓ | ✓ | ✓ | ✓ | `trq_env_get` | مدمج | primitive، **مُنفَّذ** (#338) |
+| `اكتب_مجرى` | ✓ | ✓ | ✓ | ✓ | `trq_write_stream` | مدمج | primitive، **مُنفَّذ** (#347) — أول عمليات الإدخال/الإخراج |
+| `اقرأ_مجرى` | ✓ | ✓ | ✓ | ✓ | `trq_read_stream` | مدمج | primitive، **مُنفَّذ** (#350) — النصف القارئ من زوج المجرى |
+| `حالة_مسار` | ✓ | ✓ | ✓ | ✓ | `trq_path_status` | مدمج | primitive، **مُنفَّذ** (#352) — أول ما يسأل نظام الملفات، وتُجمَع فيها أربعة أسماء من `ملفات` بلا حذف أحدها |
+| `أنهِ_البرنامج` | ✓ | ✓ | ✓ | ✓ | `trq_exit` | مدمج | primitive، **مُنفَّذ** (#342) — الوحيدة بلا نوع إرجاع مسجَّل، قصداً |
+| `أنه_البرنامج` | ✓ | ✓ | ✓ | ✓ | `trq_exit` | مدمج | هجاء ثانٍ للسابقة، لا عملية ثانية |
 | `تأكد` | ✓ | ✓ | ✗ | ✓ | `trq_assert` | مكتبة |  |
 | `تأكد_رسالة` | ✓ | ✓ | ✗ | ✓ | `-` | مكتبة |  |
 | `توقف` | ✓ | ✓ | ✗ | ~ | `trq_panic` | مدمج | primitive |
 | `حرف_إلى_رمز` | ✓ | ✓ | ✓ | ✓ | `trq_string_char_code` | مدمج | primitive، **مُنفَّذ** (#324) |
 | `رمز_إلى_حرف` | ✓ | ✓ | ✓ | ✓ | `trq_string_from_char_code` | مدمج | primitive، **مُنفَّذ** (#326) |
+| `نص_إلى_ثنائي` | ✓ | ✓ | ✓ | ✓ | `trq_string_to_bytes` | مدمج | primitive، **مُنفَّذ** (#330) |
 | `طباعة` | ✓ | ✓ | ✗ | ~ | `trq_print` | يُحذف | alias/dead |
 | `طول` | ✓ | ✓ | ✓ | ✓ | `trq_array_len, trq_string_len…` | مدمج | primitive |
 | `طول_مصفوفة` | ✓ | ✗ | ✗ | ~ | `trq_array_len` | يُحذف | alias/dead |
@@ -331,7 +347,7 @@ not carried over from the original pass.
 | `مطلق` | ✓ | ✓ | ✓ | ~ | `trq_abs_float` | مكتبة |  |
 | `مطلق_عدد` | ✓ | ✓ | ✗ | ~ | `trq_abs_int` | يُحذف | alias collapse |
 
-#### `نص` — 41
+#### `نص` — 39
 
 | الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
 |---|:-:|:-:|:-:|:-:|---|---|---|
@@ -359,8 +375,6 @@ not carried over from the original pass.
 | `عنوان` | ✓ | ✗ | ✗ | ~ | `trq_string_to_title` | مكتبة |  |
 | `قارن_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_compare` | مكتبة |  |
 | `قسّم` | ✓ | ✗ | ✗ | ~ | `trq_string_split` | مكتبة |  |
-| `قص_حروف` | ✓ | ✗ | ✗ | ~ | `trq_string_substr_chars` | مدمج | primitive |
-| `قص_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_substr` | يُحذف | alias/dead |
 | `كبير` | ✓ | ✗ | ✗ | ~ | `trq_string_to_upper` | مكتبة |  |
 | `كرر` | ✓ | ✗ | ✗ | ✗ | `-` | يُحذف | alias/dead، **معطّل اليوم** |
 | `كرر_نص` | ✓ | ✗ | ✗ | ~ | `trq_string_repeat` | مكتبة |  |
@@ -392,16 +406,16 @@ not carried over from the original pass.
 | `انسخ_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_copy` | مكتبة |  |
 | `انشئ_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_dir_create` | مدمج | primitive |
 | `انقل_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_move` | مدمج | primitive |
-| `حجم_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_size` | مكتبة |  |
+| `حجم_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_size` | مكتبة | حقلٌ من `حالة_مسار` (#352) |
 | `فاصل_مسار` | ✓ | ✗ | ✗ | ~ | `trq_path_separator` | مكتبة |  |
 | `قائمة_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_dir_list` | مدمج | primitive |
 | `مجلد_حالي` | ✓ | ✗ | ✗ | ~ | `trq_dir_current` | مدمج | primitive |
 | `مجلد_مؤقت` | ✓ | ✗ | ✗ | ~ | `trq_dir_temp` | مكتبة |  |
 | `مجلد_مستخدم` | ✓ | ✗ | ✗ | ~ | `trq_dir_home` | مكتبة |  |
 | `مسار_اب` | ✓ | ✗ | ✗ | ~ | `trq_path_parent` | مكتبة |  |
-| `ملف_موجود` | ✓ | ✗ | ✗ | ~ | `trq_file_exists` | مكتبة |  |
-| `هل_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_file_is_dir` | مكتبة |  |
-| `هل_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_is_file` | مكتبة |  |
+| `ملف_موجود` | ✓ | ✗ | ✗ | ~ | `trq_file_exists` | مكتبة | حقلٌ من `حالة_مسار` (#352) |
+| `هل_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_file_is_dir` | مكتبة | حقلٌ من `حالة_مسار` (#352) |
+| `هل_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_is_file` | مكتبة | حقلٌ من `حالة_مسار` (#352) |
 
 #### `وقت` — 18
 

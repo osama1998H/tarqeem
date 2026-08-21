@@ -11,8 +11,9 @@
 //! and `test_every_core_builtin_agrees_across_backends` walks the whole core
 //! list so a newly added builtin cannot skip the matrix.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::{fs, str};
 
@@ -139,6 +140,37 @@ fn write_program(dir: &Path, name: &str, body: &str) -> PathBuf {
 }
 
 fn tarqeem(args: &[&str], cwd: &Path) -> Output {
+    tarqeem_with_env(args, cwd, &[])
+}
+
+/// `tarqeem` with extra variables in the child's environment.
+///
+/// `متغير_بيئة` is the first builtin whose answer depends on the environment, and
+/// it cannot be tested by setting one here: cargo runs tests as threads in one
+/// process, so `std::env::set_var` races every other test. Every backend leg is
+/// already a child process, so the variable goes on the child instead.
+fn tarqeem_with_env(args: &[&str], cwd: &Path, env: &[(&str, &str)]) -> Output {
+    tarqeem_with_env_and_stdin(args, cwd, env, None)
+}
+
+/// The one place a `tarqeem` child is spawned.
+///
+/// `اقرأ_مجرى` is the first builtin whose answer depends on stdin, and — exactly
+/// as with the environment above — a test cannot supply it in-process: cargo runs
+/// tests as threads in one process, so there is no per-test stdin to redirect.
+/// Every backend leg is already a child process, so the bytes go on the child.
+/// `&[u8]` rather than `&str` on purpose: the primitive answers bytes, and one of
+/// its contract rows is a byte sequence that is not text at all.
+///
+/// `stdin` of `None` keeps `Command::output`'s default, which is a **null** stdin
+/// — an immediate EOF, not the parent's terminal. That is what lets the EOF row
+/// of `اقرأ_مجرى`'s contract be asserted through the plain `assert_prints`.
+fn tarqeem_with_env_and_stdin(
+    args: &[&str],
+    cwd: &Path,
+    env: &[(&str, &str)],
+    stdin: Option<&[u8]>,
+) -> Output {
     let mut command = Command::new(TARQEEM);
     command.args(args).current_dir(cwd);
 
@@ -146,10 +178,14 @@ fn tarqeem(args: &[&str], cwd: &Path) -> Output {
     // scrubbed on every backend. The runtime archive no longer needs it either:
     // the compiler finds the one built beside its own executable.
     command.env_remove("TARQEEM_HOME");
+    command.envs(env.iter().copied());
 
-    let output = command
-        .output()
-        .unwrap_or_else(|e| panic!("تعذّر تشغيل {} {:?}: {}", TARQEEM, args, e));
+    let output = match stdin {
+        None => command
+            .output()
+            .unwrap_or_else(|e| panic!("تعذّر تشغيل {} {:?}: {}", TARQEEM, args, e)),
+        Some(bytes) => spawn_with_stdin(&mut command, bytes, &format!("{TARQEEM} {args:?}")),
+    };
 
     Output {
         status: output.status.code(),
@@ -159,13 +195,65 @@ fn tarqeem(args: &[&str], cwd: &Path) -> Output {
     }
 }
 
+/// Spawns `command` with `bytes` piped to its stdin, then closes the pipe.
+///
+/// Closing it is what produces EOF, so a program asking for more bytes than were
+/// given gets a short answer instead of hanging. The payloads here are a handful
+/// of bytes, well inside a pipe buffer, so writing before waiting cannot deadlock.
+fn spawn_with_stdin(command: &mut Command, bytes: &[u8], what: &str) -> std::process::Output {
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("تعذّر تشغيل {what}: {e}"));
+
+    {
+        let mut pipe = child.stdin.take().expect("للعملية مدخل قياسي");
+        pipe.write_all(bytes)
+            .unwrap_or_else(|e| panic!("تعذّر الكتابة في مدخل {what}: {e}"));
+    }
+
+    child
+        .wait_with_output()
+        .unwrap_or_else(|e| panic!("تعذّر انتظار {what}: {e}"))
+}
+
 fn execute(backend: Backend, main: &Path, tag: &str) -> Output {
+    execute_with_env(backend, main, tag, &[])
+}
+
+/// `execute` with extra variables in the child's environment.
+///
+/// The native leg puts them on the **executed binary**, not only on `compile`:
+/// the compiler reads no environment on that path, and the binary is what calls
+/// `trq_env_get`.
+fn execute_with_env(backend: Backend, main: &Path, tag: &str, env: &[(&str, &str)]) -> Output {
+    execute_with_env_and_stdin(backend, main, tag, env, None)
+}
+
+/// `execute` with bytes on the child's standard input.
+///
+/// The native leg pipes them to the **executed binary**, never to `compile` — the
+/// same split `execute_with_env` makes for the environment, and for the same
+/// reason: the compiler reads neither on that path.
+fn execute_with_stdin(backend: Backend, main: &Path, tag: &str, stdin: &[u8]) -> Output {
+    execute_with_env_and_stdin(backend, main, tag, &[], Some(stdin))
+}
+
+fn execute_with_env_and_stdin(
+    backend: Backend,
+    main: &Path,
+    tag: &str,
+    env: &[(&str, &str)],
+    stdin: Option<&[u8]>,
+) -> Output {
     let cwd = main.parent().expect("للبرنامج مجلد");
     let arg = main.to_str().expect("مسار غير صالح");
 
     match backend {
-        Backend::Interpreter => tarqeem(&["run", arg], cwd),
-        Backend::Jit => tarqeem(&["run", "--jit", arg], cwd),
+        Backend::Interpreter => tarqeem_with_env_and_stdin(&["run", arg], cwd, env, stdin),
+        Backend::Jit => tarqeem_with_env_and_stdin(&["run", "--jit", arg], cwd, env, stdin),
         Backend::Native => {
             // The only backend that links, so the only one needing libtrq.a.
             ensure_runtime_library();
@@ -177,9 +265,14 @@ fn execute(backend: Backend, main: &Path, tag: &str) -> Output {
                 return compiled;
             }
 
-            let run = Command::new(&exe)
-                .output()
-                .unwrap_or_else(|e| panic!("تعذّر تشغيل {}: {}", exe.display(), e));
+            let mut runner = Command::new(&exe);
+            runner.envs(env.iter().copied());
+            let run = match stdin {
+                None => runner
+                    .output()
+                    .unwrap_or_else(|e| panic!("تعذّر تشغيل {}: {}", exe.display(), e)),
+                Some(bytes) => spawn_with_stdin(&mut runner, bytes, &exe.display().to_string()),
+            };
             Output {
                 status: run.status.code(),
                 stdout: String::from_utf8_lossy(&run.stdout).into_owned(),
@@ -192,11 +285,103 @@ fn execute(backend: Backend, main: &Path, tag: &str) -> Output {
 
 /// Asserts `body` prints exactly `expected` under all three backends.
 fn assert_prints(name: &str, body: &str, expected: &[&str]) {
+    assert_prints_with_env(name, body, &[], expected)
+}
+
+/// Asserts `body` prints exactly `expected` under all three backends, with
+/// `stdin` piped to each.
+fn assert_prints_with_stdin(name: &str, body: &str, stdin: &[u8], expected: &[&str]) {
     let temp = TempDir::new().unwrap();
     let main = write_program(temp.path(), name, body);
 
     for backend in Backend::ALL {
+        let output = execute_with_stdin(backend, &main, &format!("{name}_{backend:?}"), stdin);
+
+        assert!(
+            output.succeeded(),
+            "فشل التنفيذ [{backend:?}] لـ {name}\nالمتوقع/expected: {expected:?}\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.lines(),
+            expected,
+            "خرج غير متطابق [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+    }
+}
+
+/// `assert_prints` with fixture files on disk, whose **absolute** paths are
+/// substituted into `body`.
+///
+/// Each `(name, contents)` pair is written into the same `TempDir` the program
+/// lives in, and every `{مسار}` in `body` becomes the absolute path of the
+/// first pair, `{مسار٢}` the second, and so on.
+///
+/// Absolute, not relative: the native leg runs the compiled binary directly and
+/// inherits no working directory from the source's location, so a relative
+/// fixture name would resolve against wherever `cargo test` was invoked and the
+/// three backends would disagree. That is the same lesson `_with_env` and
+/// `_with_stdin` learned in their own currency — the fixture goes where the
+/// child can reach it, not where the harness happens to stand.
+///
+/// A second fixture is `{مسار2}`, a third `{مسار3}`. Latin digits, because the
+/// Tarqeem programs in this file use Latin digits throughout — the Arabic-Indic
+/// ones here are all prose. `examples/` is where the other convention lives.
+///
+/// Additive, like both of those: `assert_prints` is untouched, and a test only
+/// pays for a fixture if it names one.
+fn assert_prints_with_files(name: &str, files: &[(&str, &str)], body: &str, expected: &[&str]) {
+    let temp = TempDir::new().unwrap();
+
+    let mut resolved = body.to_string();
+    for (index, (file_name, contents)) in files.iter().enumerate() {
+        let path = temp.path().join(file_name);
+        fs::write(&path, contents).expect("تعذّر كتابة ملف التجربة");
+        let placeholder = match index {
+            0 => "{مسار}".to_string(),
+            other => format!("{{مسار{}}}", other + 1),
+        };
+        resolved = resolved.replace(&placeholder, path.to_str().expect("مسار غير صالح"));
+    }
+
+    // An unsubstituted placeholder is silent otherwise: it reaches the program as
+    // a literal path, which every path primitive reads as *absent* — so a row
+    // asserting the absent answer would pass while testing nothing. Fail here,
+    // where the mismatch is, rather than in an assertion that cannot see it.
+    assert!(
+        !resolved.contains("{مسار"),
+        "بقي موضع مسار بلا استبدال في {name} / an unsubstituted path placeholder remains — \
+         the fixture list has {} entries, so the placeholders are {{مسار}} then {{مسار2}}, …",
+        files.len()
+    );
+
+    let main = write_program(temp.path(), name, &resolved);
+
+    for backend in Backend::ALL {
         let output = execute(backend, &main, &format!("{name}_{backend:?}"));
+
+        assert!(
+            output.succeeded(),
+            "فشل التنفيذ [{backend:?}] لـ {name}\nالمتوقع/expected: {expected:?}\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.lines(),
+            expected,
+            "خرج غير متطابق [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+    }
+}
+
+/// `assert_prints` with extra variables in each backend's environment.
+fn assert_prints_with_env(name: &str, body: &str, env: &[(&str, &str)], expected: &[&str]) {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), name, body);
+
+    for backend in Backend::ALL {
+        let output = execute_with_env(backend, &main, &format!("{name}_{backend:?}"), env);
 
         assert!(
             output.succeeded(),
@@ -238,6 +423,55 @@ fn assert_fails(name: &str, body: &str) {
         assert!(
             output.lines().is_empty(),
             "توقّعنا ألا يُطبع شيء على stdout [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+    }
+}
+
+/// Asserts `body` exits with `status` under all three backends, having printed
+/// exactly `expected` and nothing on stderr.
+///
+/// `assert_prints` cannot express this — it demands status 0 — and `assert_fails`
+/// cannot either: it demands *some* non-zero status and empty stdout, so it
+/// passes for the wrong reasons on a program that deliberately chooses its own
+/// status after printing.
+///
+/// The `compile_failed` guard is the load-bearing part. A native compile failure
+/// exits non-zero with empty stdout, which is indistinguishable from
+/// `أنهِ_البرنامج(1)` on status alone, so without it a lowering regressing into
+/// an LLVM parse error would keep every non-zero case below green.
+///
+/// stderr is asserted empty because that is where the divergence would hide: the
+/// native binary prints nothing, and an interpreter that reported the exit as a
+/// runtime error would still satisfy both the status and stdout checks — and
+/// `compare-backends` in CI diffs stdout only.
+fn assert_exits_with(name: &str, body: &str, status: i32, expected: &[&str]) {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), name, body);
+
+    for backend in Backend::ALL {
+        let output = execute(backend, &main, &format!("{name}_{backend:?}"));
+
+        assert!(
+            !output.compile_failed,
+            "توقّعنا خروجاً وقت التنفيذ لا فشلاً وقت الترجمة [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.status,
+            Some(status),
+            "حالة خروج غير متوقعة [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.lines(),
+            expected,
+            "خرج غير متطابق [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "توقّعنا ألا يُطبع شيء على stderr [{backend:?}] لـ {name}\n{}",
             output.report()
         );
     }
@@ -1666,6 +1900,674 @@ fn test_user_function_shadows_char_from_code() {
 }
 
 // ---------------------------------------------------------------------------
+// نص_إلى_ثنائي — the string→bytes bridge (#330)
+// ---------------------------------------------------------------------------
+
+/// Byte counts per UTF-8 width, and the point of the primitive: `طول` of the
+/// result is the **byte** length while `طول` of the string is the character
+/// length. Both are asserted side by side, since a result that silently counted
+/// characters would agree with the string on every ASCII input.
+#[test]
+fn test_string_to_bytes_counts_bytes_in_every_backend() {
+    assert_prints(
+        "ثنائي_أطوال",
+        concat!(
+            "اطبع(طول(نص_إلى_ثنائي(\"A\")))\n",
+            "اطبع(طول(نص_إلى_ثنائي(\"م\")))\n",
+            "اطبع(طول(نص_إلى_ثنائي(\"﷽\")))\n",
+            "اطبع(طول(نص_إلى_ثنائي(\"𞸀\")))\n",
+            "اطبع(طول(نص_إلى_ثنائي(\"مرحبا\")))\n",
+            "اطبع(طول(\"مرحبا\"))",
+        ),
+        &["1", "2", "3", "4", "10", "5"],
+    );
+}
+
+/// The load-bearing test. `نص_إلى_ثنائي` lowers to a plain call, so nothing but
+/// the `register_builtin_return_types` entry types its result — and an array is
+/// the one return type whose absence does **not** show up as a signature
+/// mismatch, because `Ptr(Void)` and `Array` both map to LLVM `ptr`. Dropping
+/// the entry links and runs; the element load turns into `load ptr` on an i64
+/// slot and `اطبع` reads the `TrqArray` as a `TrqString`. Indexing is therefore
+/// the only thing that fails loudly, which is why it is asserted here.
+#[test]
+fn test_string_to_bytes_result_composes_as_an_integer_array() {
+    assert_prints(
+        "ثنائي_تركيب",
+        concat!(
+            "اطبع(نص_إلى_ثنائي(\"hi\"))\n",
+            "اطبع(نص_إلى_ثنائي(\"A\")[0])\n",
+            "اطبع(نص_إلى_ثنائي(\"A\")[0] + 1)\n",
+            "اطبع(نص_إلى_ثنائي(\"A\")[0] == 65)\n",
+            "اطبع(نوع(نص_إلى_ثنائي(\"A\")[0]))",
+        ),
+        &["[104، 105]", "65", "66", "صحيح", "عدد"],
+    );
+}
+
+/// An empty string has no bytes, so the answer is an empty array — a value, not
+/// a sentinel. Asserted through `طول` and by printing the array itself, never by
+/// printing a bare `""`: `Output::lines()` trims, so that assertion could not
+/// fail.
+#[test]
+fn test_string_to_bytes_of_an_empty_string_is_an_empty_array() {
+    assert_prints(
+        "ثنائي_فارغ",
+        "اطبع(طول(نص_إلى_ثنائي(\"\")))\nاطبع(نص_إلى_ثنائي(\"\"))",
+        &["0", "[]"],
+    );
+}
+
+/// `Type::compat` admits an un-narrowed `نص?` into a `نص` parameter, so this
+/// type-checks and native lowers it to `ptr null`, where the runtime guard
+/// answers an empty array. Both interpreters need a `Value::Null` arm to agree;
+/// keyed on `Value::String` alone they abort where native prints. The *narrowed*
+/// shape is deliberately absent — that is #327, and it is still open.
+#[test]
+fn test_string_to_bytes_accepts_an_absent_optional_in_every_backend() {
+    assert_prints(
+        "ثنائي_غائب",
+        "متغير غائب: نص? = لا_شيء\nاطبع(طول(نص_إلى_ثنائي(غائب)))",
+        &["0"],
+    );
+}
+
+/// A literal argument can fold at build time, so the argument is reached three
+/// other ways: through a variable, through a concatenation, and through a
+/// function parameter.
+#[test]
+fn test_string_to_bytes_accepts_a_computed_argument() {
+    assert_prints(
+        "ثنائي_محسوب",
+        concat!(
+            "متغير ن = \"مرحبا\"\n",
+            "اطبع(طول(نص_إلى_ثنائي(ن)))\n",
+            "اطبع(طول(نص_إلى_ثنائي(ن + \"!\")))\n",
+            "دالة عدد_بايتات(س: نص) -> عدد {\n",
+            "    أرجع طول(نص_إلى_ثنائي(س))\n",
+            "}\n",
+            "اطبع(عدد_بايتات(\"م\"))",
+        ),
+        &["10", "11", "2"],
+    );
+}
+
+/// The result is a first-class array: it binds to a variable, survives the
+/// `Load` that reading that variable emits, indexes, and iterates. `لكل … في`
+/// matters on its own because it lowers through `ArrayLen`, which dispatches on
+/// the operand's IR type and would pick the string symbol if that type were
+/// wrong.
+#[test]
+fn test_string_to_bytes_result_binds_and_iterates() {
+    assert_prints(
+        "ثنائي_حلقة",
+        concat!(
+            "متغير ب = نص_إلى_ثنائي(\"Az\")\n",
+            "اطبع(طول(ب))\n",
+            "اطبع(ب[0])\n",
+            "اطبع(ب[1])\n",
+            "متغير مج = 0\n",
+            "لكل ي في ب {\n",
+            "    مج = مج + ي\n",
+            "}\n",
+            "اطبع(مج)",
+        ),
+        &["2", "65", "122", "187"],
+    );
+}
+
+/// Appending to the **empty** result, which is the one array in the language
+/// reachable with `cap == 0`: `helpers::allocate_array` sets `cap = len`, while
+/// `trq_array_new` floors capacity at `ARRAY_INITIAL_CAP`. Growth doubles, and
+/// `0 * 2` is `0`, so this hung the native binary forever while both
+/// interpreters answered `1`.
+///
+/// `runtime-rs` has a unit test for the same shape, but **CI never runs it** —
+/// every CI `cargo test` is root-package scoped, so this is the leg that
+/// actually guards the fix. Note the failure mode if it regresses: the native
+/// leg hangs rather than failing, so the signal is a stuck job, not a red
+/// assertion.
+#[test]
+fn test_appending_to_an_empty_byte_array_grows_it_in_every_backend() {
+    assert_prints(
+        "ثنائي_إلحاق",
+        concat!(
+            "متغير ب = نص_إلى_ثنائي(\"\")\n",
+            "الحق(ب، 5)\n",
+            "اطبع(طول(ب))\n",
+            "اطبع(ب[0])",
+        ),
+        &["1", "5"],
+    );
+}
+
+/// Round trip against the landed inverse: an ASCII byte read out here is the
+/// codepoint `رمز_إلى_حرف` builds the same character from. Restricted to ASCII
+/// on purpose — a multi-byte character's *bytes* are not its codepoint, and
+/// reassembling one needs `ثنائي_إلى_نص`, which does not exist yet.
+#[test]
+fn test_string_to_bytes_round_trips_ascii_through_char_from_code() {
+    assert_prints(
+        "ثنائي_ذهاب",
+        concat!(
+            "اطبع(رمز_إلى_حرف(نص_إلى_ثنائي(\"z\")[0]))\n",
+            "اطبع(حرف_إلى_رمز(\"z\") == نص_إلى_ثنائي(\"z\")[0])",
+        ),
+        &["z", "صحيح"],
+    );
+}
+
+/// Builtins are the last lookup tier, so a user function of the same name must
+/// win in every backend (#262) — past both `shadows_builtin` in the IR builder
+/// and the `user_functions` check in codegen's `mangle_function_name`, which
+/// would otherwise emit `@trq_string_to_bytes` for the user's own definition.
+#[test]
+fn test_user_function_shadows_string_to_bytes() {
+    assert_prints(
+        "ثنائي_مظلل",
+        concat!(
+            "دالة نص_إلى_ثنائي(س: نص) -> مصفوفة<عدد> {\n",
+            "    أرجع [7]\n",
+            "}\n",
+            "اطبع(طول(نص_إلى_ثنائي(\"مرحبا\")))\n",
+            "اطبع(نص_إلى_ثنائي(\"مرحبا\")[0])",
+        ),
+        &["1", "7"],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ثنائي_إلى_نص — the bytes→string bridge (#333)
+// ---------------------------------------------------------------------------
+
+/// The pair is total in both directions at every UTF-8 width, which is what
+/// closes blocker **B9**: before this, octets could be read out of a string and
+/// never assembled back into one.
+#[test]
+fn test_bytes_to_string_round_trips_in_every_backend() {
+    assert_prints(
+        "نص_دورة",
+        concat!(
+            "اطبع(ثنائي_إلى_نص(نص_إلى_ثنائي(\"A\")))\n",
+            "اطبع(ثنائي_إلى_نص(نص_إلى_ثنائي(\"م\")))\n",
+            "اطبع(ثنائي_إلى_نص(نص_إلى_ثنائي(\"﷽\")))\n",
+            "اطبع(ثنائي_إلى_نص(نص_إلى_ثنائي(\"𞸀\")))\n",
+            "اطبع(ثنائي_إلى_نص(نص_إلى_ثنائي(\"مرحبا\")) == \"مرحبا\")",
+        ),
+        &["A", "م", "﷽", "𞸀", "صحيح"],
+    );
+}
+
+/// Byte arrays written by hand, so the decoder cannot pass merely by agreeing
+/// with the encoder it inverts. `[217، 133]` is the load-bearing line: those are
+/// «م»'s two **octets**, so an implementation that read the array as codepoints
+/// would answer «Ù…» — two characters — instead.
+#[test]
+fn test_bytes_to_string_decodes_arrays_written_by_hand() {
+    assert_prints(
+        "نص_مكتوب",
+        concat!(
+            "اطبع(ثنائي_إلى_نص([104، 105]))\n",
+            "اطبع(ثنائي_إلى_نص([217، 133]))\n",
+            "اطبع(ثنائي_إلى_نص([239، 183، 189]))\n",
+            "اطبع(طول(ثنائي_إلى_نص([217، 133])))\n",
+            "متغير ب = [65، 122]\n",
+            "اطبع(ثنائي_إلى_نص(ب))",
+        ),
+        &["hi", "م", "﷽", "1", "Az"],
+    );
+}
+
+/// The load-bearing test, and it catches more than its sibling's did. Deleting
+/// the `register_builtin_return_types` entry leaves the module valid — `Ptr(Void)`
+/// and `String` are both LLVM `ptr` — so `اطبع` still printed «مرحبا» correctly.
+/// Measured with the entry removed: `نوع` answered `مؤشر`, concatenation printed
+/// `X4340804192`, and `==` answered `خطأ`. Printing alone passes; these three do
+/// not.
+#[test]
+fn test_bytes_to_string_result_composes_as_a_string() {
+    assert_prints(
+        "نص_تركيب",
+        concat!(
+            "اطبع(نوع(ثنائي_إلى_نص([65])))\n",
+            "اطبع(\"X\" + ثنائي_إلى_نص([65])) \n",
+            "اطبع(ثنائي_إلى_نص([65]) == \"A\")\n",
+            "اطبع(طول(ثنائي_إلى_نص([104، 105])))\n",
+            "اطبع(حرف_إلى_رمز(ثنائي_إلى_نص([217، 133])))",
+        ),
+        &["نص", "XA", "صحيح", "2", "1605"],
+    );
+}
+
+/// One rule covers both rejections: an element that is not a byte, and bytes that
+/// are not a UTF-8 encoding. Asserted through `طول`, never by expecting a printed
+/// `""` — `Output::lines()` trims, so that assertion could never fail.
+#[test]
+fn test_bytes_to_string_rejects_what_is_not_an_encoding() {
+    assert_prints(
+        "نص_مرفوض",
+        concat!(
+            // Not bytes.
+            "اطبع(طول(ثنائي_إلى_نص([300])))\n",
+            "اطبع(طول(ثنائي_إلى_نص([-1])))\n",
+            "اطبع(طول(ثنائي_إلى_نص([65، 256])))\n",
+            // Bytes, but not an encoding: never a lead byte, a truncated
+            // sequence, a stray continuation, an overlong U+0000, a surrogate.
+            "اطبع(طول(ثنائي_إلى_نص([255])))\n",
+            "اطبع(طول(ثنائي_إلى_نص([217])))\n",
+            "اطبع(طول(ثنائي_إلى_نص([133])))\n",
+            "اطبع(طول(ثنائي_إلى_نص([192، 128])))\n",
+            "اطبع(طول(ثنائي_إلى_نص([237، 160، 128])))\n",
+            // An empty array is a value, not a rejection: it has one decoding.
+            "اطبع(طول(ثنائي_إلى_نص([])))",
+        ),
+        &["0", "0", "0", "0", "0", "0", "0", "0", "0"],
+    );
+}
+
+/// `لا_شيء` reaches the arm through an `أي` holder rather than an optional
+/// annotation — `مصفوفة<عدد>؟` does not parse (ب٠١٠١) and a bare `لا_شيء` is
+/// refused at the argument. Without the `Value::Null` arm both interpreters raise
+/// a type error here while native answers `""`, which is the divergence class
+/// this whole increment exists to avoid.
+#[test]
+fn test_bytes_to_string_accepts_a_null_holder() {
+    assert_prints(
+        "نص_غائب",
+        concat!(
+            "متغير غائب: أي = لا_شيء\n",
+            "اطبع(طول(ثنائي_إلى_نص(غائب)))\n",
+            "اطبع(\"[\" + ثنائي_إلى_نص(غائب) + \"]\")",
+        ),
+        &["0", "[]"],
+    );
+}
+
+/// `docs/builtins-vs-stdlib.md` §1.3 claims criterion (a) — inexpressible — for
+/// this name, and that claim **expired** before it shipped: indexing over
+/// `مصفوفة<عدد>` (#330), the seven bitwise names (increment A) and `رمز_إلى_حرف`
+/// (#326) together make UTF-8 decoding writable in Tarqeem. So rather than repeat
+/// a stale claim, this asserts the equivalence — the third row in that document to
+/// need this treatment, after `بتات_نفي` and `بتات_إزاحة_يمين_منطقية`.
+///
+/// The scope is deliberately **valid input only**. The hand decoder reproduces
+/// the decoding, not the validation: rejecting overlong forms and surrogates is
+/// the half that stays materially harder to write by hand, and it is why the
+/// primitive is still worth having.
+#[test]
+fn test_bytes_to_string_matches_the_decoder_it_names() {
+    assert_prints(
+        "نص_مكافئ",
+        concat!(
+            "دالة فكك(ب: مصفوفة<عدد>) -> نص {\n",
+            "    متغير ناتج = \"\"\n",
+            "    متغير ي = 0\n",
+            "    طالما (ي < طول(ب)) {\n",
+            "        ثابت بادئ = ب[ي]\n",
+            "        متغير رمز = 0\n",
+            "        متغير عرض = 1\n",
+            "        إذا (بادئ < 128) {\n",
+            "            رمز = بادئ\n",
+            "        } وإلا إذا (بتات_و(بادئ، 224) == 192) {\n",
+            "            رمز = بتات_و(بادئ، 31)\n",
+            "            عرض = 2\n",
+            "        } وإلا إذا (بتات_و(بادئ، 240) == 224) {\n",
+            "            رمز = بتات_و(بادئ، 15)\n",
+            "            عرض = 3\n",
+            "        } وإلا {\n",
+            "            رمز = بتات_و(بادئ، 7)\n",
+            "            عرض = 4\n",
+            "        }\n",
+            "        متغير خطوة = 1\n",
+            "        طالما (خطوة < عرض) {\n",
+            "            رمز = بتات_أو(بتات_إزاحة_يسار(رمز، 6)، بتات_و(ب[ي + خطوة]، 63))\n",
+            "            خطوة = خطوة + 1\n",
+            "        }\n",
+            "        ناتج = ناتج + رمز_إلى_حرف(رمز)\n",
+            "        ي = ي + عرض\n",
+            "    }\n",
+            "    أرجع ناتج\n",
+            "}\n",
+            "لكل نص_مدخل في [\"A\"، \"م\"، \"﷽\"، \"𞸀\"، \"مرحبا\"، \"Az0\"، \"\"] {\n",
+            "    ثابت بايتات = نص_إلى_ثنائي(نص_مدخل)\n",
+            "    اطبع(ثنائي_إلى_نص(بايتات) == فكك(بايتات))\n",
+            "}",
+        ),
+        &["صحيح", "صحيح", "صحيح", "صحيح", "صحيح", "صحيح", "صحيح"],
+    );
+}
+
+/// Builtins are the last lookup tier, so a user definition must win in every
+/// backend (#262) — including past codegen's `mangle_function_name`, which would
+/// otherwise emit `@trq_string_from_bytes` for the user's own function.
+#[test]
+fn test_user_function_shadows_bytes_to_string() {
+    assert_prints(
+        "نص_مظلل",
+        concat!(
+            "دالة ثنائي_إلى_نص(ب: مصفوفة<عدد>) -> نص {\n",
+            "    أرجع \"دالتي\"\n",
+            "}\n",
+            "اطبع(ثنائي_إلى_نص([104، 105]))",
+        ),
+        &["دالتي"],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// قص_حروف — the codepoint slicer (#336)
+// ---------------------------------------------------------------------------
+
+/// The whole point of the name: it counts characters, not octets. Every fixture
+/// here is multi-byte, because a byte slicer agrees with a codepoint slicer on
+/// all of ASCII — that agreement is exactly how a regression would pass.
+#[test]
+fn test_substr_chars_slices_by_codepoint_in_every_backend() {
+    assert_prints(
+        "قص_حروف_أساسي",
+        concat!(
+            "اطبع(قص_حروف(\"مرحبا\"، 1، 3))\n",
+            // One codepoint of each UTF-8 width in one string, so a slicer that
+            // walked bytes would cut inside the 3- and 4-byte characters.
+            "اطبع(قص_حروف(\"A﷽م𞸀ب\"، 1، 3))\n",
+            "اطبع(قص_حروف(\"𞸀م\"، 0، 1))\n",
+            "اطبع(قص_حروف(\"مرحبا\"، 0، 5))\n",
+        ),
+        &["رحب", "﷽م𞸀", "𞸀", "مرحبا"],
+    );
+}
+
+/// The load-bearing test, and the one that fails if the
+/// `register_builtin_return_types` entry is ever dropped. That was `قص_حروف`'s
+/// state for two releases (**B7**): mapped to a runtime symbol with no registered
+/// return type, so it *printed* correctly while carrying the `Ptr(Void)` sentinel.
+///
+/// Measured natively with the entry removed, exactly as #333 measured its own —
+/// and **four** of the five assertions catch it, where #333's array caught one and
+/// its string caught three. `نوع` answered `مؤشر`, `"X" + …` printed
+/// `X4341079168`, `== "رح"` answered `خطأ`, and `طول` answered **6 instead of 3**:
+/// the sentinel routes it to `trq_array_len`, which reads `TrqString.len` — the
+/// byte count. So the failure mode of dropping the entry is that this name starts
+/// counting bytes, which is the one thing it exists not to do. Only
+/// `حرف_إلى_رمز` still answered correctly, and printing alone passed. The binary
+/// exited 0 throughout.
+#[test]
+fn test_substr_chars_result_composes_as_a_string() {
+    assert_prints(
+        "قص_حروف_تركيب",
+        concat!(
+            "اطبع(نوع(قص_حروف(\"مرحبا\"، 1، 2)))\n",
+            "اطبع(\"X\" + قص_حروف(\"مرحبا\"، 1، 2))\n",
+            "اطبع(قص_حروف(\"مرحبا\"، 1، 2) == \"رح\")\n",
+            "اطبع(طول(قص_حروف(\"مرحبا\"، 1، 3)))\n",
+            "اطبع(حرف_إلى_رمز(قص_حروف(\"مرحبا\"، 0، 1)))\n",
+        ),
+        &["نص", "Xرح", "صحيح", "3", "1605"],
+    );
+}
+
+/// Total, so no call site needs a range check before calling it. Each answer is
+/// `trq_string_substr_chars`'s, copied rather than chosen — a negative start, a
+/// start past the end and a non-positive length all give `""`, and a length past
+/// the end clamps to what remains.
+///
+/// Asserted through `طول` rather than by printing, because an empty line and a
+/// line that failed to print are the same line.
+#[test]
+fn test_substr_chars_is_total_out_of_range() {
+    assert_prints(
+        "قص_حروف_مدى",
+        concat!(
+            "اطبع(طول(قص_حروف(\"مرحبا\"، -1، 2)))\n",
+            "اطبع(طول(قص_حروف(\"مرحبا\"، 9، 2)))\n",
+            "اطبع(طول(قص_حروف(\"مرحبا\"، 5، 1)))\n",
+            "اطبع(طول(قص_حروف(\"مرحبا\"، 1، 0)))\n",
+            "اطبع(طول(قص_حروف(\"مرحبا\"، 1، -3)))\n",
+            "اطبع(طول(قص_حروف(\"\"، 0، 1)))\n",
+            // Clamping, not truncation to nothing: three characters remain.
+            "اطبع(طول(قص_حروف(\"مرحبا\"، 2، 99)))\n",
+        ),
+        &["0", "0", "0", "0", "0", "0", "3"],
+    );
+}
+
+/// `Type::compat` lets an un-narrowed `نص؟` into a `نص` parameter and native
+/// lowers it to `ptr null`, where the runtime's guard answers `""`. Without the
+/// interpreter's `Value::Null` arm this source aborts interpreted while running
+/// fine natively — the divergence class #324 found and #330 confirmed.
+///
+/// The two `عدد` parameters get no such arm, and that is deliberate: there
+/// native's `0` is an artifact of passing a null pointer in an i64 slot, not a
+/// designed answer, so mirroring it would encode #327 as contract.
+#[test]
+fn test_substr_chars_accepts_a_null_holder() {
+    assert_prints(
+        "قص_حروف_غائب",
+        concat!(
+            "متغير غائب: نص? = لا_شيء\n",
+            "اطبع(طول(قص_حروف(غائب، 0، 3)))\n",
+            "اطبع(قص_حروف(غائب، 0، 3) == \"\")\n",
+        ),
+        &["0", "صحيح"],
+    );
+}
+
+/// §1.3 of `docs/builtins-vs-stdlib.md` justifies this name under criterion (a),
+/// and that claim **expired** before it shipped — the fourth row in that document
+/// to need this treatment, after `بتات_نفي` (#312), `بتات_إزاحة_يمين_منطقية`
+/// (#322) and `ثنائي_إلى_نص` (#333). `نص_إلى_ثنائي` (#330), indexing
+/// over `مصفوفة<عدد>` and the bitwise family together make a codepoint slicer
+/// writable in Tarqeem, so rather than repeat a stale claim this asserts the
+/// equivalence.
+///
+/// It ships as a primitive anyway, on grounds that do not depend on
+/// inexpressibility: §5.2 keeps a no-import name a builtin until **B12** is fixed,
+/// so stdlib is not an available home, and it is a repair of an already-registered
+/// name rather than a new one.
+///
+/// The accumulator is seeded with `نص_إلى_ثنائي("")` rather than a `[]` literal:
+/// the literal route is refused by codegen for a typed array, and the empty
+/// array's zero capacity is the shape that used to hang `الحق` natively.
+#[test]
+fn test_substr_chars_matches_the_slicer_it_names() {
+    assert_prints(
+        "قص_حروف_مكافئ",
+        concat!(
+            "دالة اسلخ(س: نص، بداية: عدد، عدد_أحرف: عدد) -> نص {\n",
+            "    إذا (بداية < 0 || عدد_أحرف <= 0) {\n",
+            "        أرجع \"\"\n",
+            "    }\n",
+            "    ثابت بايتات = نص_إلى_ثنائي(س)\n",
+            "    متغير ناتج = نص_إلى_ثنائي(\"\")\n",
+            "    متغير موضع = 0\n",
+            "    متغير رقم_الحرف = 0\n",
+            "    طالما (موضع < طول(بايتات)) {\n",
+            "        ثابت بادئ = بايتات[موضع]\n",
+            "        متغير عرض = 1\n",
+            "        إذا (بتات_و(بادئ، 224) == 192) {\n",
+            "            عرض = 2\n",
+            "        } وإلا إذا (بتات_و(بادئ، 240) == 224) {\n",
+            "            عرض = 3\n",
+            "        } وإلا إذا (بتات_و(بادئ، 248) == 240) {\n",
+            "            عرض = 4\n",
+            "        }\n",
+            "        إذا (رقم_الحرف >= بداية && رقم_الحرف < بداية + عدد_أحرف) {\n",
+            "            متغير خطوة = 0\n",
+            "            طالما (خطوة < عرض) {\n",
+            "                الحق(ناتج، بايتات[موضع + خطوة])\n",
+            "                خطوة = خطوة + 1\n",
+            "            }\n",
+            "        }\n",
+            "        موضع = موضع + عرض\n",
+            "        رقم_الحرف = رقم_الحرف + 1\n",
+            "    }\n",
+            "    أرجع ثنائي_إلى_نص(ناتج)\n",
+            "}\n",
+            "اطبع(اسلخ(\"مرحبا\"، 1، 3) == قص_حروف(\"مرحبا\"، 1، 3))\n",
+            "اطبع(اسلخ(\"A﷽م𞸀ب\"، 1، 3) == قص_حروف(\"A﷽م𞸀ب\"، 1، 3))\n",
+            "اطبع(اسلخ(\"مرحبا\"، 0، 9) == قص_حروف(\"مرحبا\"، 0، 9))\n",
+            "اطبع(اسلخ(\"مرحبا\"، -1، 2) == قص_حروف(\"مرحبا\"، -1، 2))\n",
+            "اطبع(اسلخ(\"مرحبا\"، 9، 2) == قص_حروف(\"مرحبا\"، 9، 2))\n",
+        ),
+        &["صحيح", "صحيح", "صحيح", "صحيح", "صحيح"],
+    );
+}
+
+/// Builtins are the last lookup tier, so a user definition must win in every
+/// backend (#262) — including past codegen's `mangle_function_name`, which would
+/// otherwise emit `@trq_string_substr_chars` for the user's own function.
+#[test]
+fn test_user_function_shadows_substr_chars() {
+    assert_prints(
+        "قص_حروف_مظلل",
+        concat!(
+            "دالة قص_حروف(س: نص، ب: عدد، ط: عدد) -> نص {\n",
+            "    أرجع \"دالتي\"\n",
+            "}\n",
+            "اطبع(قص_حروف(\"مرحبا\"، 1، 2))",
+        ),
+        &["دالتي"],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// متغير_بيئة — قراءة متغيّرات البيئة (#338)
+// ---------------------------------------------------------------------------
+
+/// The name of every variable these tests inject. Latin, because environment
+/// variable names conventionally are — Arabic reaches the runtime as ordinary
+/// string data either way, and the absent-name test below relies on that.
+const ENV_PROBE: &str = "TARQEEM_ENV_PROBE_338";
+const ENV_EMPTY: &str = "TARQEEM_ENV_EMPTY_338";
+
+/// The Arabic value is not decoration: it is what proves the value survives
+/// `std::env::var` → `TrqString` → print, and it is also what makes `طول` able
+/// to catch a missing return type below. On an ASCII value the byte count and
+/// the character count agree, and the assertion would pass either way.
+#[test]
+fn test_env_var_reads_the_environment_in_every_backend() {
+    assert_prints_with_env(
+        "بيئة_قراءة",
+        concat!(
+            "اطبع(متغير_بيئة(\"TARQEEM_ENV_PROBE_338\"))\n",
+            "اطبع(طول(متغير_بيئة(\"TARQEEM_ENV_PROBE_338\")))",
+        ),
+        &[(ENV_PROBE, "مرحبا")],
+        &["مرحبا", "5"],
+    );
+}
+
+/// The load-bearing test. `متغير_بيئة` lowers to a plain call, so nothing but the
+/// `register_builtin_return_types` entry types its result.
+///
+/// Measured with that entry deleted: `نوع` → `مؤشر`, `"X" + …` → `X` followed by
+/// a pointer in decimal, `== "مرحبا"` → `خطأ`, and `طول` → **10 where 5 was
+/// right** — the sentinel routes `ArrayLen` to `trq_array_len`, which reads
+/// `TrqArray.len` at offset 0, and a `TrqString`'s field at offset 0 is its
+/// *byte* length. Four of five, like `قص_حروف`. Printing alone passed, as it has
+/// every time.
+#[test]
+fn test_env_var_result_composes_as_a_string() {
+    assert_prints_with_env(
+        "بيئة_تركيب",
+        concat!(
+            "اطبع(نوع(متغير_بيئة(\"TARQEEM_ENV_PROBE_338\")))\n",
+            "اطبع(\"X\" + متغير_بيئة(\"TARQEEM_ENV_PROBE_338\"))\n",
+            "اطبع(متغير_بيئة(\"TARQEEM_ENV_PROBE_338\") == \"مرحبا\")\n",
+            "اطبع(طول(متغير_بيئة(\"TARQEEM_ENV_PROBE_338\")))",
+        ),
+        &[(ENV_PROBE, "مرحبا")],
+        &["نص", "Xمرحبا", "صحيح", "5"],
+    );
+}
+
+/// `""` here is a value, not a sentinel: an absent variable and an empty name
+/// both have one unambiguous answer, so there is nothing for a caller to tell
+/// apart. Every one of these is `trq_env_get`'s answer rather than a chosen one.
+#[test]
+fn test_env_var_is_total_for_an_absent_name() {
+    assert_prints(
+        "بيئة_غائب",
+        concat!(
+            "اطبع(طول(متغير_بيئة(\"TARQEEM_ABSENT_338\")))\n",
+            "اطبع(متغير_بيئة(\"TARQEEM_ABSENT_338\") == \"\")\n",
+            "اطبع(طول(متغير_بيئة(\"\")))\n",
+            "اطبع(طول(متغير_بيئة(\"لا_يوجد_متغير_بهذا_الاسم\")))",
+        ),
+        &["0", "صحيح", "0", "0"],
+    );
+}
+
+/// Set-but-empty answers `""` too, so it is indistinguishable from unset. That is
+/// `getenv(3)`'s contract and it is deliberate; a caller needing the distinction
+/// has no route to it. Only reachable with an injected variable — hence the
+/// separate test from the absent cases above.
+#[test]
+fn test_env_var_does_not_distinguish_set_but_empty_from_unset() {
+    assert_prints_with_env(
+        "بيئة_فارغ",
+        concat!(
+            "اطبع(طول(متغير_بيئة(\"TARQEEM_ENV_EMPTY_338\")))\n",
+            "اطبع(متغير_بيئة(\"TARQEEM_ENV_EMPTY_338\") == متغير_بيئة(\"TARQEEM_ABSENT_338\"))",
+        ),
+        &[(ENV_EMPTY, "")],
+        &["0", "صحيح"],
+    );
+}
+
+/// The name is read raw. `trq_env_get` does its own null/len/UTF-8 checks rather
+/// than going through `string.rs`'s `as_str`, which trims — so a trimming
+/// interpreter arm would answer «مرحبا» where native answers `""`, on source that
+/// looks like a typo rather than a bug (#324).
+#[test]
+fn test_env_var_does_not_trim_the_name() {
+    assert_prints_with_env(
+        "بيئة_فراغات",
+        concat!(
+            "اطبع(طول(متغير_بيئة(\" TARQEEM_ENV_PROBE_338 \")))\n",
+            "اطبع(طول(متغير_بيئة(\"TARQEEM_ENV_PROBE_338\")))",
+        ),
+        &[(ENV_PROBE, "مرحبا")],
+        &["0", "5"],
+    );
+}
+
+/// The parameter is a pointer, so the runtime's null guard is a designed answer
+/// rather than the integer-zero artifact an `عدد` parameter would face (#326,
+/// #327). Both routes to a null are covered: an un-narrowed `نص?`, which
+/// `Type::compat` lets into a `نص` parameter, and an `أي` holder.
+#[test]
+fn test_env_var_accepts_a_null_holder() {
+    assert_prints(
+        "بيئة_لا_شيء",
+        concat!(
+            "متغير غائب: نص? = لا_شيء\n",
+            "اطبع(طول(متغير_بيئة(غائب)))\n",
+            "متغير مجهول: أي = لا_شيء\n",
+            "اطبع(طول(متغير_بيئة(مجهول)))",
+        ),
+        &["0", "0"],
+    );
+}
+
+/// Builtins are the last lookup tier, so a user definition must win in every
+/// backend (#262) — including past codegen's `mangle_function_name`, which would
+/// otherwise emit `@trq_env_get` for the user's own function.
+#[test]
+fn test_user_function_shadows_env_var() {
+    assert_prints(
+        "بيئة_مظلل",
+        concat!(
+            "دالة متغير_بيئة(اسم: نص) -> نص {\n",
+            "    أرجع \"دالتي\"\n",
+            "}\n",
+            "اطبع(متغير_بيئة(\"PATH\"))",
+        ),
+        &["دالتي"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // طول over a string — characters, not bytes (#185)
 // ---------------------------------------------------------------------------
 
@@ -2237,12 +3139,56 @@ fn test_every_core_builtin_agrees_across_backends() {
             "اطبع(بتات_إزاحة_يمين_منطقية(-1، 63))",
             &["1"],
         ),
+        // Two-byte Arabic letters throughout, so this one line rejects the
+        // degradation a byte slicer would give: `رح` is bytes 2-5, not 1-3.
+        ("قص_حروف", "اطبع(قص_حروف(\"مرحبا\"، 1، 3))", &["رحب"]),
         // A two-byte Arabic letter, so this one line rejects both plausible
         // degradations: a byte read gives 217 and a `طول`-style count gives 1.
         ("حرف_إلى_رمز", "اطبع(حرف_إلى_رمز(\"مرحبا\"))", &["1605"]),
         // A two-byte Arabic letter, so this one line rejects a byte-wise write:
         // it would emit the lead byte alone and print a replacement character.
         ("رمز_إلى_حرف", "اطبع(رمز_إلى_حرف(1605))", &["م"]),
+        // A two-byte Arabic letter again, so this one line rejects the one
+        // degradation that would otherwise look right: counting characters
+        // instead of octets, which agrees with the byte count on all ASCII.
+        ("نص_إلى_ثنائي", "اطبع(طول(نص_إلى_ثنائي(\"م\")))", &["2"]),
+        // «م»'s two octets, so this one line rejects the plausible degradation:
+        // reading the array as codepoints answers «Ù…» instead.
+        ("ثنائي_إلى_نص", "اطبع(ثنائي_إلى_نص([217، 133]))", &["م"]),
+        // A stub answering `""` for every name passes every absent-variable
+        // case, so this reads one that every process has. Its value is
+        // machine-dependent; that it is non-empty is not.
+        (
+            "متغير_بيئة",
+            "اطبع(طول(متغير_بيئة(\"PATH\")) > 0)",
+            &["صحيح"],
+        ),
+        // Writes its bytes and answers their count, so one line proves both
+        // halves: «م» is two octets, and a probe that only checked the count
+        // would pass on a primitive that wrote nothing.
+        (
+            "اكتب_مجرى",
+            "اطبع(اكتب_مجرى(1، نص_إلى_ثنائي(\"م\\n\")))",
+            &["م", "3"],
+        ),
+        // The sweep's helper gives the child a null stdin, so descriptor `٠`
+        // would answer nothing here and prove little. `١` is an output stream,
+        // which is a refusal the primitive decides on its own — and `طول` over
+        // the answer is what proves an array came back rather than a sentinel.
+        ("اقرأ_مجرى", "اطبع(طول(اقرأ_مجرى(1، 4)))", &["0"]),
+        // Status `٠` so the sweep's `assert_prints` still applies, and a line
+        // before it so the probe distinguishes "exited cleanly" from "never
+        // ran". The status half is covered by the dedicated tests below; both
+        // spellings appear here because `core_builtin_names` lists both and this
+        // sweep is what refuses to let a registered name go unexercised.
+        ("أنهِ_البرنامج", "اطبع(\"قبل\")\nأنهِ_البرنامج(0)", &["قبل"]),
+        ("أنه_البرنامج", "اطبع(\"قبل\")\nأنه_البرنامج(0)", &["قبل"]),
+        // `"."` is the one path every backend can reach without the sweep
+        // supplying anything: the program's own directory exists wherever it is
+        // run, so the answer does not depend on a working directory the three
+        // legs do not share. A *file* row would, which is why it lives in the
+        // fixture-backed tests below.
+        ("حالة_مسار", "اطبع(حالة_مسار(\".\"، 0))", &["2"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
@@ -2260,6 +3206,159 @@ fn test_every_core_builtin_agrees_across_backends() {
     for (name, body, expected) in probes {
         assert_prints(&format!("أساسي_{name}"), body, expected);
     }
+}
+
+// ---------------------------------------------------------------------------
+// أنهِ_البرنامج — الإنهاء بحالة خروج صريحة (#342)
+// ---------------------------------------------------------------------------
+//
+// The first builtin whose observable result is the process's **exit status**
+// rather than a value, so every assertion here is on `status` and on what did
+// *not* get printed. Before it, no Tarqeem program could report a status of its
+// own choosing: `توقف` is always 1 and always writes to stderr, and the three
+// `process::exit` calls in `runtime-rs` are all hardcoded.
+
+/// Status `٠` prints what came before and nothing after, on every backend.
+///
+/// The empty-stderr half of `assert_exits_with` is what this pins in particular:
+/// the interpreter reaches the exit as an `Err`, so a CLI that reported it before
+/// honouring it would print a «Runtime error» line the native binary never
+/// prints — invisible to the CI backend-diff, which compares stdout only.
+#[test]
+fn test_exit_zero_terminates_quietly_in_every_backend() {
+    assert_exits_with(
+        "إنهاء_صفر",
+        "اطبع(\"قبل\")\nأنهِ_البرنامج(٠)\nاطبع(\"بعد\")",
+        0,
+        &["قبل"],
+    );
+}
+
+/// A non-zero status survives to the caller, which is the whole point of the
+/// name — and the one thing `توقف` cannot do.
+#[test]
+fn test_exit_reports_a_nonzero_status_in_every_backend() {
+    assert_exits_with(
+        "إنهاء_ثلاثة",
+        "اطبع(\"قبل\")\nأنهِ_البرنامج(٣)\nاطبع(\"بعد\")",
+        3,
+        &["قبل"],
+    );
+}
+
+/// The masking contract, at every edge, in all three backends.
+///
+/// A POSIX status is eight bits and `عدد` is signed 64-bit, so the language has
+/// to answer for the other 56. Masking in both `trq_exit` and the interpreter's
+/// arm — rather than handing the value to the OS — is what makes the answer the
+/// same everywhere: POSIX truncates to the low byte, Windows keeps all 32. These
+/// cases are what stop the two one-line implementations from drifting apart.
+#[test]
+fn test_exit_status_masks_to_the_low_byte_in_every_backend() {
+    let cases: [(&str, i32); 6] = [
+        ("0", 0),
+        ("3", 3),
+        // The top of the range, and the value one past it: a byte's worth beyond
+        // the end wraps rather than saturating or erroring.
+        ("255", 255),
+        ("256", 0),
+        // Negative amounts fold into the same clause instead of getting their
+        // own, exactly as they do in the shift range contract.
+        ("-1", 255),
+        ("300", 44),
+    ];
+
+    for (index, (status, expected)) in cases.iter().enumerate() {
+        assert_exits_with(
+            &format!("إنهاء_قناع_{index}"),
+            &format!("أنهِ_البرنامج({status})"),
+            *expected,
+            &[],
+        );
+    }
+}
+
+/// `حاول` does not intercept it, and that is structural rather than guarded.
+///
+/// `Executor::take_propagating_exception` routes only `ErrorKind::UnhandledException`
+/// to a frame's `try_stack`, so the termination signal walks past every handler.
+/// Worth pinning because the interpreter carries it *as* an `Err`: if it ever
+/// became a catchable one, `التقط` would swallow the exit interpreted while the
+/// native binary still terminated — silent wrong output, in the exact shape this
+/// project keeps finding it.
+#[test]
+fn test_exit_is_not_catchable_in_every_backend() {
+    assert_exits_with(
+        "إنهاء_داخل_حاول",
+        "حاول {\n    أنهِ_البرنامج(٣)\n} التقط (خ) {\n    اطبع(\"لا ينبغي طباعته\")\n}\nاطبع(\"ولا هذا\")",
+        3,
+        &[],
+    );
+}
+
+/// Called from inside a function, the exit ends the program rather than the call.
+#[test]
+fn test_exit_from_inside_a_function_ends_the_program() {
+    assert_exits_with(
+        "إنهاء_من_دالة",
+        "دالة تحقق(س: عدد) {\n    إذا (س < ٠) {\n        أنهِ_البرنامج(٢)\n    }\n    اطبع(\"سليم\")\n}\nتحقق(٥)\nتحقق(-١)\nاطبع(\"لا ينبغي طباعته\")",
+        2,
+        &["سليم"],
+    );
+}
+
+/// The kasra-less spelling is the same primitive, not a near-miss.
+///
+/// `normalize_name` is NFC only and does not strip tashkeel, so the two names are
+/// distinct identifiers reaching one runtime symbol — the arrangement the keyword
+/// table already uses for `ارمِ`/`ارم`.
+#[test]
+fn test_exit_variant_spelling_behaves_identically() {
+    assert_exits_with(
+        "إنهاء_بلا_كسرة",
+        "اطبع(\"قبل\")\nأنه_البرنامج(٧)",
+        7,
+        &["قبل"],
+    );
+}
+
+/// Binding the result changes nothing: the program still exits when told to.
+///
+/// This replaces the composition gate every primitive since #324 has carried,
+/// because a `فراغ` builtin has no result to compose. The first attempt at one
+/// here asserted that `متغير س = أنهِ_البرنامج(٠)` is *rejected*, and it was
+/// confounded twice over: the call exits 0 before anything can be observed, and —
+/// measured — the analyzer does not reject a `فراغ` result bound to a variable at
+/// all. `نم` reproduces that identically, so it is the whole `Type::Void` class
+/// and not this name; filed as #343 rather than fixed here.
+///
+/// What is left worth pinning is the risk that binding introduces: the call now
+/// carries a `dest`, so a regression in how a `Void` result is typed could bind
+/// or discard the wrong thing. A non-zero status is what makes the assertion
+/// two-sided — status 3 can only come from the call actually running.
+#[test]
+fn test_exit_bound_to_a_variable_still_terminates() {
+    assert_exits_with(
+        "إنهاء_مربوط",
+        "اطبع(\"قبل\")\nمتغير س = أنهِ_البرنامج(٣)\nاطبع(\"بعد\")",
+        3,
+        &["قبل"],
+    );
+}
+
+/// A user declaration of the name shadows the builtin, in every backend.
+///
+/// Built-ins are the last lookup tier (LANGUAGE_SPEC §4.9), and the guard in
+/// `expr_builder` is what keeps native in step with the interpreter — an earlier
+/// version of that guard changed only one site, so native called the builtin
+/// while the interpreter ran the user's function. Mirrors the `متغير_بيئة` case.
+#[test]
+fn test_user_function_shadows_the_exit_builtin() {
+    assert_prints(
+        "تظليل_إنهاء",
+        "دالة أنهِ_البرنامج(حالة: عدد) {\n    اطبع(\"دالتي \" + حالة)\n}\nأنهِ_البرنامج(٣)\nاطبع(\"وصلنا\")",
+        &["دالتي 3", "وصلنا"],
+    );
 }
 
 /// `توقف` aborts the program, so it is asserted on exit status rather than
@@ -2330,4 +3429,769 @@ fn test_time_builtins_read_a_real_clock_in_interpreter_and_native() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// اكتب_مجرى — the write(2) primitive (#347)
+// ---------------------------------------------------------------------------
+
+/// Writing bytes and counting them, in one program, because either half alone
+/// admits a primitive that does not work: a count with no write, or a write
+/// whose answer is invented.
+///
+/// The value is Arabic on purpose. `طول("مرحبا")` is 5 and the write is 10
+/// octets, so the two numbers stand side by side and a primitive that counted
+/// characters would be caught. On an ASCII value they agree and the assertion
+/// could not fail — the lesson #338 recorded for a string length, which holds
+/// for a count too.
+#[test]
+fn test_write_stream_writes_bytes_and_counts_them_in_every_backend() {
+    assert_prints(
+        "مجرى_كتابة",
+        concat!(
+            "اطبع(اكتب_مجرى(1، نص_إلى_ثنائي(\"مرحبا\\n\")))\n",
+            "اطبع(طول(\"مرحبا\"))",
+        ),
+        &["مرحبا", "11", "5"],
+    );
+}
+
+/// Raw bytes, no newline of its own: two writes with no line break between them
+/// land on one line, and the count is what separates them.
+///
+/// This is the difference from `اطبع`, asserted rather than described — `اطبع`
+/// terminates its output and this does not.
+#[test]
+fn test_write_stream_appends_no_newline_of_its_own() {
+    assert_prints(
+        "مجرى_بلا_سطر",
+        concat!(
+            "اكتب_مجرى(1، نص_إلى_ثنائي(\"أ\"))\n",
+            "اكتب_مجرى(1، نص_إلى_ثنائي(\"ب\\n\"))\n",
+            "اطبع(\"تمّ\")",
+        ),
+        &["أب", "تمّ"],
+    );
+}
+
+/// The load-bearing test. `اكتب_مجرى` lowers to a plain `Call`, so nothing but
+/// the `register_builtin_return_types` entry types its result.
+///
+/// Measured with that entry deleted, and it fails in two ways at once — neither
+/// of them the wrong-number mode the array and string primitives produce. `== ٠`
+/// and `+ ١` make **native compilation fail** (ت٠١٠١, clang: «'%v13' defined
+/// with type 'i64' but expected 'ptr'»): a scalar has no struct for the
+/// `Ptr(Void)` sentinel to misread, and `icmp`/`add` on a `ptr` is not valid IR
+/// at all. `نوع` answers `مؤشر`, as it has for every name before this one. And
+/// `اطبع` is **quieter** here than anywhere else — it prints *nothing* for the
+/// count, taking the pointer path, where `ثنائي_إلى_نص` at least printed a
+/// pointer in decimal and `قص_حروف` a wrong length.
+///
+/// So the prediction rule from #336 generalises past struct layouts: predict the
+/// failure from the *return type's representation*. A scalar's missing entry is
+/// caught at build time by any arithmetic, and printing catches nothing.
+#[test]
+fn test_write_stream_result_composes_as_an_integer() {
+    assert_prints(
+        "مجرى_تركيب",
+        concat!(
+            "اطبع(نوع(اكتب_مجرى(1، نص_إلى_ثنائي(\"م\\n\"))))\n",
+            "اطبع(اكتب_مجرى(1، نص_إلى_ثنائي(\"م\\n\")) + 1)\n",
+            "اطبع(اكتب_مجرى(1، نص_إلى_ثنائي(\"م\\n\")) == 3)",
+        ),
+        &["م", "عدد", "م", "4", "م", "صحيح"],
+    );
+}
+
+/// `٢` is stderr, and this is the one contract row `assert_prints` cannot check:
+/// it compares stdout. So the streams are read apart, and both halves are
+/// asserted — the bytes are on stderr **and** absent from stdout.
+///
+/// Worth separating from `اطبع_خطأ`, which is excluded from the cross-backend
+/// sweep precisely because it disagrees about the stream: the interpreter prints
+/// it to stdout and native to stderr (#286). This primitive does not inherit
+/// that, and this test is what says so.
+#[test]
+fn test_write_stream_sends_descriptor_two_to_stderr_in_every_backend() {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(
+        temp.path(),
+        "مجرى_خطأ",
+        concat!(
+            "اطبع(\"مخرج\")\n",
+            "اطبع(اكتب_مجرى(2، نص_إلى_ثنائي(\"خطأ\\n\")))",
+        ),
+    );
+
+    for backend in Backend::ALL {
+        let output = execute(backend, &main, &format!("مجرى_خطأ_{backend:?}"));
+
+        assert!(
+            output.succeeded(),
+            "فشل التنفيذ [{backend:?}]\n{}",
+            output.report()
+        );
+        // The count reaches stdout, the bytes do not.
+        assert_eq!(
+            output.lines(),
+            &["مخرج", "7"],
+            "المجرى ٢ كتب في المخرج القياسي [{backend:?}]\n{}",
+            output.report()
+        );
+        assert!(
+            output.stderr.contains("خطأ"),
+            "المجرى ٢ لم يكتب في مجرى الخطأ [{backend:?}]\n{}",
+            output.report()
+        );
+    }
+}
+
+/// Every descriptor that names nowhere to write, answering `-١`.
+///
+/// `٠` is stdin, so writing to it is an error rather than an alias for stdout.
+/// `٣` upward names a file handle, and nothing in the language opens one yet, so
+/// the table is provably empty — both interpreters and the runtime agree on
+/// `-١` here for the same reason, not by coincidence. A negative descriptor
+/// folds into the same clause instead of getting its own.
+#[test]
+fn test_write_stream_refuses_a_descriptor_it_cannot_write_to() {
+    assert_prints(
+        "مجرى_معرّف",
+        concat!(
+            "اطبع(اكتب_مجرى(0، نص_إلى_ثنائي(\"س\")))\n",
+            "اطبع(اكتب_مجرى(3، نص_إلى_ثنائي(\"س\")))\n",
+            "اطبع(اكتب_مجرى(99، نص_إلى_ثنائي(\"س\")))\n",
+            "اطبع(اكتب_مجرى(-1، نص_إلى_ثنائي(\"س\")))",
+        ),
+        &["-1", "-1", "-1", "-1"],
+    );
+}
+
+/// An element outside `0..=255` is not a byte, and the whole call is refused
+/// rather than the value truncated to its low byte.
+///
+/// Truncation is what makes this load-bearing rather than a taste: `٣٠٠` would
+/// answer as `٤٤` — the comma — so a rejected array and an accepted one would
+/// produce the same output, and there would be no way to tell them apart. Same
+/// reasoning as `ثنائي_إلى_نص` (#333).
+///
+/// The rejection is total: nothing is written. `[٦٥، ٣٠٠]` is the case that
+/// shows it — the `A` before the bad element does not reach the stream, so the
+/// `-١` sits alone on its line.
+///
+/// The accepted boundaries go to **stderr**, not stdout, and that is not
+/// squeamishness: `٢٥٥` and `٠` are not valid UTF-8 on their own, and this
+/// primitive writes them raw where every print builtin would drop them
+/// (`trq_print` is `if let Ok(text) = from_utf8`). Sending them to stdout would
+/// make this test compare a line that is not text. The count still proves they
+/// were accepted, and it arrives on stdout.
+#[test]
+fn test_write_stream_rejects_a_value_that_is_not_a_byte() {
+    assert_prints(
+        "مجرى_بايت",
+        concat!(
+            "اطبع(اكتب_مجرى(1، [300]))\n",
+            "اطبع(اكتب_مجرى(1، [-1]))\n",
+            "اطبع(اكتب_مجرى(1، [256]))\n",
+            "اطبع(اكتب_مجرى(1، [65، 300]))\n",
+            "اطبع(اكتب_مجرى(2، [255]))\n",
+            "اطبع(اكتب_مجرى(2، [0]))",
+        ),
+        &["-1", "-1", "-1", "-1", "1", "1"],
+    );
+}
+
+/// The bytes are written raw, valid UTF-8 or not — `write(2)` does not inspect
+/// what it carries, and neither does this.
+///
+/// It is the one thing no print builtin can do: `trq_print` decodes first and
+/// silently prints nothing when the decode fails, so a lone `٢٥٥` is
+/// unreachable through `اطبع`. Asserted on stderr and read back as bytes,
+/// because the moment it were on stdout the harness's own comparison would be
+/// comparing something that is not a string.
+#[test]
+fn test_write_stream_writes_bytes_that_are_not_text() {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), "مجرى_غير_نص", "اطبع(اكتب_مجرى(2، [255، 254]))");
+
+    for backend in Backend::ALL {
+        let output = execute(backend, &main, &format!("مجرى_غير_نص_{backend:?}"));
+
+        assert!(
+            output.succeeded(),
+            "فشل التنفيذ [{backend:?}]\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.lines(),
+            &["2"],
+            "عدد البايتات [{backend:?}]\n{}",
+            output.report()
+        );
+        // `from_utf8_lossy` turned each undecodable byte into U+FFFD, which is
+        // proof they arrived: dropping them would leave stderr empty.
+        assert_eq!(
+            output.stderr.chars().filter(|c| *c == '\u{FFFD}').count(),
+            2,
+            "البايتان غير القابلين للترميز لم يصلا [{backend:?}]\n{}",
+            output.report()
+        );
+    }
+}
+
+/// Nothing to write is a count of zero, not a failure — `٠` is a value here the
+/// way an empty array is `نص_إلى_ثنائي("")`'s value.
+///
+/// `لا_شيء` answers the same, and that costs nothing: both mean nothing was
+/// written, so giving them one answer loses no information a caller could use.
+/// It is reached through an `أي` holder, since `مصفوفة<عدد>؟` does not parse
+/// (ب٠١٠١) and a bare `لا_شيء` is refused at the argument — the route #333
+/// found for the same shape.
+#[test]
+fn test_write_stream_of_nothing_answers_zero() {
+    assert_prints(
+        "مجرى_فارغ",
+        concat!(
+            "اطبع(اكتب_مجرى(1، []))\n",
+            "اطبع(اكتب_مجرى(1، نص_إلى_ثنائي(\"\")))\n",
+            "متغير غائب: أي = لا_شيء\n",
+            "اطبع(اكتب_مجرى(1، غائب))",
+        ),
+        &["0", "0", "0"],
+    );
+}
+
+/// The bytes survive the round trip: what `نص_إلى_ثنائي` produced is what the
+/// stream received, for every UTF-8 width.
+///
+/// Asserted by reading the written bytes back as output rather than by trusting
+/// the count — a primitive that wrote the right *number* of wrong bytes would
+/// pass the count assertions above.
+#[test]
+fn test_write_stream_writes_the_bytes_it_was_given() {
+    assert_prints(
+        "مجرى_وفاء",
+        concat!(
+            "اكتب_مجرى(1، نص_إلى_ثنائي(\"A﷽م𞸀\\n\"))\n",
+            "اطبع(اكتب_مجرى(1، [72، 105، 10]))",
+        ),
+        &["A﷽م𞸀", "Hi", "3"],
+    );
+}
+
+/// `لا_شيء` as a descriptor is a type error, not a write to stream zero.
+///
+/// The parameter is an `عدد`, so there is no pointer for a runtime guard to
+/// answer and codegen turns `لا_شيء` into `0` above the runtime; mirroring that
+/// would encode the artifact as contract. #326's narrowing, and the same choice
+/// `أنهِ_البرنامج` made — `رمز_إلى_حرف` and `نم` diverge identically on the same
+/// source (#327).
+#[test]
+fn test_write_stream_refuses_an_absent_descriptor() {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(
+        temp.path(),
+        "مجرى_معرّف_غائب",
+        "متغير غائب: أي = لا_شيء\nاطبع(اكتب_مجرى(غائب، [65]))",
+    );
+
+    // Native refuses the `أي` parameter before it runs, so only the two
+    // interpreters can be asked; both must refuse rather than write.
+    for backend in [Backend::Interpreter, Backend::Jit] {
+        let output = execute(backend, &main, &format!("مجرى_معرّف_غائب_{backend:?}"));
+        assert!(
+            !output.succeeded(),
+            "توقّعنا خطأ نوع [{backend:?}]\n{}",
+            output.report()
+        );
+    }
+}
+
+/// A user function named `اكتب_مجرى` shadows the builtin, like every other core
+/// name: builtins are the last lookup tier, not reserved words
+/// (LANGUAGE_SPEC §4.9).
+#[test]
+fn test_user_function_shadows_write_stream() {
+    assert_prints(
+        "مجرى_تظليل",
+        concat!(
+            "دالة اكتب_مجرى(مجرى: عدد، بايتات: مصفوفة<عدد>) -> عدد {\n",
+            "    أرجع 42\n",
+            "}\n",
+            "اطبع(اكتب_مجرى(1، [65]))",
+        ),
+        &["42"],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// اقرأ_مجرى — the read(2) primitive (#350)
+// ---------------------------------------------------------------------------
+
+/// Reads stdin and answers the bytes, in all three backends.
+///
+/// The Arabic value is not decoration: it is what separates the byte count from
+/// the character count. «مرحبا» is five characters and ten octets, so a
+/// primitive that answered characters — or a `طول` reading the wrong field —
+/// would print `5` here. #338 measured that an ASCII value silently loses that
+/// catcher, and a byte primitive tested on ASCII would lose it twice over.
+#[test]
+fn test_read_stream_reads_stdin_in_every_backend() {
+    assert_prints_with_stdin(
+        "قراءة_مجرى",
+        concat!(
+            "متغير بايتات = اقرأ_مجرى(0، 32)\n",
+            "اطبع(طول(بايتات))\n",
+            "اطبع(ثنائي_إلى_نص(بايتات))\n",
+            "اطبع(طول(ثنائي_إلى_نص(بايتات)))",
+        ),
+        "مرحبا".as_bytes(),
+        &["10", "مرحبا", "5"],
+    );
+}
+
+/// The load-bearing test, and it runs over bytes that were actually read.
+///
+/// `اقرأ_مجرى` lowers to a plain `Call`, so nothing but the
+/// `register_builtin_return_types` entry types its result. #330 measured that a
+/// missing entry on an array return is **quiet** — "only `نوع` catches it".
+/// Measured here with the entry deleted, that does not hold for this name, and
+/// the reason is instructive: what catches it depends on what the caller does
+/// with the **elements**, not on the return type.
+///
+/// `نوع` answers `مؤشر` in all three backends. `طول` answers `10` — right either
+/// way, since `ArrayLen` routes to `trq_array_len` regardless — and printing the
+/// whole array is *silent* wrong output, correct in the interpreters and empty
+/// natively. But printing an indexed element **aborts** the native binary
+/// («misaligned pointer dereference … 0x41»: with `Ptr(Void)` the element is a
+/// pointer, so `trq_print` dereferences the byte value), and `+ ١` or `== ٦٨` on
+/// one makes native **compilation fail** with ت٠١٠١.
+///
+/// Which is why this test indexes, adds and compares rather than printing the
+/// array — and why it must not run over a refusal: an empty answer cannot be
+/// indexed, and `طول` answers `0` with or without the entry, so every assertion
+/// would pass on a sentinel.
+#[test]
+fn test_read_stream_result_composes_as_a_byte_array() {
+    assert_prints_with_stdin(
+        "قراءة_تركيب",
+        concat!(
+            "متغير بايتات = اقرأ_مجرى(0، 4)\n",
+            "اطبع(نوع(بايتات))\n",
+            "اطبع(بايتات[0])\n",
+            "اطبع(بايتات[0] + 1)\n",
+            "اطبع(بايتات[3] == 68)\n",
+            "اطبع(نوع(بايتات[0]))",
+        ),
+        b"ABCD",
+        &["مصفوفة", "65", "66", "صحيح", "عدد"],
+    );
+}
+
+/// Successive calls continue where the last one stopped, and each answers
+/// exactly what it asked for while there is that much left.
+#[test]
+fn test_read_stream_reads_the_stream_in_order() {
+    assert_prints_with_stdin(
+        "قراءة_تتابع",
+        concat!(
+            "متغير أول = اقرأ_مجرى(0، 2)\n",
+            "متغير ثان = اقرأ_مجرى(0، 3)\n",
+            "اطبع(ثنائي_إلى_نص(أول))\n",
+            "اطبع(ثنائي_إلى_نص(ثان))\n",
+            "اطبع(طول(اقرأ_مجرى(0، 9)))",
+        ),
+        b"abcdef",
+        // Two, then three, then the single byte that was left.
+        &["ab", "cde", "1"],
+    );
+}
+
+/// The property §1.3's row exists for: a multi-byte character split across two
+/// reads survives, because the primitive moves octets and never decodes.
+///
+/// «مرحبا» is `D9 85 D8 B1 …`, so three bytes cuts «ر» in half. The first read
+/// ends on `216` and the second begins on `177` — the two halves of that
+/// character, contiguous across the boundary with nothing dropped or substituted.
+/// `ثنائي_إلى_نص` of the truncated piece answers `""`, which is the point:
+/// decoding is the caller's business and happens once, after the bytes are whole.
+#[test]
+fn test_read_stream_splits_a_codepoint_without_losing_it() {
+    assert_prints_with_stdin(
+        "قراءة_حدود",
+        concat!(
+            "متغير أول = اقرأ_مجرى(0، 3)\n",
+            "متغير بقية = اقرأ_مجرى(0، 7)\n",
+            "اطبع(طول(أول))\n",
+            "اطبع(أول[2])\n",
+            "اطبع(بقية[0])\n",
+            // The straddled character cannot be decoded from either piece.
+            "اطبع(طول(ثنائي_إلى_نص(أول)))\n",
+            "اطبع(طول(بقية))",
+        ),
+        "مرحبا".as_bytes(),
+        &["3", "216", "177", "0", "7"],
+    );
+}
+
+/// Asking for more than the stream holds answers what there was, and the next
+/// call answers nothing. That is what "loops until the count or EOF" means, and
+/// it is why a short answer has exactly one meaning.
+#[test]
+fn test_read_stream_stops_at_end_of_stream() {
+    assert_prints_with_stdin(
+        "قراءة_نهاية",
+        concat!(
+            "اطبع(طول(اقرأ_مجرى(0، 100)))\n",
+            "اطبع(طول(اقرأ_مجرى(0، 100)))",
+        ),
+        b"abc",
+        &["3", "0"],
+    );
+}
+
+/// An empty stdin is EOF from the first call. Uses the plain `assert_prints`,
+/// whose child gets a **null** stdin rather than the parent's terminal — which is
+/// why this row needs no piping at all.
+#[test]
+fn test_read_stream_answers_nothing_on_an_empty_stream() {
+    assert_prints("قراءة_فراغ", "اطبع(طول(اقرأ_مجرى(0، 4)))", &["0"]);
+}
+
+/// Reading `ن` bytes at once and `ن` times one byte answer the same thing.
+///
+/// The equivalence shape #322, #333 and #336 used. Here it is not a check against
+/// a hand-written alternative but against the primitive's own contract: if the
+/// read did not loop, the batched call could answer short and the two columns
+/// would part.
+#[test]
+fn test_read_stream_matches_the_loop_it_names() {
+    let expected = &["97", "98", "99", "100"];
+
+    assert_prints_with_stdin(
+        "قراءة_دفعة",
+        concat!(
+            "متغير كل = اقرأ_مجرى(0، 4)\n",
+            "لكل (متغير ي = 0؛ ي < طول(كل)؛ ي++) {\n",
+            "    اطبع(كل[ي])\n",
+            "}",
+        ),
+        b"abcd",
+        expected,
+    );
+
+    assert_prints_with_stdin(
+        "قراءة_بايت_بايت",
+        concat!(
+            "لكل (متغير ي = 0؛ ي < 4؛ ي++) {\n",
+            "    متغير واحد = اقرأ_مجرى(0، 1)\n",
+            "    اطبع(واحد[0])\n",
+            "}",
+        ),
+        b"abcd",
+        expected,
+    );
+}
+
+/// Bytes that are not text arrive intact, which no input path had before: `ادخل`
+/// decodes to a `نص`, so a byte outside UTF-8 could not survive it. The mirror of
+/// `اكتب_مجرى` putting a lone `٢٥٥` on stdout.
+#[test]
+fn test_read_stream_reads_bytes_that_are_not_text() {
+    assert_prints_with_stdin(
+        "قراءة_غير_نص",
+        concat!(
+            "متغير بايتات = اقرأ_مجرى(0، 3)\n",
+            "اطبع(بايتات[0])\n",
+            "اطبع(بايتات[1])\n",
+            "اطبع(بايتات[2])\n",
+            // Not an encoding, so decoding refuses rather than inventing text.
+            "اطبع(طول(ثنائي_إلى_نص(بايتات)))",
+        ),
+        &[0xFF, 0x00, 0x41],
+        &["255", "0", "65", "0"],
+    );
+}
+
+/// The refusal rows. `١` and `٢` carry bytes the other way, `٣` upward names a
+/// handle nothing can have opened yet, and a negative descriptor names nothing.
+///
+/// All four answer the same empty array EOF does — an array return has no value
+/// to spare for a sentinel, the way `اكتب_مجرى` has `-١`. The stdin bytes are
+/// piped and deliberately left unread: they prove the refusals are decided on the
+/// descriptor and do not fall through to stdin.
+#[test]
+fn test_read_stream_refuses_a_stream_it_cannot_read() {
+    assert_prints_with_stdin(
+        "قراءة_مرفوضة",
+        concat!(
+            "اطبع(طول(اقرأ_مجرى(1، 4)))\n",
+            "اطبع(طول(اقرأ_مجرى(2، 4)))\n",
+            "اطبع(طول(اقرأ_مجرى(3، 4)))\n",
+            "اطبع(طول(اقرأ_مجرى(-1، 4)))\n",
+            // Untouched, so it is all still there.
+            "اطبع(طول(اقرأ_مجرى(0، 4)))",
+        ),
+        b"abcd",
+        &["0", "0", "0", "0", "4"],
+    );
+}
+
+/// A non-positive count answers nothing **and consumes nothing**, which the next
+/// call proves: the bytes are still there.
+#[test]
+fn test_read_stream_of_nothing_consumes_nothing() {
+    assert_prints_with_stdin(
+        "قراءة_صفر",
+        concat!(
+            "اطبع(طول(اقرأ_مجرى(0، 0)))\n",
+            "اطبع(طول(اقرأ_مجرى(0، -5)))\n",
+            "اطبع(ثنائي_إلى_نص(اقرأ_مجرى(0، 3)))",
+        ),
+        b"abc",
+        &["0", "0", "abc"],
+    );
+}
+
+/// A user function named `اقرأ_مجرى` shadows the builtin, like every other core
+/// name: builtins are the last lookup tier, not reserved words
+/// (LANGUAGE_SPEC §4.9).
+#[test]
+fn test_user_function_shadows_read_stream() {
+    assert_prints(
+        "قراءة_تظليل",
+        concat!(
+            "دالة اقرأ_مجرى(مجرى: عدد، عدد_البايتات: عدد) -> مصفوفة<عدد> {\n",
+            "    أرجع [42]\n",
+            "}\n",
+            "اطبع(اقرأ_مجرى(0، 4)[0])",
+        ),
+        &["42"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// حالة_مسار — `stat(2)`, one field per call (#352)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Every row here is pinned in all three backends for a reason this family has
+// not had before: the kind/size mapping exists **twice** — once in
+// `trq_path_status` and once in `call_path_status` — because the compiler crate
+// does not depend on `tarqeem-runtime` and an `extern "C"` function taking a
+// `*const TrqString` could not read a `Value` anyway. Nothing but these tests
+// stops the two copies from drifting apart.
+
+/// A directory answers its kind and **no** size.
+///
+/// `"."` is the fixture the harness does not have to supply: the program's own
+/// directory exists wherever the program runs, so the row does not depend on a
+/// working directory the three legs would have to share.
+///
+/// The `-١` for the size is the deliberate delta from `trq_file_size`, which
+/// answers the OS `st_size` here — 4096 on ext4, 64–96 on APFS. A number that
+/// changes with the filesystem could not be asserted at all.
+#[test]
+fn test_path_status_answers_a_directory_without_a_size() {
+    assert_prints(
+        "حالة_مجلد",
+        concat!("اطبع(حالة_مسار(\".\"، 0))\n", "اطبع(حالة_مسار(\".\"، 1))",),
+        &["2", "-1"],
+    );
+}
+
+/// A regular file: kind `١`, and the size in **bytes**.
+///
+/// The fixture's content is Arabic on purpose. «مرحبا» is five characters and
+/// ten bytes, so an implementation that counted characters — or a missing
+/// `register_builtin_return_types` entry routing `ArrayLen` at a `TrqString`
+/// header — would pass this with an ASCII fixture and fail it here. The same
+/// catcher #338 relied on.
+#[test]
+fn test_path_status_reads_a_regular_file_and_its_byte_size() {
+    assert_prints_with_files(
+        "حالة_ملف",
+        &[("بيانات.نص", "مرحبا")],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 1))",
+        ),
+        &["1", "10"],
+    );
+}
+
+/// An absent path and an empty name are one answer, in both fields.
+#[test]
+fn test_path_status_reads_nothing_as_absent() {
+    assert_prints(
+        "حالة_معدوم",
+        concat!(
+            "اطبع(حالة_مسار(\"لا_يوجد_هذا_المسار\"، 0))\n",
+            "اطبع(حالة_مسار(\"لا_يوجد_هذا_المسار\"، 1))\n",
+            "اطبع(حالة_مسار(\"\"، 0))\n",
+            "اطبع(حالة_مسار(\"\"، 1))",
+        ),
+        &["0", "-1", "0", "-1"],
+    );
+}
+
+/// A field this function does not know has no answer, whatever the path holds —
+/// `"."` exists and is readable, and every one of these is `-١`.
+///
+/// The field is settled before the path, so an unknown field never reaches the
+/// filesystem; that ordering is invisible from here, which is why the two
+/// implementations state it in the same words.
+#[test]
+fn test_path_status_has_no_answer_for_an_unknown_field() {
+    assert_prints(
+        "حالة_حقل_مجهول",
+        concat!(
+            "اطبع(حالة_مسار(\".\"، 2))\n",
+            "اطبع(حالة_مسار(\".\"، 9))\n",
+            "اطبع(حالة_مسار(\".\"، -1))",
+        ),
+        &["-1", "-1", "-1"],
+    );
+}
+
+/// A null path reads as absent through **both** routes that can produce one.
+///
+/// An un-narrowed `نص?` gets in through `Type::compat` (#324) and native lowers
+/// it to `ptr null`, where the runtime's guard answers; an `أي` holder is the
+/// other route, and the one that still works where the optional syntax does not
+/// (#333). The `عدد` field deliberately has no such arm — there native turns
+/// `لا_شيء` into `0` as an artifact of the call path, not as a designed answer
+/// (#326, #327).
+#[test]
+fn test_path_status_reads_a_null_path_as_absent() {
+    assert_prints(
+        "حالة_لا_شيء",
+        concat!(
+            "متغير غائب: نص? = لا_شيء\n",
+            "اطبع(حالة_مسار(غائب، 0))\n",
+            "اطبع(حالة_مسار(غائب، 1))\n",
+            "متغير مجهول: أي = لا_شيء\n",
+            "اطبع(حالة_مسار(مجهول، 0))\n",
+            "اطبع(حالة_مسار(مجهول، 1))",
+        ),
+        &["0", "-1", "0", "-1"],
+    );
+}
+
+/// **The load-bearing test.** `حالة_مسار` lowers to a plain call, so nothing but
+/// the `register_builtin_return_types` entry types its result.
+///
+/// Measured with that entry deleted, and #347's prediction for a *scalar* return
+/// held exactly — where #330's prediction for an array did not survive a second
+/// array (#350):
+///
+/// | use | interpreters | native |
+/// |---|---|---|
+/// | `اطبع(…)` | `2` | prints **nothing**, exit 0 |
+/// | `نوع(…)` | `مؤشر` | `مؤشر` |
+/// | `… + ١` | `3` | **compile failure** ت٠١٠١ |
+/// | `… == ٢` | `صحيح` | **compile failure** ت٠١٠١ |
+///
+/// So printing alone passes either way, and the two arithmetic rows are what
+/// make the entry non-optional. Which is also why this runs over `"."` — a real
+/// answer — rather than over a refusal: `-١` composes just as well as `٢`, but a
+/// row that answers `0` would not distinguish a sentinel from a value (#350).
+#[test]
+fn test_path_status_result_composes_as_an_integer() {
+    assert_prints(
+        "حالة_تركيب",
+        concat!(
+            "اطبع(نوع(حالة_مسار(\".\"، 0)))\n",
+            "اطبع(حالة_مسار(\".\"، 0) + 1)\n",
+            "اطبع(حالة_مسار(\".\"، 0) == 2)",
+        ),
+        &["عدد", "3", "صحيح"],
+    );
+}
+
+/// The name opens with `حالة`, which is `TokenKind::Case` — and unlike every
+/// other keyword embedded in a builtin name, that one is reserved **only** inside
+/// a `تطابق` block.
+///
+/// The lexer test pins that the name stays one token; this pins the half the
+/// lexer cannot reach, which is the parser accepting it in the one construct
+/// where the token it embeds *is* a keyword. Both the scrutinee and an arm body
+/// call it, since those are the two positions inside `تطابق` where an expression
+/// appears.
+#[test]
+fn test_path_status_is_callable_inside_a_match() {
+    assert_prints(
+        "حالة_داخل_تطابق",
+        concat!(
+            "تطابق (حالة_مسار(\".\"، 0)) {\n",
+            "    حالة 1 => اطبع(\"ملف\")\n",
+            "    حالة 2 => اطبع(حالة_مسار(\".\"، 1))\n",
+            "    غير_ذلك => اطبع(\"غير ذلك\")\n",
+            "}",
+        ),
+        &["-1"],
+    );
+}
+
+/// The four names this one folds, written as the stdlib wrappers they become —
+/// which is the whole case for the primitive, executed rather than asserted.
+///
+/// `هل_موجود` is `!= ٠` and not `== ١`, and that is the point of the fourth kind:
+/// `ملف_موجود` is `Path::exists()`, true for a device, while `هل_ملف` is false
+/// for the same path. Three values could not answer for both.
+#[test]
+fn test_path_status_folds_the_four_file_predicates() {
+    assert_prints_with_files(
+        "حالة_أغلفة",
+        &[("بيانات.نص", "abc")],
+        concat!(
+            "دالة هل_موجود(م: نص) -> منطقي { أرجع حالة_مسار(م، 0) != 0 }\n",
+            "دالة هل_ملف(م: نص) -> منطقي { أرجع حالة_مسار(م، 0) == 1 }\n",
+            "دالة هل_مجلد(م: نص) -> منطقي { أرجع حالة_مسار(م، 0) == 2 }\n",
+            "دالة حجم(م: نص) -> عدد { أرجع حالة_مسار(م، 1) }\n",
+            "اطبع(هل_موجود(\"{مسار}\"))\n",
+            "اطبع(هل_ملف(\"{مسار}\"))\n",
+            "اطبع(هل_مجلد(\"{مسار}\"))\n",
+            "اطبع(حجم(\"{مسار}\"))\n",
+            "اطبع(هل_موجود(\".\"))\n",
+            "اطبع(هل_ملف(\".\"))\n",
+            "اطبع(هل_مجلد(\".\"))",
+        ),
+        &["صحيح", "صحيح", "خطأ", "3", "صحيح", "خطأ", "صحيح"],
+    );
+}
+
+/// The fourth kind, from Tarqeem source: `/dev/null` exists and is neither a
+/// file nor a directory.
+///
+/// Unix-only, and therefore not in `examples/مدمجات.ترقيم` — the golden file is
+/// regenerated on a developer machine and a Windows contributor would produce a
+/// different one.
+#[test]
+#[cfg(unix)]
+fn test_path_status_marks_a_device_as_neither_file_nor_directory() {
+    assert_prints(
+        "حالة_جهاز",
+        concat!(
+            "اطبع(حالة_مسار(\"/dev/null\"، 0))\n",
+            "اطبع(حالة_مسار(\"/dev/null\"، 1))",
+        ),
+        &["3", "-1"],
+    );
+}
+
+/// A user function named `حالة_مسار` shadows the builtin, like every other core
+/// name: builtins are the last lookup tier, not reserved words
+/// (LANGUAGE_SPEC §4.9).
+#[test]
+fn test_user_function_shadows_path_status() {
+    assert_prints(
+        "حالة_تظليل",
+        concat!(
+            "دالة حالة_مسار(م: نص، حقل: عدد) -> عدد {\n",
+            "    أرجع 99\n",
+            "}\n",
+            "اطبع(حالة_مسار(\".\"، 0))",
+        ),
+        &["99"],
+    );
 }

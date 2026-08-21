@@ -302,6 +302,21 @@ impl IrBuilder {
         self.function_return_types
             .insert("جذر".to_string(), IrType::Float);
 
+        // `قص_حروف` was mapped to a runtime symbol with no entry here for as long
+        // as it existed (**B7**), and the omission is quiet like `ثنائي_إلى_نص`'s
+        // below rather than loud like `جذر`'s above — `Ptr(Void)` and `String`
+        // are both `ptr`, so it linked and printed correctly.
+        //
+        // Measured natively with this line deleted: `نوع` → `مؤشر`, `"X" + …` →
+        // `X4341079168`, `== "رح"` → `خطأ`, and `طول` → **6 where 3 was right**.
+        // That last one is the reason to care: the sentinel routes `ArrayLen` to
+        // `trq_array_len`, which reads `TrqArray.len` at offset 0, and a
+        // `TrqString`'s field at offset 0 is its *byte* length. So dropping this
+        // entry makes the codepoint slicer count bytes — the one thing it exists
+        // not to do, and invisible on ASCII.
+        self.function_return_types
+            .insert("قص_حروف".to_string(), IrType::String);
+
         // حرف_إلى_رمز lowers to a plain call, so this is the only thing that
         // types its result. Unregistered it would take the same `Ptr(Void)`
         // sentinel as `جذر` above and emit `call ptr` against a `declare i64`.
@@ -309,6 +324,126 @@ impl IrBuilder {
             .insert("حرف_إلى_رمز".to_string(), IrType::Int);
         self.function_return_types
             .insert("رمز_إلى_حرف".to_string(), IrType::String);
+        // Unregistered this one would not mismatch its `declare` — `Ptr(Void)`
+        // and `Array` both map to `ptr` — so it would link and run, then read
+        // the `TrqArray` as a `TrqString` in `اطبع` and `load ptr` out of an
+        // i64 slot when indexed. Silent, unlike `جذر`'s segfault above.
+        self.function_return_types.insert(
+            "نص_إلى_ثنائي".to_string(),
+            IrType::Array(Box::new(IrType::Int), 0),
+        );
+        // Quiet unregistered for the same reason as the line above, not `جذر`'s
+        // loud one: `Ptr(Void)` and `String` are both `ptr`, so the module still
+        // links and then reads a `TrqString` as whatever the sentinel implies.
+        self.function_return_types
+            .insert("ثنائي_إلى_نص".to_string(), IrType::String);
+        // Quiet unregistered in the same way, and it fails exactly like `قص_حروف`
+        // above rather than like `ثنائي_إلى_نص`: four of five assertions catch it,
+        // `طول` included, because the sentinel sends `ArrayLen` to
+        // `trq_array_len` and a `TrqString`'s field at offset 0 is its *byte*
+        // length — «مرحبا» answers 10 where 5 is right. Only visible on a
+        // multi-byte value, which is why the test injects an Arabic one.
+        self.function_return_types
+            .insert("متغير_بيئة".to_string(), IrType::String);
+        // `اكتب_مجرى` returns a byte count, so rule 5 applies to it in full — it
+        // is not the `فراغ` exception described below. Measured with this entry
+        // deleted, and it fails in **two** ways rather than one, neither of them
+        // the wrong-number mode the array and string names above produce:
+        // `== ٠` and `+ ١` make native compilation fail outright (ت٠١٠١, clang:
+        // «'%v13' defined with type 'i64' but expected 'ptr'»), because a scalar
+        // has no struct for the sentinel to misread — an `icmp`/`add` on a `ptr`
+        // is simply not valid IR. `نوع` answers `مؤشر`. And `اطبع` is *quieter*
+        // here than anywhere else: it prints **nothing at all** for the count,
+        // taking the pointer path, where the string and array names at least
+        // printed something wrong.
+        self.function_return_types
+            .insert("اكتب_مجرى".to_string(), IrType::Int);
+        // `اقرأ_مجرى` answers an array, and this entry was expected to fail
+        // **quietly** the way #330 measured for `نص_إلى_ثنائي` — "only `نوع`
+        // catches it". Measured with the entry deleted, that is wrong, and this
+        // is the **loudest** missing entry yet: three different modes at once,
+        // depending entirely on what the caller does with the *elements*.
+        //
+        //   `اطبع(بايتات)`      native prints **nothing**; interpreters print
+        //                        the array correctly — silent wrong output
+        //   `طول`               `4` in every backend, right either way, because
+        //                        `ArrayLen` routes to `trq_array_len` regardless
+        //   `ثنائي_إلى_نص`      right either way — a `ptr` parameter takes the
+        //                        sentinel unchanged
+        //   `نوع`               `مؤشر` instead of `مصفوفة` — caught, in all three
+        //   `اطبع(بايتات[٠])`   native **aborts at run time**: with `Ptr(Void)`
+        //                        the element is a pointer, so `trq_print`
+        //                        dereferences the byte value — «misaligned
+        //                        pointer dereference: address … is 0x41» for the
+        //                        byte 65
+        //   `بايتات[٠] + ١`     native **compile failure** (ت٠١٠١) — `add i64`
+        //   `بايتات[٣] == ٦٨`   native **compile failure** (ت٠١٠١)
+        //
+        // So #330's finding does not generalise even to another name with the
+        // same return type: loudness is a property of the **use site**, not of
+        // the return type, which is what §1.1's own note says and what the
+        // loud/quiet dichotomy keeps obscuring. An array whose elements are only
+        // counted or handed on hides the sentinel; one whose elements are
+        // *arithmetic* cannot be assembled at all.
+        self.function_return_types.insert(
+            "اقرأ_مجرى".to_string(),
+            IrType::Array(Box::new(IrType::Int), 0),
+        );
+        // `حالة_مسار` answers an `عدد`, so rule 5 applies in full. Measured with
+        // this entry deleted, and #347's prediction for a **scalar** return held
+        // exactly — unlike #330's array prediction, which #350 found did not
+        // transfer even to another array:
+        //
+        //   `اطبع(…)`          native prints **nothing** and exits 0; both
+        //                      interpreters print `2` — silent wrong output
+        //   `نوع(…)`           `مؤشر` in all three — caught everywhere
+        //   `… + ١`            native **compile failure** (ت٠١٠١, clang:
+        //                      «'%v2' defined with type 'ptr' but expected
+        //                      'i64'»)
+        //   `… == ٢`           native **compile failure** (ت٠١٠١) — and the
+        //                      mismatch is reported the *other* way round,
+        //                      «'%v3' defined with type 'i64' but expected
+        //                      'ptr'», because the constant is the typed operand
+        //   bound, then printed  prints nothing, exit 0 — binding hides it too
+        //
+        // So a scalar cannot be assembled the moment it is arithmetic, and hides
+        // completely when it is only printed. Predict from the **use site**: the
+        // composition test asserts `نوع`, `+` and `==` for exactly the three
+        // modes above, and printing alone would pass either way.
+        self.function_return_types
+            .insert("حالة_مسار".to_string(), IrType::Int);
+        // `أنهِ_البرنامج` has **no entry here, deliberately** — the one exception to
+        // the rule the rest of this function embodies (`docs/builtins-vs-stdlib.md`
+        // §1.1 rule 5: Scope entry + return type + interpreter arms, "any two of the
+        // three is a landmine"). That rule was written for value-returning
+        // primitives, where the `Ptr(Void)` sentinel gets misread as a value.
+        // `أنهِ_البرنامج` returns `فراغ`, and both halves of the reasoning fail for
+        // it. Measured, not reasoned:
+        //
+        // 1. **Registering `IrType::Void` buys nothing observable.** With it, codegen
+        //    emits `call void @trq_exit(i64 …)`; without it the sentinel emits
+        //    `%v3 = call ptr @trq_exit(i64 %v2)` beside `declare void @trq_exit(i64)`
+        //    — and clang **accepts** the mismatch, because under opaque pointers a
+        //    direct call carries its own function type. Both link, run, print the
+        //    same thing and exit with the same status. `جذر` above is loud
+        //    unregistered because `اطبع` *dereferences* its result, not because the
+        //    signatures disagree. Predict this failure mode from the **use site**,
+        //    never from the declare.
+        //
+        // 2. **Registering it costs cross-backend agreement.** Codegen's `is_void`
+        //    branch emits the call and creates no value for `dest`, while the IR
+        //    still references that `dest` downstream — so
+        //    `متغير س = أنهِ_البرنامج(٣)` fails native compilation with ت٠٠٠١
+        //    «متغير غير معروف» while both interpreters exit 3. Unregistered, all
+        //    three agree (exit 3, identical stdout). The underlying defect is #343
+        //    and predates this name: a plain `دالة ف() { }` with `متغير س = ف()`
+        //    reproduces it with no builtin involved, since a user function's missing
+        //    return type *is* an `IrType::Void`.
+        //
+        // So the choice was between a silent nothing and a divergence, and the
+        // absence wins. **Add the entry once #343 lands** — the source that made it
+        // divergent will no longer compile in any backend, and the emission becomes
+        // `call void`, which is what it should have been all along.
 
         // اقرأ_سطر (read_line) returns string
         self.function_return_types

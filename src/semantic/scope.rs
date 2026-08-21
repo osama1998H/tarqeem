@@ -182,6 +182,18 @@ impl Scope {
             ("طول_مصفوفة", vec![Type::Any], Type::Int),
             ("الحق", vec![Type::Any, Type::Any], Type::Void),
             // Strings - دوال النصوص
+            // The codepoint slicer, and core tier rather than the `نص` module
+            // because §5.2 keeps a no-import name a builtin: it indexes by
+            // codepoint, not by byte, which is what keeps a caller's «عدد أحرف»
+            // from cutting an Arabic letter in half. Total — a negative start, a
+            // start past the end, or a non-positive length all answer `""`, and a
+            // length past the end clamps — so it never needs a range check at the
+            // call site. Mirrors `trq_string_substr_chars`.
+            (
+                "قص_حروف",
+                vec![Type::String, Type::Int, Type::Int],
+                Type::String,
+            ),
             // The codepoint accessor: `-1` when there is no first character,
             // since U+0000 is itself a codepoint. Takes `نص` rather than `أي`
             // so it composes at a concrete type in every backend.
@@ -189,6 +201,24 @@ impl Scope {
             // Its inverse, and `""` where the accessor answers `-1`, so the two
             // are total in both directions.
             ("رمز_إلى_حرف", vec![Type::Int], Type::String),
+            // The byte bridge. `مصفوفة<عدد>` rather than `أي` — the only core
+            // entry with a concrete array type, and it is what types the
+            // element for `س[ي]`; `طول_مصفوفة`/`الحق` take `أي` and cannot.
+            (
+                "نص_إلى_ثنائي",
+                vec![Type::String],
+                Type::Array(Box::new(Type::Int)),
+            ),
+            // Its inverse, and the only core entry *taking* a concrete array.
+            // Total: an array that is not the UTF-8 encoding of a string — an
+            // element outside 0-255, or an invalid byte sequence — answers `""`,
+            // which the caller tells from a legitimately empty result by the
+            // length of what it passed in.
+            (
+                "ثنائي_إلى_نص",
+                vec![Type::Array(Box::new(Type::Int))],
+                Type::String,
+            ),
             // Bitwise - عمليات البتات
             // Functions, not operators: there is no `&`/`|`/`^` token, and
             // `بتات_` opens the name because `و`/`أو` are keywords.
@@ -210,6 +240,64 @@ impl Scope {
                 vec![Type::Int, Type::Int],
                 Type::Int,
             ),
+            // Environment - البيئة
+            // `getenv(3)`, which no composition of the names above can reach.
+            // Total: an absent name, an empty one and `لا_شيء` all answer `""`,
+            // so set-but-empty is deliberately indistinguishable from unset.
+            ("متغير_بيئة", vec![Type::String], Type::String),
+            // Stream writing - الكتابة في مجرى
+            // `write(2)`, the byte-level output path the print intrinsics cannot
+            // be: their lowering picks a symbol from the static type, and that
+            // selection is the dispatch. Takes bytes, so `نص_إلى_ثنائي` feeds it
+            // directly. `١` is stdout, `٢` is stderr, `٣` upward a file handle;
+            // the answer is the byte count, and `-١` when nothing could be
+            // written.
+            (
+                "اكتب_مجرى",
+                vec![Type::Int, Type::Array(Box::new(Type::Int))],
+                Type::Int,
+            ),
+            // Stream reading - القراءة من مجرى
+            // `read(2)`, the byte-level input path `ادخل` cannot be: that one
+            // frames a line in Rust and answers a decoded `نص`, so no program
+            // can read one byte or do its own framing. Answers bytes, so
+            // `ثنائي_إلى_نص` decodes them. `٠` is stdin and `٣` upward a file
+            // handle; the answer is an empty array whenever there is nothing to
+            // read — at EOF, and for a stream that cannot be read from. An array
+            // has no value to spare for a sentinel, so those two cases are
+            // deliberately indistinguishable.
+            (
+                "اقرأ_مجرى",
+                vec![Type::Int, Type::Int],
+                Type::Array(Box::new(Type::Int)),
+            ),
+            // Path status - حالة المسار
+            // `stat(2)`, one field per call so the answer stays an `عدد` and no
+            // struct crosses the FFI. `حقل ٠` is the kind — `٠` معدوم، `١` ملف،
+            // `٢` مجلد، `٣` موجود وليس أحدهما — and `حقل ١` the byte length of a
+            // regular file. Any other field, and the size of anything that is
+            // not a file, answer `-١`. Total, and the field is settled before the
+            // path, so an unknown field never touches the filesystem.
+            //
+            // The fourth kind is what lets this one name answer for
+            // `ملف_موجود`، `هل_ملف`، `هل_مجلد` and `حجم_ملف` together: a device
+            // exists and is not a file, so those first two disagree about it and
+            // three values could not carry both.
+            ("حالة_مسار", vec![Type::String, Type::Int], Type::Int),
+            // Termination - إنهاء البرنامج
+            // `exit(2)`, which `توقف` cannot serve: that one is always status 1
+            // and always prints. Total — the status is `حالة & ٢٥٥`, so every
+            // `عدد` is valid — and uncatchable, since `حاول` only intercepts a
+            // thrown `استثناء`.
+            //
+            // Two spellings, one primitive. The kasra marks the dropped ya of
+            // the imperative and Arabic writers routinely omit it, which is why
+            // the keyword table carries `ارمِ`/`ارم` and `أرجع`/`ارجع` as pairs;
+            // `normalize_name` is NFC only and does not strip tashkeel, so the
+            // variant is a genuinely different identifier and needs its own
+            // entry rather than folding into the first.
+            ("أنهِ_البرنامج", vec![Type::Int], Type::Void),
+            ("أنه_البرنامج", vec![Type::Int], Type::Void),
         ]
     }
 
@@ -392,17 +480,10 @@ impl Scope {
             // نص (String) - String manipulation functions
             // =======================================================================
             "نص" => match name {
-                // Slicing
-                "قص_نص" => Some(builtin(
-                    "قص_نص",
-                    vec![Type::String, Type::Int, Type::Int],
-                    Type::String,
-                )),
-                "قص_حروف" => Some(builtin(
-                    "قص_حروف",
-                    vec![Type::String, Type::Int, Type::Int],
-                    Type::String,
-                )),
+                // Slicing. `قص_حروف` used to sit here and is now core tier, so it
+                // needs no import; `قص_نص` sliced by *byte* and is gone — the
+                // primitive string surface is uniformly codepoint-indexed, and
+                // byte-level work goes through `نص_إلى_ثنائي`/`ثنائي_إلى_نص`.
                 "حرف_في" => Some(builtin(
                     "حرف_في",
                     vec![Type::String, Type::Int],
@@ -861,8 +942,6 @@ impl Scope {
                 "عشوائي_منطقي",
             ],
             "نص" => vec![
-                "قص_نص",
-                "قص_حروف",
                 "حرف_في",
                 "يحتوي",
                 "يبدأ_بـ",

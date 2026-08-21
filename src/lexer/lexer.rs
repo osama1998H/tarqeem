@@ -977,12 +977,59 @@ mod tests {
         // two identifiers rather than fail outright. In the fifth the keyword is
         // followed by a *letter* rather than `_`, which is the only case where a
         // resumed scan would split a word rather than at a separator.
+        //
+        // The sixth is the only one whose keyword — «نص» — opens the
+        // name. A scan that preferred the longest keyword prefix would emit
+        // `TypeString` and then `_إلى_ثنائي`, which is a *plausible* token pair (a
+        // type followed by a name), so it would fail somewhere later rather than
+        // here. The next is its mirror, «نص» in trailing position — the same shape
+        // `بتات_و` already covers, listed so the pair reads together.
+        //
+        // Next is the shape none of the others reach: «و» sits inside «حروف»
+        // with a *letter* on each side (ر and ف), where every case above has a `_`
+        // or a name boundary on at least one side. A scan that treated a keyword
+        // match as a boundary regardless of context would cut a word in three.
+        //
+        // The last shares the opening position with «نص_إلى_ثنائي» but not the
+        // keyword class, and that is the point: «نص» is a type name, legal as an
+        // identifier in many positions already, while «متغير» opens a
+        // *statement*. A longest-keyword-prefix scan would emit `Let` then
+        // `_بيئة` — a well-formed variable declaration — so it would surface as a
+        // missing `=` at a position with no visible relation to the call, or not
+        // surface at all. Every case above fails as a token error; this one would
+        // fail as a plausible statement.
+        //
+        // The tenth adds **no new shape** — «ك», the alias specifier, sits inside
+        // «اكتب» with a letter on each side, exactly as «و» does inside «حروف»
+        // above. It is listed anyway, and that is the point: the check is per
+        // name, not per shape. Five of the nine cases already here were added for
+        // a shape their predecessors did not cover, so "the previous one needed
+        // nothing" has been worthless as evidence every time it was tried. «ك» is
+        // also the shortest entry in the keyword table, which makes it the one
+        // most likely to fall inside an ordinary Arabic word by accident.
+        //
+        // The eleventh is the first whose embedded keyword is **contextual**.
+        // «حالة» opens `حالة_مسار` and is `TokenKind::Case`, reserved only inside
+        // a `تطابق` block — so unlike every case above, the token this could be
+        // mistaken for is not always a keyword. It is checked here for the same
+        // reason as «متغير»: a longest-keyword-prefix scan would emit `Case` then
+        // `_مسار`, which is a well-formed match arm opening rather than a token
+        // error. The lexer is not the whole check for a contextual keyword — the
+        // parser has to accept the name *inside* `تطابق`, where the token is
+        // actually reserved, and that is pinned in
+        // `tests/builtins_execution_tests.rs` instead, since it needs a parse.
         let cases = [
             ("بتات_و(12، 10)", "بتات_و"),
             ("بتات_أو(12، 10)", "بتات_أو"),
             ("بتات_أو_حصري(12، 10)", "بتات_أو_حصري"),
             ("بتات_نفي(255)", "بتات_نفي"),
             ("بتات_إزاحة_يمين_منطقية(255، 4)", "بتات_إزاحة_يمين_منطقية"),
+            ("نص_إلى_ثنائي(\"م\")", "نص_إلى_ثنائي"),
+            ("ثنائي_إلى_نص([65])", "ثنائي_إلى_نص"),
+            ("قص_حروف(\"مرحبا\"، 1، 2)", "قص_حروف"),
+            ("متغير_بيئة(\"PATH\")", "متغير_بيئة"),
+            ("اكتب_مجرى(1، [65])", "اكتب_مجرى"),
+            ("حالة_مسار(\".\"، 0)", "حالة_مسار"),
         ];
 
         for (source, name) in cases {
@@ -992,6 +1039,42 @@ mod tests {
             assert!(matches!(&tokens[0].kind, TokenKind::Identifier(s) if s == name));
             assert_eq!(tokens[1].kind, TokenKind::LeftParen);
         }
+    }
+
+    /// A builtin name carrying a **diacritic**, which is a first: `أنهِ_البرنامج`
+    /// (#342) holds a kasra (U+0650) marking the dropped ya of the imperative.
+    ///
+    /// `is_identifier_continue` admits U+064B..=U+0652, so the scan should swallow
+    /// it — but the position is what makes this worth pinning. The mark sits
+    /// between a letter and the `_`, so a scan that ended the identifier at any
+    /// non-letter would emit `أنه` and then `ِ_البرنامج`, and `أنه` is a perfectly
+    /// good identifier: the failure would surface as an undefined function with a
+    /// name one invisible codepoint short of the right one.
+    ///
+    /// The second half is the reason the registry carries two entries rather than
+    /// one. `normalize_name` is NFC only and does not strip tashkeel, and NFC has
+    /// no composition for ه + kasra, so the two spellings stay distinct
+    /// identifiers — the arrangement the keyword table already uses for
+    /// `ارمِ`/`ارم`.
+    #[test]
+    fn test_identifier_with_a_diacritic_stays_one_token() {
+        for source in ["أنهِ_البرنامج(0)", "أنه_البرنامج(0)"] {
+            let mut lexer = Lexer::new(source);
+            let tokens: Vec<_> = lexer.tokenize();
+
+            let name = source.split('(').next().unwrap();
+            assert!(
+                matches!(&tokens[0].kind, TokenKind::Identifier(s) if s == name),
+                "توقّعنا معرِّفاً واحداً من {source:?}، وجدنا {:?}",
+                tokens[0].kind
+            );
+            assert_eq!(tokens[1].kind, TokenKind::LeftParen);
+        }
+
+        // …and they are not the same identifier, which is why both are registered.
+        let with: Vec<_> = Lexer::new("أنهِ_البرنامج").tokenize();
+        let without: Vec<_> = Lexer::new("أنه_البرنامج").tokenize();
+        assert_ne!(with[0].kind, without[0].kind);
     }
 
     #[test]

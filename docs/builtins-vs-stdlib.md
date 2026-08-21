@@ -74,6 +74,32 @@ free, because one Tarqeem AST reaches interpreter, JIT and native from a single 
    the three is a landmine. Proof: `وقت_الآن` has the Scope entry only, so `وقت_الآن() > 0`
    type-checks and then fails native codegen with *«لا يمكن ترتيب مرجعين بالعامل Gt»*.
 
+   > **Amendment (#342): the return-type clause does not apply to a `فراغ` primitive, and
+   > applying it does harm.** The clause protects a *value* — an unregistered call carries the
+   > `Ptr(Void)` sentinel and something downstream misreads it. A `فراغ` primitive has no value,
+   > and both halves of that were measured for `أنهِ_البرنامج`:
+   >
+   > - **Registering `IrType::Void` buys nothing observable.** Unregistered, codegen emits
+   >   `%v = call ptr @trq_exit(i64 …)` beside `declare void @trq_exit(i64)`, and clang
+   >   **accepts** it — under opaque pointers a direct call carries its own function type, so a
+   >   signature mismatch is no longer a parse error. Same stdout, same status, both ways.
+   > - **Registering it costs cross-backend agreement.** Codegen's `is_void` branch emits the
+   >   call and creates no value for `dest` while the IR still references that `dest`, so
+   >   `متغير س = أنهِ_البرنامج(٣)` fails native compilation (ت٠٠٠١) while both interpreters
+   >   exit 3. Unregistered, all three agree.
+   >
+   > That second defect is [#343](https://github.com/osama1998H/tarqeem/issues/343) and predates
+   > the name — a plain `دالة ف() { }` with `متغير س = ف()` reproduces it with no builtin
+   > involved, because a user function's missing return type *is* an `IrType::Void`. Register the
+   > entry once #343 lands. Until then a `فراغ` primitive is complete with **three** of the four:
+   > `Scope`, both interpreter arms, and the codegen mapping.
+   >
+   > Generalisable, and it is the third defect class this document has found in its own rows
+   > after expiring criterion-(a) claims (#312, #322, #333, #336) and unimplementable contracts
+   > (#333): **a rule can be right about the mechanism it was written for and wrong about a
+   > mechanism that had not appeared yet.** `جذر` is loud unregistered because `اطبع`
+   > *dereferences* its result — predict from the **use site**, never from the declare.
+
 ### 1.2 Category 1 — Memory & object model: **0 primitives**
 
 Deliberately empty, and this is a verdict, not an omission.
@@ -134,6 +160,58 @@ Legend for **status**: `unchanged` · `renamed` · `narrowed` · `new`.
 > remaining row asserting criterion (a) should be re-checked against what has landed since, not
 > trusted.
 >
+> **Correction (#333):** `ثنائي_إلى_نص`'s row required that it *not* validate UTF-8, so a socket or
+> file read would round-trip. **That is unimplementable across backends**, and the requirement is
+> withdrawn rather than mis-built. The interpreter holds a string as `Value::String(Rc<String>)`
+> (`src/interpreter/value.rs:20`) — a Rust `String`, which cannot *be* invalid UTF-8 — and natively
+> `trq_print` is `if let Ok(text) = std::str::from_utf8(slice)` (`runtime-rs/src/io.rs:27`), so such a
+> string prints **nothing** with no error. Honoring the clause needs a value-representation change,
+> which §9's binding constraints forbid. Truncating out-of-range elements to the low byte, the house
+> convention in `trq_sha256_bytes`, was rejected for the same reason in miniature: `[300]` would
+> answer `","` and collide with `[44]`.
+>
+> **Consequence, recorded so it is not rediscovered:** Increment K cannot use `ثنائي_إلى_نص` to carry
+> arbitrary socket bytes. Nothing regresses today — all 23 `شبكة` names already fail. Whoever takes
+> Increment K needs either a byte-array-native API — `اقرأ_مجرى`/`اكتب_مجرى` already have byte-array
+> signatures, so that route costs nothing new — or the representation change. Filed as
+> [#334](https://github.com/osama1998H/tarqeem/issues/334).
+>
+> Generalisable, and this is the *second* kind of §1.3 defect after the expiring criterion-(a) claims:
+> a row can also state a **contract** that no implementation can satisfy. Check the contract against
+> the value representation, not only the criterion against the language.
+>
+> **Criterion (a) also expired for it, making three (#333).** Indexing over `مصفوفة<عدد>` (#330), the
+> seven bitwise names, and `رمز_إلى_حرف` (#326) together make UTF-8 decoding writable in Tarqeem;
+> `test_bytes_to_string_matches_the_decoder_it_names` runs a hand-written decoder beside the builtin
+> in all three backends and they agree. It shipped anyway on `بتات_نفي`'s grounds — core tier, and
+> §5.2 keeps a no-import name a builtin until **B12** — with one addition the earlier expiries did not
+> have: the *validating* half stays materially harder to hand-write, which is what the primitive buys.
+>
+> **Correction (#336).** `قص_حروف`'s row above
+> claimed it is "the only way self-hosted Tarqeem can reach the i-th character at all", citing
+> probes p4/p7. Both halves of that were true when written; the **first expired** when the byte
+> bridge closed. `نص_إلى_ثنائي` (#330) and `ثنائي_إلى_نص` (#333), with indexing over `مصفوفة<عدد>`
+> and the bitwise family, make a codepoint slicer writable in Tarqeem — the **fourth** row to expire,
+> after `بتات_نفي` (#312), `بتات_إزاحة_يمين_منطقية` (#322) and `ثنائي_إلى_نص` (#333) — pinned by
+> `test_substr_chars_matches_the_slicer_it_names`, which runs a hand-written one beside the builtin
+> in all three backends and finds them equal, out of range included. It shipped anyway on `بتات_نفي`'s
+> grounds — core tier, and §5.2 keeps a no-import name a builtin until **B12** — plus one this
+> document had not seen before: it was a **repair of a registered name**, not a new registration, so
+> the alternative to shipping was not "leave it in stdlib" but "leave it half-wired".
+>
+> **The `س[i]` half did *not* expire, and that matters more than the criterion.** **B6** is still
+> open, so the two things the claim rested on have come apart: the operation became expressible while
+> the *idiomatic* route to it stayed broken. Do not read one as the other.
+>
+> **Deviation recorded (#336): `قص_نص` was removed outright, not deprecated.** §1.3's "deliberate
+> cut" says both `طول_نص` and `قص_نص` "survive as call-compatible stdlib functions", and §1.1 rule 3
+> gives dropped spellings one release of `م`-warnings. Neither happened for `قص_نص` — it left the
+> registry in the same change, on the owner's decision. This is recorded rather than argued because
+> the failure mode is a later increment planning against a promise the registry no longer keeps.
+> `طول_نص` is untouched. Note the removal is what *forced* the fix to `stdlib/نص/اساسي.ترقيم`
+> described in §1.3 below, so the trap that section cites as its motivating example no longer exists
+> in checked-in code.
+
 > **First re-check under that rule, and it passed (#324).** `حرف_إلى_رمز` was re-derived before
 > implementation rather than read off its row, and criterion (a) **holds**: `نص_إلى_ثنائي` does not
 > exist (**B9**), `س[i]` and `لكل ح في س` still yield an untyped `Ptr(Void)` (**B6**), and nothing
@@ -155,11 +233,11 @@ clear the sign bit, shift the rest, and place the bit at `٦٣-ن`.
 
 | الاسم | التوقيع | الحالة | التبرير |
 |---|---|---|---|
-| `قص_حروف` | `(نص، عدد، عدد) -> نص` | narrowed | **The** codepoint accessor, and the only way self-hosted Tarqeem can reach the i-th character at all — `س[i]` and `لكل ح في س` both yield an untyped `Ptr(Void)` (probes p4/p7). Requires UTF-8 boundary walking over the raw buffer. Subsumes `حرف_في`, which becomes a one-line stdlib wrapper. **Narrowed** because it moves from the `نص` module tier to the core tier (no import) — see §4.3. |
+| `قص_حروف` | `(نص، عدد، عدد) -> نص` | narrowed — **مُنفَّذ (#336)** | **The** codepoint accessor. Requires UTF-8 boundary walking over the raw buffer. Subsumes `حرف_في`, which becomes a one-line stdlib wrapper. **Narrowed** because it moves from the `نص` module tier to the core tier (no import) — see §4.3. Criterion (a) **expired** before it shipped, the fourth row to do so (correction below); it ships on §5.2/**B12** plus the fact that it was a *repair*, not a new registration. Total: a negative start, a start past the end and a non-positive length all answer `""`, and a length past the end clamps. |
 | `حرف_إلى_رمز` | `(نص) -> عدد` | new — **مُنفَّذ (#324)** | Codepoint of the first character; `-1` for empty. Nothing in the 235 declared names or the 42 `string.rs` exports returns a numeric character code — the nearest, `حرف_في`, returns a one-character `نص`. **The single highest-leverage missing primitive:** case conversion, digit parsing, character classification, hex encoding, sorting and hashing are all inexpressible without it. Arity 1 so it composes as `حرف_إلى_رمز(قص_حروف(س، ي، ١))` — one unit throughout, so it cannot participate in the byte/char trap. |
 | `رمز_إلى_حرف` | `(عدد) -> نص` | new — **مُنفَّذ (#326)** | Inverse. Required to *build* strings from computed characters, which is what number formatting is. Rejects surrogates and values > U+10FFFF rather than emit invalid UTF-8 — the rejection answers `""`, mirroring `حرف_إلى_رمز`'s `-1`, so the pair is total in both directions instead of leaving a hole. |
-| `نص_إلى_ثنائي` | `(نص) -> مصفوفة<عدد>` | new | UTF-8 octets of a string. No bridge exists today; the payload buffer is behind the `TrqString` ABI. `ثنائي` is existing vocabulary for a byte array and the `X_إلى_Y` shape matches `ثنائي_إلى_ست_عشري` exactly — reuse of vocabulary, not invention. Criterion (a). |
-| `ثنائي_إلى_نص` | `(مصفوفة<عدد>) -> نص` | new | Inverse. **Must not validate UTF-8** — a socket or file read is legitimately arbitrary bytes and must round-trip. |
+| `نص_إلى_ثنائي` | `(نص) -> مصفوفة<عدد>` | new — **مُنفَّذ (#330)** | UTF-8 octets of a string. No bridge existed; the payload buffer is behind the `TrqString` ABI. `ثنائي` is existing vocabulary for a byte array and the `X_إلى_Y` shape matches `ثنائي_إلى_ست_عشري` exactly — reuse of vocabulary, not invention. Criterion (a), re-derived at implementation time and **held**: reaching the i-th character is the only way to encode a string in Tarqeem, and no backend-portable way to do that exists while **B7** is open. `""` and `لا_شيء` both answer an **empty array** — a value, not a sentinel, since a string with no bytes has one unambiguous encoding. |
+| `ثنائي_إلى_نص` | `(مصفوفة<عدد>) -> نص` | new — **مُنفَّذ (#333)** | Inverse. **The "must not validate UTF-8" clause written here was wrong and is overridden** — see the correction below. It validates and answers `""` for an element outside 0-255 or a byte sequence that is not an encoding; `[]` and `لا_شيء` answer `""` as a value. Criterion (a) **expired** before it shipped (correction below); it ships as a primitive on §5.2/**B12** plus tier symmetry with its inverse. |
 
 > `نص` is simultaneously the category-3 formatter selector, but it is counted **once**, in
 > category 2, and is not repeated here.
@@ -175,6 +253,8 @@ which kept both and designated only `قص_نص` as the budget cut. Reasons:
    declares a parameter named `عدد_احرف` and then calls the *byte* slicer `قص_نص`, so
    `قص("مرحباً بالعالم"، ٠، ٦)` returns 3 Arabic characters, not 6. That is checked-in,
    hand-written self-hosted code, and it is the only hand-written self-hosted `نص` code that exists.
+   **Fixed in #336** — removing `قص_نص` left that line nothing to call but `قص_حروف`, which is the
+   argument of this paragraph carried out rather than restated.
 
 Both names survive as call-compatible stdlib functions. Byte-level work happens only through
 `نص_إلى_ثنائي` / `ثنائي_إلى_نص` and ordinary array indexing.
@@ -218,7 +298,22 @@ file, not a primitive to add.
 |---|---|---|---|
 | `نوع` | `(أي) -> نص` | unchanged | Type introspection is explicitly criterion (c). **Loud caveat: it is NOT a dispatch mechanism.** Natively it folds at build time to a constant read off the static `IrType`; through an `أي` parameter even the interpreter returns `كائن` for an `عدد`. No stdlib design may depend on it. Should be fixed to report dynamically in the interpreter during this work, since today it silently disagrees with itself. |
 | `توقف` | `(نص) -> فراغ` | unchanged | Abort-with-message: writes to stderr and `process::exit(1)`. No Tarqeem construct can halt the process. Criteria (b)+(c). Fix while here: the stderr text diverges between backends («توقف: X» vs «خطأ فادح: X / Panic: X») though the exit code agrees. |
-| `أنهِ_البرنامج` | `(عدد) -> فراغ` | new | Terminate with an **explicit exit status**, no message. Nothing in the system exposes an exit code — the only three `process::exit` calls are all hardcoded to 1 and none is named in Arabic. Without it no Tarqeem program can signal a status to its caller, which makes the language unusable for CLI tools and for the project's own CI. Criterion (b). |
+| `أنهِ_البرنامج` | `(عدد) -> فراغ` | new — **مُنفَّذ (#342)** | Terminate with an **explicit exit status**, no message. Nothing in the system exposed an exit code — the only three `process::exit` calls are all hardcoded to 1 and none was named in Arabic. Without it no Tarqeem program can signal a status to its caller, which makes the language unusable for CLI tools and for the project's own CI. Criterion (b), re-derived at implementation time and **held** — `exit(2)` is an OS service and, per #338's note, a syscall claim cannot expire. Total: the status is `حالة & ٢٥٥`, so `٣٠٠` → 44, `-١` → 255, `٢٥٦` → 0. Uncatchable by `حاول`. Shipped with the kasra-less spelling `أنه_البرنامج` — **two spellings, one budget slot** (deviation recorded below). |
+
+**Deviation recorded (#342): `أنهِ_البرنامج` ships in two spellings.** §1.1 rule 3 collapses every
+alias group to one surviving spelling, and §1.5 drops 26 names on that basis. The kasra-less
+`أنه_البرنامج` is registered anyway, on the owner's decision, because it is not the kind of alias
+that rule is about: the 26 are *different words* for one operation (`جا`/`جيب`, `طباعة`/`اطبع`),
+while this is one word with and without the diacritic marking its dropped ya — the pairing the
+**keyword table** already carries for `ارمِ`/`ارم`, `أرجع`/`ارجع`, `إذا`/`اذا`, `أخيراً`/`اخيرا`,
+`صدّر`/`صدر` and `عيّن`/`عين`. `normalize_name` is NFC only and does not strip tashkeel, so the two
+cannot share one entry.
+
+The consequence to carry forward: **the registry's name count and its capability budget have come
+apart by one.** The 40 in §1.3 counts capabilities; `Scope::core_builtin_names()` and
+`CORE_BUILTINS` in `tests/builtin_registry_guard_tests.rs` count names, and are 33 rather than 32.
+Recorded rather than argued, the way #336's `قص_نص` removal is, because the failure mode is a later
+increment reconciling the two numbers and "fixing" the difference.
 
 `ارمِ` is a **statement**, not a builtin function, so it consumes no budget. Its machinery stays
 compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠٣` — see §7.
@@ -229,15 +324,90 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 |---|---|---|---|
 | `اطبع` | `(أي) -> فراغ` | unchanged | **A compiler intrinsic, and irreducibly so** — see §9.1. Its `Instruction::Print` lowering selects among the print symbols on the static `IrType`; *that selection is the dispatch*, and it cannot exist in Tarqeem. Criterion (c). |
 | `اطبع_خطأ` | `(أي) -> فراغ` | unchanged | Same intrinsic, differing only in destination stream. Cannot be a stdlib wrapper over `اطبع` either — the wrapper would need an `أي` parameter and hit `ت٠٣٠١`. |
-| `اكتب_مجرى` | `(عدد، مصفوفة<عدد>) -> عدد` | new | `write(2)`. **One** write primitive for stdout, stderr and any open handle. Returns bytes written so short writes stay visible. Replaces eight formatting-in-Rust exports. Criterion (b). |
-| `اقرأ_مجرى` | `(عدد، عدد) -> مصفوفة<عدد>` | new | `read(2)`. A zero-length result *is* EOF. Byte-oriented so a multi-byte Arabic codepoint straddling a chunk boundary survives — decoding happens once, in stdlib. Line framing moves out of Rust. Criterion (b). |
+| `اكتب_مجرى` | `(عدد، مصفوفة<عدد>) -> عدد` | new — **مُنفَّذ (#347)** | `write(2)`. **One** write primitive for stdout, stderr and any open handle. Replaces eight formatting-in-Rust exports. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: `١` stdout, `٢` stderr, `٣`+ a handle; `٠`, a negative descriptor, one the table does not hold, and an element outside `٠`-`٢٥٥` all answer `-١`, which is collision-free because a count is never negative. An empty or `لا_شيء` array answers `٠` as a value. Rejection is **complete** — the array is validated before the first byte goes out. **The "short writes stay visible" clause is withdrawn** — see the correction below. |
+| `اقرأ_مجرى` | `(عدد، عدد) -> مصفوفة<عدد>` | new — **مُنفَّذ (#350)** | `read(2)`. Byte-oriented so a multi-byte Arabic codepoint straddling a chunk boundary survives — decoding happens once, in stdlib. Line framing moves out of Rust. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: `٠` stdin, `٣`+ a handle; `١`, `٢`, a negative descriptor, one the table does not hold, a non-positive count, and EOF **all** answer an empty array. **The "a zero-length result *is* EOF" clause is withdrawn as written** — see the correction below. The read loops until the count or EOF, mirroring `اكتب_مجرى`'s `write_all`. |
 | `افتح_ملف` | `(نص، عدد) -> عدد` | new | `open(2)`. Folds `trq_file_open_read/write/append` into one; the mode is `٠` قراءة / `١` كتابة / `٢` إلحاق, exported from stdlib as named `ثابت`s so no user writes the integer. Criterion (b). |
 | `اغلق_ملف` | `(عدد) -> منطقي` | new | `close(2)`. Existing implementation (`trq_file_close`) reused unchanged. Criterion (b). |
-| `حالة_ملف` | `(نص، عدد) -> عدد` | new | `stat(2)`, one field per call: `حقل ٠` = kind (٠ absent / ١ file / ٢ dir), `حقل ١` = size (`-١` if absent). **Folds four syscall wrappers into one** — `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` all become stdlib one-liners. Criterion (b). |
+| `حالة_مسار` | `(نص، عدد) -> عدد` | new — **مُنفَّذ (#352)** | `stat(2)`, one field per call, so the answer stays an `عدد` and no struct crosses the FFI. `حقل ٠` = kind, `حقل ١` = size. **Folds four syscall wrappers into one** — `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` all become stdlib one-liners. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). **Renamed from `حالة_ملف`, and the kind gained a fourth value; the size clause was completed** — see the correction below. Total: the field is settled before the path, symlinks are followed, and an absent path, an unreadable one, an empty name and `لا_شيء` all answer `٠` / `-١`. |
 | `احذف_مسار` | `(نص) -> منطقي` | new | `unlink(2)` for a file, `rmdir(2)` for an empty directory, chosen by stat. Folds two symbols; `احذف_ملف` and `احذف_مجلد` survive as stdlib wrappers. Criterion (b). |
 | `انشئ_مجلد` | `(نص) -> منطقي` | unchanged | `mkdir(2)`. No composition of open/read/write/close/stat creates a directory. Recursive creation becomes a stdlib loop, not a second primitive. Criterion (b). |
 | `قائمة_مجلد` | `(نص) -> مصفوفة<نص>` | unchanged | `readdir(3)`. Directory entries are not readable through a byte stream. One array-returning primitive is a smaller surface than an opendir/readdir/closedir triple. Criterion (b). |
 | `انقل_ملف` | `(نص، نص) -> منطقي` | unchanged | `rename(2)` is **atomic**; copy-then-delete is not, and the difference is observable. A capability that cannot be composed from the others is exactly criterion (b). |
+
+> **Correction (#347): the "returns bytes written so short writes stay visible" clause is
+> withdrawn.** It is not unimplementable the way #333's no-validation clause was — it is
+> *unreachable*. `write_all` loops until the buffer is out or an error stops it, so a short write is
+> never observed to report; the honest answer is the full count or `-١`. Exposing partial progress
+> would mean calling `write` once and returning `n`, which silently truncates a large payload and
+> puts the loop in every caller. The clause was written as though the primitive were a thin syscall
+> shim; it is a thin syscall *operation*, and the difference is the loop.
+>
+> A **third** defect class for §1.3 rows, after expiring criterion-(a) claims and contracts no
+> implementation can satisfy: a clause that is implementable and satisfiable but describes a state
+> the operation cannot enter. Check a row's promises against the *shape of the call*, not only
+> against the language and the value representation.
+>
+> Recorded, not silently changed, because a later increment could otherwise build a stdlib retry
+> loop against a partial count that never arrives.
+>
+> **One property the row did not anticipate, and it is the primitive's point.** `اكتب_مجرى` puts
+> bytes on a stream **without decoding them**, which no print builtin can: `trq_print` is
+> `if let Ok(text) = std::str::from_utf8(slice)`, so a byte sequence that is not UTF-8 prints
+> *nothing*, with no error (`runtime-rs/src/io.rs:27`). A lone `٢٥٥` is therefore unreachable
+> through `اطبع` and ordinary through this. So the byte-out direction #334 was filed to find needs
+> no value-representation change after all — though this name reaches files and the console, not
+> sockets, so Increment K still owes its own destination. See §6.7.2.
+
+> **Correction (#350): `اقرأ_مجرى`'s "a zero-length result *is* EOF" clause is withdrawn as
+> written.** It is not unimplementable (#333) and not unreachable (#347) — it is **incomplete**, and
+> it was written as though EOF were the only way to get a zero-length answer. It is not: an
+> unreadable descriptor, a handle the table does not hold and a non-positive count all produce one
+> too, and **an array return has no value left over to distinguish them.** `اكتب_مجرى` could answer
+> `-١` because a byte count is never negative; every array, empty included, is a legitimate read.
+>
+> A **fourth** defect class for §1.3 rows, then, after expiring criterion-(a) claims, contracts no
+> implementation can satisfy, and clauses describing a state the operation cannot enter: **a row
+> whose return type has no spare value cannot report a refusal at all.** Check what the return type
+> leaves room for before promising that a particular answer means a particular thing.
+>
+> The conflation is kept rather than worked around, because `runtime-rs` already made the same
+> choice one layer down: `trq_file_read_line` answers `""` for EOF, for a read error *and* for an
+> unknown handle, and `trq_file_eof` answers `true` for a handle that was never opened
+> (`runtime-rs/src/io.rs:510-531,569-576`). `متغير_بيئة`'s indistinguishable set-empty and unset is
+> the same shape in §1.3 itself. A caller that must tell them apart checks the descriptor it passed.
+>
+> Also settled here, before the fact rather than corrected after it: the read **loops** until the
+> count or EOF. #347 had to withdraw the mirror-image clause on the write side; reading once would
+> answer whatever a pipe happened to hold, so the length would depend on buffering and one program
+> would answer differently between runs and between backends. That is a flake, not a bug, and
+> `compare-backends` would surface it as one.
+
+> **Correction (#352): `حالة_ملف` is renamed `حالة_مسار`, its kind gains a fourth value, and its
+> size clause is completed.** Three changes to one row, and none of them is a defect class this
+> document has seen before.
+>
+> - **The name.** `مسار`, not `ملف`: the operation reports on a path, which may hold a file, a
+>   directory or neither, and a directory is not a `ملف`. Its own category-7 sibling `احذف_مسار`
+>   already uses `مسار` for the identical file-or-directory scope, as do `مسار_اب`, `ادمج_مسار` and
+>   `فاصل_مسار`. A naming correction on the #302 precedent, taken by the owner before the work.
+> - **The kind needs `٣`.** The row lists three values — `٠` absent / `١` file / `٢` dir — and
+>   promises to fold four names. It cannot: `ملف_موجود` is `Path::exists()` and answers **true** for
+>   `/dev/null`, while `هل_ملف` answers false for the same path, so no three-value encoding
+>   reproduces both. Verified rather than argued — `runtime-rs/src/io.rs:243` and the unit test
+>   `test_path_status_marks_a_device_as_neither_file_nor_directory`. Hence `٣` = exists and is
+>   neither, and `ملف_موجود` reduces to `!= ٠` rather than `== ١`.
+> - **The size of a directory.** The row says `حقل ١` = size, "`-١` if absent", and says nothing
+>   about a directory. `trq_file_size` answers the OS `st_size` there — 4096 on ext4, 64–96 on APFS
+>   — which no test and no golden file can assert. So the size is the byte length of a **regular
+>   file** and `-١` for everything else. A documented delta the future `حجم_ملف` wrapper inherits.
+>
+> A **fifth** defect class for §1.3 rows, after expiring criterion-(a) claims, contracts no
+> implementation can satisfy (#333), clauses describing an unreachable state (#347) and a return
+> type with no spare value for a refusal (#350): **a row promising to fold N names must have enough
+> *range* in its return to reproduce all N.** It is close to #350's and genuinely distinct — #350 is
+> about a return type having no value left to signal a *refusal*, this is about it having too few
+> values to express the *answers*. Check a fold claim against every name it folds, one at a time; the
+> one that breaks it here is the least specific of the four.
 
 #### Category 8 — Environment & time (6)
 
@@ -246,9 +416,28 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | `وقت_الآن` | `() -> عدد` | unchanged | `clock_gettime(CLOCK_REALTIME)`, epoch ms. Every date value in the language descends from this one read. **Also the entropy source** the stdlib RNG seeds from — that is literally what `runtime-rs` does today, so no separate entropy primitive is proposed. **Repair required now:** register its IR return type (see §1.1 rule 5). Criterion (b). |
 | `وقت_أداء` | `() -> عدد` | unchanged | `clock_gettime(CLOCK_MONOTONIC)`. A distinct OS service from the wall clock. **Its body is wrong today** — `trq_performance_now` is a verbatim copy of `trq_time_now`, so a monotonic promise is served by the wall clock and moves backwards on an NTP step. Fix it in the same PR that registers its return type; a name that lies is worse than a missing name. Criterion (b). |
 | `نم` | `(عدد) -> فراغ` | unchanged | `nanosleep(2)`. A busy-wait over `وقت_أداء` burns a core and cannot yield. Already a clean monomorphic wrapper. Criterion (b). |
-| `متغير_بيئة` | `(نص) -> نص` | new | `getenv(3)`, `""` when unset. **New Arabic name over an already-implemented orphan symbol** (`trq_env_get`) — implemented, linkable, and unreachable today because no name maps to it. `مجلد_مستخدم` and `مجلد_مؤقت` both reduce to it. Criterion (b). |
+| `متغير_بيئة` | `(نص) -> نص` | new — **مُنفَّذ (#338)** | `getenv(3)`, `""` when unset. **New Arabic name over an already-implemented orphan symbol** (`trq_env_get`) — implemented, linkable, and unreachable before #338 because no name mapped to it. `مجلد_مستخدم` reduces to it exactly (`trq_dir_home` is `getenv("HOME")`); `مجلد_مؤقت` does **not** — `trq_dir_temp` calls `std::env::temp_dir()`, which falls back to `/tmp` when `TMPDIR` is unset. Criterion (b), re-derived at implementation time and **held** — see the note below. Total: an absent variable, an empty name and `لا_شيء` all answer `""`, so set-but-empty is indistinguishable from unset. |
 | `مجلد_حالي` | `() -> نص` | unchanged | `getcwd(2)` is **process state**, not an environment variable. Deriving it from `$PWD` is wrong: PWD is shell-maintained, absent under non-shell parents, and stale after any chdir. Criterion (b). |
 | `معاملات_البرنامج` | `() -> مصفوفة<نص>` | new | Command-line arguments. Category 8 requires them and **nothing in the system exposes them** — `runtime-rs/src/runtime.rs:346` declares `main(_argc, _argv)` and discards both. **Not a free table entry:** it needs `runtime-rs` to capture argv at init *plus* the full nine-site registration path. Without it, and without `أنهِ_البرنامج`, Tarqeem cannot write a CLI tool. Criterion (b). |
+
+> **The first re-derivation that could not have failed (#338).** Four §1.3 rows have had criterion
+> (a) expire under them — `بتات_نفي` (#312), `بتات_إزاحة_يمين_منطقية` (#322), `ثنائي_إلى_نص` (#333)
+> and `قص_حروف` (#336) — and §6.1 made re-derivation a standing rule because of it. `متغير_بيئة` is
+> the first name to be checked whose criterion is **(b)**, and the check is structurally different:
+> criterion (a) asserts something about *the language*, which every landed increment changes, while
+> (b) asserts that a capability lives in the operating system, which nothing in Tarqeem can move.
+> **A syscall claim cannot expire.** Worth stating because the standing rule reads as "re-derive
+> every row", and for the (b) rows the honest answer is that the derivation is one sentence and will
+> stay true. Re-check the (a) rows; the (b) rows only need their *contract* checked against the
+> value representation, which is the second defect class #333 identified.
+>
+> The contract check did find something, though not a defect: `trq_env_get` was read rather than
+> trusted, because the orphan precedent in this document is `trq_performance_now` — implemented,
+> linkable, and lying about being monotonic. This one is honest. All five of its paths (null pointer,
+> null data, empty name, invalid UTF-8, unset variable) already return `trq_string_new(null, 0)`, an
+> empty `TrqString` rather than a null pointer, so the row's `""`-when-unset clause was satisfied by
+> code that predated the row. **Read an orphan before planning on it; the two in this document
+> disagree about whether they work.**
 
 #### Category 9 — Optional: **0 primitives in the v1 core**
 
@@ -359,7 +548,7 @@ Two rules, and together they make same-name collision structurally impossible:
    | Primitive (mechanism) | Stdlib (task) |
    |---|---|
    | `اكتب_مجرى` | `اطبع_ملف`, `اكتب_ملف`, `الحق_ملف` |
-   | `حالة_ملف` | `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` |
+   | `حالة_مسار` | `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` |
    | `قص_حروف` | `قص`, `اول_حروف`, `حرف_في`, `موضع` |
    | `نص_إلى_ثنائي` | `احسب_بصمة`, `إلى_ست_عشري`, `اضغط` |
    | `حرف_إلى_رمز` | `كبير`, `صغير`, `رقمي`, `عربي`, `نص_لعدد` |
@@ -631,10 +820,11 @@ Four new primitives (`حرف_إلى_رمز`, `رمز_إلى_حرف`, `نص_إل�
 Five names × the full nine-site path — the most registration work in the plan, and the last time it
 is paid at scale.
 
-**Progress: 2 of 5 landed.** `حرف_إلى_رمز` (#324) and `رمز_إلى_حرف` (#326). Remaining:
-`نص_إلى_ثنائي`, `ثنائي_إلى_نص`, and `قص_حروف`'s repair (**B7**, still open). **Not one atomic change** — the
-increment is landing a name at a time, as Increment A did, and each name's criterion (a) is
-re-derived when its turn comes rather than trusted from §1.3.
+**Complete: 5 of 5 landed.** `حرف_إلى_رمز` (#324), `رمز_إلى_حرف` (#326), `نص_إلى_ثنائي` (#330),
+`ثنائي_إلى_نص` (#333) and `قص_حروف` (#336), which closes **B7**. **Not one atomic change** — the
+increment landed a name at a time, as Increment A did, and each name's criterion (a) was re-derived
+when its turn came rather than trusted from §1.3. **Three of the five held** on re-derivation —
+#324, #326 and #330 — and two had expired, #333 and #336.
 
 **What #324 measured, since Increment A's cost note does not transfer.** The seven bitwise names
 were IR-intercepted and cost two files each; `حرف_إلى_رمز` is the first *new* symbol-mapped core
@@ -659,7 +849,11 @@ Three things #324 found that the plan did not state:
    the one to follow.
 3. **Decode only the first character's bytes, never the whole buffer.** `from_utf8` over the whole
    slice fails when *any* later byte is invalid, which would throw away a perfectly decodable first
-   character — and `ثنائي_إلى_نص` is specified not to validate, so that input is coming.
+   character. The reason given here was that `ثنائي_إلى_نص` would not validate, which #333 withdrew;
+   the guidance survives its own rationale, because a `TrqString` can hold invalid UTF-8 natively
+   anyway — `trq_string_new` takes raw bytes, and nothing on the way in validates them. (The
+   rationale as first written also cited `قص_نص` cutting on byte boundaries; #336 removed that
+   name, and the guidance survives that too — the same rewording landed in `string.rs`.)
 
 **What #326 added, and one correction to the above.** `رمز_إلى_حرف` cost the same nine sites and
 found nothing new about the path, which is the result. Its criterion (a) was re-derived and
@@ -681,11 +875,116 @@ Generalisable: before mirroring a sibling's edge-case arm, check whether the mec
 produced the sibling's answer exists for this name. Here it did not, and the two names differ in
 the one place the family otherwise looks uniform.
 
+**What #330 added: the first core builtin returning an array — and the nine sites did not grow.**
+`نص_إلى_ثنائي` was expected to be the expensive one, because no core-tier name had returned a
+`مصفوفة` before. It cost the same nine sites, plus one lexer test, and **zero new mechanism**: the
+stdlib tier had already paid for array returns, and `اضغط` is `(نص) -> مصفوفة<عدد>` — this name's
+exact signature — with `IrType::Array(Box::new(IrType::Int), 0)` registered since #241 and
+`examples/تشفير_وضغط.ترقيم` composing such a result with `طول` across all three backends in CI.
+The lesson is the reverse of Increment A's: **check whether a "first" is a first for the
+*mechanism* or only for the *tier*.** Here it was only the tier.
+
+Four things #330 found that the plan did not state:
+
+1. **A missing `register_builtin_return_types` entry is *quieter* for an array than for a scalar.**
+   §1.1 rule 5 and the `جذر` note describe the failure as a signature mismatch — `call ptr` against
+   a `declare i64`. For an array return there is no mismatch to catch: `Ptr(Void)` and `Array` both
+   map to LLVM `ptr`, so the module is valid, links, and runs. Verified by deleting the entry:
+   indexing still answered `65` and `اطبع` still printed the array, and the only assertion that
+   failed was `نوع(…)`, which returned `مؤشر` instead of `عدد`. That is why the composition test
+   asserts `نوع` and indexing rather than printing alone — and printing would have passed.
+2. **`نص(<array>)` is a live cross-behaviour divergence — filed as #331 — and it runs the opposite
+   way round from the prediction.** `convert_to_string` has no `Array` arm and falls through to
+   `trq_int_to_string`. The expectation was that native would reject the module and the interpreters
+   would print `[104، 105]`; **measured, it is the reverse.** Both interpreters raise
+   «متوقع عدد، وُجد array», and **native compiles, runs, prints the pointer as a decimal integer
+   (`4353416272`) and exits 0** — the silent-wrong-output mode, not a build failure. The `ptr`
+   argument is simply dropped into the `i64` slot, because `runtime_scalar_param`'s unboxing fires
+   only for `Ptr(Int)`. `"…" + <array>` is refused cleanly by `binary_result_type`, so `نص` is the
+   only way in. Nothing in the tests or the example uses it. **Worth stating as method:** this claim
+   was written from a source trace and was wrong in the direction that matters; running it took one
+   file and three commands. Trace to form the hypothesis, run to record the behaviour.
+3. **The `Value::Null` arm was required here, and #326's narrowing predicted it correctly.** The
+   parameter is a **pointer**, so the runtime's null guard is a designed answer rather than the
+   integer-zero artifact `رمز_إلى_حرف` faced. With the arm, an un-narrowed `نص?` answers an empty
+   array and exits 0 in all three backends — verified, and covered cross-backend rather than only in
+   a unit test, since the shape provably agrees. The *narrowed* shape is still #327 and is untested.
+4. **The keyword-embedding check changed its answer a third time.** `نص_إلى_ثنائي` is the first name
+   in either family whose embedded keyword — `نص`, `TokenKind::TypeString` — **opens** the name.
+   Every previous case in `test_identifier_containing_a_keyword_stays_one_token` has the keyword in
+   suffix or mid-name position. A longest-keyword-prefix scan would emit `TypeString` then
+   `_إلى_ثنائي`, which is a *plausible* pair (a type followed by a name) and so would fail somewhere
+   later rather than at the name. The test was extended. Three names, three different answers — the
+   check is per name, and "the last one needed nothing" remains worthless as evidence.
+
 **Gate:** a **composition** test, not a print test. `"X" + حرف_في(س،١)` printed `X4377631856`
 natively today — printing alone passes while composition is silently wrong. The examples program
 must concatenate and compare each primitive's result, across all three backends. #324's
 `test_char_code_result_composes_as_an_integer` is that gate for the first name, and it is the test
 that fails if the `register_builtin_return_types` entry is ever dropped.
+
+**What #333 added: the nine sites did not grow, and the *contract* was the expensive part.**
+`ثنائي_إلى_نص` cost the same nine sites as its three siblings plus one lexer case, with zero new
+mechanism — `trq_sha256_bytes(*const TrqArray) -> *mut TrqString` is this signature exactly, so like
+#330 the "first" was only a first for its tier. What actually cost time was discovering that the row's
+stated contract could not be implemented (see the §1.3 correction). Four things it found that the plan
+did not state:
+
+1. **A missing `register_builtin_return_types` entry is *louder* for a `نص` return than for an
+   array.** #330 measured that only `نوع` caught the array case. Measured here by deleting the entry:
+   `اطبع` still printed «مرحبا» correctly, but `نوع` answered `مؤشر`, `"X" + …` printed
+   `X4340804192`, and `== "﷽"` answered `خطأ`. Three of five assertions caught it rather than one,
+   because concatenation and comparison both degrade visibly on a string where indexing and printing
+   did not on an array. **The composition test must still assert all three** — printing alone passes
+   either way.
+2. **`مصفوفة<عدد>؟` does not parse** — `ب٠١٠١` at the `?`, even though §5.3's grammar admits
+   `نمط_اختياري := نمط '?'`. So the route that made a `Value::Null` arm load-bearing for
+   `نص_إلى_ثنائي` (an un-narrowed `نص?` slipping through `Type::compat`) does not exist here. The arm
+   is still required, reached instead through an **`أي` holder**, where both backends agree on `""`.
+   Refines #326's rule a third time: ask not only whether the parameter is a pointer, but *how a null
+   can be written at all* — the answer differed per name for the third consecutive name.
+3. **The array-literal-as-argument shape works.** Probed before writing fixtures, because #304 (an
+   intercepted builtin *inside* a literal) and #327 (the call-argument path) both live next door.
+   `ثنائي_إلى_ست_عشري([104، 105])` is correct in all three backends, so `ثنائي_إلى_نص([217، 133])` is
+   a safe fixture. Worth keeping: the probe cost one file and confirmed a shape three siblings never
+   exercised.
+4. **Sharing one decode helper beat duplicating the arm.** `bytes_to_string` is `pub(crate)` in
+   `interpreter::executor::builtins` and re-exported for the debug interpreter, the way
+   `Value::to_display_string` already is, so the rejection rule cannot drift between them. Prefer this
+   to a second copy whenever the logic — not just the dispatch — is identical.
+
+**What #336 added: the nine sites shrank to six, and the quiet site got louder.** `قص_حروف` was the
+first of the five that already had a `runtime-rs` function, a codegen mapping and a `declare`, so it
+cost only the *semantic and interpreter* half: a `Scope` move, a `register_builtin_return_types`
+entry, and `is_builtin` plus a dispatch arm in both interpreters. That is the shape every remaining
+`~` row in the inventory has — 216 names are already mapped in `get_runtime_function_name` — so it is
+the cheaper half of the path, and the one that repairs a half-wired name rather than adding one.
+
+Four things it found that the plan did not state:
+
+1. **The missing-return-type failure is *not* monotonic in loudness, and it is worst for this
+   name.** #330 measured one caught assertion for an array and #333 measured three for a `نص`. Here
+   **four of five** caught it — because `طول` did, answering `6` where `3` was right. The sentinel
+   sends `ArrayLen` to `trq_array_len`, which reads `TrqArray.len`; a `TrqString`'s first field is
+   its *byte* length, and the two structs' layouts make that a clean misread rather than a crash. So
+   the specific failure mode of dropping this name's entry is that **the codepoint slicer starts
+   counting bytes** — the one thing it exists not to do, and indistinguishable from a correct answer
+   on ASCII. Generalisable: predict *which* assertion catches a missing entry from the return type's
+   struct layout, not from a loud/quiet dichotomy.
+2. **Sharing the whole dispatch beat sharing the computation.** #333 shared `bytes_to_string`, the
+   decode, and each interpreter kept its own argument checks. Here the checks *are* most of the
+   contract — three parameters, a null arm on one of them and not the other two — so
+   `call_substring_by_chars` is `pub(crate)` and each interpreter's arm is one line. Prefer sharing
+   at the widest point where the two backends must agree, which is the dispatch, not the kernel.
+3. **The keyword-embedding check found its fourth distinct shape, and it passed.** `قص_حروف` embeds
+   `و` inside `حروف` with a *letter* on each side (`ر` and `ف`). Every earlier case has a `_` or a
+   name boundary on at least one side, so this is the only one where a scan treating a keyword match
+   as a boundary would cut a word into three. Four names, four shapes, four separate answers — the
+   check stays per-name.
+4. **`ك` is unusable as a loop variable, and the parse error does not say so.** A counted inner loop
+   written with `ك` fails as «ب٠٢٠١: متوقع اسم المتغير» pointing at the `=`, because `ك` is the
+   contextual alias keyword. §6.6 already warns about this for Increment F; it fired here first, in a
+   *test fixture*, which is where it will keep firing.
 
 ### 6.3 Increment C — `رياضيات`
 
@@ -753,9 +1052,43 @@ misleading parse errors.
 
 ### 6.7 Increment G — `ملفات` + `طرفية`
 
-Requires the seven new I/O primitives. 21 names. Reserve stream ids `٠/١/٢` and start
-`NEXT_FILE_HANDLE` at 3 — it starts at 1 today and would collide with stdout the moment streams
-unify, silently redirecting a file write to the terminal.
+Requires the seven new I/O primitives; **three have landed** — `اكتب_مجرى` (#347, §6.7.2) and
+`اقرأ_مجرى` (#350, §6.7.3), the byte-level stream pair, and `حالة_مسار` (#352, §6.7.4). 21 names. **20 after #338**, which landed `متغير_بيئة` ahead
+of this increment: `مجلد_مستخدم` reduces to it, so it becomes a stdlib one-liner rather than a syscall
+wrapper — `trq_dir_home` is `getenv("HOME")` and nothing else. `مجلد_مؤقت` does **not** collapse with
+it: `trq_dir_temp` calls `std::env::temp_dir()`, which falls back to `/tmp` when `TMPDIR` is unset and
+walks `TMP`/`TEMP`/`USERPROFILE` on Windows, so `متغير_بيئة("TMPDIR")` would answer `""` on the common
+Linux case. It stays a syscall wrapper. Both symbols stay live under their own Arabic names until then.
+
+**What #338 measured, and it is a fourth cost shape.** Increment A cost two files per name, #324 cost
+the full nine sites, and #336 cost six by repairing a half-wired name. `متغير_بيئة` cost **eight**:
+everything on the nine-site path except the `runtime-rs` function, because the symbol already existed
+as an orphan. So the path has four measured shapes now, and the discriminator is not the tier or the
+return type — it is **which half of the path already exists**. Check that before estimating.
+
+Two things it found that the plan did not state:
+
+1. **The missing-`register_builtin_return_types` failure mode is predictable from the struct layout,
+   and this name's prediction held exactly.** #336 asked for that prediction rather than a
+   loud/quiet dichotomy, and here it produced the right answer in advance: four of five assertions
+   catch it, `طول` included, answering **10 where 5 was right** for the value «مرحبا». The sentinel
+   sends `ArrayLen` to `trq_array_len`, which reads offset 0, and a `TrqString`'s field at offset 0
+   is its *byte* length. Printing passed, as it has every time. **The Arabic test value is what makes
+   `طول` able to catch it at all** — on an ASCII value the byte count and the character count agree
+   and that assertion passes either way. A `نص`-returning builtin tested only on ASCII silently loses
+   one of its four catchers.
+2. **A cross-backend harness cannot set an environment variable in-process.** `cargo` runs tests as
+   threads in one process, so `std::env::set_var` races every other test. All three backend legs are
+   already child processes, so the variable goes on the child:
+   `tarqeem_with_env` / `execute_with_env` / `assert_prints_with_env` were added as additive wrappers
+   and the existing `tarqeem` / `execute` / `assert_prints` became one-liners over them, leaving all
+   147 existing call sites untouched. The native leg must put the variables on the **executed
+   binary**, not on `compile` — the compiler reads no environment on that path.
+
+Reserve stream ids `٠/١/٢` and start `NEXT_FILE_HANDLE` at 3 — it starts at 1 today and would
+collide with stdout the moment streams unify, silently redirecting a file write to the terminal.
+**Done in #347**, which is the increment that made descriptor `١` mean stdout, so it is the change
+that needed it. Blocker **B15** is closed.
 
 **This increment is nearly all upside:** 19 of the 21 `ملفات` names have no interpreter arm, and the
 family segfaults natively today (probe `p4_files`: the binary prints two lines then dies on
@@ -763,6 +1096,263 @@ family segfaults natively today (probe `p4_files`: the binary prints two lines t
 
 **One documented regression:** `انسخ_ملف` loses permission preservation, since `std::fs::copy`
 carries the mode across and a byte loop does not.
+
+### 6.7.1 `أنهِ_البرنامج` — landed ahead of Increment G (#342)
+
+Category 6, not category 7, and it landed here because it needs none of Increment G's syscall
+primitives: `exit(2)` composes with nothing. Recorded next to G because it is the second name (after
+`متغير_بيئة`) taken out of order for the same reason — a criterion-(b) primitive whose OS service
+has no dependency on the rest of the plan.
+
+**A fifth cost shape, and the discriminator §6.7 named still holds.** The four measured shapes were
+2 files (IR-intercepted), 9 sites (new symbol + new name), 8 (symbol already exists) and 6 (repair a
+half-wired name). This one cost **11**: the nine, *minus* the `register_builtin_return_types` entry
+(see the §1.1 rule 5 amendment), *plus* three the plan did not anticipate —
+`ErrorKind::ProgramExit(i32)` and its constructor, and three call sites in
+`src/cli/commands/mod.rs`. So "which half of the path already exists" still predicts most of it, but
+it does not predict the plumbing a *new kind of effect* needs. `فراغ` was not new; **terminating the
+process from the interpreter** was.
+
+Four things it found that the plan did not state:
+
+1. **A `فراغ` primitive must not register its return type**, and the reason is a defect that
+   predates it (#343). The full measurement is in the §1.1 rule 5 amendment; the short version is
+   that registering it turns a program both interpreters run into a native compile failure, and
+   *not* registering it costs nothing observable because clang accepts the `call ptr`/`declare void`
+   mismatch under opaque pointers. **The next `فراغ` primitive — `اكتب_مجرى` returns `عدد`, but
+   Increment G's `اغلق_ملف` and any later `اطبع`-shaped name — inherits this.**
+2. **The interpreter cannot honour an arbitrary exit status on its own.** It runs in-process and
+   `src/main.rs` maps every `Err` to status 1, so the status has to travel as a signal and be
+   honoured at the CLI boundary — *before* the «Runtime error» report, or the interpreter prints a
+   diagnostic to stderr where the native binary prints nothing. `compare-backends` diffs stdout
+   only, so that divergence would not have been caught in CI; the execution helper asserts empty
+   stderr for exactly that reason. `توقف` gets away with an `Err` because its status is always 1,
+   which is what the error path already produces — do not read it as a template for a status the
+   program chooses.
+3. **Uncatchability is structural, and worth asserting anyway.** `take_propagating_exception`
+   (`src/interpreter/executor/mod.rs:282`) routes only `ErrorKind::UnhandledException` to a frame's
+   `try_stack`, so an exit signal walks past every `حاول`. That is free today, but it is one
+   `matches!` away from being wrong, and the failure would be `التقط` swallowing an exit interpreted
+   while native still terminated.
+4. **The composition gate inverts for a `فراغ` name, and the first attempt at one was
+   confounded.** Every primitive since #324 has been gated on composing its result. This one has no
+   result, so the natural substitute — "assert that using it as a value is rejected" — fails twice
+   over: the call exits before anything is observable, and the analyzer does not reject a `فراغ`
+   result bound to a variable at all (#343). What replaced it asserts a **non-zero** status through
+   a bound call, so only the call actually running can produce the answer. Pick the assertion so
+   that exactly one behaviour produces it.
+
+Also: the keyword-embedding lexer check does **not** apply (the name embeds no keyword — checked
+against the full list), but a new one does. `أنهِ_البرنامج` is the first builtin name carrying a
+**diacritic**, and the kasra sits between a letter and a `_`, where a scan ending the identifier at
+any non-letter would silently yield `أنه` — a perfectly good identifier one invisible codepoint
+short of the right one. Pinned by `lexer::tests::test_identifier_with_a_diacritic_stays_one_token`.
+
+### 6.7.2 `اكتب_مجرى` — the first Increment G primitive (#347)
+
+**The cost shape was the #324 nine, and it held exactly — the first time it was *forecast* rather
+than matched afterwards.** Five shapes had been measured (2 files IR-intercepted, 9 new symbol +
+new name, 8 symbol already exists, 6 repair a half-wired name, 11 for a `فراغ` effect), and §6.7's
+discriminator — *which half of the path already exists* — was applied here **before** the work:
+neither half existed, so nine. It cost nine, plus the B15 one-line fix this primitive's own contract
+requires. #320 and #326 also cost what their predecessors cost and recorded that as the result, but
+neither was a prediction — the discriminator was only named at #338, so those two agreed with the
+estimate in retrospect. #342's caveat is what keeps the forecast non-trivial: the discriminator does
+not cover a **new kind of effect**, and writing bytes to a stream is not one — `trq_print` has
+always done it.
+
+Four things it found that the plan did not state:
+
+1. **The missing-return-type failure mode is not "loud or quiet" — for a scalar it is
+   *fatal*, and printing catches nothing at all.** #330 measured one caught assertion for an array,
+   #333 three for a `نص`, #336 and #338 four. Measured here: `== ٠` and `+ ١` make **native
+   compilation fail** — `ت٠١٠١`, clang «'%v13' defined with type 'i64' but expected 'ptr'» — because
+   a scalar return has no struct for the `Ptr(Void)` sentinel to misread, and an `icmp`/`add` on a
+   `ptr` is not valid IR at all. `نوع` answers `مؤشر` as always. And `اطبع` is **quieter than in any
+   previous name**: it prints *nothing* for the count, taking the pointer path, where the string and
+   array names at least printed something wrong. So #336's rule generalises past struct layouts —
+   predict from the return type's **representation**: a pointer-shaped return degrades silently, a
+   scalar one cannot even be assembled.
+2. **The interpreter's descriptor `٣`+ answer agrees with native for a *reason*, not by
+   construction.** Both answer `-١`, because nothing in the language opens a handle yet, so the
+   runtime's table is provably empty and the interpreter has no table to consult. That agreement is
+   load-bearing and temporary: `افتح_ملف` must give the interpreter a handle table in the same
+   increment it lands, or the two backends diverge the moment a handle exists. The runtime's handle
+   path is implemented and unit-tested now, so the contract will not move under it.
+3. **#334's *shape* is answered here, though not its destination.** #333 recorded that
+   `ثنائي_إلى_نص` cannot carry arbitrary bytes — a `TrqString` that is not UTF-8 prints as nothing —
+   and filed #334 to find a byte-array path. `اكتب_مجرى` demonstrates that path works: bytes leave
+   the language without being decoded, verified on a lone `٢٥٥`. What it does **not** do is reach a
+   socket: the descriptor is resolved against `FILE_HANDLES`, which holds files, so Increment K still
+   needs its sockets in a table this can see or its own send primitive. Recorded precisely because
+   the tempting summary — "#334 is half done" — would send a later increment looking for a
+   capability that is not there. What is settled is that the byte-out direction needs no new value
+   representation.
+4. **A raw-byte primitive constrains its own CI example.** Bytes that are not valid UTF-8 reach
+   stdout intact, so an example that wrote `٢٥٥` would commit a golden file that is not text, and
+   `scripts/جدد_المتوقع.sh` merges stderr into it (`2>&1`), so writing to descriptor `٢` there would
+   make the file depend on interleaving. Both are covered in unit tests reading the streams apart
+   instead. The general rule for the remaining Increment G names: **an example demonstrates the
+   contract's *text* rows; the byte and stream rows belong where the streams can be read
+   separately.**
+
+### 6.7.3 `اقرأ_مجرى` — the second Increment G primitive (#350)
+
+**The forecast held again, and this is the second consecutive one made before the work.** §6.7's
+discriminator — *which half of the path already exists* — said nine: no `trq_read_stream` symbol, no
+registered name. It cost nine, plus the harness change its own contract requires (stdin, below).
+#342's caveat was checked and does not apply: reading bytes from a stream is not a new kind of
+effect, `trq_input` has always done it. So the discriminator now has two forecasts and two hits,
+which is what makes it worth trusting rather than re-measuring each time.
+
+Four things it found that the plan did not state:
+
+1. **The missing-return-type failure mode is not a property of the return type — it is a property
+   of the *use site*, and #330's finding does not generalise even to another name with the same
+   return type.** #330 measured "only `نوع` catches it" for `نص_إلى_ثنائي` and this document has been
+   refining a loudness ranking ever since (one catcher for an array, three for a `نص`, four for
+   `قص_حروف` and `متغير_بيئة`, fatal for `اكتب_مجرى`'s scalar). Measured here with the entry deleted,
+   an array return produces **three different modes at once**:
+
+   | use | interpreters | native |
+   |---|---|---|
+   | `اطبع(بايتات)` | correct | prints **nothing** — silent wrong output |
+   | `طول(بايتات)` | correct | correct — `ArrayLen` routes to `trq_array_len` regardless |
+   | `ثنائي_إلى_نص(بايتات)` | correct | correct — a `ptr` parameter takes the sentinel unchanged |
+   | `نوع(بايتات)` | `مؤشر` — caught | `مؤشر` — caught |
+   | `اطبع(بايتات[٠])` | correct | **run-time abort** — «misaligned pointer dereference … 0x41» |
+   | `بايتات[٠] + ١` | correct | **compile failure**, ت٠١٠١ |
+   | `بايتات[٣] == ٦٨` | correct | **compile failure**, ت٠١٠١ |
+
+   The abort is the interesting row: with `Ptr(Void)` the *element* is a pointer too, so `trq_print`
+   dereferences the byte value `65` as an address. So the honest rule is the one §1.1's own note
+   already gives — **predict from the use site, never from the declare** — and the loud/quiet
+   ranking this document has been building is the thing that obscured it. An array whose elements
+   are only counted or handed on hides the sentinel completely; one whose elements are arithmetic
+   cannot be assembled at all.
+
+2. **A composition test over a *refusal* proves nothing, and that is a trap specific to a primitive
+   whose empty answer is a contract row.** Every name since #324 is gated on composing its result,
+   and the natural fixture here — a descriptor the primitive refuses — needs no stdin and so is much
+   easier to write. It is also worthless: an empty array cannot be indexed, and `طول` answers `0`
+   with or without the entry, so all three assertions pass on a sentinel. The gate has to run over
+   bytes actually read, which is what forced the harness change below to land *first*.
+
+3. **The harness gained stdin, and the null default turned out to be a contract row for free.**
+   `cargo` runs tests as threads in one process, so a test cannot redirect its own stdin any more
+   than it can `set_var` (#338). The bytes go on the child, through one shared innermost driver with
+   `_with_stdin` peers, leaving all existing call sites untouched. Two things worth keeping: the
+   parameter is `&[u8]`, not `&str`, because one contract row is a byte sequence that is not text;
+   and `Command::output`'s default stdin is **null**, not inherited, so the EOF row is assertable
+   through the plain `assert_prints` with no piping at all. The native leg pipes to the executed
+   binary, never to `compile` — #338's lesson transposed.
+
+4. **An input primitive's CI example is the inverse of #347's, and strictly worse off.** #347 found
+   that an output primitive's *byte* rows cannot go in the example, because the golden file is a
+   `2>&1` capture. Here the *success* rows cannot: the golden is generated with stdin inherited from
+   a terminal, so any positive-count read on `٠` would wait for input and never finish. The example
+   therefore demonstrates only what the primitive refuses — every row it *does* cover is a zero. The
+   general rule for the rest of Increment G: **an example can only exercise a primitive whose inputs
+   the example itself can supply**; `افتح_ملف` and `حالة_ملف` will be able to, `اقرأ_مجرى` cannot. (#352 found that half right — see §6.7.4.)
+
+Two smaller results, both recorded because they were *run* rather than assumed:
+
+- **The keyword-embedding check does not apply, and this is the first name checked mechanically
+  against the whole list rather than by eye.** `اقرأ_مجرى` embeds none of the 69 keywords, where its
+  sibling `اكتب_مجرى` embeds `ك`. Per #317/#320 it therefore gets no row in
+  `test_identifier_containing_a_keyword_stays_one_token` — adding one dilutes what that test tests.
+- **A new lexer shape *was* probed, and it passed.** The name carries a precomposed hamza (`أ`,
+  U+0623) whose NFD form is two codepoints, so source written decomposed must still resolve to the
+  registered name. It does: the lexer normalises the file to NFC before tokenising, and the
+  decomposed spelling ran and answered correctly in the interpreter. Recorded rather than pinned in
+  a test, because the normalisation is a whole-file property and not specific to this name.
+
+Finally, the `≥٣` note from §6.7.2 now applies to **both** halves of the pair: the interpreter has no
+handle table and the runtime's is provably empty from Tarqeem source, so both answer an empty array
+for the same reason. `افتح_ملف` must give the interpreter a handle table in the same increment it
+lands, or two primitives diverge at once instead of one.
+
+### 6.7.4 `حالة_مسار` — the third Increment G primitive (#352)
+
+**The forecast held a third consecutive time, and this one was the least like its predecessors.**
+§6.7's discriminator — *which half of the path already exists* — said nine: no `trq_path_status`, no
+registered name. It cost nine, plus the one additive harness helper its own fixtures require. #342's
+caveat was checked and does not apply: reading filesystem metadata is not a new kind of effect,
+`trq_file_exists` has always done it. Three forecasts, three hits — and the two before this were a
+matched pair, where this one shares nothing with them but the cost shape.
+
+Landed **ahead of `افتح_ملف`** deliberately, and that is the ordering result worth keeping: §6.7.2
+and §6.7.3 both record that the opener must give the interpreter a handle table in the same increment
+it lands, which makes it two primitives' worth of work under a one-per-change rule. `حالة_مسار` takes
+a path, not a handle, so it needs none of that — the remaining Increment G names are not equally
+sized, and the path-taking ones are the ones that can land alone.
+
+Five things it found that the plan did not state:
+
+1. **The row's fold promise did not fit its own return values — a fifth §1.3 defect class.** Recorded
+   in full in the §1.3 correction above. The short version: `ملف_موجود` is `Path::exists()`, true for
+   a device; `هل_ملف` is false for the same path; three kind values cannot answer for both. The check
+   that found it was mechanical and cheap — *read each folded name's implementation, one at a time* —
+   and it is the only one of the four that a plausible reading of the row would have missed, because
+   the other three map onto `١`/`٢`/size directly.
+
+2. **The missing-return-type mode was *predicted* correctly for the first time from a sibling's
+   measurement.** #347 measured a scalar return and found it fatal natively on arithmetic and silent
+   on printing; that transferred here exactly, where #330's array measurement did **not** transfer to
+   #350's array. Measured with the entry deleted:
+
+   | use | interpreters | native |
+   |---|---|---|
+   | `اطبع(…)` | `2` | prints **nothing**, exit 0 |
+   | `نوع(…)` | `مؤشر` — caught | `مؤشر` — caught |
+   | `… + ١` | `3` | **compile failure**, ت٠١٠١ |
+   | `… == ٢` | `صحيح` | **compile failure**, ت٠١٠١ |
+   | bound to a variable, then printed | `2` | prints nothing, exit 0 |
+
+   One detail worth the line: the two compile failures report the mismatch in **opposite directions**
+   — «'%v2' defined with type 'ptr' but expected 'i64'» for `+`, and «'%v3' defined with type 'i64'
+   but expected 'ptr'» for `==`, because in the comparison the typed operand is the literal. So the
+   refined rule from #350 stands and now has a positive case: predict from the **use site**, and a
+   *scalar* use site is predictable across names in a way an array one is not.
+
+3. **A contextually reserved keyword in a builtin name needs a parser check, not only the lexer
+   row.** `حالة_مسار` opens with `حالة`, which is `TokenKind::Case` — the first embedded keyword in
+   this family that is reserved in exactly one construct. The lexer row proves the name stays one
+   token; it cannot prove the parser accepts the name *inside* `تطابق`, where the token it embeds is
+   actually a keyword. Both were checked — the mechanical substring sweep over all 69 keywords found
+   `حالة` and nothing else, and `test_path_status_is_callable_inside_a_match` calls the name in the
+   scrutinee and in an arm body. **It passed**, so there is no parser defect to file; recorded anyway,
+   because the check is new and the next contextual keyword (`احصل`, `عيّن`, `ك`) will need it too.
+
+4. **The example's input capability was half of what §6.7.3 predicted, and the split is not the one
+   that section drew.** #347 found an output primitive cannot put its *byte* rows in the example;
+   #350 found an input primitive cannot put its *success* rows there; both split along what the
+   golden file can represent. Here the line falls somewhere else: the example supplies the
+   *directory* and *absent* rows perfectly — `"."` exists wherever a program runs — and cannot supply
+   a **regular file**, because nothing in the language creates one yet and a relative path into the
+   repository would make the golden depend on the working directory. `/dev/null` is out for a third
+   reason again: it is Unix-only and the golden is regenerated on a developer machine. So the rule
+   generalises one level up: **an example can exercise the rows whose inputs are invariant under
+   where and on what the program runs** — not "inputs the example can supply", which `"."` also is.
+   `افتح_ملف` will move this line, since a program that can create a file can then stat it.
+
+5. **The one primitive so far whose logic is duplicated across the crate boundary, and it is
+   structural.** Every name since #324 either lowered to an IR instruction or delegated to one
+   `runtime-rs` function with the interpreters keying on the Arabic name. This one has a *kernel* —
+   the kind/size mapping — that both sides must compute, and the root crate does not depend on
+   `tarqeem-runtime` (verified: no such dependency in `Cargo.toml`), while an `extern "C"` function
+   taking a `*const TrqString` could not read a `Value` anyway. So there are two copies by
+   construction, and the only thing holding them together is that **every row × both fields is
+   asserted cross-backend** rather than in one implementation's unit tests. #336's "share at the
+   widest point where the two backends must agree" is still followed *within* the compiler —
+   `call_path_status` is one `pub(crate)` dispatch shared by both interpreters — which keeps the count
+   at two copies rather than three.
+
+One smaller result: `trq_string_to_path` (`runtime-rs/src/io.rs`) guards a null pointer and null
+`data` but **not a negative `len`**, which then reaches `from_raw_parts` as a huge `usize`. It is
+unreachable from compiled code today — lengths come from real strings — and the helper is shared by
+every path function, so it was left alone rather than changed here. Filed as
+[#353](https://github.com/osama1998H/tarqeem/issues/353).
 
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 
@@ -798,15 +1388,15 @@ the same disease as the nine `#298` date constructors.
 | **B4** | **`stdlib/طرفية` duplicate-export collision (`و٠١٠١`).** One rename. | Phase 1 | Increment G |
 | **B5** | **The seven flat stubs and three name collisions** (§2.1). | file listing; `نص/اساسي.ترقيم:170`, `وقت/تاريخ.ترقيم:220`, `شبكة/فهرس.ترقيم` | Every module flip |
 | **B6** | **Character-binding type inference defect — the highest-severity item here.** Both `لكل ح في نص` and `س[i]` yield an untyped `Ptr(Void)`. Un-annotated: `ح == "م"` **never matches natively while working interpreted and JIT'd**, and `ج + ح` prints raw pointer integers natively while the other two backends at least error loudly. Writing `: نص` repairs it. | `ح_مساواة`, `ح_دمج`, `فهرس_حلقة` vs `فهرس_حلقة2`, `دمج_معنون`, `p7` | Increment F (`نص`) |
-| **B7** | **`قص_حروف` has no interpreter arm, no debug arm, and no registered IR return type.** Without the return type it inherits the `Ptr(Void)` sentinel and reproduces the exact bug this refactor removes. | `p8`; `"X" + حرف_في(س،١)` → `X4377631856` | Increment B, and everything downstream |
+| ~~**B7**~~ | **Closed (#336).** `قص_حروف` is core tier with an `IrType::String` return type and arms in both interpreters. Measured before the fix, natively: `نوع` → `مؤشر`, `"X" + …` → `X4341079168`, `== "رح"` → `خطأ`, and `طول` → **6 instead of 3** — the sentinel routes it to `trq_array_len`, which reads `TrqString.len`, the byte count. `حرف_في` still has the defect and is still native-only. | `p8`; `"X" + حرف_في(س،١)` → `X4377631856` | ~~Increment B, and everything downstream~~ |
 | **B8** | **No bitwise capability exists** in any spelling — no lexer token, no Arabic name, nothing to reuse. | `ثنائي_عامل` probe: `أ & ب` → `ب٠٠٠٢` at the `&` | Increments E, I, J and the RNG |
-| **B9** | **char↔code closed (#324, #326);** the string↔bytes bridge (`نص_إلى_ثنائي` / `ثنائي_إلى_نص`) still does not exist. | grep over all 235 names and all 42 `string.rs` exports, as of the original census | Increments E, F, I |
+| ~~**B9**~~ | **Closed (#333).** char↔code (#324, #326), string→bytes (#330) and bytes→string (#333) all land, so the bridge is total in both directions. One caveat inherited from the contract above: the bytes→string direction **validates**, so it carries text, not arbitrary octets. | grep over all 235 names and all 42 `string.rs` exports, as of the original census | ~~Increments E, F, I~~ |
 | **B10** | **`احذف_آخر` needs a new IR instruction.** The only proposed primitive requiring genuine per-backend work: `ArrayPop` plus arms in the interpreter, debug interpreter, both JIT tiers and LLVM. `trq_array_pop` already exists, unused. | `سحب` probe fails in all three | `مجموعات/مكدس`, `طابور` |
 | **B11** | **Array `==` emits invalid LLVM IR.** Works interpreted (reference identity); natively clang rejects *"'%v10' defined with type 'ptr' but expected 'i64'"* at `icmp eq i64`. | `هوية3` | Any self-hosted collection that compares arrays |
 | **B12** | **The linker treats prelude-origin declarations as fatal collisions** rather than displaceable. | `P3_collision`, `P3_linkercollide` vs `P3b` | Increment H; all prelude-gated names |
 | **B13** | **`ارمِ` is still refused by native codegen (`ت٠٣٠٣`).** Migrated stdlib **must not use it**. Error signalling uses sentinels (`-١`, `i64::MIN`) or `توقف`. | LANGUAGE_SPEC §11.3 | All increments |
 | **B14** | **`target/release/libtrq.a` is stale** — missing `trq_string_to_int_checked`, `trq_string_to_float_checked`, `trq_string_to_int`, `trq_time_now`. Produces phantom native failures. Build hygiene, not a design defect. **Distinguish a clang IR-parse error (real bug) from an `ld` undefined-symbol error (stale archive).** | `nm`/mtime; `وقت_الآن` link failure | Any native verification |
-| **B15** | **`NEXT_FILE_HANDLE` starts at 1** and collides with stdout once streams unify. | `io.rs:397` | Increment G |
+| ~~**B15**~~ | **Closed (#347).** `NEXT_FILE_HANDLE` starts at 3, reserving `٠/١/٢`, and a `runtime-rs` test asserts every handle is `≥ ٣`. Fixed in the change that made descriptor `١` mean stdout, since that is what made the collision reachable. `0` was never a valid handle — every `trq_file_open_*` returns it on failure — so nothing depended on the old numbering. | `io.rs:397` | ~~Increment G~~ |
 | **B16** | **The stdlib short-circuit is per-specifier and all-or-nothing** (§4.4). A module leaves `get_stdlib_modules()` exactly when its disk/embedded file answers **every** one of its names — not before, or every existing program using it breaks at once. | `stmt_analyzer.rs:1122-1128`, `modules.rs:299` | Every module flip |
 
 ---

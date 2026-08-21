@@ -3,7 +3,10 @@
 use std::io::{self, Write};
 
 use crate::interpreter::epoch_millis;
-use crate::interpreter::{RuntimeError, RuntimeResult, Value};
+use crate::interpreter::{
+    bytes_to_string, call_env_var, call_exit_program, call_path_status, call_read_stream,
+    call_substring_by_chars, call_write_stream, RuntimeError, RuntimeResult, Value,
+};
 
 use super::DebugInterpreter;
 
@@ -27,8 +30,22 @@ impl DebugInterpreter {
                 | "أرضية"
                 | "سقف"
                 | "قرب"
+                | "قص_حروف"
                 | "حرف_إلى_رمز"
                 | "رمز_إلى_حرف"
+                | "نص_إلى_ثنائي"
+                | "ثنائي_إلى_نص"
+                | "متغير_بيئة"
+                | "اكتب_مجرى"
+                | "اقرأ_مجرى"
+                | "حالة_مسار"
+                // Termination. Absent here, stepping through `أنهِ_البرنامج(٠)`
+                // would abort with «دالة غير معرّفة» while every other backend
+                // ended the program cleanly — the same gap #295 records for
+                // `توقف` and `نم`, which is why the name goes in when it lands
+                // rather than after someone debugs a program that uses it.
+                | "أنهِ_البرنامج"
+                | "أنه_البرنامج"
                 // Runtime symbols the IR builder lowers core builtins to
                 // (#222). Without these, stepping through `عدد("٥")` or
                 // `تأكد(...)` aborts with "دالة غير معرّفة".
@@ -204,6 +221,58 @@ impl DebugInterpreter {
                 }
             }
 
+            // The whole dispatch is shared rather than mirrored, so the
+            // totality contract — negative start, non-positive length, start
+            // past the end, null string — cannot drift from the interpreter's.
+            "قص_حروف" => call_substring_by_chars(&args),
+
+            // Mirrors `interpreter::executor::builtins`, `Null` arm included —
+            // there the parameter is a pointer, so the empty array is a designed
+            // answer rather than #327's artifact.
+            "نص_إلى_ثنائي" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("نص_إلى_ثنائي() تتطلب معامل واحد")
+                })?;
+                match val {
+                    Value::String(s) => Ok(Value::array_from(
+                        s.bytes().map(|b| Value::Int(b as i64)).collect(),
+                    )),
+                    Value::Null => Ok(Value::array()),
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
+            }
+
+            // Its inverse, and the rejection is what keeps the backends
+            // agreeing: a `Value::String` is a Rust `String` and cannot hold
+            // invalid UTF-8 at all, so answering `""` is the only contract both
+            // this and native can honour. See `trq_string_from_bytes`.
+            "ثنائي_إلى_نص" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("ثنائي_إلى_نص() تتطلب معامل واحد")
+                })?;
+
+                match val {
+                    Value::Array(arr) => Ok(Value::string(
+                        bytes_to_string(&arr.borrow()).unwrap_or_default(),
+                    )),
+                    // Load-bearing, but reached differently from its sibling:
+                    // `مصفوفة<عدد>؟` does not parse (ب٠١٠١) and a bare `لا_شيء`
+                    // is refused at the argument, so the route is an `أي` holder
+                    // — where native's null guard answers `""` and erroring here
+                    // instead would abort on source native runs fine.
+                    Value::Null => Ok(Value::string("")),
+                    _ => Err(RuntimeError::type_error("مصفوفة", val.type_name())),
+                }
+            }
+
+            "متغير_بيئة" => call_env_var(&args),
+
+            "اكتب_مجرى" => call_write_stream(&args),
+            "اقرأ_مجرى" => call_read_stream(&args),
+            "حالة_مسار" => call_path_status(&args),
+
+            "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
+
             "trq_string_len" => {
                 let val = args
                     .first()
@@ -341,6 +410,7 @@ impl DebugInterpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::interpreter::ErrorKind;
 
     /// The debug interpreter is the fourth backend and the one that silently
     /// falls behind (#223): `tests/builtins_execution_tests.rs` has no `debug`
@@ -422,6 +492,403 @@ mod tests {
                 .expect("رمز_إلى_حرف أخفق في مفسّر التنقيح");
             assert_eq!(built.as_string(), Some(""), "من {code}");
         }
+    }
+
+    /// Same reasoning as the two above, and this is the **first** array-returning
+    /// arm in this file — every other one here only ever reads an array. The
+    /// element values are checked, not just the count: a count alone would pass
+    /// on an arm that returned characters rather than octets for ASCII input.
+    #[test]
+    fn test_string_to_bytes_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("نص_إلى_ثنائي"),
+            "نص_إلى_ثنائي غير مُعرَّف كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        for (argument, expected) in [
+            (Value::string("A"), vec![65]),
+            (Value::string("م"), vec![0xD9, 0x85]),
+            (Value::string("hi"), vec![104, 105]),
+            (Value::string(""), vec![]),
+            // An un-narrowed `نص؟` arrives as `Value::Null`, and native answers
+            // an empty array for it — see the arm's own note.
+            (Value::Null, vec![]),
+        ] {
+            let result = interpreter
+                .call_builtin("نص_إلى_ثنائي", vec![argument])
+                .expect("نص_إلى_ثنائي أخفق في مفسّر التنقيح");
+
+            let Value::Array(bytes) = result else {
+                panic!("نص_إلى_ثنائي لم تُرجع مصفوفة");
+            };
+            let actual: Vec<i64> = bytes.borrow().iter().filter_map(|v| v.as_int()).collect();
+            assert_eq!(actual, expected);
+        }
+    }
+
+    /// The inverse arm, and the rejections matter more here than the successes:
+    /// the debugger shares `bytes_to_string` with the main interpreter, so what
+    /// this pins is that the *dispatch* exists and keys on the Arabic name.
+    #[test]
+    fn test_bytes_to_string_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("ثنائي_إلى_نص"),
+            "ثنائي_إلى_نص غير مُعرَّف كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        for (slots, expected) in [
+            (vec![65], "A"),
+            (vec![0xD9, 0x85], "م"),
+            (vec![104, 105], "hi"),
+            (vec![], ""),
+            // Not bytes, and not valid UTF-8, both answering `""` — the one rule.
+            (vec![300], ""),
+            (vec![-1], ""),
+            (vec![0xD9], ""),
+        ] {
+            let argument = Value::array_from(slots.iter().map(|b| Value::Int(*b)).collect());
+            let result = interpreter
+                .call_builtin("ثنائي_إلى_نص", vec![argument])
+                .expect("ثنائي_إلى_نص أخفق في مفسّر التنقيح");
+
+            assert_eq!(result.as_string(), Some(expected), "من {slots:?}");
+        }
+
+        // Reached through an `أي` holder rather than an optional annotation —
+        // `مصفوفة<عدد>؟` does not parse. Native answers `""` for it.
+        let null = interpreter
+            .call_builtin("ثنائي_إلى_نص", vec![Value::Null])
+            .expect("ثنائي_إلى_نص أخفق على لا_شيء");
+        assert_eq!(null.as_string(), Some(""));
+    }
+
+    /// The slicer's arm. Like `ثنائي_إلى_نص` above, the whole dispatch is shared
+    /// with the main interpreter, so what this pins is that the dispatch exists
+    /// and keys on the Arabic name — the gap that made `توقف` and `نم` abort here
+    /// while running in every other backend (#295), and that no cross-backend
+    /// sweep can catch, since `Backend::ALL` does not reach this interpreter.
+    #[test]
+    fn test_substr_chars_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("قص_حروف"),
+            "قص_حروف غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        for (text, start, len, expected) in [
+            ("مرحبا", 1, 3, "رحب"),
+            // One codepoint of each UTF-8 width, so a byte slicer cannot pass.
+            ("A﷽م𞸀", 1, 2, "﷽م"),
+            // Totality, in the four shapes `trq_string_substr_chars` guards.
+            ("مرحبا", -1, 2, ""),
+            ("مرحبا", 9, 2, ""),
+            ("مرحبا", 1, 0, ""),
+            ("م", 0, 5, "م"),
+        ] {
+            let result = interpreter
+                .call_builtin(
+                    "قص_حروف",
+                    vec![Value::string(text), Value::Int(start), Value::Int(len)],
+                )
+                .expect("قص_حروف أخفقت في مفسّر التنقيح");
+
+            assert_eq!(
+                result.as_string(),
+                Some(expected),
+                "من {text:?} {start} {len}"
+            );
+        }
+
+        // The `نص` parameter is a pointer, so native's null guard answers `""`
+        // and this arm mirrors a designed contract rather than an artifact.
+        let null = interpreter
+            .call_builtin("قص_حروف", vec![Value::Null, Value::Int(0), Value::Int(1)])
+            .expect("قص_حروف أخفقت على لا_شيء");
+        assert_eq!(null.as_string(), Some(""));
+    }
+
+    /// `أنهِ_البرنامج`'s arm, and the one builtin whose dispatch could not be
+    /// tested at all if it exited the process: `cargo test` runs these in-process,
+    /// so a `process::exit` here would take the whole test binary with it.
+    ///
+    /// That is exactly why the shared helper returns `ErrorKind::ProgramExit`
+    /// instead of exiting — the host decides. Here the host is the debugger, which
+    /// gets an ordinary `Err` it can report, and a debug session survives stepping
+    /// over the call.
+    ///
+    /// Both spellings, because they are two identifiers reaching one primitive and
+    /// a missing arm for the variant would only surface when someone typed it.
+    #[test]
+    fn test_exit_program_is_dispatchable() {
+        for name in ["أنهِ_البرنامج", "أنه_البرنامج"] {
+            assert!(
+                DebugInterpreter::is_builtin(name),
+                "{name} غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+            );
+        }
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        // The masking contract, asserted through the debugger's own dispatch: the
+        // status is `حالة & ٢٥٥`, so out-of-range values wrap rather than erroring.
+        for (status, expected) in [(0, 0), (3, 3), (255, 255), (256, 0), (-1, 255), (300, 44)] {
+            let err = interpreter
+                .call_builtin("أنهِ_البرنامج", vec![Value::Int(status)])
+                .expect_err("أنهِ_البرنامج تُرجع إشارة إنهاء لا قيمة");
+            assert_eq!(
+                err.kind,
+                ErrorKind::ProgramExit(expected),
+                "الحالة {status} في مفسّر التنقيح"
+            );
+        }
+
+        // No `Value::Null` arm: the parameter is an `عدد`, so there is no pointer
+        // for a runtime guard to answer, and treating `لا_شيء` as `0` would encode
+        // codegen's artifact as contract (#326's narrowing, #327).
+        let err = interpreter
+            .call_builtin("أنه_البرنامج", vec![Value::Null])
+            .expect_err("لا_شيء ليست حالة خروج");
+        assert_eq!(err.kind, ErrorKind::TypeError);
+    }
+
+    /// `متغير_بيئة`'s arm, pinned for the same reason as the slicer above: the
+    /// dispatch is shared, so what this checks is that it exists here at all and
+    /// keys on the Arabic name.
+    ///
+    /// Deliberately asserts only the answers that need no variable to exist.
+    /// Setting one here would mean `std::env::set_var`, which races every other
+    /// test in this process; the cross-backend legs in
+    /// `tests/builtins_execution_tests.rs` inject on the child process instead,
+    /// and that is where a present variable is covered.
+    #[test]
+    fn test_env_var_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("متغير_بيئة"),
+            "متغير_بيئة غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        // An absent name, an empty one and `لا_شيء` are the three shapes the
+        // runtime folds into `""`, and none of them needs a variable to exist.
+        for name in ["TARQEEM_ABSENT_DEBUG_338", ""] {
+            let result = interpreter
+                .call_builtin("متغير_بيئة", vec![Value::string(name)])
+                .expect("متغير_بيئة أخفقت في مفسّر التنقيح");
+            assert_eq!(result.as_string(), Some(""), "من {name:?}");
+        }
+
+        let null = interpreter
+            .call_builtin("متغير_بيئة", vec![Value::Null])
+            .expect("متغير_بيئة أخفقت على لا_شيء");
+        assert_eq!(null.as_string(), Some(""));
+    }
+
+    /// `اكتب_مجرى`'s arm. The dispatch is shared, so what this pins is that the
+    /// debug interpreter reaches it at all and keys on the Arabic name — the
+    /// failure #241 recorded, where a builtin worked in every other backend and
+    /// aborted the moment someone stepped through it.
+    ///
+    /// Asserts the answers that write nothing: a refused descriptor and an empty
+    /// payload. Writing real bytes here would put them on the test harness's own
+    /// stdout, since these tests run in-process.
+    #[test]
+    fn test_write_stream_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("اكتب_مجرى"),
+            "اكتب_مجرى غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        // `٠` is stdin and `٣` upward names a handle nothing can have opened, so
+        // both answer `-١` — the same answers the runtime gives.
+        for descriptor in [0, 3, -1] {
+            let refused = interpreter
+                .call_builtin(
+                    "اكتب_مجرى",
+                    vec![
+                        Value::Int(descriptor),
+                        Value::array_from(vec![Value::Int(65)]),
+                    ],
+                )
+                .expect("اكتب_مجرى تُرجع قيمة لا خطأ");
+            assert_eq!(refused.as_int(), Some(-1), "المجرى {descriptor}");
+        }
+
+        // A byte out of range refuses the whole call, and nothing is written.
+        let out_of_range = interpreter
+            .call_builtin(
+                "اكتب_مجرى",
+                vec![Value::Int(1), Value::array_from(vec![Value::Int(300)])],
+            )
+            .expect("اكتب_مجرى تُرجع قيمة لا خطأ");
+        assert_eq!(out_of_range.as_int(), Some(-1));
+
+        // Nothing to write is a count, not a failure — for an empty array and
+        // for `لا_شيء` alike.
+        for bytes in [Value::array(), Value::Null] {
+            let empty = interpreter
+                .call_builtin("اكتب_مجرى", vec![Value::Int(1), bytes])
+                .expect("اكتب_مجرى تُرجع قيمة لا خطأ");
+            assert_eq!(empty.as_int(), Some(0));
+        }
+
+        // No `Value::Null` arm for the descriptor: it is an `عدد`, so mirroring
+        // codegen's `لا_شيء`-as-zero would encode an artifact as contract (#326).
+        let err = interpreter
+            .call_builtin("اكتب_مجرى", vec![Value::Null, Value::array()])
+            .expect_err("لا_شيء ليست مجرى");
+        assert_eq!(err.kind, ErrorKind::TypeError);
+    }
+
+    /// `اقرأ_مجرى`'s arm, pinning the same thing its sibling above does: that the
+    /// debug interpreter reaches the shared dispatch and keys on the Arabic name.
+    ///
+    /// Asserts only the answers that **read nothing**. These tests run
+    /// in-process, so a positive-count read on descriptor `٠` would take the test
+    /// harness's own stdin and block — the mirror of the write test asserting
+    /// only the answers that write nothing.
+    #[test]
+    fn test_read_stream_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("اقرأ_مجرى"),
+            "اقرأ_مجرى غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        // How many bytes an answer holds, and a failure if it is not an array at
+        // all — `Value` has no `as_array`, and a wrong variant must not read as
+        // "empty".
+        fn byte_count(answer: &Value) -> Option<usize> {
+            match answer {
+                Value::Array(arr) => Some(arr.borrow().len()),
+                _ => None,
+            }
+        }
+
+        // `١` and `٢` carry bytes the other way, `٣` upward names a handle
+        // nothing can have opened, and a negative descriptor names nothing — all
+        // answer the empty array, as the runtime does.
+        for descriptor in [1, 2, 3, -1] {
+            let refused = interpreter
+                .call_builtin("اقرأ_مجرى", vec![Value::Int(descriptor), Value::Int(4)])
+                .expect("اقرأ_مجرى تُرجع قيمة لا خطأ");
+            assert_eq!(byte_count(&refused), Some(0), "المجرى {descriptor}");
+        }
+
+        // A non-positive count reads nothing, and stdin is never touched — which
+        // is what lets this case name descriptor `٠` at all.
+        for count in [0, -5] {
+            let nothing = interpreter
+                .call_builtin("اقرأ_مجرى", vec![Value::Int(0), Value::Int(count)])
+                .expect("اقرأ_مجرى تُرجع قيمة لا خطأ");
+            assert_eq!(byte_count(&nothing), Some(0), "العدد {count}");
+        }
+
+        // No `Value::Null` arm for either parameter — both are `عدد`, so there is
+        // no pointer for a runtime guard to answer (#326, #327). This is the
+        // first primitive since #324 with none, so the assertion covers both.
+        for args in [
+            vec![Value::Null, Value::Int(4)],
+            vec![Value::Int(0), Value::Null],
+        ] {
+            let err = interpreter
+                .call_builtin("اقرأ_مجرى", args)
+                .expect_err("لا_شيء ليست مجرى ولا عدداً");
+            assert_eq!(err.kind, ErrorKind::TypeError);
+        }
+    }
+
+    /// `حالة_مسار` under the debug interpreter, which is the only backend a
+    /// cross-backend test cannot reach.
+    ///
+    /// It matters more here than for its siblings: this primitive's kind/size
+    /// mapping is shared with the main interpreter through `call_path_status`
+    /// precisely because it is *already* duplicated once in `trq_path_status`. A
+    /// third copy would give it two ways to drift, and #295 is what a skipped
+    /// debug leg looks like afterwards.
+    #[test]
+    fn test_path_status_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("حالة_مسار"),
+            "حالة_مسار غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let status = |interpreter: &mut DebugInterpreter, path: Value, field: i64| {
+            interpreter
+                .call_builtin("حالة_مسار", vec![path, Value::Int(field)])
+                .expect("حالة_مسار تُرجع قيمة لا خطأ")
+        };
+
+        // A directory answers its kind and no size.
+        assert_eq!(
+            status(&mut interpreter, Value::string("/tmp"), 0),
+            Value::Int(2)
+        );
+        assert_eq!(
+            status(&mut interpreter, Value::string("/tmp"), 1),
+            Value::Int(-1)
+        );
+
+        // An absent path, an empty name and a null one are one answer — the last
+        // through the arm the `نص` parameter has and the `عدد` field does not.
+        for path in [
+            Value::string("/tmp/tarqeem_debug_path_status_absent_xyz"),
+            Value::string(""),
+            Value::Null,
+        ] {
+            assert_eq!(status(&mut interpreter, path.clone(), 0), Value::Int(0));
+            assert_eq!(status(&mut interpreter, path, 1), Value::Int(-1));
+        }
+
+        // An unknown field has no answer whatever the path holds.
+        for field in [2, 9, -1] {
+            assert_eq!(
+                status(&mut interpreter, Value::string("/tmp"), field),
+                Value::Int(-1),
+                "الحقل {field}"
+            );
+        }
+
+        // The field is `عدد`, so `لا_شيء` there is a type error rather than a
+        // designed answer (#326, #327).
+        let err = interpreter
+            .call_builtin("حالة_مسار", vec![Value::string("/tmp"), Value::Null])
+            .expect_err("لا_شيء ليست حقلاً");
+        assert_eq!(err.kind, ErrorKind::TypeError);
     }
 
     #[test]

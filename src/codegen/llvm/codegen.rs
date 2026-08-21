@@ -702,11 +702,12 @@ impl LlvmCodegen {
         emit!(self, "declare ptr @trq_string_concat(ptr, ptr)");
         emit!(self, "declare i64 @trq_string_len(ptr)");
         emit!(self, "declare i64 @trq_string_len_chars(ptr)");
-        emit!(self, "declare ptr @trq_string_substr(ptr, i64, i64)");
         emit!(self, "declare ptr @trq_string_substr_chars(ptr, i64, i64)");
         emit!(self, "declare ptr @trq_string_char_at(ptr, i64)");
         emit!(self, "declare i64 @trq_string_char_code(ptr)");
         emit!(self, "declare ptr @trq_string_from_char_code(i64)");
+        emit!(self, "declare ptr @trq_string_to_bytes(ptr)");
+        emit!(self, "declare ptr @trq_string_from_bytes(ptr)");
         emit!(self, "declare i1 @trq_string_contains(ptr, ptr)");
         emit!(self, "declare i1 @trq_string_starts_with(ptr, ptr)");
         emit!(self, "declare i1 @trq_string_ends_with(ptr, ptr)");
@@ -833,6 +834,7 @@ impl LlvmCodegen {
         emit!(self, "declare i1 @trq_file_copy(ptr, ptr)");
         emit!(self, "declare i1 @trq_file_move(ptr, ptr)");
         emit!(self, "declare i64 @trq_file_size(ptr)");
+        emit!(self, "declare i64 @trq_path_status(ptr, i64)");
         emit!(self, "declare i1 @trq_dir_create(ptr)");
         emit!(self, "declare i1 @trq_dir_create_all(ptr)");
         emit!(self, "declare i1 @trq_dir_delete(ptr)");
@@ -848,6 +850,18 @@ impl LlvmCodegen {
         emit!(self, "declare ptr @trq_path_absolute(ptr)");
         emit!(self, "declare i1 @trq_path_is_absolute(ptr)");
         emit!(self, "declare ptr @trq_path_separator()");
+
+        // Beside the directory readers because they read the environment too.
+        // `trq_dir_home` *is* this call with `HOME` hardcoded; `trq_dir_temp` is
+        // not — it calls `std::env::temp_dir()`, which falls back to `/tmp` when
+        // `TMPDIR` is unset and walks `TMP`/`TEMP`/`USERPROFILE` on Windows.
+        emit!(self, "declare ptr @trq_env_get(ptr)");
+        // `write(2)`. `i64` both ways: the descriptor and the byte count are
+        // `عدد`, and the `ptr` in between is the `TrqArray` of bytes.
+        emit!(self, "declare i64 @trq_write_stream(i64, ptr)");
+        // `read(2)`. Two `i64` in — the descriptor and the count, both `عدد` —
+        // and a `ptr` out, the `TrqArray` of bytes it answers.
+        emit!(self, "declare ptr @trq_read_stream(i64, i64)");
 
         emit!(self, "declare ptr @trq_date_today()");
         emit!(self, "declare ptr @trq_date_parse(ptr)");
@@ -880,6 +894,14 @@ impl LlvmCodegen {
             "declare ptr @trq_datetime_format(i64, i64, i64, i64, i64, i64, ptr)"
         );
         emit!(self, "declare void @trq_sleep(i64)");
+        // `أنهِ_البرنامج`. The call site emits `call ptr` against this `void`
+        // declare, because the name deliberately has no return type registered —
+        // clang accepts the mismatch under opaque pointers, and registering the
+        // type would break `متغير س = أنهِ_البرنامج(٣)` natively while both
+        // interpreters ran it. The reasoning and the measurements are on the
+        // matching gap in `IrBuilder::register_builtin_return_types`; #343 is what
+        // has to land before this becomes `call void`.
+        emit!(self, "declare void @trq_exit(i64)");
         emit!(self, "declare i64 @trq_performance_now()");
 
         emit!(self, "declare i64 @trq_tcp_connect(ptr, i64, i64)");
@@ -2857,13 +2879,22 @@ fn mangle_function_name(name: &str, user_functions: &HashSet<String>) -> String 
 
 fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
     match arabic_name {
-        "قص_نص" => Some("trq_string_substr"),
+        // Core tier: reachable with no import, and its `IrType::String` return
+        // type is registered in the IR builder. `trq_string_substr_chars` also
+        // survives independently of any name — `trq_string_char_at` calls it, and
+        // that is what the `س[ي]` operator lowers to.
         "قص_حروف" => Some("trq_string_substr_chars"),
+        // The `نص` module tier, unlike the core names below it.
         "حرف_في" => Some("trq_string_char_at"),
-        // Core tier, unlike its neighbours here: reachable with no import, and
-        // its `IrType::Int` return type is registered in the IR builder.
         "حرف_إلى_رمز" => Some("trq_string_char_code"),
         "رمز_إلى_حرف" => Some("trq_string_from_char_code"),
+        // Core tier too, and the first one returning an array: the `ptr` this
+        // declares is a `TrqArray*`, told apart from a `TrqString*` only by the
+        // `IrType::Array` registered in the IR builder.
+        "نص_إلى_ثنائي" => Some("trq_string_to_bytes"),
+        // The mirror: the `ptr` it takes is a `TrqArray*`, and the one it
+        // returns is a `TrqString*`.
+        "ثنائي_إلى_نص" => Some("trq_string_from_bytes"),
         "يحتوي" => Some("trq_string_contains"),
         "يبدأ_بـ" => Some("trq_string_starts_with"),
         "ينتهي_بـ" => Some("trq_string_ends_with"),
@@ -2915,6 +2946,26 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "مجلد_حالي" => Some("trq_dir_current"),
         "مجلد_مستخدم" => Some("trq_dir_home"),
         "مجلد_مؤقت" => Some("trq_dir_temp"),
+        // `مجلد_مستخدم` reduces to this one — `trq_dir_home` is `getenv("HOME")`
+        // and nothing else — so it can become a stdlib wrapper in Increment G.
+        // `مجلد_مؤقت` cannot: `trq_dir_temp` calls `std::env::temp_dir()`, whose
+        // fallback to `/tmp` no single environment read reproduces. Both stay
+        // live under their own symbols here regardless.
+        "متغير_بيئة" => Some("trq_env_get"),
+        // Core tier. Reached through the plain `Call` fall-through like its
+        // neighbours, so the Arabic name arrives here and is mapped once.
+        "اكتب_مجرى" => Some("trq_write_stream"),
+        "اقرأ_مجرى" => Some("trq_read_stream"),
+        // Core tier as well, and the one name that answers for four of the
+        // `ملفات` names above: `ملف_موجود`، `هل_ملف`، `هل_مجلد` and `حجم_ملف` all
+        // reduce to a field of this. They stay mapped here until Increment G
+        // flips `ملفات` to disk — standing rule 3: a symbol is not deleted just
+        // because a name that folds it landed.
+        "حالة_مسار" => Some("trq_path_status"),
+        // Both spellings of one primitive, mapped to one symbol — the kasra-less
+        // variant is an orthographic pair like the keyword table's `ارمِ`/`ارم`,
+        // not a second capability.
+        "أنهِ_البرنامج" | "أنه_البرنامج" => Some("trq_exit"),
         "ادمج_مسار" => Some("trq_path_join"),
         "مسار_اب" => Some("trq_path_parent"),
         "اسم_ملف" => Some("trq_path_filename"),

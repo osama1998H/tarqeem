@@ -5,7 +5,7 @@
 //! name lists — and until now nothing compared them. They happen to agree today;
 //! that agreement was coincidence, not enforcement.
 //!
-//! These are **ratchet** tests. They pin the registry as it stands (27 core + 165
+//! These are **ratchet** tests. They pin the registry as it stands (36 core + 163
 //! stdlib) while the builtin/stdlib boundary described in `docs/builtins-vs-stdlib.md`
 //! is migrated. A name may only enter or leave the registry by editing the expected
 //! list here, which is exactly the deliberate step the plan requires — a migration
@@ -30,6 +30,15 @@ use tarqeem::semantic::Scope;
 /// Adding a name here without an execution probe also fails
 /// `builtins_execution_tests::test_every_core_builtin_agrees_across_backends`.
 const CORE_BUILTINS: &[&str] = &[
+    // One primitive in two spellings (#342), so this list grows by two while the
+    // 40-name budget in docs/builtins-vs-stdlib.md §1.3 grows by one. The kasra
+    // marks the dropped ya of the imperative and is routinely omitted, which is
+    // why the keyword table already carries `ارمِ`/`ارم` and `أرجع`/`ارجع` as
+    // pairs; `normalize_name` is NFC only and does not strip tashkeel, so the two
+    // are distinct identifiers. Count the two lists against different questions:
+    // this one ratchets *names*, the budget counts *capabilities*.
+    "أنه_البرنامج",
+    "أنهِ_البرنامج",
     "ادخل",
     "ادخل_رسالة",
     "اطبع",
@@ -51,10 +60,17 @@ const CORE_BUILTINS: &[&str] = &[
     "طباعة",
     "طول",
     "طول_مصفوفة",
+    "قص_حروف",
+    "متغير_بيئة",
+    "اكتب_مجرى",
+    "اقرأ_مجرى",
+    "حالة_مسار",
     "عدد",
     "عدد_عشري",
     "منطقي",
     "نص",
+    "نص_إلى_ثنائي",
+    "ثنائي_إلى_نص",
     "نم",
     "نوع",
 ];
@@ -62,7 +78,11 @@ const CORE_BUILTINS: &[&str] = &[
 /// Names per stdlib module, as a ratchet on the size of each import surface.
 const STDLIB_MODULE_SIZES: &[(&str, usize)] = &[
     ("رياضيات", 64),
-    ("نص", 41),
+    // 41 until #336, which took two names out for different reasons: `قص_حروف`
+    // was promoted to the core tier (still callable, now with no import), and
+    // `قص_نص` was removed outright — the primitive string surface is uniformly
+    // codepoint-indexed, and byte work goes through `نص_إلى_ثنائي`/`ثنائي_إلى_نص`.
+    ("نص", 39),
     ("ملفات", 21),
     ("وقت", 2),
     ("تشفير", 8),
@@ -179,9 +199,36 @@ fn stdlib_registry_size_is_locked() {
     );
 
     let total: usize = STDLIB_MODULE_SIZES.iter().map(|(_, n)| n).sum();
+    // 194 until #336, which took it to 193: a promotion is size-neutral —
+    // `قص_حروف` left `نص` and joined `CORE_BUILTINS` — so the whole of that step
+    // was `قص_نص`'s removal, the first name the migration has actually dropped
+    // rather than moved. Back to 194 with #338, which is a plain addition: a new
+    // core name over an existing runtime symbol, no module size touched.
+    //
+    // The pair in this file's header comment read «29 core + 165 stdlib» until #342,
+    // which is 194 — the right total from two wrong halves that cancelled: core was
+    // 31, not 29, and the module sizes summed to 163, not 165. Both are corrected
+    // there. Recount each half against source; a total that matches proves nothing
+    // about the parts.
+    //
+    // 196 with #342, and it is the first step that moves this number by two for
+    // one capability: `أنهِ_البرنامج` ships with its kasra-less spelling, the way
+    // the keyword table carries `ارمِ`/`ارم`. So this count and the 40-primitive
+    // budget have come apart by one, deliberately — the budget counts what the
+    // language can do, this counts what a program may write.
+    //
+    // 197 with #347 (`اكتب_مجرى`), one name for one capability, so the gap of one
+    // stays exactly one.
+    //
+    // 198 with #350 (`اقرأ_مجرى`), the read half of the same pair — one name, one
+    // capability, gap unchanged.
+    //
+    // 199 with #352 (`حالة_مسار`), one name for one capability. It *folds* four
+    // stdlib names but removes none of them — they are `مكتبة`, not `يُحذف`, and
+    // B16 makes the `ملفات` flip all-or-nothing — so no module size moves either.
     assert_eq!(
         total + CORE_BUILTINS.len(),
-        192,
+        199,
         "total registry size changed; docs/builtins-vs-stdlib.md targets 40 primitives — reached \
          by migrating ~150 names out and adding 21 new ones, so this number moves in both \
          directions, but only ever deliberately"

@@ -43,6 +43,415 @@ fn value_to_byte(v: &Value) -> Result<u8, RuntimeError> {
     }
 }
 
+/// `len` codepoints of `text` starting at codepoint `start`, or `""` where
+/// there are none to take.
+///
+/// Shared with the debug interpreter rather than copied, the way `bytes_to_string`
+/// below is, so the totality contract cannot drift between the two.
+///
+/// Every answer here is `trq_string_substr_chars`'s, not a chosen one: a negative
+/// `start`, a non-positive `len`, and a `start` past the end all give `""`, and a
+/// `len` past the end clamps. `chars()` matches the runtime exactly because it
+/// walks lead bytes with `utf8_char_len`, which agrees with codepoint iteration on
+/// every valid encoding — and a `Value::String` is a Rust `String`, so it cannot
+/// hold an invalid one.
+pub(crate) fn substring_by_chars(text: &str, start: i64, len: i64) -> String {
+    if start < 0 || len <= 0 {
+        return String::new();
+    }
+
+    text.chars()
+        .skip(start as usize)
+        .take(len as usize)
+        .collect()
+}
+
+/// `قص_حروف`'s whole dispatch, shared so the two interpreters cannot answer
+/// differently — the argument checks drift as easily as the slicing does.
+pub(crate) fn call_substring_by_chars(args: &[Value]) -> RuntimeResult<Value> {
+    let text = args.first().ok_or_else(|| {
+        RuntimeError::invalid_operation("قص_حروف() تتطلب ثلاثة معاملات: نص، بداية، عدد أحرف")
+    })?;
+    let start = int_argument(args, 1)?;
+    let len = int_argument(args, 2)?;
+
+    match text {
+        Value::String(s) => Ok(Value::string(substring_by_chars(s, start, len))),
+        // The parameter is a pointer, so this mirrors a designed answer rather
+        // than an artifact: `Type::compat` lets an un-narrowed `نص؟` into a `نص`
+        // parameter, native lowers it to `ptr null`, and the runtime's guard
+        // answers `""`. The two `عدد` parameters get no such arm — there native
+        // turns `لا_شيء` into `0` only as a side effect of passing a null pointer
+        // in an i64 slot, and encoding that would make the contract worse to
+        // close a gap this name does not own (#327). `رمز_إلى_حرف` is the same.
+        Value::Null => Ok(Value::string("")),
+        _ => Err(RuntimeError::type_error("نص", text.type_name())),
+    }
+}
+
+/// The `عدد` argument at `index`, or a type error naming what arrived instead.
+fn int_argument(args: &[Value], index: usize) -> RuntimeResult<i64> {
+    let value = args.get(index).ok_or_else(|| {
+        RuntimeError::invalid_operation("قص_حروف() تتطلب ثلاثة معاملات: نص، بداية، عدد أحرف")
+    })?;
+
+    value
+        .as_int()
+        .ok_or_else(|| RuntimeError::type_error("عدد", value.type_name()))
+}
+
+/// The bytes of `values` decoded as UTF-8, or `None` when they are not a UTF-8
+/// encoding — an element outside 0-255, or an invalid sequence.
+///
+/// Deliberately not `value_to_byte` above: that one *errors* out of range, which
+/// would raise a runtime error here where native answers `""`. A divergence in
+/// exactly the class `ثنائي_إلى_نص` exists to avoid.
+pub(crate) fn bytes_to_string(values: &[Value]) -> Option<String> {
+    let mut bytes = Vec::with_capacity(values.len());
+    for value in values {
+        bytes.push(u8::try_from(value.as_int()?).ok()?);
+    }
+    String::from_utf8(bytes).ok()
+}
+
+/// `أنهِ_البرنامج`'s whole dispatch, shared with the debug interpreter so the
+/// masking cannot drift between them.
+///
+/// Returns `Err` rather than exiting: the interpreter runs inside whatever
+/// process hosts it, and only that host knows whether ending it is right. See
+/// `ErrorKind::ProgramExit`.
+///
+/// The status is `حالة & ٢٥٥`, mirroring `trq_exit`. Masking in both backends
+/// instead of handing the value to the OS is what makes `أنهِ_البرنامج(٣٠٠)`
+/// answer 44 everywhere rather than 44 on POSIX and 300 on Windows.
+///
+/// No `Value::Null` arm, and that is a decision rather than an omission: the
+/// parameter is an `عدد`, so there is no pointer for a runtime null guard to
+/// answer and codegen turns `لا_شيء` into `0` above the runtime. Mirroring one
+/// would encode that artifact as contract — the narrowing #326 recorded for
+/// `رمز_إلى_حرف`, which diverges identically on the same source (#327).
+pub(crate) fn call_exit_program(args: &[Value]) -> RuntimeResult<Value> {
+    let status = args.first().ok_or_else(|| {
+        RuntimeError::invalid_operation("أنهِ_البرنامج() تتطلب معاملاً واحداً: حالة الخروج")
+    })?;
+
+    match status {
+        Value::Int(code) => Err(RuntimeError::program_exit((code & 0xFF) as i32)),
+        other => Err(RuntimeError::type_error("عدد", other.type_name())),
+    }
+}
+
+/// The three stream descriptors `اكتب_مجرى` names without anything being opened,
+/// mirroring `runtime-rs/src/io.rs`.
+const STREAM_STDIN: i64 = 0;
+const STREAM_STDOUT: i64 = 1;
+const STREAM_STDERR: i64 = 2;
+
+/// `اكتب_مجرى`'s failure answer. Collision-free, since a byte count is never
+/// negative.
+const WRITE_FAILED: i64 = -1;
+
+/// `اكتب_مجرى`'s whole dispatch, shared with the debug interpreter the way
+/// `call_substring_by_chars` is: three parameters' worth of contract, of which
+/// the argument checks are most.
+///
+/// The descriptor is resolved before the array is read, so a write to nowhere is
+/// refused whatever it was going to carry. `١` is stdout and `٢` is stderr;
+/// `٣` upward names a file handle, and since no Arabic name opens one yet, the
+/// table is provably empty and every such descriptor answers `-١` here **and**
+/// natively. The two agree today for the same reason, not by coincidence — when
+/// `افتح_ملف` lands, this arm needs a handle table of its own.
+///
+/// An element outside `0..=255` is not a byte, and the whole call is refused
+/// rather than the value truncated: `[٣٠٠]` would otherwise be indistinguishable
+/// from `[٤٤]`, the reason `ثنائي_إلى_نص` rejects too. Validation completes
+/// before the first byte goes out, so a refused call leaves the stream untouched.
+///
+/// No `Value::Null` arm for the descriptor, for the reason `call_exit_program`
+/// has none: it is an `عدد`, so there is no pointer for a runtime guard to
+/// answer and codegen turns `لا_شيء` into `0` above the runtime (#326, #327). The
+/// array is a pointer, so it does get one, and answers `٠` — the same count an
+/// empty array answers, which loses nothing because both mean nothing was
+/// written.
+///
+/// A failed flush answers `-١`, where the prints in this file discard it: that
+/// convention belongs to functions returning nothing, which have no answer to
+/// falsify. Kept identical to `trq_write_stream`, or the two backends would
+/// disagree about a closed pipe.
+///
+/// The bytes reach the process's own streams even when the host is capturing
+/// `اطبع` (the REPL's `capture_output`, the debugger's output events). That is
+/// deliberate: the descriptor names the *process's* stream, so interposing a
+/// host buffer would change what the program observably did. The cost is that a
+/// DAP console does not mirror these bytes, recorded rather than worked around
+/// because the debug output path needs its own pass either way (#346).
+pub(crate) fn call_write_stream(args: &[Value]) -> RuntimeResult<Value> {
+    let descriptor = args.first().ok_or_else(|| {
+        RuntimeError::invalid_operation("اكتب_مجرى() تتطلب معاملين: المجرى والبايتات")
+    })?;
+    let bytes = args.get(1).ok_or_else(|| {
+        RuntimeError::invalid_operation("اكتب_مجرى() تتطلب معاملين: المجرى والبايتات")
+    })?;
+
+    let stream = match descriptor {
+        Value::Int(fd) => *fd,
+        other => return Err(RuntimeError::type_error("عدد", other.type_name())),
+    };
+
+    if stream == STREAM_STDIN || stream < 0 {
+        return Ok(Value::Int(WRITE_FAILED));
+    }
+
+    let payload = match bytes {
+        Value::Array(arr) => match stream_bytes(&arr.borrow()) {
+            Some(payload) => payload,
+            None => return Ok(Value::Int(WRITE_FAILED)),
+        },
+        // Reached through an `أي` holder, as `ثنائي_إلى_نص`'s is: `مصفوفة<عدد>؟`
+        // does not parse (ب٠١٠١) and a bare `لا_شيء` is refused at the argument.
+        Value::Null => Vec::new(),
+        _ => return Err(RuntimeError::type_error("مصفوفة", bytes.type_name())),
+    };
+
+    let written = payload.len() as i64;
+
+    match stream {
+        STREAM_STDOUT => {
+            let mut out = io::stdout();
+            if out.write_all(&payload).is_err() || out.flush().is_err() {
+                return Ok(Value::Int(WRITE_FAILED));
+            }
+            Ok(Value::Int(written))
+        }
+        STREAM_STDERR => {
+            let mut err = io::stderr();
+            if err.write_all(&payload).is_err() || err.flush().is_err() {
+                return Ok(Value::Int(WRITE_FAILED));
+            }
+            Ok(Value::Int(written))
+        }
+        // No handle can exist: nothing in the language opens one yet.
+        _ => Ok(Value::Int(WRITE_FAILED)),
+    }
+}
+
+/// `اقرأ_مجرى`'s whole dispatch, shared with the debug interpreter the way
+/// `call_write_stream` above is.
+///
+/// The descriptor is settled before anything is read, the order its sibling
+/// checks in: a read from nowhere is refused whatever it was going to hold. `٠`
+/// is stdin; `١` and `٢` carry bytes the other way, so reading them answers
+/// nothing. `٣` upward names a file handle, and since no Arabic name opens one
+/// yet, the table is provably empty and every such descriptor answers an empty
+/// array here **and** natively. The two agree today for the same reason, not by
+/// coincidence — when `افتح_ملف` lands, this arm needs a handle table of its own.
+///
+/// **The read loops until `count` bytes or EOF**, mirroring `write_all` on the
+/// other side. A single read answers whatever a pipe happens to hold, so the
+/// length would depend on buffering and one program would answer differently
+/// between runs and between backends. Kept identical to `trq_read_stream`, or the
+/// two backends would disagree about a slow pipe.
+///
+/// **An empty array cannot be told apart from a refusal, deliberately.** A byte
+/// count could use `-١` because a count is never negative, but every array is a
+/// legitimate answer, so EOF, an unreadable descriptor and a zero `count` all
+/// answer the same thing. `runtime-rs` already conflates the first two —
+/// `trq_file_read_line` answers `""` for EOF and for an unknown handle alike.
+///
+/// **No `Value::Null` arm at all**, which makes this the first primitive since
+/// #324 with none. Both parameters are `عدد`, so there is no pointer for a
+/// runtime guard to answer and codegen turns `لا_شيء` into `0` above the runtime
+/// (#326, #327). Do not add one by pattern-matching from `call_write_stream`,
+/// whose *array* parameter is a pointer and so does get one.
+///
+/// Reads the process's own stdin even when the host has its own input path, for
+/// the reason `call_write_stream` writes to the process's own streams: the
+/// descriptor names the *process's* stream, so interposing a host buffer would
+/// change what the program observably did. Bytes go through `io::stdin()`, the
+/// shared buffered handle `ادخل` uses, so anything that call has already
+/// buffered is not stepped past and lost.
+pub(crate) fn call_read_stream(args: &[Value]) -> RuntimeResult<Value> {
+    let descriptor = args.first().ok_or_else(|| {
+        RuntimeError::invalid_operation("اقرأ_مجرى() تتطلب معاملين: المجرى وعدد البايتات")
+    })?;
+    let count = args.get(1).ok_or_else(|| {
+        RuntimeError::invalid_operation("اقرأ_مجرى() تتطلب معاملين: المجرى وعدد البايتات")
+    })?;
+
+    let stream = match descriptor {
+        Value::Int(fd) => *fd,
+        other => return Err(RuntimeError::type_error("عدد", other.type_name())),
+    };
+    let wanted = match count {
+        Value::Int(n) => *n,
+        other => return Err(RuntimeError::type_error("عدد", other.type_name())),
+    };
+
+    // Stdin is the only readable stream there is, so one comparison covers every
+    // refusal the runtime spells out separately: `١` and `٢` carry bytes the
+    // other way, a negative descriptor names nothing, and `٣` upward names a
+    // handle that cannot exist while nothing in the language opens one. Written
+    // as one test rather than four so it does not read as more than it is —
+    // **`افتح_ملف` must split the `≥٣` case out**, and that is the whole change
+    // this arm needs when handles arrive.
+    if stream != STREAM_STDIN || wanted <= 0 {
+        return Ok(Value::array_from(Vec::new()));
+    }
+
+    let payload = fill_from_stdin(wanted);
+    Ok(Value::array_from(
+        payload.into_iter().map(|b| Value::Int(b as i64)).collect(),
+    ))
+}
+
+/// Reads until `wanted` bytes have arrived or stdin ends.
+///
+/// Kept byte-for-byte equivalent to `fill_from` in `runtime-rs/src/io.rs`,
+/// including the chunk bound: `wanted` is an `i64`, so allocating it up front
+/// would let a typo'd `١٠**١٢` reserve a terabyte before a byte arrived.
+fn fill_from_stdin(wanted: i64) -> Vec<u8> {
+    const READ_CHUNK: usize = 64 * 1024;
+
+    // Saturating rather than `as usize`: `عدد` is 64-bit but `usize` is 32 on a
+    // wasm32 target, where `as` would truncate `٢**٣٢ + ٤` to `٤` and answer four
+    // bytes for a request of four billion. Saturating reads to EOF instead, which
+    // is the honest answer to "more bytes than this machine can address".
+    let wanted = usize::try_from(wanted).unwrap_or(usize::MAX);
+    let mut payload = Vec::new();
+    let mut chunk = vec![0u8; wanted.min(READ_CHUNK)];
+    let stdin = io::stdin();
+    let mut source = stdin.lock();
+
+    while payload.len() < wanted {
+        let room = (wanted - payload.len()).min(chunk.len());
+        match source.read(&mut chunk[..room]) {
+            Ok(0) => break,
+            Ok(read) => payload.extend_from_slice(&chunk[..read]),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        }
+    }
+
+    payload
+}
+
+/// Reads a `مصفوفة<عدد>`'s elements as bytes, or `None` if any is not one.
+///
+/// Split out so the whole array is validated before anything is written. Shaped
+/// like `bytes_to_string`, and rejecting on the same two grounds: an element
+/// that is not an `عدد`, and one outside a byte's range.
+fn stream_bytes(values: &[Value]) -> Option<Vec<u8>> {
+    let mut payload = Vec::with_capacity(values.len());
+    for value in values {
+        payload.push(u8::try_from(value.as_int()?).ok()?);
+    }
+    Some(payload)
+}
+
+/// `حالة_مسار`'s kind answers and its no-answer value, mirroring
+/// `runtime-rs/src/io.rs`.
+///
+/// The fourth kind is load-bearing: a device exists and is not a file, so
+/// `ملف_موجود` and `هل_ملف` disagree about it and three values could not fold
+/// both names.
+const PATH_KIND_ABSENT: i64 = 0;
+const PATH_KIND_FILE: i64 = 1;
+const PATH_KIND_DIR: i64 = 2;
+const PATH_KIND_OTHER: i64 = 3;
+const STAT_FIELD_KIND: i64 = 0;
+const STAT_FIELD_SIZE: i64 = 1;
+const STAT_NO_ANSWER: i64 = -1;
+
+/// `حالة_مسار`'s whole dispatch, shared with the debug interpreter the way
+/// `call_env_var` below is: two parameters' worth of contract, of which the
+/// argument checks and the kind mapping are all of it.
+///
+/// The mapping is **duplicated** in `trq_path_status` and cannot be shared — the
+/// compiler crate does not depend on `tarqeem-runtime`, and an `extern "C"`
+/// function taking a `*const TrqString` could not read a `Value` anyway. So every
+/// row of the contract is pinned cross-backend rather than only here, because
+/// nothing but a test stops the two copies from drifting.
+///
+/// The path is read **raw**, like `متغير_بيئة`'s name: a filename with a leading
+/// or trailing space is a legitimate filename, and `trq_path_status` does not
+/// trim either.
+pub(crate) fn call_path_status(args: &[Value]) -> RuntimeResult<Value> {
+    const ARITY: &str = "حالة_مسار() تتطلب معاملين: المسار والحقل";
+
+    let path = args
+        .first()
+        .ok_or_else(|| RuntimeError::invalid_operation(ARITY))?;
+    let field = args
+        .get(1)
+        .ok_or_else(|| RuntimeError::invalid_operation(ARITY))?;
+    let field = field
+        .as_int()
+        .ok_or_else(|| RuntimeError::type_error("عدد", field.type_name()))?;
+
+    // The field is settled before the path: a question with no field has no
+    // answer whatever the path holds, and an unknown one never touches the
+    // filesystem. `trq_path_status` checks in the same order.
+    if field != STAT_FIELD_KIND && field != STAT_FIELD_SIZE {
+        return Ok(Value::Int(STAT_NO_ANSWER));
+    }
+
+    let path = match path {
+        Value::String(text) => Some(text.as_str().to_string()),
+        // A pointer parameter, so this mirrors the runtime's null guard the way
+        // `call_env_var`'s arm does rather than encoding an artifact. Reached by
+        // an un-narrowed `نص؟` through `Type::compat` and by an `أي` holder; the
+        // `عدد` field gets no such arm (#327).
+        Value::Null => None,
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+
+    // `fs::metadata` follows symlinks, and so do all four of the names this
+    // folds, so a broken link reads as absent. An absent path, an unreadable one
+    // and an empty name all land in the same `None`, deliberately.
+    let metadata = path.and_then(|p| std::fs::metadata(p).ok());
+
+    if field == STAT_FIELD_SIZE {
+        return Ok(Value::Int(match metadata {
+            // A byte length is a property of a regular file. A directory's
+            // `st_size` is 4096 on ext4 and 64-96 on APFS, so answering it would
+            // put a platform-dependent number in the contract.
+            Some(meta) if meta.is_file() => meta.len() as i64,
+            _ => STAT_NO_ANSWER,
+        }));
+    }
+
+    Ok(Value::Int(match metadata {
+        None => PATH_KIND_ABSENT,
+        Some(meta) if meta.is_file() => PATH_KIND_FILE,
+        Some(meta) if meta.is_dir() => PATH_KIND_DIR,
+        Some(_) => PATH_KIND_OTHER,
+    }))
+}
+
+/// `متغير_بيئة`'s whole dispatch, shared the way `call_substring_by_chars` above
+/// is: the contract here lives almost entirely in the argument checks.
+///
+/// The name is read **raw**. `trq_env_get` deliberately does its own null/len/UTF-8
+/// checks instead of going through `as_str`, which trims, so trimming here would
+/// make `متغير_بيئة(" PATH ")` disagree between backends (#324).
+pub(crate) fn call_env_var(args: &[Value]) -> RuntimeResult<Value> {
+    let name = args.first().ok_or_else(|| {
+        RuntimeError::invalid_operation("متغير_بيئة() تتطلب معاملاً واحداً: اسم المتغير")
+    })?;
+
+    match name {
+        // One arm covers every failure the runtime folds into `""`: `env::var` is
+        // the call `trq_env_get` makes too, and it errors alike on an empty name,
+        // an absent one and a value that is not Unicode. Set-but-empty answers
+        // `""` as well, so it is indistinguishable from unset by design.
+        Value::String(s) => Ok(Value::string(std::env::var(s.as_str()).unwrap_or_default())),
+        // A pointer parameter, so this mirrors the runtime's null guard the way
+        // `قص_حروف`'s arm does, rather than encoding an integer-zero artifact.
+        Value::Null => Ok(Value::string("")),
+        _ => Err(RuntimeError::type_error("نص", name.type_name())),
+    }
+}
+
 impl Interpreter {
     pub(crate) fn is_builtin(&self, name: &str) -> bool {
         matches!(
@@ -147,12 +556,21 @@ impl Interpreter {
                 | "تأكد"
                 | "تأكد_رسالة"
                 | "توقف"
+                | "أنهِ_البرنامج"
+                | "أنه_البرنامج"
                 | "نم"
                 | "وقت_الآن"
                 | "وقت_أداء"
                 // String functions
+                | "قص_حروف"
                 | "حرف_إلى_رمز"
                 | "رمز_إلى_حرف"
+                | "نص_إلى_ثنائي"
+                | "ثنائي_إلى_نص"
+                | "متغير_بيئة"
+                | "اكتب_مجرى"
+                | "اقرأ_مجرى"
+                | "حالة_مسار"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
                 | "نص_ينتهي_بـ"
@@ -971,6 +1389,8 @@ impl Interpreter {
                     .map_err(|_| RuntimeError::type_error("float input", "invalid input"))
             }
 
+            "قص_حروف" => call_substring_by_chars(&args),
+
             "حرف_إلى_رمز" => {
                 let val = args.first().ok_or_else(|| {
                     RuntimeError::invalid_operation("حرف_إلى_رمز() تتطلب معامل واحد")
@@ -1012,6 +1432,60 @@ impl Interpreter {
                     _ => Err(RuntimeError::type_error("عدد", val.type_name())),
                 }
             }
+
+            "نص_إلى_ثنائي" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("نص_إلى_ثنائي() تتطلب معامل واحد")
+                })?;
+
+                match val {
+                    // `bytes()`, not `chars()`: this is the one primitive whose
+                    // unit is the octet, which is why `طول` of its result
+                    // disagrees with `طول` of the string it came from.
+                    Value::String(s) => Ok(Value::array_from(
+                        s.bytes().map(|b| Value::Int(b as i64)).collect(),
+                    )),
+                    // Unlike `رمز_إلى_حرف`, the parameter here is a pointer: an
+                    // un-narrowed `نص؟` lowers to `ptr null` and the runtime
+                    // guard answers an empty array, so erroring instead would
+                    // abort on source native runs fine.
+                    Value::Null => Ok(Value::array()),
+                    _ => Err(RuntimeError::type_error("نص", val.type_name())),
+                }
+            }
+
+            // Its inverse, and the rejection is what keeps the backends
+            // agreeing: a `Value::String` is a Rust `String` and cannot hold
+            // invalid UTF-8 at all, so answering `""` is the only contract both
+            // this and native can honour. See `trq_string_from_bytes`.
+            "ثنائي_إلى_نص" => {
+                let val = args.first().ok_or_else(|| {
+                    RuntimeError::invalid_operation("ثنائي_إلى_نص() تتطلب معامل واحد")
+                })?;
+
+                match val {
+                    Value::Array(arr) => Ok(Value::string(
+                        bytes_to_string(&arr.borrow()).unwrap_or_default(),
+                    )),
+                    // Load-bearing, but reached differently from its sibling:
+                    // `مصفوفة<عدد>؟` does not parse (ب٠١٠١) and a bare `لا_شيء`
+                    // is refused at the argument, so the route is an `أي` holder
+                    // — where native's null guard answers `""` and erroring here
+                    // instead would abort on source native runs fine.
+                    Value::Null => Ok(Value::string("")),
+                    _ => Err(RuntimeError::type_error("مصفوفة", val.type_name())),
+                }
+            }
+
+            "متغير_بيئة" => call_env_var(&args),
+
+            "اكتب_مجرى" => call_write_stream(&args),
+
+            "اقرأ_مجرى" => call_read_stream(&args),
+
+            "حالة_مسار" => call_path_status(&args),
+
+            "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 
             "نص_يحتوي" => {
                 let haystack = args

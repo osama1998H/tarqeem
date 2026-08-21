@@ -172,9 +172,28 @@ fn test_global_scope_has_core_builtins() {
     assert!(scope.lookup("بتات_إزاحة_يمين").is_some());
     assert!(scope.lookup("بتات_إزاحة_يمين_منطقية").is_some());
 
-    // Strings (2)
+    // Strings (5)
+    assert!(scope.lookup("قص_حروف").is_some());
     assert!(scope.lookup("حرف_إلى_رمز").is_some());
     assert!(scope.lookup("رمز_إلى_حرف").is_some());
+    assert!(scope.lookup("نص_إلى_ثنائي").is_some());
+    assert!(scope.lookup("ثنائي_إلى_نص").is_some());
+
+    // Environment (1)
+    assert!(scope.lookup("متغير_بيئة").is_some());
+
+    // Streams (2) — the byte-level pair, one name each way.
+    assert!(scope.lookup("اكتب_مجرى").is_some());
+    assert!(scope.lookup("اقرأ_مجرى").is_some());
+
+    // Path status (1) — the one name four `ملفات` names reduce to.
+    assert!(scope.lookup("حالة_مسار").is_some());
+
+    // Termination (2) — one primitive in two spellings, so both need pinning:
+    // `normalize_name` is NFC only and does not strip tashkeel, so a missing
+    // entry for the kasra-less variant only surfaces when someone types it.
+    assert!(scope.lookup("أنهِ_البرنامج").is_some());
+    assert!(scope.lookup("أنه_البرنامج").is_some());
 
     // Verify stdlib functions are NOT in global scope
     assert!(scope.lookup("مطلق").is_none());
@@ -244,8 +263,14 @@ fn test_get_stdlib_module_exports() {
 
     // String module should have string functions
     let string_exports = Scope::get_stdlib_module_exports("نص");
-    assert!(string_exports.contains(&"قص_نص"));
+    assert!(string_exports.contains(&"حرف_في"));
     assert!(string_exports.contains(&"كبير"));
+    // `قص_حروف` moved to the core tier and `قص_نص` was removed, so neither is a
+    // `نص` export any more. A future self-hosted `نص` module may not define
+    // `قص_حروف` while it is a live builtin — a same-name stdlib wrapper over a
+    // registered builtin self-recurses, and native SIGSEGVs with no diagnostic.
+    assert!(!string_exports.contains(&"قص_حروف"));
+    assert!(!string_exports.contains(&"قص_نص"));
 
     // Unknown module should return empty
     let unknown_exports = Scope::get_stdlib_module_exports("غير_موجود");
