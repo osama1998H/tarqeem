@@ -1160,6 +1160,82 @@ mod tests {
         std::fs::remove_dir_all(&fresh).ok();
     }
 
+    /// `انقل_مسار` under the debug interpreter, which is the only backend a
+    /// cross-backend test cannot reach. Portable rows only — the symlink rows
+    /// live in `runtime-rs`, where `symlink_metadata` can observe survival.
+    #[test]
+    fn test_path_move_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("انقل_مسار"),
+            "انقل_مسار غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let mover = |interpreter: &mut DebugInterpreter, src: Value, dst: Value| {
+            interpreter
+                .call_builtin("انقل_مسار", vec![src, dst])
+                .expect("انقل_مسار تُرجع قيمة لا خطأ")
+        };
+
+        // Empty names, null in either position and an absent source are one
+        // answer, and a refusal moves nothing.
+        let absent = std::env::temp_dir().join("tarqeem_debug_path_move_absent");
+        std::fs::remove_file(&absent).ok();
+        let absent_path = Value::string(absent.to_str().expect("مسار مؤقت صالح"));
+        for (src, dst) in [
+            (Value::string(""), Value::string("")),
+            (Value::Null, Value::string("وجهة")),
+            (Value::string("مصدر"), Value::Null),
+            (absent_path, Value::string("وجهة_لا_تهم")),
+        ] {
+            assert_eq!(mover(&mut interpreter, src, dst), Value::Bool(false));
+        }
+
+        // A fresh destination receives the file, bytes intact, and the source
+        // name is released. Under the system temp directory so the row runs on
+        // Windows.
+        let src = std::env::temp_dir().join("tarqeem_debug_path_move_src.txt");
+        let dst = std::env::temp_dir().join("tarqeem_debug_path_move_dst.txt");
+        std::fs::remove_file(&dst).ok();
+        std::fs::write(&src, "محتوى").expect("تعذّر إنشاء الملف");
+
+        assert_eq!(
+            mover(
+                &mut interpreter,
+                Value::string(src.to_str().expect("مسار مؤقت صالح")),
+                Value::string(dst.to_str().expect("مسار مؤقت صالح"))
+            ),
+            Value::Bool(true)
+        );
+        assert!(!src.exists(), "المصدر باقٍ بعد النقل");
+        assert_eq!(
+            std::fs::read(&dst).expect("الوجهة زالت"),
+            "محتوى".as_bytes()
+        );
+
+        // A directory destination refuses, and both ends survive the refusal.
+        let dir_dst = std::env::temp_dir().join("tarqeem_debug_path_move_dir_dst");
+        std::fs::remove_dir_all(&dir_dst).ok();
+        std::fs::create_dir(&dir_dst).expect("تعذّر إنشاء المجلد");
+        assert_eq!(
+            mover(
+                &mut interpreter,
+                Value::string(dst.to_str().expect("مسار مؤقت صالح")),
+                Value::string(dir_dst.to_str().expect("مسار مؤقت صالح"))
+            ),
+            Value::Bool(false)
+        );
+        assert!(dst.exists(), "الرفض أزال المصدر");
+        assert!(dir_dst.is_dir(), "الرفض أزال الوجهة");
+
+        std::fs::remove_file(&dst).ok();
+        std::fs::remove_dir_all(&dir_dst).ok();
+    }
+
     #[test]
     fn test_time_builtins_share_the_interpreter_clock() {
         // Same helper the main interpreter calls, so the two cannot drift.

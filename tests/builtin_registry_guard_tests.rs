@@ -5,7 +5,7 @@
 //! name lists — and until now nothing compared them. They happen to agree today;
 //! that agreement was coincidence, not enforcement.
 //!
-//! These are **ratchet** tests. They pin the registry as it stands (41 core + 162
+//! These are **ratchet** tests. They pin the registry as it stands (42 core + 161
 //! stdlib) while the builtin/stdlib boundary described in `docs/builtins-vs-stdlib.md`
 //! is migrated. A name may only enter or leave the registry by editing the expected
 //! list here, which is exactly the deliberate step the plan requires — a migration
@@ -69,6 +69,7 @@ const CORE_BUILTINS: &[&str] = &[
     "حالة_مسار",
     "احذف_مسار",
     "انشئ_مجلد",
+    "انقل_مسار",
     "معاملات_البرنامج",
     "عدد",
     "عدد_عشري",
@@ -90,7 +91,12 @@ const STDLIB_MODULE_SIZES: &[(&str, usize)] = &[
     ("نص", 39),
     // 21 until #366, which promoted `انشئ_مجلد` to the core tier — still
     // callable, now with no import — the same move `قص_حروف` made out of `نص`.
-    ("ملفات", 20),
+    // 20 until #368, which took `انقل_ملف` out the same way with one difference:
+    // the core-tier name is `انقل_مسار` — the #352 rename (`حالة_ملف` →
+    // `حالة_مسار`) applied to the mover, since `rename(2)` acts on the name and
+    // moves directories and symlinks too. The old spelling is gone outright, on
+    // the #336 `قص_نص` precedent.
+    ("ملفات", 19),
     ("وقت", 2),
     ("تشفير", 8),
     ("ضغط", 6),
@@ -253,6 +259,11 @@ fn stdlib_registry_size_is_locked() {
     // promotion rather than an addition: the name left `ملفات` (21 → 20) and
     // joined `CORE_BUILTINS` (40 → 41), so the total is size-neutral by
     // construction, exactly as `قص_حروف`'s move out of `نص` was.
+    //
+    // Still 203 with #368 (`انقل_مسار`) — a promotion again, this time carrying
+    // the #352 rename: `انقل_ملف` left `ملفات` (20 → 19) and the core tier
+    // gained `انقل_مسار` (41 → 42). One name for one capability, size-neutral
+    // by construction.
     assert_eq!(
         total + CORE_BUILTINS.len(),
         203,
