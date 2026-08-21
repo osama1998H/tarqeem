@@ -2942,7 +2942,7 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "الحق_ملف" => Some("trq_file_append"),
         "احذف_ملف" => Some("trq_file_delete"),
         "انسخ_ملف" => Some("trq_file_copy"),
-        "انقل_ملف" => Some("trq_file_move"),
+        "انقل_مسار" => Some("trq_file_move"),
         "حجم_ملف" => Some("trq_file_size"),
         "انشئ_مجلد" => Some("trq_dir_create"),
         "قائمة_مجلد" => Some("trq_dir_list"),

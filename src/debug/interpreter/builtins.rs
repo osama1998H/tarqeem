@@ -5,8 +5,9 @@ use std::io::{self, Write};
 use crate::interpreter::epoch_millis;
 use crate::interpreter::{
     bytes_to_string, call_dir_create, call_env_var, call_exit_program, call_file_close,
-    call_file_open, call_path_delete, call_path_status, call_program_args, call_read_stream,
-    call_substring_by_chars, call_write_stream, RuntimeError, RuntimeResult, Value,
+    call_file_open, call_path_delete, call_path_move, call_path_status, call_program_args,
+    call_read_stream, call_substring_by_chars, call_write_stream, RuntimeError, RuntimeResult,
+    Value,
 };
 
 use super::DebugInterpreter;
@@ -44,6 +45,7 @@ impl DebugInterpreter {
                 | "حالة_مسار"
                 | "احذف_مسار"
                 | "انشئ_مجلد"
+                | "انقل_مسار"
                 | "معاملات_البرنامج"
                 // Termination. Absent here, stepping through `أنهِ_البرنامج(٠)`
                 // would abort with «دالة غير معرّفة» while every other backend
@@ -280,6 +282,7 @@ impl DebugInterpreter {
             "حالة_مسار" => call_path_status(&args),
             "احذف_مسار" => call_path_delete(&args),
             "انشئ_مجلد" => call_dir_create(&args),
+            "انقل_مسار" => call_path_move(&args),
             "معاملات_البرنامج" => call_program_args(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),

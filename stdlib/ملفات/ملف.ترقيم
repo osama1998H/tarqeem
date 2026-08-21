@@ -178,7 +178,7 @@
     /// @أرجع صحيح إذا نجحت العملية
     /// @ملاحظة يُحدّث مسار الكائن تلقائياً عند النجاح
     عام دالة انقل_الى(وجهة: نص) -> منطقي {
-        متغير نجاح = انقل_ملف(هذا._مسار، وجهة)
+        متغير نجاح = انقل_مسار(هذا._مسار، وجهة)
         إذا (نجاح) {
             هذا._مسار = وجهة
         }
@@ -219,7 +219,8 @@
     أرجع م
 }
 
-// Note: ملف_موجود، اقرأ_ملف، اكتب_ملف، الحق_ملف، احذف_ملف، انسخ_ملف، انقل_ملف، حجم_ملف، هل_ملف
-// are now builtin functions - users can call them directly without importing this module
+// Note: ملف_موجود، اقرأ_ملف، اكتب_ملف، الحق_ملف، احذف_ملف، انسخ_ملف، حجم_ملف، هل_ملف
+// are now builtin functions - users can call them directly without importing this module.
+// The mover is the core-tier `انقل_مسار` (#368), no import needed.
 
 الحمد_لله

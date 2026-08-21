@@ -357,7 +357,22 @@ pub extern "C" fn trq_file_copy(src: *const TrqString, dst: *const TrqString) ->
     std::fs::copy(&src_str, &dst_str).is_ok()
 }
 
-/// Move/rename a file.
+/// Move a path — `انقل_مسار` (#368; the name was `انقل_ملف` before the #352
+/// rename precedent reached the mover).
+///
+/// One `rename(2)`: atomic, never a copy, so a cross-device move answers
+/// `false` instead of degrading into one. Acts on the *name* at both ends — a
+/// symlink source moves as itself, dangling included, its target never
+/// consulted. An existing destination is replaced only when it is a **regular
+/// file** (checked on the name, `symlink_metadata`), which keeps the atomic
+/// write-temp-then-rename idiom and refuses every other occupied destination
+/// — directory, symlink, device — on every platform alike: POSIX `rename`
+/// would replace an empty directory or a symlink where Windows refuses, and
+/// one documented behaviour gets one implementation. Total: an absent source,
+/// empty names and null in either position all answer `false`.
+///
+/// Duplicated in the interpreters' `call_path_move` for `call_path_status`'s
+/// reason; the cross-backend tests are what hold the two copies together.
 #[no_mangle]
 pub extern "C" fn trq_file_move(src: *const TrqString, dst: *const TrqString) -> bool {
     let src_str = match trq_string_to_path(src) {
@@ -368,6 +383,12 @@ pub extern "C" fn trq_file_move(src: *const TrqString, dst: *const TrqString) ->
         Some(p) => p,
         None => return false,
     };
+
+    if let Ok(meta) = std::fs::symlink_metadata(&dst_str) {
+        if !meta.is_file() {
+            return false;
+        }
+    }
 
     std::fs::rename(&src_str, &dst_str).is_ok()
 }
