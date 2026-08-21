@@ -750,6 +750,54 @@ pub(crate) fn call_path_move(args: &[Value]) -> RuntimeResult<Value> {
     Ok(Value::Bool(std::fs::rename(&src, &dst).is_ok()))
 }
 
+/// `قائمة_مجلد`'s whole dispatch, shared with the debug interpreter the way
+/// `call_dir_create` above is.
+///
+/// One stateless `readdir(3)`. Entries are **bare names, sorted by code
+/// point** — raw readdir order is filesystem-dependent, so the sort is what
+/// lets the answer sit in a contract row at all — with `.`/`..` excluded by
+/// `read_dir` itself and a non-UTF-8 name decoded lossily rather than
+/// dropped, on `معاملات_البرنامج`'s argv rule. The lossy decode runs before
+/// the sort, so this kernel and `trq_dir_list` sort the same strings, and a
+/// mid-iteration read error drops that entry and keeps the rest exactly as
+/// the runtime's `.flatten()` does — a row no test can build, so the two
+/// copies agree by construction.
+///
+/// Every refusal — absent, a file, unreadable, empty, `لا_شيء` — answers the
+/// empty array, indistinguishable from an empty directory: an array return
+/// has no spare value for a refusal (`اقرأ_مجرى`'s conflation), and a caller
+/// that must tell them apart asks `حالة_مسار`.
+///
+/// Duplicated in `trq_dir_list` for the reason `call_path_status` records, so
+/// every row is pinned cross-backend rather than only here.
+pub(crate) fn call_dir_list(args: &[Value]) -> RuntimeResult<Value> {
+    let path = args
+        .first()
+        .ok_or_else(|| RuntimeError::invalid_operation("قائمة_مجلد() تتطلب معاملاً: المسار"))?;
+
+    let path = match path {
+        Value::String(text) => text.as_str().to_string(),
+        // The runtime answers the empty array for a null path, so this is the
+        // designed answer and not an artifact — `call_dir_create`'s arm with
+        // this name's own refusal value.
+        Value::Null => return Ok(Value::array_from(vec![])),
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+
+    let mut names: Vec<String> = match std::fs::read_dir(&path) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect(),
+        Err(_) => return Ok(Value::array_from(vec![])),
+    };
+    names.sort();
+
+    Ok(Value::array_from(
+        names.into_iter().map(Value::string).collect::<Vec<_>>(),
+    ))
+}
+
 /// The arguments the CLI was invoked with, minus the program's own name.
 ///
 /// Set once, before the program runs, and read for the rest of the process. It
@@ -939,6 +987,7 @@ impl Interpreter {
                 | "احذف_مسار"
                 | "انشئ_مجلد"
                 | "انقل_مسار"
+                | "قائمة_مجلد"
                 | "معاملات_البرنامج"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
@@ -1859,6 +1908,7 @@ impl Interpreter {
             "احذف_مسار" => call_path_delete(&args),
             "انشئ_مجلد" => call_dir_create(&args),
             "انقل_مسار" => call_path_move(&args),
+            "قائمة_مجلد" => call_dir_list(&args),
             "معاملات_البرنامج" => call_program_args(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),

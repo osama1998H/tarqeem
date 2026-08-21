@@ -4,10 +4,10 @@ use std::io::{self, Write};
 
 use crate::interpreter::epoch_millis;
 use crate::interpreter::{
-    bytes_to_string, call_dir_create, call_env_var, call_exit_program, call_file_close,
-    call_file_open, call_path_delete, call_path_move, call_path_status, call_program_args,
-    call_read_stream, call_substring_by_chars, call_write_stream, RuntimeError, RuntimeResult,
-    Value,
+    bytes_to_string, call_dir_create, call_dir_list, call_env_var, call_exit_program,
+    call_file_close, call_file_open, call_path_delete, call_path_move, call_path_status,
+    call_program_args, call_read_stream, call_substring_by_chars, call_write_stream, RuntimeError,
+    RuntimeResult, Value,
 };
 
 use super::DebugInterpreter;
@@ -46,6 +46,7 @@ impl DebugInterpreter {
                 | "احذف_مسار"
                 | "انشئ_مجلد"
                 | "انقل_مسار"
+                | "قائمة_مجلد"
                 | "معاملات_البرنامج"
                 // Termination. Absent here, stepping through `أنهِ_البرنامج(٠)`
                 // would abort with «دالة غير معرّفة» while every other backend
@@ -283,6 +284,7 @@ impl DebugInterpreter {
             "احذف_مسار" => call_path_delete(&args),
             "انشئ_مجلد" => call_dir_create(&args),
             "انقل_مسار" => call_path_move(&args),
+            "قائمة_مجلد" => call_dir_list(&args),
             "معاملات_البرنامج" => call_program_args(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
@@ -1234,6 +1236,67 @@ mod tests {
 
         std::fs::remove_file(&dst).ok();
         std::fs::remove_dir_all(&dir_dst).ok();
+    }
+
+    /// `قائمة_مجلد` under the debug interpreter, which is the only backend a
+    /// cross-backend test cannot reach. Portable rows only — the symlink and
+    /// lossy-decode rows live in `runtime-rs`.
+    #[test]
+    fn test_dir_list_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("قائمة_مجلد"),
+            "قائمة_مجلد غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let list = |interpreter: &mut DebugInterpreter, path: Value| {
+            interpreter
+                .call_builtin("قائمة_مجلد", vec![path])
+                .expect("قائمة_مجلد تُرجع قيمة لا خطأ")
+        };
+        let names = |value: Value| -> Vec<String> {
+            match value {
+                Value::Array(items) => items
+                    .borrow()
+                    .iter()
+                    .map(|item| item.to_display_string())
+                    .collect(),
+                other => panic!("قائمة_مجلد أجابت {other:?} لا مصفوفة"),
+            }
+        };
+
+        // An absent path, the empty name and a null one are one answer: the
+        // empty array, the same refusal the runtime kernel gives.
+        let absent = std::env::temp_dir().join("tarqeem_debug_dir_list_absent");
+        std::fs::remove_dir_all(&absent).ok();
+        for path in [
+            Value::string(""),
+            Value::Null,
+            Value::string(absent.to_str().expect("مسار مؤقت صالح")),
+        ] {
+            assert!(names(list(&mut interpreter, path)).is_empty());
+        }
+
+        // A populated directory answers bare names sorted by code point,
+        // whatever order they were created in. Under the system temp directory
+        // so the row runs on Windows.
+        let dir = std::env::temp_dir().join("tarqeem_debug_dir_list_sample");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir(&dir).expect("تعذّر إنشاء المجلد");
+        std::fs::write(dir.join("ب.نص"), "").expect("تعذّر إنشاء الملف");
+        std::fs::create_dir(dir.join("أ")).expect("تعذّر إنشاء المجلد الفرعي");
+
+        let listed = names(list(
+            &mut interpreter,
+            Value::string(dir.to_str().expect("مسار مؤقت صالح")),
+        ));
+        assert_eq!(listed, vec!["أ".to_string(), "ب.نص".to_string()]);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
