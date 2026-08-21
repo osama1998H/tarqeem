@@ -924,16 +924,27 @@ mod tests {
             assert_eq!(delete(&mut interpreter, path), Value::Bool(false));
         }
 
-        // A non-empty directory is refused: `rmdir`, not `rm -r`. The system temp
-        // directory rather than a literal `/tmp`, so the row runs on Windows too.
-        let temp = std::env::temp_dir();
+        // A non-empty directory is refused: `rmdir`, not `rm -r`. Under the system
+        // temp directory rather than a literal `/tmp`, so the row runs on Windows
+        // too — but in a directory this test *makes* non-empty, never the shared
+        // temp directory itself: that one is only non-empty by luck, and on the one
+        // run where it is empty `rmdir` would succeed and delete it out from under
+        // every other test in the process.
+        let full = std::env::temp_dir().join("tarqeem_debug_path_delete_full_dir");
+        std::fs::remove_dir_all(&full).ok();
+        std::fs::create_dir(&full).expect("تعذّر إنشاء المجلد");
+        std::fs::write(full.join("ساكن.نص"), "x").expect("تعذّر إنشاء الملف");
+
         assert_eq!(
             delete(
                 &mut interpreter,
-                Value::string(temp.to_str().expect("مسار مؤقت صالح"))
+                Value::string(full.to_str().expect("مسار مؤقت صالح"))
             ),
             Value::Bool(false)
         );
+        assert!(full.is_dir(), "المجلد العامر حُذف");
+
+        std::fs::remove_dir_all(&full).ok();
     }
 
     /// The lstat-versus-stat choice, which is the only place the two copies of the

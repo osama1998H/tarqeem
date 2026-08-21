@@ -4484,6 +4484,18 @@ in its own change.
   is a language defect; recorded because the file's single-scope shape makes both inevitable again,
   and the next section should suffix its own names the way `تركيب الناتج (حذف)` already does.
 
+- **The first *platform* gap this family has had, and a `cfg(unix)` test suite could not see it.**
+  `symlink_metadata().is_dir()` is false for a symlink whatever it targets, so a symlink goes to
+  `remove_file` — right on Unix, wrong on Windows, where a **directory** symlink or junction is a
+  directory reparse point that `DeleteFileW` refuses and only `RemoveDirectoryW` unlinks. LANGUAGE_SPEC
+  states the removal unconditionally, so the doc would have been false on one platform, in both kernel
+  copies, with every symlink test `#[cfg(unix)]`. Fixed portably —
+  `remove_file(p).is_ok() || remove_dir(p).is_ok()`, a provable no-op off Windows since the second call
+  runs only after the first failed and `remove_dir` fails on any non-directory. Chosen over a
+  `cfg(windows)` branch because one documented behaviour should have one implementation, and an
+  uncompilable `cfg` arm is worse than none. **Check each platform's syscall against the promise, not
+  just each backend's output.**
+
 ### Cost
 
 **Nine registration sites**, forecast from §6.7's discriminator before the work — neither half of the
@@ -4504,11 +4516,28 @@ mechanically — 37 core + 163 stdlib = **200**. The debug interpreter is **37**
 `is_builtin` name was checked for a dispatch *mention* rather than the two sizes being compared, since
 equal sizes can hide two offsetting errors.
 
-`runtime-rs` clippy is unchanged at **79** warning lines under `--all-targets` (measured against
-`develop`, not assumed — the first claim written here said 41→41 and was wrong on both numbers). It
-would have been 80: the new test helper picked up an `unnecessary unsafe block` by copying the
-neighbouring `trq_release` pattern verbatim. Dropping the block is the right copy to *not* make —
-#310 is going to sweep all 55 of the existing ones, so new code should not add to the sweep. The main
-crate is clippy-clean at `--all-targets`. Full suite green: 1453 unit tests and 193 builtin
+One row was genuinely recounted and still misled a reviewer, which is its own lesson. `runtime-rs`
+exports went 224 → **225**, correct under the definition the row has always used — `trq_*` symbols
+only, verified against `develop`, where the row read 224 and the `trq_*` count was exactly 224. But
+the row never *stated* that definition, and counting every `#[no_mangle] pub extern "C" fn` instead
+gives 226, the extra being the C entry point `main`. A review pass filed the 225 as an off-by-one
+incremented from a stale figure. **A recounted number is not self-defending if the row does not say
+what it counts** — the row now carries the definition and the exact command, which is the part of that
+finding worth keeping.
+
+`runtime-rs` clippy is unchanged: **76 diagnostics, and the multiset is byte-identical** to
+`develop`'s — 55 `unnecessary unsafe block`, 20 `manually constructing a nul-terminated string`, one
+`match` reducible to `?`, all pre-existing (#310). It would have been 77: the new test helper picked up
+an `unnecessary unsafe` by copying the neighbouring `trq_release` pattern verbatim, and dropping the
+block is the right copy *not* to make, since #310 will sweep the other 55.
+
+Two corrections on how that was measured, both of which shipped wrong first. The initial claim here
+said "41 → 41" and was wrong on both numbers. The replacement said "unchanged at 79 warning lines",
+which was the right conclusion off an unstable metric: `grep -c '^warning:'` counts cargo's
+*summary* lines too («generated N warnings (1 duplicate)»), and those vary with build caching, so the
+same tree measured 79 and 80 minutes apart. **Compare the diagnostic multiset, not a line count** —
+`--message-format=short`, strip the file:line prefix, `sort | uniq -c`, and diff it against the base
+branch. That produced an empty diff and is reproducible. The main crate is clippy-clean at
+`--all-targets`. Full suite green: 1453 unit tests and 193 builtin
 execution tests, zero failures, and `examples/مدمجات.ترقيم` byte-identical across interpreter, JIT and
 native.

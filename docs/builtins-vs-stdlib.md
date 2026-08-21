@@ -1458,6 +1458,20 @@ Five things it found that the plan did not state:
    are cheap; recorded because the file's single-scope shape makes both inevitable again, and the
    next section should suffix its own names the way `تركيب الناتج (حذف)` already does.
 
+6. **`lstat` is not portable the way the contract needed, and a review pass found it — the first
+   *platform* gap this family has had.** `symlink_metadata().is_dir()` is false for a symlink whatever
+   it targets, and on Unix `unlink` then removes it. On Windows a **directory** symlink or junction is
+   a directory reparse point: `DeleteFileW` refuses it and only `RemoveDirectoryW` unlinks it. So the
+   contract LANGUAGE_SPEC states unconditionally — «الوصلة تُحذف بنفسها ولا تُرمَد» — would have held
+   on Unix and failed on Windows, in **both** kernel copies, with every symlink test `#[cfg(unix)]`
+   so nothing caught it. Fixed portably rather than with a `cfg(windows)` branch:
+   `remove_file(p).is_ok() || remove_dir(p).is_ok()`, which is a **provable no-op** off Windows — the
+   second call runs only when the first failed, and `remove_dir` on anything `lstat` called a
+   non-directory fails too. Preferred over a `cfg` branch because one documented behaviour should have
+   one implementation, and because a `cfg(windows)` arm cannot be compile-checked on this machine.
+   **Generalisable: a `cfg(unix)`-gated test suite cannot see a contract that the *docs* state
+   unconditionally.** Check each platform's syscall against the promise, not just each backend's.
+
 One smaller result: the keyword-embedding check does not apply. `احذف_مسار` embeds none of the 77
 Arabic keyword literals in `src/lexer/keywords.rs`, swept mechanically the way #350 did rather than by
 eye, so it gets **no** row in `test_identifier_containing_a_keyword_stays_one_token` — adding one

@@ -457,7 +457,10 @@ pub(crate) fn call_path_delete(args: &[Value]) -> RuntimeResult<Value> {
         // `rmdir`, not `rm -r`: a non-empty directory answers `خطأ`, which keeps
         // `احذف_مجلد`'s contract when it becomes a wrapper over this.
         Ok(meta) if meta.is_dir() => std::fs::remove_dir(&path).is_ok(),
-        Ok(_) => std::fs::remove_file(&path).is_ok(),
+        // The `||` is the Windows directory-symlink fallback `trq_path_delete`
+        // documents, and a no-op everywhere else for the reason given there. Both
+        // copies carry it because nothing but a test keeps them equal.
+        Ok(_) => std::fs::remove_file(&path).is_ok() || std::fs::remove_dir(&path).is_ok(),
         Err(_) => false,
     }))
 }

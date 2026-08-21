@@ -525,7 +525,15 @@ pub extern "C" fn trq_path_delete(path: *const TrqString) -> bool {
 
     match std::fs::symlink_metadata(&path) {
         Ok(meta) if meta.is_dir() => std::fs::remove_dir(&path).is_ok(),
-        Ok(_) => std::fs::remove_file(&path).is_ok(),
+        // `lstat` reports a symlink as a non-directory whatever it targets, and on
+        // Unix `unlink` removes it. On Windows a *directory* symlink or junction is
+        // a directory reparse point: `DeleteFileW` refuses it and only
+        // `RemoveDirectoryW` unlinks it. The `||` is that fallback, and it is a
+        // provable no-op elsewhere — it runs only when `remove_file` already
+        // failed, and `remove_dir` on anything `lstat` called a non-directory
+        // fails too. Portable rather than a `cfg(windows)` branch so the one
+        // documented behaviour has one implementation.
+        Ok(_) => std::fs::remove_file(&path).is_ok() || std::fs::remove_dir(&path).is_ok(),
         Err(_) => false,
     }
 }
@@ -2131,9 +2139,9 @@ mod tests {
 
     /// Frees a path built by [`path_string`].
     ///
-    /// Without the `unsafe` block the neighbouring tests wrap this call in:
-    /// `trq_release` is a safe function, so the block is a lint (#310 tracks the
-    /// 55 others) and new code should not add to the sweep.
+    /// Deliberately without the `unsafe` block that the neighbouring tests wrap
+    /// this call in: `trq_release` is a safe function, so the block is a lint
+    /// (#310 tracks the 55 others) and new code should not add to the sweep.
     fn release_path(path: *mut TrqString) {
         crate::memory::trq_release(path as *mut u8);
     }
