@@ -10,7 +10,9 @@ pub use debug::{debug, DebugArgs};
 use super::{Cli, Commands, PkgCommands};
 use crate::doc::{DocExtractor, HtmlGenerator, JsonGenerator, MarkdownGenerator, OutputFormat};
 use crate::error::Language;
-use crate::interpreter::{set_program_args, ErrorKind, Interpreter, RuntimeError};
+use crate::interpreter::{
+    flush_program_files, set_program_args, ErrorKind, Interpreter, RuntimeError,
+};
 use crate::ir::IrBuilder;
 use crate::jit::{JitConfig, JitExecutor};
 use crate::lexer::Lexer;
@@ -411,11 +413,13 @@ pub fn run(cli: Cli) -> Result<(), String> {
 /// where the native binary prints nothing — a divergence the backend-diff job
 /// cannot see, since it compares stdout only.
 ///
-/// Stdout is flushed for the reason `trq_exit` flushes it: `process::exit` runs
-/// no destructors, so a buffered `print!` with no trailing newline would be
+/// Stdout and every writer `افتح_ملف` opened are flushed for the reason
+/// `trq_exit` flushes them: `process::exit` runs no destructors, so a buffered
+/// `print!` with no trailing newline, or a file handle's payload, would be
 /// dropped.
 fn exit_if_program_asked(err: &RuntimeError) {
     if let ErrorKind::ProgramExit(status) = err.kind {
+        flush_program_files();
         let _ = io::stdout().flush();
         let _ = io::stderr().flush();
         std::process::exit(status);
@@ -556,6 +560,13 @@ fn run_command(
             }
         }
     }
+
+    // The mirror of `trq_runtime_cleanup`, and only on the paths where the native
+    // binary flushes too: a normal end here and `أنهِ_البرنامج` above. A run that
+    // died on `توقف` or an uncaught exception deliberately does **not** flush,
+    // because `trq_panic` does not either — flushing here would make the
+    // interpreter keep bytes the compiled program loses.
+    flush_program_files();
 
     Ok(())
 }

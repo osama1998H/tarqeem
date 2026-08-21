@@ -271,6 +271,19 @@ impl Scope {
                 vec![Type::Int, Type::Int],
                 Type::Array(Box::new(Type::Int)),
             ),
+            // File opening - فتح الملف
+            // `open(2)`, folding the three path-only openers in `runtime-rs`
+            // behind one mode: `٠` قراءة، `١` كتابة، `٢` إلحاق. The answer is a
+            // descriptor the stream pair can name — always `٣` or more, so it
+            // never collides with a console stream.
+            //
+            // `-١` on failure, not `٠`: `٠` is stdin in `اقرأ_مجرى`, so a failed
+            // open answering it would read the keyboard instead of erroring. Any
+            // other mode is refused before the path is touched, so a bad mode
+            // creates nothing — and that includes `٣`, which
+            // `stdlib/ملفات/ملف.ترقيم` calls `وضع_قراءة_كتابة` and no handle
+            // kind here can serve.
+            ("افتح_ملف", vec![Type::String, Type::Int], Type::Int),
             // Path status - حالة المسار
             // `stat(2)`, one field per call so the answer stays an `عدد` and no
             // struct crosses the FFI. `حقل ٠` is the kind — `٠` معدوم، `١` ملف،

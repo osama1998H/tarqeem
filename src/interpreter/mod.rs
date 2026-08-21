@@ -48,6 +48,11 @@ pub(crate) use executor::builtins::call_write_stream;
 /// the read half of the byte-level stream pair.
 pub(crate) use executor::builtins::call_read_stream;
 
+/// Shared with the debug interpreter so a handle carries the same number and the
+/// same refusals in both — the table it files into is module state in that file,
+/// so a second dispatch would be a second table.
+pub(crate) use executor::builtins::call_file_open;
+
 pub(crate) use executor::builtins::call_path_delete;
 /// Shared for a reason the others do not have: the kind/size mapping is already
 /// duplicated once, in `trq_path_status`, because the compiler crate does not
@@ -59,6 +64,9 @@ pub(crate) use executor::builtins::call_path_status;
 /// runtime reads its own `main`'s argv while this reads what the CLI was handed,
 /// so the two sides have nothing to share and nothing to drift.
 pub(crate) use executor::builtins::call_program_args;
+/// Flushes every writer `افتح_ملف` opened. Called by the CLI where a program
+/// ends, mirroring `trq_runtime_cleanup` and `trq_exit`.
+pub use executor::builtins::flush_program_files;
 /// Recorded by the CLI before a program runs; read by `معاملات_البرنامج`.
 pub use executor::builtins::set_program_args;
 pub use executor::Interpreter;
