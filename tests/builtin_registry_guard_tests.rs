@@ -5,7 +5,7 @@
 //! name lists — and until now nothing compared them. They happen to agree today;
 //! that agreement was coincidence, not enforcement.
 //!
-//! These are **ratchet** tests. They pin the registry as it stands (40 core + 163
+//! These are **ratchet** tests. They pin the registry as it stands (41 core + 162
 //! stdlib) while the builtin/stdlib boundary described in `docs/builtins-vs-stdlib.md`
 //! is migrated. A name may only enter or leave the registry by editing the expected
 //! list here, which is exactly the deliberate step the plan requires — a migration
@@ -68,6 +68,7 @@ const CORE_BUILTINS: &[&str] = &[
     "اغلق_ملف",
     "حالة_مسار",
     "احذف_مسار",
+    "انشئ_مجلد",
     "معاملات_البرنامج",
     "عدد",
     "عدد_عشري",
@@ -87,7 +88,9 @@ const STDLIB_MODULE_SIZES: &[(&str, usize)] = &[
     // `قص_نص` was removed outright — the primitive string surface is uniformly
     // codepoint-indexed, and byte work goes through `نص_إلى_ثنائي`/`ثنائي_إلى_نص`.
     ("نص", 39),
-    ("ملفات", 21),
+    // 21 until #366, which promoted `انشئ_مجلد` to the core tier — still
+    // callable, now with no import — the same move `قص_حروف` made out of `نص`.
+    ("ملفات", 20),
     ("وقت", 2),
     ("تشفير", 8),
     ("ضغط", 6),
@@ -245,6 +248,11 @@ fn stdlib_registry_size_is_locked() {
     // `write_line` and `eof` stay nameless orphans. So the `ملفات` size is
     // unchanged for the fifth increment running, and the gap between this count
     // and the 40-primitive budget is still the one `أنهِ_البرنامج` spelling.
+    //
+    // Still 203 with #366 (`انشئ_مجلد`) — the first move since #336 that is a
+    // promotion rather than an addition: the name left `ملفات` (21 → 20) and
+    // joined `CORE_BUILTINS` (40 → 41), so the total is size-neutral by
+    // construction, exactly as `قص_حروف`'s move out of `نص` was.
     assert_eq!(
         total + CORE_BUILTINS.len(),
         203,

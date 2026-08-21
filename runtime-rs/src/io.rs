@@ -2435,6 +2435,112 @@ mod tests {
     }
 
     // ────────────────────────────────────────────────────────────────────
+    // trq_dir_create — انشئ_مجلد
+    // ────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_dir_create_creates_a_fresh_directory() {
+        let target = "/tmp/tarqeem_test_dir_create_fresh";
+        std::fs::remove_dir_all(target).ok();
+
+        let path = path_string(target);
+        assert!(trq_dir_create(path));
+        assert!(std::path::Path::new(target).is_dir());
+        // The sibling agrees about what now sits there.
+        assert_eq!(trq_path_status(path, STAT_FIELD_KIND), PATH_KIND_DIR);
+
+        release_path(path);
+        std::fs::remove_dir_all(target).ok();
+    }
+
+    /// `صحيح` means *this call created it*, so the second call over the same
+    /// name answers `خطأ` and the directory survives.
+    #[test]
+    fn test_dir_create_refuses_an_existing_directory() {
+        let target = "/tmp/tarqeem_test_dir_create_existing_dir";
+        std::fs::remove_dir_all(target).ok();
+        std::fs::create_dir(target).expect("تعذّر إنشاء المجلد / could not create the directory");
+
+        let path = path_string(target);
+        assert!(!trq_dir_create(path));
+        assert!(std::path::Path::new(target).is_dir(), "المجلد زال");
+
+        release_path(path);
+        std::fs::remove_dir_all(target).ok();
+    }
+
+    /// A file blocks the name too, and keeps its bytes: refusal is a read-only
+    /// answer, never a replacement.
+    #[test]
+    fn test_dir_create_refuses_an_existing_file_and_leaves_it() {
+        let target = "/tmp/tarqeem_test_dir_create_existing_file.txt";
+        std::fs::write(target, "مرحبا").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        assert!(!trq_dir_create(path));
+        assert_eq!(
+            std::fs::read(target).expect("الملف زال"),
+            "مرحبا".as_bytes()
+        );
+
+        release_path(path);
+        std::fs::remove_file(target).ok();
+    }
+
+    /// `mkdir(2)`, not `mkdir -p`: a missing parent is a refusal, and nothing is
+    /// created anywhere along the path. The recursive form is a stdlib loop.
+    #[test]
+    fn test_dir_create_refuses_a_missing_parent() {
+        let parent = "/tmp/tarqeem_test_dir_create_no_parent";
+        std::fs::remove_dir_all(parent).ok();
+
+        let path = path_string("/tmp/tarqeem_test_dir_create_no_parent/فرعي");
+        assert!(!trq_dir_create(path));
+        assert!(
+            !std::path::Path::new(parent).exists(),
+            "أُنشئ الأب من حيث لا يُطلب"
+        );
+
+        release_path(path);
+    }
+
+    /// An empty name and a null pointer are one answer, as in
+    /// [`trq_path_delete`].
+    #[test]
+    fn test_dir_create_creates_nothing_that_has_no_name() {
+        let path = path_string("");
+        assert!(!trq_dir_create(path));
+        release_path(path);
+
+        assert!(!trq_dir_create(std::ptr::null()));
+    }
+
+    /// The *entry* is what blocks the name: a dangling symlink reads as absent
+    /// through [`trq_path_status`] — which follows — yet `mkdir` refuses it,
+    /// because the directory entry exists whether or not its target does. The
+    /// mirror of [`trq_path_delete`] acting on the name, reached with no `lstat`
+    /// in the implementation at all.
+    #[test]
+    #[cfg(unix)]
+    fn test_dir_create_refuses_a_dangling_symlink_by_its_entry() {
+        let link = "/tmp/tarqeem_test_dir_create_dangling_link";
+        std::fs::remove_file(link).ok();
+        std::os::unix::fs::symlink("/tmp/tarqeem_test_dir_create_never_existed", link)
+            .expect("تعذّر إنشاء الوصلة / could not link");
+
+        let path = path_string(link);
+        assert_eq!(trq_path_status(path, STAT_FIELD_KIND), PATH_KIND_ABSENT);
+        assert!(!trq_dir_create(path));
+        assert!(
+            std::fs::symlink_metadata(link).is_ok(),
+            "الوصلة زالت بالرفض"
+        );
+
+        release_path(path);
+        std::fs::remove_file(link).ok();
+    }
+
+    // ────────────────────────────────────────────────────────────────────
     // trq_file_open — افتح_ملف
     // ────────────────────────────────────────────────────────────────────
 
