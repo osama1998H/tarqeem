@@ -10,7 +10,7 @@ pub use debug::{debug, DebugArgs};
 use super::{Cli, Commands, PkgCommands};
 use crate::doc::{DocExtractor, HtmlGenerator, JsonGenerator, MarkdownGenerator, OutputFormat};
 use crate::error::Language;
-use crate::interpreter::{ErrorKind, Interpreter, RuntimeError};
+use crate::interpreter::{set_program_args, ErrorKind, Interpreter, RuntimeError};
 use crate::ir::IrBuilder;
 use crate::jit::{JitConfig, JitExecutor};
 use crate::lexer::Lexer;
@@ -341,7 +341,12 @@ pub fn run(cli: Cli) -> Result<(), String> {
             compile(args, lang)
         }
 
-        Commands::Run { file, jit, profile } => run_command(file, jit, profile, cli.verbose, lang),
+        Commands::Run {
+            file,
+            jit,
+            profile,
+            args,
+        } => run_command(file, jit, profile, args, cli.verbose, lang),
 
         Commands::Debug {
             file,
@@ -421,10 +426,21 @@ fn run_command(
     file: PathBuf,
     jit: bool,
     profile: bool,
+    args: Vec<std::ffi::OsString>,
     verbose: bool,
     lang: Language,
 ) -> Result<(), String> {
     warn_invalid_extension(&file);
+
+    // Before anything executes, so `معاملات_البرنامج` answers the same list no
+    // matter where in the program it is called. Decoded lossily to match what a
+    // natively compiled binary does with the same bytes; the program name is not
+    // in `args` at all, since clap has already taken the file argument.
+    set_program_args(
+        args.iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect(),
+    );
 
     // Arabic-only: ترقيم لغة برمجة عربية
     let source = fs::read_to_string(&file).map_err(|e| format!("لا يمكن قراءة الملف: {}", e))?;

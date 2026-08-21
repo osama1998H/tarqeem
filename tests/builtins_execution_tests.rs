@@ -241,6 +241,21 @@ fn execute_with_stdin(backend: Backend, main: &Path, tag: &str, stdin: &[u8]) ->
     execute_with_env_and_stdin(backend, main, tag, &[], Some(stdin))
 }
 
+/// `execute` with arguments for the **program**, not for `tarqeem`.
+///
+/// `معاملات_البرنامج` is the third builtin whose answer comes from outside the
+/// source, after the environment (#338) and stdin (#350), and it needs the same
+/// treatment for the same reason: a test cannot set its own process's argv any
+/// more than it can `set_var`. The arguments go on the child.
+///
+/// The split the other two make applies here too, and is easy to get backwards:
+/// on the native leg they belong to the **executed binary**, never to `compile`.
+/// The interpreter and JIT legs take them after the file name, where clap's
+/// `trailing_var_arg` collects them.
+fn execute_with_args(backend: Backend, main: &Path, tag: &str, args: &[&str]) -> Output {
+    execute_all(backend, main, tag, &[], None, args)
+}
+
 fn execute_with_env_and_stdin(
     backend: Backend,
     main: &Path,
@@ -248,12 +263,38 @@ fn execute_with_env_and_stdin(
     env: &[(&str, &str)],
     stdin: Option<&[u8]>,
 ) -> Output {
+    execute_all(backend, main, tag, env, stdin, &[])
+}
+
+fn execute_all(
+    backend: Backend,
+    main: &Path,
+    tag: &str,
+    env: &[(&str, &str)],
+    stdin: Option<&[u8]>,
+    prog_args: &[&str],
+) -> Output {
     let cwd = main.parent().expect("للبرنامج مجلد");
     let arg = main.to_str().expect("مسار غير صالح");
 
+    // The program's arguments follow the file name, where clap's
+    // `trailing_var_arg` collects them.
+    fn cli_line<'a>(head: &[&'a str], prog_args: &[&'a str]) -> Vec<&'a str> {
+        let mut all = head.to_vec();
+        all.extend_from_slice(prog_args);
+        all
+    }
+
     match backend {
-        Backend::Interpreter => tarqeem_with_env_and_stdin(&["run", arg], cwd, env, stdin),
-        Backend::Jit => tarqeem_with_env_and_stdin(&["run", "--jit", arg], cwd, env, stdin),
+        Backend::Interpreter => {
+            tarqeem_with_env_and_stdin(&cli_line(&["run", arg], prog_args), cwd, env, stdin)
+        }
+        Backend::Jit => tarqeem_with_env_and_stdin(
+            &cli_line(&["run", "--jit", arg], prog_args),
+            cwd,
+            env,
+            stdin,
+        ),
         Backend::Native => {
             // The only backend that links, so the only one needing libtrq.a.
             ensure_runtime_library();
@@ -267,6 +308,7 @@ fn execute_with_env_and_stdin(
 
             let mut runner = Command::new(&exe);
             runner.envs(env.iter().copied());
+            runner.args(prog_args);
             let run = match stdin {
                 None => runner
                     .output()
@@ -446,6 +488,29 @@ fn assert_prints_with_env(name: &str, body: &str, env: &[(&str, &str)], expected
 
     for backend in Backend::ALL {
         let output = execute_with_env(backend, &main, &format!("{name}_{backend:?}"), env);
+
+        assert!(
+            output.succeeded(),
+            "فشل التنفيذ [{backend:?}] لـ {name}\nالمتوقع/expected: {expected:?}\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.lines(),
+            expected,
+            "خرج غير متطابق [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+    }
+}
+
+/// Asserts `body` prints exactly `expected` under all three backends, with
+/// `args` handed to the **program** rather than to `tarqeem`.
+fn assert_prints_with_args(name: &str, body: &str, args: &[&str], expected: &[&str]) {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), name, body);
+
+    for backend in Backend::ALL {
+        let output = execute_with_args(backend, &main, &format!("{name}_{backend:?}"), args);
 
         assert!(
             output.succeeded(),
@@ -3258,6 +3323,12 @@ fn test_every_core_builtin_agrees_across_backends() {
             "اطبع(احذف_مسار(\"لا_يوجد_هذا_المسار\"))",
             &["خطأ"],
         ),
+        // The sweep gives the child no arguments, so the empty array is the only
+        // row reachable here — and it is the one row all three legs agree on
+        // without the harness supplying anything, since `argv[0]` is excluded.
+        // Printing the array is safe *because* it is empty: a non-empty
+        // `مصفوفة<نص>` prints its elements' addresses natively (#359).
+        ("معاملات_البرنامج", "اطبع(طول(معاملات_البرنامج()))", &["0"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
@@ -4458,5 +4529,193 @@ fn test_user_function_shadows_path_delete() {
             "اطبع(احذف_مسار(\"لا_يوجد_هذا_المسار\"))",
         ),
         &["صحيح"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// معاملات_البرنامج — the program's own command-line arguments (#360)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// The first builtin whose two implementations read genuinely **different
+// sources**: `trq_program_args` reads the argv its own `main` was handed, while
+// `call_program_args` reads what the CLI recorded. There is no shared kernel to
+// keep in step — and no way to tell the two apart except by running both, which
+// is what every test here does.
+//
+// One shape is deliberately absent: `اطبع` of the whole array. Printing a
+// non-empty `مصفوفة<نص>` is wrong natively (#359) — `trq_print_array` reads every
+// element as an `i64` — with or without this name. The empty array is unaffected,
+// since the element loop is skipped, so the CI example may print it and these
+// tests index instead.
+
+/// No arguments answers an empty array — a **value**, not a sentinel, and the
+/// only row the CI example can cover, since `examples.yml` runs every example
+/// with no arguments.
+#[test]
+fn test_program_args_is_empty_when_none_were_given() {
+    assert_prints(
+        "معاملات_فارغة",
+        concat!("متغير م = معاملات_البرنامج()\n", "اطبع(طول(م))\n", "اطبع(م)",),
+        &["0", "[]"],
+    );
+}
+
+/// Arguments arrive in order, and `argv[0]` is **not** among them.
+///
+/// The exclusion is what makes this test possible at all: natively `argv[0]` is
+/// the compiled binary's path and interpreted it would be the `.ترقيم` source
+/// path, so a run including it could never assert the same list on both.
+#[test]
+fn test_program_args_preserves_order_and_drops_the_program_name() {
+    assert_prints_with_args(
+        "معاملات_ترتيب",
+        concat!(
+            "متغير م = معاملات_البرنامج()\n",
+            "اطبع(طول(م))\n",
+            "اطبع(م[0])\n",
+            "اطبع(م[2])",
+        ),
+        &["أول", "ثان", "ثالث"],
+        &["3", "أول", "ثالث"],
+    );
+}
+
+/// An argument the shell already split stays one element, spaces and all, and an
+/// empty argument keeps its position rather than vanishing.
+#[test]
+fn test_program_args_keeps_spaces_and_empty_arguments() {
+    assert_prints_with_args(
+        "معاملات_فراغات",
+        concat!(
+            "متغير م = معاملات_البرنامج()\n",
+            "اطبع(طول(م))\n",
+            "اطبع(م[0])\n",
+            "اطبع(طول(م[1]))",
+        ),
+        &["ثان ثالث", ""],
+        &["2", "ثان ثالث", "0"],
+    );
+}
+
+/// An Arabic argument survives the round trip through both argv paths.
+///
+/// `طول` on the element is the assertion that matters: it counts **characters**,
+/// so a byte-level mangling on either side shows up here where printing alone
+/// might not.
+#[test]
+fn test_program_args_carries_arabic_unchanged() {
+    assert_prints_with_args(
+        "معاملات_عربية",
+        concat!(
+            "متغير م = معاملات_البرنامج()\n",
+            "اطبع(م[0])\n",
+            "اطبع(طول(م[0]))\n",
+            "اطبع(م[0] == \"مرحبا\")",
+        ),
+        &["مرحبا"],
+        &["مرحبا", "5", "صحيح"],
+    );
+}
+
+/// An argument that looks like a flag belongs to the program, not to `tarqeem`.
+///
+/// This is what `allow_hyphen_values` buys on the interpreter and JIT legs; the
+/// native leg gets it for free, since the binary's argv is not parsed by clap at
+/// all. Without it the two legs would disagree — `tarqeem` would reject `-س` as
+/// an unknown flag while the compiled program accepted it.
+#[test]
+fn test_program_args_accepts_an_argument_that_looks_like_a_flag() {
+    assert_prints_with_args(
+        "معاملات_شرطة",
+        concat!(
+            "متغير م = معاملات_البرنامج()\n",
+            "اطبع(طول(م))\n",
+            "اطبع(م[0])\n",
+            "اطبع(م[1])",
+        ),
+        &["-س", "--jit"],
+        &["2", "-س", "--jit"],
+    );
+}
+
+/// The array is iterable and its elements concatenate, which is what a program
+/// actually does with them.
+#[test]
+fn test_program_args_iterates_and_concatenates() {
+    assert_prints_with_args(
+        "معاملات_حلقة",
+        concat!(
+            "لكل س في معاملات_البرنامج() {\n",
+            "    اطبع(\"معامل: \" + س)\n",
+            "}",
+        ),
+        &["أ", "ب"],
+        &["معامل: أ", "معامل: ب"],
+    );
+}
+
+/// Calling it twice answers the same list — it is process state read, not
+/// consumed, unlike `اقرأ_مجرى`, whose stream is drained by reading it.
+#[test]
+fn test_program_args_answers_the_same_list_every_time() {
+    assert_prints_with_args(
+        "معاملات_تكرار",
+        concat!(
+            "اطبع(طول(معاملات_البرنامج()))\n",
+            "اطبع(طول(معاملات_البرنامج()))\n",
+            "اطبع(معاملات_البرنامج()[0] == معاملات_البرنامج()[0])",
+        ),
+        &["أ", "ب"],
+        &["2", "2", "صحيح"],
+    );
+}
+
+/// **The load-bearing test for the `register_builtin_return_types` entry**, and
+/// the measurement behind it is a third distinct mode for an array return.
+///
+/// #330 measured one caught assertion for `Array(Int)` and #350 measured three
+/// modes at once for another; neither transfers. Measured here with the entry
+/// deleted, on `مصفوفة<نص>`:
+///
+/// | use | interpreters | native |
+/// |---|---|---|
+/// | `طول(م)` | correct | correct — `ArrayLen` routes to `trq_array_len` regardless |
+/// | `اطبع(م[0])` | correct | correct — the element survives being printed alone |
+/// | `نوع(م)` | `مؤشر` — caught | `مؤشر` — caught |
+/// | `م[0] + "!"` | **run-time type error**, exit 1 | **`4376042720!`**, exit 0 |
+/// | `م[0] == "أول"` | *unreached* | **`خطأ`**, exit 0 |
+///
+/// So the two backends fail the *same* use site in opposite manners — the
+/// interpreter loudly, native silently — which no previous name in this family
+/// has done. Indexing and printing the element pass either way, so the
+/// assertions that carry the test are `نوع`, `+` and `==`.
+#[test]
+fn test_program_args_result_composes_as_strings() {
+    assert_prints_with_args(
+        "معاملات_تركيب",
+        concat!(
+            "متغير م = معاملات_البرنامج()\n",
+            "اطبع(نوع(م))\n",
+            "اطبع(م[0] + \"!\")\n",
+            "اطبع(م[0] == \"أول\")",
+        ),
+        &["أول"],
+        &["مصفوفة", "أول!", "صحيح"],
+    );
+}
+
+/// A user function of the same name shadows the builtin, per LANGUAGE_SPEC §4.9.
+#[test]
+fn test_user_function_shadows_program_args() {
+    assert_prints_with_args(
+        "معاملات_تظليل",
+        concat!(
+            "دالة معاملات_البرنامج() -> مصفوفة<نص> {\n",
+            "    أرجع [\"دالتي\"]\n",
+            "}\n",
+            "اطبع(معاملات_البرنامج()[0])",
+        ),
+        &["أول"],
+        &["دالتي"],
     );
 }

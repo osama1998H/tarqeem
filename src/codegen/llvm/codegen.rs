@@ -836,6 +836,7 @@ impl LlvmCodegen {
         emit!(self, "declare i64 @trq_file_size(ptr)");
         emit!(self, "declare i64 @trq_path_status(ptr, i64)");
         emit!(self, "declare i1 @trq_path_delete(ptr)");
+        emit!(self, "declare ptr @trq_program_args()");
         emit!(self, "declare i1 @trq_dir_create(ptr)");
         emit!(self, "declare i1 @trq_dir_create_all(ptr)");
         emit!(self, "declare i1 @trq_dir_delete(ptr)");
@@ -2967,6 +2968,11 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         // folds `احذف_ملف` and `احذف_مجلد`, which stay mapped above until
         // Increment G flips `ملفات` — standing rule 3.
         "احذف_مسار" => Some("trq_path_delete"),
+        // Core tier, and the only one of these whose answer the compiler crate
+        // does not also compute: the runtime reads its own `main`'s argv while
+        // the interpreters read what the CLI was handed, so there is no shared
+        // kernel here and nothing for the two to drift on.
+        "معاملات_البرنامج" => Some("trq_program_args"),
         // Both spellings of one primitive, mapped to one symbol — the kasra-less
         // variant is an orthographic pair like the keyword table's `ارمِ`/`ارم`,
         // not a second capability.

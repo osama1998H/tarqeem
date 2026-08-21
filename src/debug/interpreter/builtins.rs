@@ -5,8 +5,8 @@ use std::io::{self, Write};
 use crate::interpreter::epoch_millis;
 use crate::interpreter::{
     bytes_to_string, call_env_var, call_exit_program, call_path_delete, call_path_status,
-    call_read_stream, call_substring_by_chars, call_write_stream, RuntimeError, RuntimeResult,
-    Value,
+    call_program_args, call_read_stream, call_substring_by_chars, call_write_stream, RuntimeError,
+    RuntimeResult, Value,
 };
 
 use super::DebugInterpreter;
@@ -41,6 +41,7 @@ impl DebugInterpreter {
                 | "اقرأ_مجرى"
                 | "حالة_مسار"
                 | "احذف_مسار"
+                | "معاملات_البرنامج"
                 // Termination. Absent here, stepping through `أنهِ_البرنامج(٠)`
                 // would abort with «دالة غير معرّفة» while every other backend
                 // ended the program cleanly — the same gap #295 records for
@@ -273,6 +274,7 @@ impl DebugInterpreter {
             "اقرأ_مجرى" => call_read_stream(&args),
             "حالة_مسار" => call_path_status(&args),
             "احذف_مسار" => call_path_delete(&args),
+            "معاملات_البرنامج" => call_program_args(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 
@@ -892,6 +894,42 @@ mod tests {
             .call_builtin("حالة_مسار", vec![Value::string("/tmp"), Value::Null])
             .expect_err("لا_شيء ليست حقلاً");
         assert_eq!(err.kind, ErrorKind::TypeError);
+    }
+
+    /// `معاملات_البرنامج` under the debug interpreter.
+    ///
+    /// The empty answer here is the **contract**, not a gap in the fixture: DAP
+    /// does not go through the CLI's run path, so `set_program_args` is never
+    /// called and the argument list is unset. That is deliberately
+    /// indistinguishable from a program genuinely given no arguments, the way
+    /// `متغير_بيئة`'s unset and set-empty are.
+    ///
+    /// It also pins the shape a caller depends on — an **array**, not a null or a
+    /// string — which is what would break if the dispatch arm were ever dropped
+    /// while `is_builtin` kept the name.
+    #[test]
+    fn test_program_args_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("معاملات_البرنامج"),
+            "معاملات_البرنامج غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let args = interpreter
+            .call_builtin("معاملات_البرنامج", vec![])
+            .expect("معاملات_البرنامج تُرجع قيمة لا خطأ");
+
+        match args {
+            Value::Array(items) => assert!(
+                items.borrow().is_empty(),
+                "معاملات_البرنامج تُرجع مصفوفة فارغة تحت التنقيح"
+            ),
+            other => panic!("متوقع مصفوفة، وُجد {}", other.type_name()),
+        }
     }
 
     /// `احذف_مسار` under the debug interpreter, which is the only backend a

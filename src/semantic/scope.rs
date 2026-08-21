@@ -292,6 +292,24 @@ impl Scope {
             // contract when it becomes a wrapper. Total: absent, empty and
             // `لا_شيء` all answer `خطأ`.
             ("احذف_مسار", vec![Type::String], Type::Bool),
+            // Program arguments - معاملات البرنامج
+            // The vector the OS hands over at `execve`, which nothing in the
+            // language can otherwise reach: `متغير_بيئة` reads a different
+            // vector, and no path primitive opens `/proc/self/cmdline`.
+            //
+            // `argv[0]` is excluded, and that is what keeps the backends
+            // agreeing: natively it is the compiled binary's path, interpreted
+            // it would be the `.ترقيم` source path. Excluding it makes the
+            // no-argument case an empty array identically everywhere.
+            //
+            // Total: no failure mode. No arguments answers an empty array — a
+            // value, not a sentinel — and an argument that is not valid UTF-8
+            // is decoded lossily rather than dropped.
+            (
+                "معاملات_البرنامج",
+                vec![],
+                Type::Array(Box::new(Type::String)),
+            ),
             // Termination - إنهاء البرنامج
             // `exit(2)`, which `توقف` cannot serve: that one is always status 1
             // and always prints. Total — the status is `حالة & ٢٥٥`, so every

@@ -54,6 +54,13 @@ pub(crate) use executor::builtins::call_path_delete;
 /// depend on `tarqeem-runtime`. A third copy in the debug interpreter would give
 /// it two ways to drift instead of one.
 pub(crate) use executor::builtins::call_path_status;
+/// Shared with the debug interpreter so an unset argument list answers the same
+/// empty array in both. Unlike its neighbours this has no `runtime-rs` twin: the
+/// runtime reads its own `main`'s argv while this reads what the CLI was handed,
+/// so the two sides have nothing to share and nothing to drift.
+pub(crate) use executor::builtins::call_program_args;
+/// Recorded by the CLI before a program runs; read by `معاملات_البرنامج`.
+pub use executor::builtins::set_program_args;
 pub use executor::Interpreter;
 pub use value::Value;
 

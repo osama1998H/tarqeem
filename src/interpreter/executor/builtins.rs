@@ -465,6 +465,47 @@ pub(crate) fn call_path_delete(args: &[Value]) -> RuntimeResult<Value> {
     }))
 }
 
+/// The arguments the CLI was invoked with, minus the program's own name.
+///
+/// Set once, before the program runs, and read for the rest of the process. It
+/// is a process global rather than a field on `Interpreter` because both
+/// interpreters need it and every shared builtin helper in this file is a
+/// stateless free function taking `&[Value]` — threading it through would mean
+/// giving the two backends their own copies to drift apart.
+///
+/// **Set-once and immutable**, which is what separates it from the handle table
+/// `افتح_ملف` still owes: nothing here mutates after startup, so this is no
+/// precedent for cross-interpreter mutable state.
+static PROGRAM_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// Records the arguments the program was invoked with.
+///
+/// Called once from the CLI before execution begins. A second call is ignored,
+/// so a caller cannot change a running program's arguments out from under it.
+pub fn set_program_args(args: Vec<String>) {
+    let _ = PROGRAM_ARGS.set(args);
+}
+
+/// `معاملات_البرنامج`'s whole dispatch, shared with the debug interpreter.
+///
+/// Unlike `call_path_status` and `call_path_delete`, this has **no kernel
+/// duplicated in `runtime-rs`** to keep in step: the two sides read genuinely
+/// different sources — the runtime reads its own `main`'s argv, this reads what
+/// the CLI was handed — so there is nothing to share and nothing to drift. What
+/// holds them together is that every contract row is asserted cross-backend.
+///
+/// Unset means the program was not launched through the CLI's run path — under
+/// DAP, for instance — and answers the empty array, which is also the answer for
+/// a program genuinely given no arguments. The two are deliberately
+/// indistinguishable, as `متغير_بيئة`'s unset and set-empty are.
+pub(crate) fn call_program_args(_args: &[Value]) -> RuntimeResult<Value> {
+    let args = PROGRAM_ARGS.get().cloned().unwrap_or_default();
+
+    Ok(Value::array_from(
+        args.into_iter().map(Value::string).collect::<Vec<_>>(),
+    ))
+}
+
 /// `متغير_بيئة`'s whole dispatch, shared the way `call_substring_by_chars` above
 /// is: the contract here lives almost entirely in the argument checks.
 ///
@@ -609,6 +650,7 @@ impl Interpreter {
                 | "اقرأ_مجرى"
                 | "حالة_مسار"
                 | "احذف_مسار"
+                | "معاملات_البرنامج"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
                 | "نص_ينتهي_بـ"
@@ -1524,6 +1566,7 @@ impl Interpreter {
             "حالة_مسار" => call_path_status(&args),
 
             "احذف_مسار" => call_path_delete(&args),
+            "معاملات_البرنامج" => call_program_args(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 
