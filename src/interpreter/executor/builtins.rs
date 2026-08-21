@@ -678,6 +678,33 @@ pub(crate) fn call_path_delete(args: &[Value]) -> RuntimeResult<Value> {
     }))
 }
 
+/// `انشئ_مجلد`'s whole dispatch, shared with the debug interpreter the way
+/// `call_path_delete` above is.
+///
+/// One stateless `mkdir(2)` — **not recursive**, so a missing parent answers
+/// `خطأ` and the recursive form stays a stdlib loop. An existing entry of any
+/// kind blocks the name: directory, file, or symlink, dangling included —
+/// the OS refuses on the *entry*, so whether a link's target exists is never
+/// consulted, which is the mirror of `احذف_مسار` acting on the name.
+///
+/// Duplicated in `trq_dir_create` for the reason `call_path_status` records, so
+/// every row is pinned cross-backend rather than only here.
+pub(crate) fn call_dir_create(args: &[Value]) -> RuntimeResult<Value> {
+    let path = args
+        .first()
+        .ok_or_else(|| RuntimeError::invalid_operation("انشئ_مجلد() تتطلب معاملاً: المسار"))?;
+
+    let path = match path {
+        Value::String(text) => text.as_str().to_string(),
+        // The runtime answers `false` for a null path, so this is the designed
+        // answer and not an artifact — the same arm `call_path_delete` carries.
+        Value::Null => return Ok(Value::Bool(false)),
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+
+    Ok(Value::Bool(std::fs::create_dir(&path).is_ok()))
+}
+
 /// The arguments the CLI was invoked with, minus the program's own name.
 ///
 /// Set once, before the program runs, and read for the rest of the process. It
@@ -865,6 +892,7 @@ impl Interpreter {
                 | "اغلق_ملف"
                 | "حالة_مسار"
                 | "احذف_مسار"
+                | "انشئ_مجلد"
                 | "معاملات_البرنامج"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
@@ -1783,6 +1811,7 @@ impl Interpreter {
             "حالة_مسار" => call_path_status(&args),
 
             "احذف_مسار" => call_path_delete(&args),
+            "انشئ_مجلد" => call_dir_create(&args),
             "معاملات_البرنامج" => call_program_args(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),

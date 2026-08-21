@@ -1177,7 +1177,37 @@ fn byte_array_from(payload: &[u8]) -> *mut TrqArray {
 // Directory Operations
 // ============================================================================
 
-/// Create a directory.
+/// Backs the core builtin `انشئ_مجلد`: `mkdir(2)`, the create half of the path
+/// pair whose remove half is [`trq_path_delete`].
+///
+/// **Not recursive** — [`create_dir`](std::fs::create_dir), never
+/// `create_dir_all`, so a missing parent answers `false` and the recursive form
+/// stays a stdlib loop over this, mirroring [`trq_path_delete`]'s one-level
+/// contract.
+///
+/// **An existing entry of any kind blocks the name** — directory, file, or
+/// symlink, dangling included. The OS refuses on the directory *entry*
+/// (`EEXIST` / `ERROR_ALREADY_EXISTS`), so whether a link's target exists is
+/// never consulted; that is the same act-on-the-name choice
+/// [`trq_path_delete`] makes, reached here with no `lstat` at all.
+///
+/// **Missing parent, existing entry, unwritable parent, empty and null are one
+/// answer**, as in [`trq_path_status`]. The path is read as given, with no
+/// trimming.
+///
+/// # Returns
+///
+/// `true` only if the directory now exists because this call created it. Total —
+/// every path is a valid call, and none can panic.
+///
+/// # Safety
+///
+/// - `path` must be a valid pointer to a `TrqString` or null.
+///
+/// # C Equivalent
+/// ```c
+/// bool trq_dir_create(const TrqString* path);
+/// ```
 #[no_mangle]
 pub extern "C" fn trq_dir_create(path: *const TrqString) -> bool {
     match trq_string_to_path(path) {

@@ -437,6 +437,17 @@ impl IrBuilder {
         self.function_return_types
             .insert("احذف_مسار".to_string(), IrType::Bool);
 
+        // `انشئ_مجلد` answers a `منطقي`, and the `اغلق_ملف` profile above held
+        // a third time, measured with this entry deleted rather than forecast:
+        // `اطبع` prints nothing natively while both interpreters print `خطأ`,
+        // `نوع` answers `مؤشر` on all three, and `== خطأ` and `ليس` both fail
+        // native compilation — clang rejects the untyped `ptr` at `icmp eq` and
+        // at `xor i1` respectively. The composition test asserts all three
+        // catchers; the arithmetic row stays unwritable (`منطقي + عدد` is a
+        // semantic error before this map is ever consulted).
+        self.function_return_types
+            .insert("انشئ_مجلد".to_string(), IrType::Bool);
+
         // `معاملات_البرنامج` answers `مصفوفة<نص>` — the first `Array(String)` any
         // builtin has registered, so #330's `Array(Int)` measurement does not
         // transfer and neither does #350's. Measured with this entry deleted,
