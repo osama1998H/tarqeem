@@ -420,6 +420,16 @@ impl IrBuilder {
         self.function_return_types
             .insert("افتح_ملف".to_string(), IrType::Int);
 
+        // `اغلق_ملف` answers a `منطقي`, so `احذف_مسار`'s profile below applies
+        // rather than the scalar one above: `نوع` answers `مؤشر` and `== خطأ`
+        // fails native compilation with ت٠١٠١, while the `+ ١` row every
+        // measurement since #347 used is unwritable — the *semantic* layer
+        // refuses `منطقي + عدد` before the IR return type is consulted at all.
+        // `ليس` is the substitute. Measured with this entry deleted; the results
+        // are in `docs/AI_NOTES.md`.
+        self.function_return_types
+            .insert("اغلق_ملف".to_string(), IrType::Bool);
+
         // `احذف_مسار` answers a `منطقي`, and #347's scalar prediction is what
         // applies — confirmed again here, and it transfers across names where
         // #330's array measurement did not (#350). Measured with this entry

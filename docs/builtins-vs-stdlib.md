@@ -327,7 +327,7 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | `اكتب_مجرى` | `(عدد، مصفوفة<عدد>) -> عدد` | new — **مُنفَّذ (#347)** | `write(2)`. **One** write primitive for stdout, stderr and any open handle. Replaces eight formatting-in-Rust exports. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: `١` stdout, `٢` stderr, `٣`+ a handle; `٠`, a negative descriptor, one the table does not hold, and an element outside `٠`-`٢٥٥` all answer `-١`, which is collision-free because a count is never negative. An empty or `لا_شيء` array answers `٠` as a value. Rejection is **complete** — the array is validated before the first byte goes out. **The "short writes stay visible" clause is withdrawn** — see the correction below. |
 | `اقرأ_مجرى` | `(عدد، عدد) -> مصفوفة<عدد>` | new — **مُنفَّذ (#350)** | `read(2)`. Byte-oriented so a multi-byte Arabic codepoint straddling a chunk boundary survives — decoding happens once, in stdlib. Line framing moves out of Rust. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: `٠` stdin, `٣`+ a handle; `١`, `٢`, a negative descriptor, one the table does not hold, a non-positive count, and EOF **all** answer an empty array. **The "a zero-length result *is* EOF" clause is withdrawn as written** — see the correction below. The read loops until the count or EOF, mirroring `اكتب_مجرى`'s `write_all`. |
 | `افتح_ملف` | `(نص، عدد) -> عدد` | new — **مُنفَّذ (#362)** | `open(2)`. Folds `trq_file_open_read/write/append` into one; the mode is `٠` قراءة / `١` كتابة / `٢` إلحاق, and `stdlib/ملفات/ملف.ترقيم` already declares those three as named `ثابت`s. **It also declares a fourth, `وضع_قراءة_كتابة = ٣`, which is refused** — see the correction below. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: the mode is settled before the path, so an unknown one creates nothing; a handle is always `٣`+; a **directory is refused in every mode**, deliberately unlike `open(2)`, so the answer does not depend on the platform; and an absent or unreadable path, an empty name and `لا_شيء` all answer **`-١`, never `٠`**. |
-| `اغلق_ملف` | `(عدد) -> منطقي` | new | `close(2)`. Existing implementation (`trq_file_close`) reused unchanged. Criterion (b). |
+| `اغلق_ملف` | `(عدد) -> منطقي` | new — **مُنفَّذ (#364)** | `close(2)`, and the name that makes written bytes land *sooner* than program end rather than at it. **The "reused unchanged" clause is withdrawn** — see the correction below. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Folds nothing: `trq_file_flush`, `read_line`, `write_line` and `eof` stay nameless orphans. Total: the console streams `٠`/`١`/`٢` are **not** closable (deliberately unlike `close(2)`), and a handle already released, one never opened, a negative one and a failed flush all answer `خطأ`, indistinguishably. A released number is never handed out again. |
 | `حالة_مسار` | `(نص، عدد) -> عدد` | new — **مُنفَّذ (#352)** | `stat(2)`, one field per call, so the answer stays an `عدد` and no struct crosses the FFI. `حقل ٠` = kind, `حقل ١` = size. **Folds four syscall wrappers into one** — `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` all become stdlib one-liners. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). **Renamed from `حالة_ملف`, and the kind gained a fourth value; the size clause was completed** — see the correction below. Total: the field is settled before the path, symlinks are followed, and an absent path, an unreadable one, an empty name and `لا_شيء` all answer `٠` / `-١`. |
 | `احذف_مسار` | `(نص) -> منطقي` | new — **مُنفَّذ (#355)** | `unlink(2)` for a file, `rmdir(2)` for an empty directory, chosen by **`lstat`** — **the row said `stat`, and that was wrong; see the correction below.** Folds two symbols; `احذف_ملف` and `احذف_مجلد` survive as stdlib wrappers, each with one documented delta. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: an absent path, an empty name, `لا_شيء`, an unreadable path and a non-empty directory all answer `خطأ`, indistinguishably. Not recursive. |
 | `انشئ_مجلد` | `(نص) -> منطقي` | unchanged | `mkdir(2)`. No composition of open/read/write/close/stat creates a directory. Recursive creation becomes a stdlib loop, not a second primitive. Criterion (b). |
@@ -1134,10 +1134,13 @@ misleading parse errors.
 
 ### 6.7 Increment G — `ملفات` + `طرفية`
 
-Requires the seven new I/O primitives; **five have landed** — `اكتب_مجرى` (#347, §6.7.2) and
+Requires the seven new I/O primitives; **six have landed** — `اكتب_مجرى` (#347, §6.7.2) and
 `اقرأ_مجرى` (#350, §6.7.3), the byte-level stream pair, `حالة_مسار` (#352, §6.7.4) and
-`احذف_مسار` (#355, §6.7.5), the path pair, and `افتح_ملف` (#362, §6.7.7), which is what made the
-stream pair reach anything but the console. `اغلق_ملف` is the sixth and next. 21 names. **20 after #338**, which landed `متغير_بيئة` ahead
+`احذف_مسار` (#355, §6.7.5), the path pair, `افتح_ملف` (#362, §6.7.7), which is what made the
+stream pair reach anything but the console, and `اغلق_ملف` (#364, §6.7.8), its release half. That is
+every row Category 7 marks `new`, so **the plan's figure of seven no longer matches the table and
+needs a recount** rather than a claim of completion — the failure mode §1.3 names, a later increment
+reconciling two numbers by "fixing" the difference. 21 names. **20 after #338**, which landed `متغير_بيئة` ahead
 of this increment: `مجلد_مستخدم` reduces to it, so it becomes a stdlib one-liner rather than a syscall
 wrapper — `trq_dir_home` is `getenv("HOME")` and nothing else. `مجلد_مؤقت` does **not** collapse with
 it: `trq_dir_temp` calls `std::env::temp_dir()`, which falls back to `/tmp` when `TMPDIR` is unset and
@@ -1204,8 +1207,8 @@ Four things it found that the plan did not state:
    that registering it turns a program both interpreters run into a native compile failure, and
    *not* registering it costs nothing observable because clang accepts the `call ptr`/`declare void`
    mismatch under opaque pointers. **The next `فراغ` primitive inherits this.** (Not
-   `اكتب_مجرى`, which returns `عدد`, and — corrected at #362 — not `اغلق_ملف`
-   either: its row above says `(عدد) -> منطقي`, so rule 5 applies to it in full.)
+   `اكتب_مجرى`, which returns `عدد`, and — corrected at #362, confirmed at #364 — not
+   `اغلق_ملف` either: its row says `(عدد) -> منطقي`, so rule 5 applied to it in full.)
 2. **The interpreter cannot honour an arbitrary exit status on its own.** It runs in-process and
    `src/main.rs` maps every `Err` to status 1, so the status has to travel as a signal and be
    honoured at the CLI boundary — *before* the «Runtime error» report, or the interpreter prints a
@@ -1686,7 +1689,8 @@ Six things it found that the plan did not state:
 
 1. **A `BufWriter` nobody closes loses its bytes natively and keeps them interpreted — silently, and
    `compare-backends` cannot see it.** `trq_write_stream`'s handle path does not flush (deliberate,
-   §6.7.2), `trq_file_close` is the only flusher, and no Arabic name closes a handle yet. Natively
+   §6.7.2), `trq_file_close` was the only flusher, and at the time no Arabic name closed a handle
+   — `اغلق_ملف` (#364) is now the one that does. Natively
    `main` is `#[no_mangle] extern "C"` and bypasses `lang_start`, so no thread-local destructor runs
    and the payload is **dropped**; the interpreter is an ordinary Rust binary whose destructors do
    run, so it writes the file. Same source, same exit status, different filesystem — and the backend
@@ -1756,9 +1760,85 @@ The keyword sweep over all 77 Arabic keyword literals found **none** embedded in
 gets no row in `test_identifier_containing_a_keyword_stays_one_token` — adding one dilutes what that
 test tests. No diacritic and nothing contextual, so neither #342's nor #352's extra check applies.
 
-**`اغلق_ملف` is the next name**, and its job is now sharper than its row says: not "release the
-handle" but "make the bytes land *sooner* than program end". Its `(عدد) -> منطقي` return means §1.1
-rule 5 applies to it in full — §6.7.1's `فراغ` note listed it by mistake, corrected there.
+**`اغلق_ملف` landed next (#364, §6.7.8)**, and its job was indeed sharper than its row said: not
+"release the handle" but "make the bytes land *sooner* than program end".
+
+### 6.7.8 `اغلق_ملف` — the sixth Increment G primitive, and the first time the caveat was forecast *not* to fire (#364)
+
+**The discriminator got the shape right and undercounted by three; the caveat stayed quiet exactly as
+forecast.** §6.7's question — *which half of the path already exists* — found the **whole runtime
+half** present: `trq_file_close` defined, re-exported at `lib.rs:109`, and a live `FILE_HANDLES`
+table under it. That is #338's eight-site shape minus the re-export it still had to add, so **seven**
+— and it cost **ten**. The three it missed were all named before the work, so the miss is in the
+discriminator's scope rather than in the estimate: it answers "which half exists" and says nothing
+about a *shared dispatch* the interpreter still needs, nor about a contract defect in the half that
+does exist. Then #342's caveat question
+— *does the effect have anywhere to arrive?* — answered **yes on both sides** for the first time
+since the handle table existed, because #362 had just built the interpreter half. So the caveat was
+forecast **not** to fire, and did not. It has now fired three times in seventeen increments and been
+correctly predicted quiet once, from the same question every time.
+
+Cost **10 = 9 − 2 + 3**: the #324 nine, minus the `runtime-rs` function and its `lib.rs` re-export,
+plus the interpreter's `call_file_close` and its `interpreter/mod.rs` re-export, plus the one-line
+contract change below. **A ninth cost shape**, and the cheapest new registration in the sequence.
+The five program-end flush sites needed **no** edits — close removes a table entry and both
+flushers iterate whatever remains — which is the concrete reason this was cheap where its opener
+was not.
+
+Four things it found that the plan did not state:
+
+1. **The row named what it *reused* and not what that code *answers*, and reading it is what found
+   the defect.** §1.3 said "Existing implementation (`trq_file_close`) reused unchanged", and
+   `trq_file_close` discards its flush result (`let _ = writer.flush(); true`) — so `صحيح` meant
+   only "the table held this handle", and a full disk would have answered `صحيح` with the bytes
+   gone. For a name whose entire job is making bytes land, that is §1.3's own `وقت_أداء` verdict:
+   *a name that lies is worse than a missing name.* The answer now folds the flush.
+
+   This is the **fourth consecutive increment** where "read each name's implementation, one at a
+   time" paid — #352 found a fold needing more range, #355 a row naming the wrong syscall, #362 a
+   folded return value the new signature could not reuse, and here a *reused* implementation whose
+   answer did not mean what the row assumed. The check is cheap and it has never once come back
+   empty.
+
+2. **The console streams are refused, and it cost nothing to arrange.** `close(2)` closes descriptor
+   1; this does not. No special arm was needed — both counters start at 3, so `٠`/`١`/`٢` were never
+   in the table and the refusal falls out of the lookup. The same shape as #362's directory refusal:
+   one documented behaviour, one implementation, no `cfg` arm and no platform split. It also keeps a
+   program from closing the stream the CI backend diff reads its output from.
+
+3. **`ليس` is a native-compile catcher, not merely a way to write the assertion.** #355 introduced
+   it as the substitute for the `+ ١` row, because the *semantic* layer refuses `منطقي + عدد` before
+   the IR return type is ever consulted — but it did not record what `ليس` does when the entry is
+   missing. Measured here: `إذا (ليس اغلق_ملف(٣))` **fails native compilation** with ت٠١٠١, exactly
+   as `== خطأ` does. So a `منطقي` return has **three** catchers (`نوع`, `==`, `ليس`), not two, and
+   the composition test asserts all three.
+
+   The printing row behaved as #362 said not to predict it: `اطبع` printed nothing and exited 0
+   natively while both interpreters printed `خطأ` — #352's silent mode rather than #362's abort,
+   because a `Ptr(Void)` standing in for a `bool` is not the `-1` that aborted there. **Measure the
+   printing row; never forecast it.**
+
+4. **The contrast row was already checked in, and reusing it beat writing one.**
+   `test_file_open_does_not_promise_bytes_before_the_program_ends` (#362) is this primitive's
+   flagship test minus one line: the same program, without the close, reads `0` bytes back. Adding
+   `اغلق_ملف(كاتب)` makes it read `مرحبا`. So the proof that the name does its job is a one-line
+   diff against an existing test rather than a new fixture — and it is observable **from inside the
+   program**, which the durability rows of #362 were not.
+
+**No harness helper was needed** — the first increment since #338 that added none.
+`assert_prints_with_tree` (#355) and `assert_prints_with_tree_and_contents` (#362) between them
+already cover a mutating primitive that must be observed both during and after the run. The
+six-in-a-row streak of contract-forced helpers ends here, and it ends because the two most recent
+ones were built general.
+
+The keyword sweep over all 77 Arabic keyword literals found **none** embedded in `اغلق_ملف`, so it
+gets no row in `test_identifier_containing_a_keyword_stays_one_token`. No diacritic and nothing
+contextual, so neither #342's nor #352's extra check applies.
+
+**Category 7's new registrations are complete.** The remaining three names in it — `انشئ_مجلد`,
+`قائمة_مجلد`, `انقل_ملف` — are `unchanged` rows already in the registry, so they are repairs (no
+interpreter arm) rather than new registrations. Increment G's 21 `ملفات` names can now be written as
+self-hosted Tarqeem on top of these primitives, which is what the increment was waiting for.
 
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 

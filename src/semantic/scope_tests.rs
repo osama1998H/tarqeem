@@ -189,6 +189,9 @@ fn test_global_scope_has_core_builtins() {
     // File opening (1) — the name that finally makes the byte-stream pair
     // reachable over anything but the console.
     assert!(scope.lookup("افتح_ملف").is_some());
+    // File closing (1) — its release half, and what makes written bytes land
+    // before the program ends rather than at it.
+    assert!(scope.lookup("اغلق_ملف").is_some());
 
     // Path status (1) — the one name four `ملفات` names reduce to.
     assert!(scope.lookup("حالة_مسار").is_some());

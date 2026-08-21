@@ -835,6 +835,7 @@ impl LlvmCodegen {
         emit!(self, "declare i1 @trq_file_move(ptr, ptr)");
         emit!(self, "declare i64 @trq_file_size(ptr)");
         emit!(self, "declare i64 @trq_file_open(ptr, i64)");
+        emit!(self, "declare i1 @trq_file_close(i64)");
         emit!(self, "declare i64 @trq_path_status(ptr, i64)");
         emit!(self, "declare i1 @trq_path_delete(ptr)");
         emit!(self, "declare ptr @trq_program_args()");
@@ -2969,6 +2970,11 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         // the three path-only `trq_file_open_*` openers behind one mode, which
         // stay exported under their own symbols — standing rule 3.
         "افتح_ملف" => Some("trq_file_open"),
+        // Its release half, and the name that makes written bytes land before the
+        // program ends rather than at it. Folds nothing — `trq_file_flush`,
+        // `read_line`, `write_line` and `eof` stay nameless orphans, and none of
+        // them is `close`.
+        "اغلق_ملف" => Some("trq_file_close"),
         // Core tier too, and the sibling that *acts* where `حالة_مسار` asks. It
         // folds `احذف_ملف` and `احذف_مجلد`, which stay mapped above until
         // Increment G flips `ملفات` — standing rule 3.

@@ -284,6 +284,18 @@ impl Scope {
             // `stdlib/ملفات/ملف.ترقيم` calls `وضع_قراءة_كتابة` and no handle
             // kind here can serve.
             ("افتح_ملف", vec![Type::String, Type::Int], Type::Int),
+            // File closing - إغلاق الملف
+            // `close(2)`, and the name that makes written bytes land *sooner*
+            // than program end: `اكتب_مجرى`'s handle path does not flush, so
+            // without this a program cannot read back what it just wrote.
+            //
+            // The answer folds the flush, so `صحيح` means "released, and a
+            // writer's bytes are away". `خطأ` covers a handle already released,
+            // one never opened, a negative one, the console streams `٠`/`١`/`٢`
+            // — which are never in the table, since handles start at `٣` — and a
+            // flush that failed, all indistinguishably: `منطقي` has no third
+            // value to separate them with.
+            ("اغلق_ملف", vec![Type::Int], Type::Bool),
             // Path status - حالة المسار
             // `stat(2)`, one field per call so the answer stays an `عدد` and no
             // struct crosses the FFI. `حقل ٠` is the kind — `٠` معدوم، `١` ملف،

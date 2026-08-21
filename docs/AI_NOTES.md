@@ -4853,6 +4853,124 @@ embedded in `افتح_ملف`, so it gets no row in `test_identifier_containing_
 adding one dilutes what that test tests. No diacritic, so #342's check does not apply, and nothing
 contextual, so #352's does not either.
 
-**`اغلق_ملف` is next**, and its job is sharper than its row says: not "release the handle" but "make
-the bytes land *sooner* than program end". Its `(عدد) -> منطقي` return means §1.1 rule 5 applies in
-full — §6.7.1's `فراغ` note listed it by mistake, corrected there.
+**`اغلق_ملف` came next (#364)**, and its job was indeed sharper than its row said: not "release the
+handle" but "make the bytes land *sooner* than program end".
+
+---
+
+## #364 — `اغلق_ملف`: `close(2)`, and the first forecast that the caveat would stay quiet
+
+The sixth of Category 7's eleven names and the last of its six `new` rows, over the existing
+`trq_file_close`. With it **every Category 7 row marked `new` has landed** — the plan's "seven I/O
+primitives" figure no longer matches the table and needs a recount, see §6.7 — which is what the
+increment was waiting for.
+
+### Decisions taken before the work
+
+- **Spelling without the form-IV hamza.** أَغْلَقَ is form IV, so `أغلق_ملف` is the orthographically
+  correct imperative, and §1.3's `ألحق` rename corrected exactly that shape. Owner chose the row's
+  spelling: all 25 forward-reference sites already used it, and `ادخل`/`اطبع`/`اقرأ_مجرى`/`افتح_ملف`
+  set no form-IV precedent to be consistent with. Recorded because the question is real and will
+  recur.
+- **`صحيح` folds the flush result.** See "what it found" #1 — this is a deviation from the row and
+  the reason for it.
+- The console streams are refused, deviating from `close(2)`.
+
+### The cost forecast, and what it cost
+
+The discriminator said the **whole runtime half** already existed — symbol, `lib.rs` re-export, live
+`FILE_HANDLES` — so #338's eight-site shape minus the re-export it still had to add: **seven**. Then
+#342's caveat question, *does the effect have anywhere to arrive?*, answered **yes on both sides**
+for the first time since the handle table existed, because #362 had just built the interpreter half.
+So the caveat was forecast **not** to fire, and it did not. Three fires in seventeen increments, one
+correctly predicted quiet, all four from the same question.
+
+Cost **10 = 9 − 2 + 3** — a **ninth cost shape**, and the cheapest new registration in the sequence.
+The nine, minus the `runtime-rs` function and its re-export, plus `call_file_close`, its
+`interpreter/mod.rs` re-export, and the one-line contract change. **The five program-end flush sites
+needed no edits at all**: close removes a table entry and both flushers iterate whatever remains.
+That is the concrete reason this was cheap where its opener cost seventeen — a primitive that
+*releases* a resource inherits none of the lifetime questions that the one *handing it out* did.
+
+### What it found that the plan did not state
+
+**1. The row named what it *reused* and not what that code *answers*.** §1.3 said "Existing
+implementation (`trq_file_close`) reused unchanged". Reading it found `let _ = writer.flush(); true`
+— the flush result discarded, so `صحيح` meant only "the table held this handle" and a failing disk
+would answer `صحيح` with the bytes gone. For a name whose whole job is making bytes land that is
+§1.3's own `وقت_أداء` verdict: a name that lies is worse than a missing name. Now
+`writer.flush().is_ok()`, mirrored in the interpreter, and the row's clause is withdrawn.
+
+**Fourth consecutive increment where "read each name's implementation, one at a time" paid** — #352
+a fold needing more range, #355 a row naming the wrong syscall, #362 a folded *return value* the new
+signature could not reuse, and here a *reused* implementation whose answer did not mean what the row
+assumed. Not a new defect class; a fourth face of the same cheap check, which has never come back
+empty.
+
+**2. `ليس` is a native-compile catcher, which #355 did not record.** #355 introduced `ليس` as the
+substitute for the `+ ١` row, because the *semantic* layer refuses `منطقي + عدد` before the IR return
+type is consulted — but it did not say what `ليس` does when the entry is missing. Measured with the
+entry deleted:
+
+```
+نوع(اغلق_ملف(٣))            مؤشر in all three — caught everywhere
+اغلق_ملف(٣) == خطأ          native compile failure, ت٠١٠١
+إذا (ليس اغلق_ملف(٣))       native compile failure, ت٠١٠١   ← new
+اطبع(اغلق_ملف(٣))           prints nothing, exit 0 natively; خطأ in both interpreters
+```
+
+So a `منطقي` return has **three** catchers, not two, and the composition test asserts all three. The
+printing row behaved as #362 said not to predict it — #352's silent mode, not #362's abort, because a
+`Ptr(Void)` standing in for a `bool` is not the `-1` that aborted there. **Measure the printing row;
+never forecast it.**
+
+**3. The flagship test was a one-line diff against an existing one.**
+`test_file_open_does_not_promise_bytes_before_the_program_ends` (#362) is this primitive's proof minus
+one line: the same program without the close reads `0` bytes back, and with `اغلق_ملف(كاتب)` reads
+`مرحبا`. So the evidence that the name does its job needed no new fixture — and unlike #362's
+durability rows it is observable **from inside the program**. Worth looking for a checked-in contrast
+row before writing one.
+
+**4. No harness helper was needed — the first increment since #338 to add none.** The six-in-a-row
+streak of contract-forced helpers (env #338, stdin #350, files #352, tree-per-leg #355, args #360,
+contents-after #362) ends here, because `assert_prints_with_tree` and
+`assert_prints_with_tree_and_contents` were built general enough to cover a mutating primitive
+observed both during and after the run.
+
+### Verification
+
+`cargo fmt` clean; main crate clippy-clean at `--all-targets --all-features -D warnings`.
+`runtime-rs` clippy measured as a diagnostic multiset per #355 (`--message-format=short`, strip
+`file:line:col:`, `sort | uniq -c`) and **byte-identical to `develop`**. **Note the number: 83, not
+the 87 in #362's entry or the 76 in #355's** — 55 `unnecessary unsafe`, 20 nul-string, 1 `match`→`?`,
+and the 7 deny-level `approx_constant` errors in `math.rs` test code (#310). Recount with the
+command; do not trust any recorded figure, this one included.
+
+Full suite green: **1949** tests, zero failures — **1457** unit (+1, the debug-interpreter
+dispatchability test) and **226** builtin execution (+10). Plus 7 new `runtime-rs` unit tests
+(`cargo test -p tarqeem-runtime --lib`, 222 total). `cargo check -p tarqeem-runtime --target
+aarch64-unknown-linux-gnu --all-targets` clean.
+
+`examples/مدمجات.ترقيم` byte-identical across interpreter, JIT and native, equal to its regenerated
+golden, and the diff **purely additive** — 15 lines. The DAP interpreter runs the section too
+(`printf 'r\nc\nq\n' | tarqeem debug`), the fourth executing backend and the one with no leg in
+the cross-backend suite. Unlike the three increments before it, running the example surfaced **no**
+contract question — the section is refusals only, since the example runs in the repo root and must
+create nothing.
+
+Counts after this: registry **203** (40 core + 163 stdlib), debug interpreter **40**, `trq_*` exports
+**227 unchanged** (this named an existing symbol), `get_runtime_function_name` **226**, IR-intercepted
+20 unchanged.
+
+The keyword sweep over all 77 Arabic keyword literals found **none** embedded in `اغلق_ملف`, so no
+row in `test_identifier_containing_a_keyword_stays_one_token`. No diacritic, nothing contextual.
+
+Nine stale claims rewritten: every site asserting that *nothing in the language closes a handle* —
+three in `runtime-rs/src/io.rs`, one in `runtime.rs`, two in `src/interpreter/executor/builtins.rs`,
+one in the execution tests, one in the CI example, one in `LANGUAGE_SPEC.md`. The assertions all stay
+true; the reason becomes "this program closes nothing" rather than "the language cannot".
+
+**Next in the plan is Increment G proper** — writing the 21 `ملفات` names as self-hosted Tarqeem on
+these primitives. Category 7's three remaining names (`انشئ_مجلد`, `قائمة_مجلد`, `انقل_ملف`)
+are `unchanged` rows already in the registry, so they are repairs — no interpreter arm — not new
+registrations.

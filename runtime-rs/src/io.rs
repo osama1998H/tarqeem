@@ -673,10 +673,10 @@ const OPEN_FAILED: i64 = -1;
 /// goes straight to `اكتب_مجرى`/`اقرأ_مجرى` without colliding with a console
 /// stream.
 ///
-/// **Bytes written to a handle are not guaranteed to reach the file until the
-/// program ends**, because [`trq_write_stream`]'s handle path does not flush and
-/// nothing in the language closes a handle yet. [`flush_open_writers`] is what
-/// makes them land; `اغلق_ملف` will be what makes them land sooner.
+/// **Bytes written to a handle the program does not close are not guaranteed to
+/// reach the file until it ends**, because [`trq_write_stream`]'s handle path does
+/// not flush. [`trq_file_close`] is what makes them land sooner, and
+/// [`flush_open_writers`] is what catches whatever is still open at the end.
 ///
 /// **A directory is refused in every mode**, so the answer does not depend on the
 /// platform — see the note in the body.
@@ -744,20 +744,40 @@ fn handle_is_directory(handle: i64) -> bool {
     })
 }
 
-/// Close a file handle.
-/// Returns true on success, false on error (invalid handle).
+/// Backs the core builtin `اغلق_ملف`: releases `handle` and, for a writer, sends
+/// its buffer on its way.
+///
+/// The handle leaves the table whatever happens next, and the number is never
+/// handed out again — `get_next_file_handle` only counts up. So a second close,
+/// a console stream and a handle that was never opened all answer the same, which
+/// is the conflation a `bool` return has no spare value to avoid.
+///
+/// The answer **folds the flush**, so it means "released, and a writer's bytes are
+/// away" rather than merely "the table held it". `close(2)` reports `EIO` and
+/// `اغلق_ملف` exists to make bytes land, so answering `true` over a failed flush
+/// would be a name lying about the one thing it is for. That is a deliberate
+/// deviation from the row in `docs/builtins-vs-stdlib.md` §1.3, which called this
+/// implementation "reused unchanged".
+///
+/// # Returns
+/// * `true` if the table held the handle and a writer's flush succeeded, `false`
+///   for `٠`/`١`/`٢`, a negative handle, one already released, one never opened,
+///   or a flush that failed.
+///
+/// # C Equivalent
+/// ```c
+/// bool trq_file_close(int64_t handle);
+/// ```
 #[no_mangle]
 pub extern "C" fn trq_file_close(handle: i64) -> bool {
     FILE_HANDLES.with(|handles| {
         let mut handles = handles.borrow_mut();
-        if let Some(file_handle) = handles.remove(&handle) {
-            // Flush writer before dropping
-            if let FileHandle::Writer(mut writer) = file_handle {
-                let _ = writer.flush();
-            }
-            true
-        } else {
-            false
+        match handles.remove(&handle) {
+            // Flushed before the `BufWriter` drops, which would flush anyway and
+            // discard the result.
+            Some(FileHandle::Writer(mut writer)) => writer.flush().is_ok(),
+            Some(FileHandle::Reader(_)) => true,
+            None => false,
         }
     })
 }
@@ -853,8 +873,9 @@ pub extern "C" fn trq_file_flush(handle: i64) -> bool {
 
 /// Flush every open writer, closing nothing.
 ///
-/// Called at program end. Nothing in the language can flush until `اغلق_ملف`
-/// lands, and [`trq_write_stream`]'s handle path does not — so without this a
+/// Called at program end, for the handles a program did **not** close itself:
+/// `اغلق_ملف` flushes those, and [`trq_write_stream`]'s handle path never does —
+/// so without this a
 /// `BufWriter`'s contents are **lost** natively, where `main` is `extern "C"`
 /// and no thread-local destructor runs, while the interpreter still wrote them.
 /// That is the divergence [`crate::trq_exit`]'s stdout flush already exists to
@@ -2582,11 +2603,12 @@ mod tests {
 
     /// The durability row, and the reason [`flush_open_writers`] exists.
     ///
-    /// `trq_write_stream`'s handle path does not flush and nothing in the
-    /// language closes a handle yet, so without this call the bytes sit in a
-    /// `BufWriter` that no destructor runs — `main` is `extern "C"`. The empty
-    /// read before it is what proves the flush is doing the work rather than the
-    /// write having already landed.
+    /// `trq_write_stream`'s handle path does not flush and this program closes
+    /// nothing, so without this call the bytes sit in a `BufWriter` that no
+    /// destructor runs — `main` is `extern "C"`. The empty read before it is what
+    /// proves the flush is doing the work rather than the write having already
+    /// landed. `اغلق_ملف` reaches the same bytes earlier; this is the path for
+    /// handles a program never closes.
     #[test]
     fn test_flush_open_writers_lands_bytes_with_no_close() {
         let target = "/tmp/tarqeem_test_file_open_flush.txt";
@@ -2604,6 +2626,140 @@ mod tests {
         assert_eq!(std::fs::read(target).unwrap(), b"hi");
 
         assert!(trq_file_close(writer));
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+    // -----------------------------------------------------------------------
+    // trq_file_close — اغلق_ملف
+    // -----------------------------------------------------------------------
+
+    /// The row the name exists for: the bytes land on close, not at program end.
+    ///
+    /// The empty read before it is what makes the assertion about `اغلق_ملف`
+    /// rather than about the write, exactly as
+    /// `test_flush_open_writers_lands_bytes_with_no_close` does for the other
+    /// flusher. Arabic content, so a byte count and a character count differ and
+    /// a wrong unit cannot pass.
+    #[test]
+    fn test_file_close_lands_written_bytes_before_the_program_ends() {
+        let target = "/tmp/tarqeem_test_file_close_lands.txt";
+        std::fs::remove_file(target).ok();
+
+        let path = path_string(target);
+        let writer = trq_file_open(path, OPEN_WRITE);
+        assert_eq!(trq_write_stream(writer, byte_array("مرحبا".as_bytes())), 10);
+        assert!(
+            std::fs::read(target).unwrap().is_empty(),
+            "الكتابة بلغت الملف قبل الإغلاق"
+        );
+
+        assert!(trq_file_close(writer));
+        assert_eq!(std::fs::read(target).unwrap(), "مرحبا".as_bytes());
+
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// A reader has nothing to flush, so the answer is about the release alone.
+    #[test]
+    fn test_file_close_releases_a_reader() {
+        let target = "/tmp/tarqeem_test_file_close_reader.txt";
+        std::fs::write(target, "مرحبا").unwrap();
+
+        let path = path_string(target);
+        let reader = trq_file_open(path, OPEN_READ);
+        assert!(trq_file_close(reader));
+
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// The handle leaves the table, so a second close is a miss like any other.
+    #[test]
+    fn test_file_close_refuses_a_handle_it_already_released() {
+        let target = "/tmp/tarqeem_test_file_close_twice.txt";
+        std::fs::remove_file(target).ok();
+
+        let path = path_string(target);
+        let writer = trq_file_open(path, OPEN_WRITE);
+        assert!(trq_file_close(writer));
+        assert!(!trq_file_close(writer), "الإغلاق الثاني نجح");
+
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// The console streams are not closable, and they need no arm of their own:
+    /// `NEXT_FILE_HANDLE` starts at 3, so `٠`/`١`/`٢` were never in the table.
+    /// This deviates from `close(2)`, which does close descriptor 1 — one
+    /// documented behaviour rather than a platform-shaped one, the shape #362
+    /// chose for the directory refusal.
+    #[test]
+    fn test_file_close_refuses_the_console_streams() {
+        assert!(!trq_file_close(STREAM_STDIN));
+        assert!(!trq_file_close(STREAM_STDOUT));
+        assert!(!trq_file_close(STREAM_STDERR));
+    }
+
+    /// A negative handle names nothing. `99999` is pinned above, with the rest of
+    /// the pre-`افتح_ملف` handle tests.
+    ///
+    /// Neither value is one any test could have opened, and that is deliberate
+    /// rather than a bug being fixed: `FILE_HANDLES` is a `thread_local!` that
+    /// every test in this binary shares under `--test-threads=1`, so a hardcoded
+    /// plausible number like `٣` would answer `true` for any *future* test that
+    /// leaves a handle stored. No test leaks one today — measured, every open that
+    /// goes unclosed here is one that failed — so `٣` passes; it is simply not
+    /// worth depending on test order for. Same reasoning as the debug
+    /// interpreter's dispatch test, and the `٣` row is pinned per-process anyway,
+    /// in the cross-backend suite.
+    #[test]
+    fn test_file_close_refuses_a_handle_never_opened() {
+        assert!(!trq_file_close(-1));
+        assert!(!trq_file_close(i64::MAX));
+    }
+
+    /// Closing frees the entry, never the number: the counter only ever counts
+    /// up, so a program that prints a handle sees the same sequence on every
+    /// backend.
+    #[test]
+    fn test_file_close_does_not_recycle_the_number() {
+        let target = "/tmp/tarqeem_test_file_close_no_reuse.txt";
+        std::fs::write(target, "م").unwrap();
+
+        let path = path_string(target);
+        let first = trq_file_open(path, OPEN_READ);
+        assert!(trq_file_close(first));
+        let second = trq_file_open(path, OPEN_READ);
+        assert!(
+            second > first,
+            "أُعيد المعرِّف بعد انصرافه: {first} ثم {second}"
+        );
+        assert!(trq_file_close(second));
+
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// The stream pair inherits the release with no arm of its own: a closed
+    /// number is absent from the table, which both halves already refuse.
+    #[test]
+    fn test_the_stream_pair_refuses_a_closed_handle() {
+        let target = "/tmp/tarqeem_test_file_close_then_stream.txt";
+        std::fs::write(target, "مرحبا").unwrap();
+
+        let path = path_string(target);
+        let reader = trq_file_open(path, OPEN_READ);
+        assert!(trq_file_close(reader));
+
+        let answer = trq_read_stream(reader, 8);
+        assert_eq!(unsafe { (*answer).len }, 0, "قُرئ من معرِّف مُغلق");
+        crate::memory::trq_release(answer as *mut u8);
+
+        let writer = trq_file_open(path, OPEN_APPEND);
+        assert!(trq_file_close(writer));
+        assert_eq!(trq_write_stream(writer, byte_array(b"x")), -1);
+
         std::fs::remove_file(target).ok();
         release_path(path);
     }
