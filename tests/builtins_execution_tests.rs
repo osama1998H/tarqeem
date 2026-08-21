@@ -4638,6 +4638,32 @@ fn test_program_args_accepts_an_argument_that_looks_like_a_flag() {
     );
 }
 
+/// A `--` that is not the **first** program argument is carried verbatim, like
+/// any other token.
+///
+/// The leading position is the one exception in this whole contract, and it is
+/// not fixable: `tarqeem run` reaches the program through clap, which consumes a
+/// leading bare `--` as its own escape marker, while a compiled binary has no
+/// parser in front of it. So `tarqeem run ب.ترقيم -- أ` answers `["أ"]` where
+/// `./مخرج -- أ` answers `["--"، "أ"]`. It is bounded and escapable — doubling it
+/// (`-- -- أ`) reproduces the native answer exactly — and it is the convention
+/// `cargo run --` already sets, so it is documented in LANGUAGE_SPEC rather than
+/// worked around. This test pins the part that *does* agree, which is every other
+/// position.
+#[test]
+fn test_program_args_carries_a_later_double_dash_verbatim() {
+    assert_prints_with_args(
+        "معاملات_شرطتان",
+        concat!(
+            "متغير م = معاملات_البرنامج()\n",
+            "اطبع(طول(م))\n",
+            "اطبع(م[1])",
+        ),
+        &["أ", "--", "ب"],
+        &["3", "--"],
+    );
+}
+
 /// The array is iterable and its elements concatenate, which is what a program
 /// actually does with them.
 #[test]

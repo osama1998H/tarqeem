@@ -1572,6 +1572,17 @@ The five things it found that the plan did not state:
    **an example covers the rows its own invocation produces**, and for a primitive that reads the
    invocation, that is a design constraint on the primitive rather than a limit on the example.
 
+**One documented delta, found by probing the contract's own "verbatim" row rather than by a red
+test.** A **leading** bare `--` is consumed by clap as its escape marker, so
+`tarqeem run ب.ترقيم -- أ` answers `["أ"]` while `./مخرج -- أ` answers `["--"، "أ"]` — the compiled
+binary has no parser in front of it. It is not fixable while the interpreter is reached through a
+CLI and the binary is not, and it is the convention `cargo run --` already sets. It is **bounded and
+escapable**: doubling it reproduces the native answer exactly, and a `--` in any later position is
+carried verbatim by all three backends — which is the half a cross-backend test can pin, and does.
+Worth recording as method: the row said "verbatim", and the one token that could not be verbatim was
+the one the *invoking parser* owns. **When a primitive's input arrives through a parser on one
+backend and not on another, enumerate what that parser reserves.**
+
 **One bug found and filed, and it constrains this name's own tests.** `اطبع` on a non-empty
 `مصفوفة<نص>` prints its elements' **addresses** natively, and on a `مصفوفة<عدد_عشري>` their IEEE-754
 bit patterns — `trq_print_array` reads every element as an `i64` (`runtime-rs/src/io.rs:112`) while

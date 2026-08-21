@@ -4598,6 +4598,29 @@ array type through one arm. It predates this work and reproduces on a plain arra
 **empty** array is unaffected (the element loop is skipped), which is why the example prints `[]` and
 no test prints a populated array.
 
+**One documented delta, and it is on the contract's own "verbatim" row.** A **leading** bare `--` is
+consumed by clap as its escape marker, so `tarqeem run ب.ترقيم -- أ` answers `["أ"]` while
+`./مخرج -- أ` answers `["--"، "أ"]`. Not fixable while the interpreter is reached through a CLI and
+the compiled binary is not, and it is the convention `cargo run --` already sets. Bounded and
+escapable: doubling it reproduces the native answer exactly, and a `--` in any later position is
+verbatim on all three — pinned by `test_program_args_carries_a_later_double_dash_verbatim`.
+
+Found by probing the "verbatim" row rather than by a red test, and the lesson generalises: **when a
+primitive's input arrives through a parser on one backend and not on another, enumerate what that
+parser reserves.** `allow_hyphen_values` covers every hyphen *value*; `--` is the one token clap owns
+outright.
+
+**Deviation from the approved plan, recorded per house style.** The plan had `Commands::Debug` call
+`set_program_args(Vec::new())` explicitly. It does not: the global is a `OnceLock`, so *unset* is
+already the empty answer, and the helper's own doc comment states it. An explicit call would add a
+site that changes nothing observable. The DAP answer is pinned by
+`test_program_args_is_dispatchable` rather than by the call.
+
+**One user-visible CLI change worth naming plainly:** `tarqeem run f.ترقيم --jit` now hands `--jit`
+to the *program*, not to `tarqeem` — everything after the file name belongs to the program. That is
+the point of `trailing_var_arg`, every in-repo invocation puts the flag before the file, and the
+harness does too.
+
 **`tarqeem pkg run` needed no wiring**, checked rather than assumed: it builds a native binary and
 runs it with `Command::args`, so arguments arrive through the runtime's capture — no interpreter
 path, no split.
@@ -4644,6 +4667,9 @@ definition #355 had to pin after a review pass read the number as an off-by-one;
 `unnecessary unsafe block`, 20 `manually constructing a nul-terminated string`, one `match` reducible
 to `?` — plus the 7 pre-existing deny-level `approx_constant` errors in `math.rs` test code (#310).
 Measured as a multiset, not a line count, per that row's own instruction. The main crate is
-clippy-clean at `--all-targets --all-features -D warnings`. Full suite green: 1455 unit tests and
-**202** builtin execution tests (193 + 9), zero failures, and `examples/مدمجات.ترقيم` byte-identical
+clippy-clean at `--all-targets --all-features -D warnings`. Full suite green: **1455** unit tests and
+**203** builtin execution tests (193 + 10), zero failures. The unit count is +1, not +2 against
+#355's recorded 1453: that entry was written before `8d89e3d` split a DAP test in two, so
+`develop`'s true baseline is 1454 — recounted rather than trusted, which is the same instruction the
+registry rows carry, and `examples/مدمجات.ترقيم` byte-identical
 across interpreter, JIT and native and equal to its committed golden.
