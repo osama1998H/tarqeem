@@ -4541,3 +4541,109 @@ branch. That produced an empty diff and is reproducible. The main crate is clipp
 `--all-targets`. Full suite green: 1453 unit tests and 193 builtin
 execution tests, zero failures, and `examples/مدمجات.ترقيم` byte-identical across interpreter, JIT and
 native.
+
+## #360 — `معاملات_البرنامج`: command-line arguments, and an effect with nowhere to arrive
+
+### Two decisions taken before the work
+
+**`argv[0]` is excluded.** §1.3's row says "command-line arguments" and is silent on the program
+name, and it cannot stay silent: natively `argv[0]` is the compiled binary's path, and under the
+interpreter the nearest equivalent is the `.ترقيم` source path. Including it would put a permanent
+divergence in the one place `compare-backends` cannot excuse. Excluding it makes the no-argument case
+an empty array identically on all three backends — which is also the only reason a CI example is
+possible, since `examples.yml` runs every example bare. The contract decision and the example's
+coverage turned out to be the same decision.
+
+**The arguments come from `std::env::args_os()`, not from the C `argv`.** #355's platform lesson
+applied before it could fire: the `argv` handed to `main` is the ANSI code page on Windows, so
+capturing it would honour «تُنقل كما هي» on Unix and mangle an Arabic argument on Windows, invisible
+to a `cfg(unix)` suite. `args_os` is `GetCommandLineW`-derived there and `_NSGetArgv` on macOS, and
+neither depends on Rust's `lang_start`, which this crate's `extern "C" fn main` bypasses. The C argv
+is captured anyway and kept as a fallback for a target where std captured nothing. One documented
+behaviour, one implementation — #355's rule reached by choosing the source rather than by branching.
+
+### What it found
+
+**The `Array(String)` return is a first for the *mechanism*, not the tier — the opposite of #330.**
+`IrType::Array(Box::new(IrType::String))` appears nowhere else in `src/`; every registered array
+return is `Array(Int)`. It cost no new mechanism, because ordinary array literals already produce the
+type, but neither existing array measurement transferred.
+
+**A third distinct missing-return-type mode, and the two backends fail the same use site in opposite
+manners.** Measured with the entry deleted:
+
+| use | interpreters | native |
+|---|---|---|
+| `طول(م)` | correct | correct |
+| `اطبع(م[٠])` | correct | correct |
+| `نوع(م)` | `مؤشر` — caught | `مؤشر` — caught |
+| `م[٠] + "!"` | run-time type error, exit 1 | `4376042720!`, exit 0 |
+| `م[٠] == "أول"` | *unreached* | `خطأ`, exit 0 |
+
+The interpreter stops loudly where native prints a pointer and succeeds. Every previous measurement
+had both backends failing in the same register, or native alone. #350's rule needs one more clause:
+**a use site can be loud on one backend and silent on another**, so a test running only the
+interpreter would have called this caught.
+
+**The two implementations read different sources, so there is no kernel to drift.** `حالة_مسار` and
+`احذف_مسار` each duplicate a kernel across the crate boundary. Here `trq_program_args` reads its own
+`main`'s argv and `call_program_args` reads what the CLI recorded — nothing shared, nothing to
+diverge except observable output, which the cross-backend tests pin. "Duplicated kernel" is the rule
+only when both sides compute the same thing.
+
+**One bug found and filed: [#359](https://github.com/osama1998H/tarqeem/issues/359).** `اطبع` on a
+non-empty `مصفوفة<نص>` prints its elements' addresses natively, and on `مصفوفة<عدد_عشري>` their
+IEEE-754 bit patterns — `trq_print_array` reads every element as an `i64` while codegen hands it every
+array type through one arm. It predates this work and reproduces on a plain array literal. The
+**empty** array is unaffected (the element loop is skipped), which is why the example prints `[]` and
+no test prints a populated array.
+
+**`tarqeem pkg run` needed no wiring**, checked rather than assumed: it builds a native binary and
+runs it with `Command::args`, so arguments arrive through the runtime's capture — no interpreter
+path, no split.
+
+### Cost
+
+**Thirteen sites**, against a forecast of *nine plus effect plumbing, ≈14* — the **fifth**
+consecutive forecast to hold, and the first since #342 that was not nine. §6.7's discriminator said
+nine; #342's caveat was checked rather than assumed and **applies**: program arguments reaching the
+interpreter is a new kind of effect, because nothing in the CLI could pass an argument to a program at
+all. The caveat has fired twice in fourteen increments, both times visible beforehand from the same
+question — *does the effect have anywhere to arrive?*
+
+The four beyond the nine: argv capture in `runtime-rs`'s `main`, a set-once `OnceLock` on the compiler
+side, the clap `trailing_var_arg` field, and its dispatch through `run_command`. `expr_builder.rs`
+needed no edit, as for every symbol-mapped name since #324.
+
+One additive harness helper — `assert_prints_with_args` over a widened `execute_all` — the **fifth**
+consecutive increment whose contract forced one: env (#338), stdin (#350), fixture files (#352), a
+tree restored per leg (#355), arguments here. Same split as its predecessors: on the native leg the
+arguments go on the **executed binary**, never on `compile`.
+
+The set-once global is **immutable after startup**, which is what separates it from the handle table
+`افتح_ملف` still owes. §6.7.5 flags *mutable* cross-interpreter state as that name's blocker; this is
+not a precedent for it.
+
+The keyword sweep over all 77 Arabic keyword literals found **`عام`** embedded mid-name inside
+«معاملات» with a letter on each side — the «حروف» shape from #336, but the first where the embedded
+token introduces a *member declaration*, so a resumed scan would yield a plausible construct inside a
+class body rather than a token error. One row added to
+`test_identifier_containing_a_keyword_stays_one_token`; verified the lexer emits one `Identifier` and
+the name parses inside a class body. No diacritic and not contextual, so neither #342's nor #352's
+extra check applies.
+
+Registry counts **recounted** from the two ratchet lists in `tests/builtin_registry_guard_tests.rs`,
+not incremented: 38 core + 163 stdlib = **201**. The debug interpreter is **38** (31 Arabic + 7
+`trq_*`), and every `is_builtin` name was again checked for a dispatch *mention* rather than the two
+sizes being compared. `runtime-rs` exports **226** under the row's own `trq_*`-only definition — the
+definition #355 had to pin after a review pass read the number as an off-by-one; counting every
+`#[no_mangle] pub extern "C" fn` gives 227, the extra being the C entry point `main`.
+`get_runtime_function_name` is **224**; the IR-intercepted set is **20**, unchanged since Increment A.
+
+`runtime-rs` clippy is unchanged: **76 diagnostics**, multiset identical to `develop`'s — 55
+`unnecessary unsafe block`, 20 `manually constructing a nul-terminated string`, one `match` reducible
+to `?` — plus the 7 pre-existing deny-level `approx_constant` errors in `math.rs` test code (#310).
+Measured as a multiset, not a line count, per that row's own instruction. The main crate is
+clippy-clean at `--all-targets --all-features -D warnings`. Full suite green: 1455 unit tests and
+**202** builtin execution tests (193 + 9), zero failures, and `examples/مدمجات.ترقيم` byte-identical
+across interpreter, JIT and native and equal to its committed golden.

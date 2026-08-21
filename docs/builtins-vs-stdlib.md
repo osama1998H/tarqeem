@@ -447,7 +447,7 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | `نم` | `(عدد) -> فراغ` | unchanged | `nanosleep(2)`. A busy-wait over `وقت_أداء` burns a core and cannot yield. Already a clean monomorphic wrapper. Criterion (b). |
 | `متغير_بيئة` | `(نص) -> نص` | new — **مُنفَّذ (#338)** | `getenv(3)`, `""` when unset. **New Arabic name over an already-implemented orphan symbol** (`trq_env_get`) — implemented, linkable, and unreachable before #338 because no name mapped to it. `مجلد_مستخدم` reduces to it exactly (`trq_dir_home` is `getenv("HOME")`); `مجلد_مؤقت` does **not** — `trq_dir_temp` calls `std::env::temp_dir()`, which falls back to `/tmp` when `TMPDIR` is unset. Criterion (b), re-derived at implementation time and **held** — see the note below. Total: an absent variable, an empty name and `لا_شيء` all answer `""`, so set-but-empty is indistinguishable from unset. |
 | `مجلد_حالي` | `() -> نص` | unchanged | `getcwd(2)` is **process state**, not an environment variable. Deriving it from `$PWD` is wrong: PWD is shell-maintained, absent under non-shell parents, and stale after any chdir. Criterion (b). |
-| `معاملات_البرنامج` | `() -> مصفوفة<نص>` | new | Command-line arguments. Category 8 requires them and **nothing in the system exposes them** — `runtime-rs/src/runtime.rs:346` declares `main(_argc, _argv)` and discards both. **Not a free table entry:** it needs `runtime-rs` to capture argv at init *plus* the full nine-site registration path. Without it, and without `أنهِ_البرنامج`, Tarqeem cannot write a CLI tool. Criterion (b). |
+| `معاملات_البرنامج` | `() -> مصفوفة<نص>` | new — **مُنفَّذ (#360)** | Command-line arguments, **excluding `argv[0]`** — see the correction below. Nothing in the system exposed them: `runtime-rs/src/runtime.rs` declared `main(_argc, _argv)` and discarded both. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338), and argv is neither the environment `متغير_بيئة` reads nor a stream `اقرأ_مجرى` reads. Total: no failure mode. No arguments answers an **empty array** — a value, not a sentinel — as does a launch that bypasses the CLI run path, indistinguishably. Arguments are carried verbatim, an invalid-UTF-8 one decoded lossily, and repeated calls answer the same list: this is state read, not consumed. |
 
 > **The first re-derivation that could not have failed (#338).** Four §1.3 rows have had criterion
 > (a) expire under them — `بتات_نفي` (#312), `بتات_إزاحة_يمين_منطقية` (#322), `ثنائي_إلى_نص` (#333)
@@ -460,6 +460,25 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 > stay true. Re-check the (a) rows; the (b) rows only need their *contract* checked against the
 > value representation, which is the second defect class #333 identified.
 >
+> **Correction (#360): `معاملات_البرنامج` excludes `argv[0]`, and the row's cost note understated
+> the path.** Two changes, and the first is a contract decision the row never made.
+>
+> - **The program's own name is not one of its arguments.** The row says only "command-line
+>   arguments" and is silent on `argv[0]`. It cannot stay silent: natively `argv[0]` is the compiled
+>   binary's path, and under the interpreter the nearest equivalent is the `.ترقيم` source path, so
+>   including it would put a permanent divergence in the one place `compare-backends` cannot excuse.
+>   Excluding it makes the no-argument case an empty array identically on all three backends, which
+>   is also what makes a CI example possible — §6.7.4's rule needs a row invariant under where the
+>   program runs, and this is the only one. The name agrees: «معاملات البرنامج» is what it is given,
+>   not what it is called.
+> - **"Capture argv at init *plus* the full nine-site path" was right about the shape and low about
+>   the count.** It cost thirteen — see §6.7.6. The two it did not anticipate are that the CLI had no
+>   syntax to *pass* arguments at all, and that the interpreter needed somewhere to keep them.
+>
+> No new defect class. The first point is the #352 naming correction repeating — a row whose prose
+> leaves a contract question open — and the second is #342's caveat firing exactly as predicted, for
+> the first time since it was written.
+
 > The contract check did find something, though not a defect: `trq_env_get` was read rather than
 > trusted, because the orphan precedent in this document is `trq_performance_now` — implemented,
 > linkable, and lying about being monotonic. This one is honest. All five of its paths (null pointer,
@@ -1477,6 +1496,118 @@ Arabic keyword literals in `src/lexer/keywords.rs`, swept mechanically the way #
 eye, so it gets **no** row in `test_identifier_containing_a_keyword_stays_one_token` — adding one
 dilutes what that test tests. No diacritic either, and no contextual keyword, so neither #342's lexer
 check nor #352's parser check applies.
+
+### 6.7.6 `معاملات_البرنامج` — the CLI-tool half `أنهِ_البرنامج` was missing (#360)
+
+Category 8, landed out of Increment G's order for the third time, on the reason §6.7.1 records:
+a criterion-(b) primitive whose OS service has no dependency on the rest of the plan. It is the
+**companion** §1.3 names — *"without it, and without `أنهِ_البرنامج`, Tarqeem cannot write a CLI
+tool"* — and the other half landed at #342.
+
+Chosen over `افتح_ملف`, still the nominal next name, on the ordering result §6.7.4 established and
+§6.7.5 confirmed: the opener owes the interpreter a handle table in the same change, which makes it
+two primitives' work. This one takes no handle and needs none.
+
+**The forecast held a fifth consecutive time, and it is the first since #342 that was not nine.**
+§6.7's discriminator said nine — no `trq_program_args`, no registered name — and #342's caveat was
+checked rather than assumed: *program arguments reaching the interpreter* **is** a new kind of
+effect, the way terminating the process was, because nothing in the CLI could pass an argument to a
+program at all. So the forecast was **nine plus effect plumbing, ≈14**. It cost **thirteen**. The
+caveat has now fired twice in fourteen increments, and both times it was visible before the work
+from the same question: *does the effect have anywhere to arrive?*
+
+The five things it found that the plan did not state:
+
+1. **A `مصفوفة<نص>` return is a first for the *mechanism*, and #330's rule about "first for the tier"
+   is what says so.** #330 asked whether a first is a first for the mechanism or only the tier, and
+   answered "only the tier" for its own array. Here the answer is the other one:
+   `IrType::Array(Box::new(IrType::String))` appears **nowhere** in `src/` — every registered array
+   return is `Array(Int)`. It still cost no new mechanism, because ordinary array literals already
+   produce the type, but the *measurement* below could not be borrowed from either array name before
+   it. Ask the question; do not assume the answer repeats.
+
+2. **The missing-return-type mode is a third distinct one for an array, and the two backends fail the
+   same use site in opposite manners.** #330 measured one catcher for `Array(Int)`; #350 measured
+   three modes at once for another; neither transfers. Measured here with the entry deleted:
+
+   | use | interpreters | native |
+   |---|---|---|
+   | `طول(م)` | correct | correct — `ArrayLen` routes to `trq_array_len` regardless |
+   | `اطبع(م[٠])` | correct | correct — the element survives being printed alone |
+   | `نوع(م)` | `مؤشر` — caught | `مؤشر` — caught |
+   | `م[٠] + "!"` | **run-time type error** «متوقع عدد، وُجد string», exit 1 | **`4376042720!`**, exit 0 |
+   | `م[٠] == "أول"` | *unreached* | **`خطأ`**, exit 0 |
+
+   The `+` row is the one worth keeping: the interpreter stops loudly and native prints a pointer and
+   succeeds, so the *same* source is caught on one backend and silently wrong on the other. Every
+   previous measurement had both backends failing in the same register or native alone failing. So
+   #350's rule — predict from the use site — needs one more clause: **a use site can be loud on one
+   backend and silent on another**, and a test that runs only the interpreter would have called this
+   caught.
+
+3. **The two implementations read genuinely different sources, which is a shape this family has not
+   had.** `حالة_مسار` and `احذف_مسار` each duplicate a kernel across the crate boundary and are held
+   together only by cross-backend tests (§6.7.4 finding 5). Here `trq_program_args` reads the argv
+   its own `main` was handed while `call_program_args` reads what the CLI recorded — **nothing is
+   shared, so nothing can drift**, and the pairing is enforced by the two paths having to agree on
+   observable output rather than on a copied algorithm. Worth stating because "duplicated kernel" had
+   started to look like the rule for a syscall primitive; it is the rule only when both sides compute
+   the same thing.
+
+4. **A `cfg(unix)`-shaped platform trap was avoided by choosing the source, not by branching.** #355
+   found `lstat` portable in name and not in behaviour. The same trap is here: the C `argv` handed to
+   `main` is the ANSI code page on Windows, so capturing it would honour «تُنقل كما هي» on Unix and
+   mangle an Arabic argument on Windows, invisibly to a `cfg(unix)` suite. `std::env::args_os()` is
+   `GetCommandLineW`-derived there and `_NSGetArgv` on macOS, and neither depends on Rust's
+   `lang_start`, which this crate's `extern "C" fn main` bypasses — so one implementation covers every
+   target, with the captured C argv kept only as a fallback for a target where std captured nothing.
+   **Prefer changing the source over branching on the platform**; #355's rule was one documented
+   behaviour, one implementation, and this is the cheaper way to reach it.
+
+5. **A destructive primitive's example limit does not generalise to an *input* one, and the reason is
+   new.** #347 could not put its byte rows in the example, #350 not its success rows, #355 none of
+   its effects. Here the example runs with **no arguments**, because `examples.yml` invokes every
+   example bare — so the empty row is the only one reachable, and it is reachable *because* `argv[0]`
+   is excluded. The contract decision and the example's coverage are the same decision. Generalising:
+   **an example covers the rows its own invocation produces**, and for a primitive that reads the
+   invocation, that is a design constraint on the primitive rather than a limit on the example.
+
+**One bug found and filed, and it constrains this name's own tests.** `اطبع` on a non-empty
+`مصفوفة<نص>` prints its elements' **addresses** natively, and on a `مصفوفة<عدد_عشري>` their IEEE-754
+bit patterns — `trq_print_array` reads every element as an `i64` (`runtime-rs/src/io.rs:112`) while
+codegen hands it every array type through one arm (`codegen.rs:2027`). It predates this work and
+reproduces on a plain array literal; filed as
+[#359](https://github.com/osama1998H/tarqeem/issues/359). The **empty** array is unaffected, since
+the element loop is skipped — so the CI example may print it and the tests index instead. That
+asymmetry is why the example prints `[]` and no test prints a populated array.
+
+**Cost.** Thirteen sites: the #324 nine (`runtime-rs` function, `lib.rs` re-export, `Scope`,
+`register_builtin_return_types`, `is_builtin` + dispatch in both interpreters, LLVM `declare`,
+`get_runtime_function_name`), plus four the discriminator does not cover — argv capture in
+`runtime-rs`'s `main`, a set-once `OnceLock` on the compiler side, the clap `trailing_var_arg` field,
+and its dispatch through `run_command`. `expr_builder.rs` needed no edit, as for every symbol-mapped
+name since #324.
+
+One additive harness helper, the **fifth** consecutive increment whose contract forced one: env on
+the child (#338), stdin on the child (#350), fixture files (#352), a tree restored per leg (#355),
+and arguments on the child here. The split is the one #338 established and #350 transposed — on the
+native leg they go on the **executed binary**, never on `compile`.
+
+The set-once global deserves one line so it is not misread later: it is **immutable after startup**,
+which is what separates it from the handle table `افتح_ملف` still owes. §6.7.5 flags *mutable*
+cross-interpreter state as that name's blocker; this is not a precedent for it.
+
+Two smaller results. The keyword sweep over all 77 Arabic keyword literals found **`عام`** embedded
+mid-name inside «معاملات», with a letter on each side — the «حروف» shape from #336, but the first
+where the embedded token introduces a *member declaration*, so a resumed scan would produce a
+plausible construct inside a class body rather than a token error. It gets a row in
+`test_identifier_containing_a_keyword_stays_one_token`; the lexer emits one `Identifier` and the name
+parses inside a class body. No diacritic, so #342's check does not apply, and `عام` is not
+contextual, so #352's does not either.
+
+And `tarqeem pkg run` needed no wiring, checked rather than assumed: `src/cli/pm/run.rs` builds a
+native binary and executes it with `Command::args`, so its arguments arrive through the runtime's
+capture like any other compiled program — no interpreter path, and so no split to diverge.
 
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 
