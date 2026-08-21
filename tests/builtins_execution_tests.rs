@@ -3383,6 +3383,16 @@ fn test_every_core_builtin_agrees_across_backends() {
         // moves nothing wherever it runs. The success rows are in the section
         // below, where a tree helper supplies both ends.
         ("انقل_مسار", "اطبع(انقل_مسار(\"\"، \"\"))", &["خطأ"]),
+        // A refusal: the absent path holds nothing to list, so the sweep reads
+        // nothing wherever it runs — and `طول` keeps the answer out of `اطبع`,
+        // since printing a populated `مصفوفة<نص>` is wrong natively (#359).
+        // The success rows are in the section below, where a tree helper
+        // supplies a directory and its entries.
+        (
+            "قائمة_مجلد",
+            "اطبع(طول(قائمة_مجلد(\"لا_يوجد_هذا_المسار\")))",
+            &["0"],
+        ),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
@@ -5624,5 +5634,193 @@ fn test_path_move_can_be_shadowed_by_a_user_function() {
             "اطبع(انقل_مسار(\"\"، \"\"))"
         ),
         &["صحيح"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// قائمة_مجلد — `readdir(3)`, the enumerating quarter of the path family (#370)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Pinned cross-backend for `احذف_مسار`'s reason: the listing kernel exists
+// twice — in `trq_dir_list` and in `call_dir_list` — and nothing but these rows
+// keeps the two equal. The sort is the row that earns the pinning: raw readdir
+// order is filesystem-dependent, so an unsorted answer would differ between
+// machines and between runs, which is a flake `compare-backends` reads as a
+// divergence. Nothing here prints a populated array — that is wrong natively
+// with or without this name (#359) — so every assertion indexes, measures or
+// iterates instead.
+
+/// The effect gate and the sort in one: the entries are created in the order
+/// that readdir would happily return and the sort must not — the file first,
+/// the directory second — and the answer indexes back sorted (`أ` = D8 A3
+/// sorts before `ب` = D8 A8 bytewise). Bare names, not joined paths: the
+/// elements compare equal to the names alone, though the entries live under
+/// the fixture's absolute path.
+#[test]
+fn test_dir_list_answers_sorted_bare_names() {
+    assert_prints_with_tree(
+        "قائمة_مرتبة",
+        &[("عينة", Fixture::EmptyDir)],
+        concat!(
+            "اغلق_ملف(افتح_ملف(\"{مسار}/ب.نص\"، 1))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}/أ\"))\n",
+            "متغير م = قائمة_مجلد(\"{مسار}\")\n",
+            "اطبع(طول(م))\n",
+            "اطبع(م[0])\n",
+            "اطبع(م[1])\n",
+            "اطبع(م[0] == \"أ\")",
+        ),
+        &["صحيح", "2", "أ", "ب.نص", "صحيح"],
+    );
+}
+
+/// An empty directory answers the empty array as a value, and the empty array
+/// is the one shape `اطبع` may carry (#359 skips the element loop entirely).
+#[test]
+fn test_dir_list_answers_the_empty_array_for_an_empty_directory() {
+    assert_prints_with_tree(
+        "قائمة_فارغة",
+        &[("فارغ", Fixture::EmptyDir)],
+        concat!(
+            "اطبع(طول(قائمة_مجلد(\"{مسار}\")))\n",
+            "اطبع(قائمة_مجلد(\"{مسار}\"))",
+        ),
+        &["0", "[]"],
+    );
+}
+
+/// Every refusal is the same empty array: an absent path, the empty name and
+/// `لا_شيء` — indistinguishable from an empty directory by design, since an
+/// array return has no spare value for a refusal (`اقرأ_مجرى`'s conflation).
+/// The unreadable-directory row is contract-only and deliberately untested:
+/// a chmod-000 fixture is unix-gated *and* answers differently under root,
+/// which CI runners often are.
+#[test]
+fn test_dir_list_refuses_what_cannot_be_listed() {
+    assert_prints(
+        "قائمة_رفض",
+        concat!(
+            "اطبع(طول(قائمة_مجلد(\"لا_يوجد_هذا_المسار\")))\n",
+            "اطبع(طول(قائمة_مجلد(\"\")))\n",
+            "متغير غائب: نص? = لا_شيء\n",
+            "اطبع(طول(قائمة_مجلد(غائب)))",
+        ),
+        &["0", "0", "0"],
+    );
+}
+
+/// A file is not a directory, so listing it refuses — the same empty array —
+/// and the file itself is untouched, asked through `حالة_مسار`.
+#[test]
+fn test_dir_list_answers_empty_for_a_file_path() {
+    assert_prints_with_tree(
+        "قائمة_ملف",
+        &[("وثيقة.نص", Fixture::File("محتوى"))],
+        concat!(
+            "اطبع(طول(قائمة_مجلد(\"{مسار}\")))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))",
+        ),
+        &["0", "1"],
+    );
+}
+
+/// The path argument *follows* a symlink, the way `حالة_مسار` does: listing
+/// through the link lists the target. Its sibling `احذف_مسار` acts on the
+/// name; this one asks about what the name reaches.
+#[cfg(unix)]
+#[test]
+fn test_dir_list_follows_a_symlink_to_a_directory() {
+    assert_prints_with_tree(
+        "قائمة_وصلة",
+        &[
+            ("هدف", Fixture::EmptyDir),
+            ("وصلة", Fixture::Symlink { to: "هدف" }),
+        ],
+        concat!(
+            "اطبع(انشئ_مجلد(\"{مسار}/فرعي\"))\n",
+            "متغير م = قائمة_مجلد(\"{مسار2}\")\n",
+            "اطبع(طول(م))\n",
+            "اطبع(م[0])",
+        ),
+        &["صحيح", "1", "فرعي"],
+    );
+}
+
+/// Following is also why a dangling link lists as absent: the name reaches
+/// nothing, so the answer is the refusal's empty array — even though the link
+/// itself exists, which `احذف_مسار` (acting on the name) can still see.
+#[cfg(unix)]
+#[test]
+fn test_dir_list_reads_a_dangling_symlink_as_absent() {
+    assert_prints_with_tree(
+        "قائمة_مقطوعة",
+        &[(
+            "وصلة_معلقة",
+            Fixture::Symlink {
+                to: "هدف_غائب"
+            },
+        )],
+        concat!(
+            "اطبع(طول(قائمة_مجلد(\"{مسار}\")))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))",
+        ),
+        &["0", "صحيح"],
+    );
+}
+
+/// The elements drive an ordinary `لكل` loop and concatenate as strings —
+/// the #359-safe way to see every entry.
+#[test]
+fn test_dir_list_iterates_and_concatenates() {
+    assert_prints_with_tree(
+        "قائمة_حلقة",
+        &[("أب", Fixture::EmptyDir)],
+        concat!(
+            "اطبع(انشئ_مجلد(\"{مسار}/ثاني\"))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}/اول\"))\n",
+            "لكل اسم في قائمة_مجلد(\"{مسار}\") {\n",
+            "    اطبع(\"عنصر: \" + اسم)\n",
+            "}",
+        ),
+        &["صحيح", "صحيح", "عنصر: اول", "عنصر: ثاني"],
+    );
+}
+
+/// The load-bearing test for the `register_builtin_return_types` entry: the
+/// `Array(String)` catchers (#360's profile, re-measured here with the entry
+/// deleted). `نوع` answers `مؤشر` on all three backends; `م[0] + "!"` is a
+/// run-time type error interpreted and a printed pointer (exit 0) natively;
+/// `م[0] == "…"` answers `خطأ` natively. `طول` and printing an element alone
+/// pass either way, so they carry nothing.
+#[test]
+fn test_dir_list_result_composes_as_strings() {
+    assert_prints_with_tree(
+        "تركيب_القائمة",
+        &[("محتو", Fixture::EmptyDir)],
+        concat!(
+            "اغلق_ملف(افتح_ملف(\"{مسار}/أول.نص\"، 1))\n",
+            "متغير م = قائمة_مجلد(\"{مسار}\")\n",
+            "اطبع(نوع(م))\n",
+            "اطبع(م[0] + \"!\")\n",
+            "اطبع(م[0] == \"أول.نص\")",
+        ),
+        &["مصفوفة", "أول.نص!", "صحيح"],
+    );
+}
+
+/// A user function named `قائمة_مجلد` shadows the builtin, like every other
+/// core name: builtins are the last resort in name resolution, not reserved
+/// words.
+#[test]
+fn test_dir_list_can_be_shadowed_by_a_user_function() {
+    assert_prints(
+        "تظليل_القائمة",
+        concat!(
+            "دالة قائمة_مجلد(مسار: نص) -> عدد {\n",
+            "    أرجع 42\n",
+            "}\n",
+            "اطبع(قائمة_مجلد(\"\"))"
+        ),
+        &["42"],
     );
 }

@@ -1238,6 +1238,67 @@ mod tests {
         std::fs::remove_dir_all(&dir_dst).ok();
     }
 
+    /// `قائمة_مجلد` under the debug interpreter, which is the only backend a
+    /// cross-backend test cannot reach. Portable rows only — the symlink and
+    /// lossy-decode rows live in `runtime-rs`.
+    #[test]
+    fn test_dir_list_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("قائمة_مجلد"),
+            "قائمة_مجلد غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let list = |interpreter: &mut DebugInterpreter, path: Value| {
+            interpreter
+                .call_builtin("قائمة_مجلد", vec![path])
+                .expect("قائمة_مجلد تُرجع قيمة لا خطأ")
+        };
+        let names = |value: Value| -> Vec<String> {
+            match value {
+                Value::Array(items) => items
+                    .borrow()
+                    .iter()
+                    .map(|item| item.to_display_string())
+                    .collect(),
+                other => panic!("قائمة_مجلد أجابت {other:?} لا مصفوفة"),
+            }
+        };
+
+        // An absent path, the empty name and a null one are one answer: the
+        // empty array, the same refusal the runtime kernel gives.
+        let absent = std::env::temp_dir().join("tarqeem_debug_dir_list_absent");
+        std::fs::remove_dir_all(&absent).ok();
+        for path in [
+            Value::string(""),
+            Value::Null,
+            Value::string(absent.to_str().expect("مسار مؤقت صالح")),
+        ] {
+            assert!(names(list(&mut interpreter, path)).is_empty());
+        }
+
+        // A populated directory answers bare names sorted by code point,
+        // whatever order they were created in. Under the system temp directory
+        // so the row runs on Windows.
+        let dir = std::env::temp_dir().join("tarqeem_debug_dir_list_sample");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir(&dir).expect("تعذّر إنشاء المجلد");
+        std::fs::write(dir.join("ب.نص"), "").expect("تعذّر إنشاء الملف");
+        std::fs::create_dir(dir.join("أ")).expect("تعذّر إنشاء المجلد الفرعي");
+
+        let listed = names(list(
+            &mut interpreter,
+            Value::string(dir.to_str().expect("مسار مؤقت صالح")),
+        ));
+        assert_eq!(listed, vec!["أ".to_string(), "ب.نص".to_string()]);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn test_time_builtins_share_the_interpreter_clock() {
         // Same helper the main interpreter calls, so the two cannot drift.

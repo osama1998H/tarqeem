@@ -3151,4 +3151,147 @@ mod tests {
         std::fs::remove_file(target).ok();
         release_path(path);
     }
+
+    /// Reads a listing into owned Rust strings and releases every allocation,
+    /// so each `trq_dir_list` row asserts on values instead of repeating the
+    /// raw-pointer walk. These are the symbol's first unit tests: before #370
+    /// its only exercise anywhere was a `>= 1` length assertion.
+    fn listed_names(entries: *mut crate::types::TrqArray) -> Vec<String> {
+        assert!(
+            !entries.is_null(),
+            "قائمة_مجلد تُرجع null عند فشل التخصيص فقط"
+        );
+        let len = crate::array::trq_array_len(entries);
+        let mut names = Vec::new();
+        for i in 0..len {
+            let elem = crate::array::trq_array_get(entries, i);
+            unsafe {
+                let str_ptr = *(elem as *const *mut TrqString);
+                let slice = std::slice::from_raw_parts((*str_ptr).data, (*str_ptr).len as usize);
+                names.push(String::from_utf8_lossy(slice).into_owned());
+                crate::memory::trq_release(str_ptr as *mut u8);
+            }
+        }
+        crate::memory::trq_release(entries as *mut u8);
+        names
+    }
+
+    /// Bare names, sorted by code point whatever order the entries were made
+    /// in: the file lands first and the directory second, and the answer comes
+    /// back the other way round (`أ` = D8 A3 sorts before `ب` = D8 A8
+    /// bytewise). Raw readdir order is filesystem-dependent, which is exactly
+    /// why it cannot be the contract.
+    #[test]
+    fn test_dir_list_answers_sorted_bare_names() {
+        let dir = std::env::temp_dir().join("tarqeem_test_dir_list_sorted");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir(&dir).expect("تعذّر إنشاء المجلد / could not create the directory");
+        std::fs::write(dir.join("ب.نص"), "").expect("تعذّر إنشاء الملف");
+        std::fs::create_dir(dir.join("أ")).expect("تعذّر إنشاء المجلد الفرعي");
+
+        let path = path_string(dir.to_str().expect("مسار مؤقت صالح"));
+        let names = listed_names(trq_dir_list(path));
+        assert_eq!(names, vec!["أ".to_string(), "ب.نص".to_string()]);
+
+        release_path(path);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The empty directory answers the empty array as a value — and so does
+    /// every refusal: absent, a regular file, the empty name and null are
+    /// indistinguishable from it by design, since an array return has no spare
+    /// value for a refusal. A caller that must tell them apart asks
+    /// `trq_path_status`.
+    #[test]
+    fn test_dir_list_answers_empty_for_every_refusal_and_for_empty() {
+        let dir = std::env::temp_dir().join("tarqeem_test_dir_list_empty");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir(&dir).expect("تعذّر إنشاء المجلد / could not create the directory");
+        let empty_dir = path_string(dir.to_str().expect("مسار مؤقت صالح"));
+        assert!(listed_names(trq_dir_list(empty_dir)).is_empty());
+        release_path(empty_dir);
+        std::fs::remove_dir_all(&dir).ok();
+
+        let file = std::env::temp_dir().join("tarqeem_test_dir_list_file.txt");
+        std::fs::write(&file, "محتوى").expect("تعذّر إنشاء الملف");
+        let file_path = path_string(file.to_str().expect("مسار مؤقت صالح"));
+        assert!(listed_names(trq_dir_list(file_path)).is_empty());
+        release_path(file_path);
+        std::fs::remove_file(&file).ok();
+
+        let absent = path_string("/tmp/tarqeem_test_dir_list_absent");
+        assert!(listed_names(trq_dir_list(absent)).is_empty());
+        release_path(absent);
+
+        let empty_name = path_string("");
+        assert!(listed_names(trq_dir_list(empty_name)).is_empty());
+        release_path(empty_name);
+
+        assert!(listed_names(trq_dir_list(std::ptr::null())).is_empty());
+    }
+
+    /// The path argument follows a symlink the way `trq_path_status` does —
+    /// listing through the link lists the target — and a dangling link
+    /// therefore lists as absent even though the entry itself exists, which
+    /// `trq_path_delete` (acting on the name) can still see.
+    #[cfg(unix)]
+    #[test]
+    fn test_dir_list_follows_a_symlink_and_reads_a_dangling_one_as_absent() {
+        let root = std::env::temp_dir().join("tarqeem_test_dir_list_symlink");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir(&root).expect("تعذّر إنشاء المجلد / could not create the directory");
+        std::fs::create_dir(root.join("هدف")).expect("تعذّر إنشاء الهدف");
+        std::fs::write(root.join("هدف").join("داخل.نص"), "").expect("تعذّر إنشاء الملف");
+        std::os::unix::fs::symlink(root.join("هدف"), root.join("وصلة")).expect("تعذّر إنشاء الوصلة");
+        std::os::unix::fs::symlink(root.join("غائب"), root.join("معلقة"))
+            .expect("تعذّر إنشاء الوصلة المعلقة");
+
+        let through = path_string(root.join("وصلة").to_str().expect("مسار مؤقت صالح"));
+        assert_eq!(
+            listed_names(trq_dir_list(through)),
+            vec!["داخل.نص".to_string()]
+        );
+        release_path(through);
+
+        let dangling = path_string(root.join("معلقة").to_str().expect("مسار مؤقت صالح"));
+        assert!(listed_names(trq_dir_list(dangling)).is_empty());
+        release_path(dangling);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A non-UTF-8 entry name is decoded lossily and **kept** — dropping it
+    /// would make the length lie about the directory — on `trq_program_args`'s
+    /// argv rule. Only one lossy name is asserted, never uniqueness: two
+    /// distinct byte sequences may decode to the same string, deliberately.
+    /// The filesystem itself may refuse such a name (APFS does), in which case
+    /// there is nothing to list and the row is vacuously skipped — the
+    /// meaningful run is Linux, where ext4 accepts arbitrary bytes.
+    #[cfg(unix)]
+    #[test]
+    fn test_dir_list_decodes_a_non_utf8_name_lossily_instead_of_dropping_it() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = std::env::temp_dir().join("tarqeem_test_dir_list_lossy");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir(&dir).expect("تعذّر إنشاء المجلد / could not create the directory");
+
+        let raw = std::ffi::OsStr::from_bytes(b"\xff\xfe.txt");
+        if std::fs::write(dir.join(raw), "").is_err() {
+            std::fs::remove_dir_all(&dir).ok();
+            return;
+        }
+
+        let path = path_string(dir.to_str().expect("مسار مؤقت صالح"));
+        let names = listed_names(trq_dir_list(path));
+        assert_eq!(names.len(), 1, "الاسم غير الصالح أُسقط بدل أن يُقرأ متساهلاً");
+        assert!(
+            names[0].contains('\u{FFFD}'),
+            "الاسم {:?} لم يُقرأ قراءةً متساهلة",
+            names[0]
+        );
+
+        release_path(path);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

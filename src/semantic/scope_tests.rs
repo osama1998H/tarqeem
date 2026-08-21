@@ -204,6 +204,9 @@ fn test_global_scope_has_core_builtins() {
     // Path move (1) — rename(2), promoted out of `ملفات` at #368 under the
     // #352 rename: the mover acts on the name, so it is `مسار` not `ملف`.
     assert!(scope.lookup("انقل_مسار").is_some());
+    // Directory listing (1) — readdir(3), promoted out of `ملفات` at #370 with
+    // its spelling unchanged, closing Category 7's repairs.
+    assert!(scope.lookup("قائمة_مجلد").is_some());
     assert!(scope.lookup("معاملات_البرنامج").is_some());
 
     // Termination (2) — one primitive in two spellings, so both need pinning:
