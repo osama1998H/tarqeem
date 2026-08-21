@@ -4699,3 +4699,160 @@ clippy-clean at `--all-targets --all-features -D warnings`. Full suite green: **
 `develop`'s true baseline is 1454 — recounted rather than trusted, which is the same instruction the
 registry rows carry, and `examples/مدمجات.ترقيم` byte-identical
 across interpreter, JIT and native and equal to its committed golden.
+
+## #362 — `افتح_ملف`: `open(2)`, and the handle table three increments deferred
+
+`docs/builtins-vs-stdlib.md` §1.3 category 7, the fifth of eleven to land, after `اكتب_مجرى` (#347),
+`اقرأ_مجرى` (#350), `حالة_مسار` (#352) and `احذف_مسار` (#355). `(نص، عدد) -> عدد`, folding
+`trq_file_open_read`/`_write`/`_append` behind one mode.
+
+### Decisions taken before the work
+
+- **Which name.** The nominal next one, and the one §6.7.4, §6.7.5 and §6.7.6 each passed over for the
+  same recorded reason: it owes the interpreter a handle table, the first *mutable* cross-interpreter
+  state in the codebase. Every cheaper criterion-(b) single had landed by now. The alternatives were
+  checked rather than assumed: `احذف_آخر` is **B10** and worse than the blocker says — `trq_array_pop`
+  returns a *borrowed pointer into the array buffer*, so no name→symbol mapping can use it, its
+  `(مصفوفة<ن>) -> ن` return cannot be expressed in a flat `name → IrType` map, and pop-from-empty has
+  no contract because `Type::Int` has no spare value. The four half-wired `ملفات` names are cheap
+  6-site repairs but sit behind #185 item 3, still reverse-asserted at
+  `tests/module_execution_tests.rs:617-635`.
+- **`-١` on failure, not the `٠` all three folded openers answer.** `٠` names stdin in the stream pair
+  this primitive exists to feed, so a failed open answering it would send a later `اقرأ_مجرى(٠، ن)` to
+  the keyboard **and succeed**. Mapped at the boundary; the openers keep their `٠` under standing
+  rule 3.
+- **The mode before the path**, the order `حالة_مسار` settles its field in, so an unknown mode creates
+  nothing. `٣` refused with the rest — it is `وضع_قراءة_كتابة` in `stdlib/ملفات/ملف.ترقيم` and no
+  handle direction can serve it.
+- **The example covers refusals only.** Chosen with the owner. §6.7.4 predicted this name would move
+  the line by making a file creatable; it does not, for a third reason again — the example runs from
+  the repository root, so a file it creates is an effect there, and a handle's *number* would go into
+  the golden besides.
+
+### The cost forecast, and what it cost
+
+§6.7's discriminator said **nine**: no runtime symbol takes a mode, and no registered name. Then
+#342's caveat was checked with the question that has now predicted it three times for three — *does
+the effect have anywhere to arrive?* Natively **yes** (both stream functions already resolve `٣`+
+against `FILE_HANDLES`); interpreted **no**, and there is no `thread_local!` anywhere in `src/` to
+copy. Forecast: **nine plus handle-table and flush plumbing, ≈15-16**. It cost **seventeen** — the
+nine, plus the interpreter handle table (its `store_handle`, `flush_program_files` and the runtime's
+`flush_open_writers` counted with it, since neither flush function exists without the table),
+`call_write_stream`'s `≥٣` arm, `call_read_stream`'s split condition, and five program-end call
+sites: `trq_runtime_cleanup`, `trq_exit`, the CLI's normal completion, its `ProgramExit` path, and
+the REPL's exit. That is 9 + 1 + 2 + 5, the decomposition the inventory row carries — stated as
+arithmetic because the first pass wrote "sixteen" over a list that enumerated eighteen.
+
+**The fifth site was found in review, and the asymmetry is what gave it away.** The first pass
+counted four and left the REPL's normal exit unflushed while `أنهِ_البرنامج` *inside the same
+session* flushed through `exit_if_program_asked` — so one session lost bytes on one exit route and
+kept them on the other, and which one it took decided the file's contents. Reachable in **one line**
+(`اكتب_مجرى(افتح_ملف(…، ١)، …)`), not two: the REPL evaluates each line in a fresh scope and does not
+persist bindings, while the handle table is process-wide — verified both halves. The session is the
+process the program ran in, so leaving it is a program end like any other; every `break` in the
+REPL loop converges on one tail, so one call covers `خروج`, EOF and an I/O error alike. Not
+per-evaluation, because buffering is observable contract. Generalisable: **when a resource is
+released "at program end", enumerate the *ends*, not the exits you happened to write** — the DAP
+session remains a documented gap (adjacent to #346), which is a flag raised rather than one missed.
+
+**What the three deferrals got wrong is the useful part.** They called this "two primitives' work".
+It is not — `اغلق_ملف` did not have to come along. What they were actually measuring is that the
+opener cannot land *without a flush*, which is smaller and more specific.
+
+### What it found that the plan did not state
+
+**A `BufWriter` nobody closes loses its bytes natively and keeps them interpreted, and the backend
+diff cannot see it.** `trq_write_stream`'s handle path does not flush (deliberate, §6.7.2),
+`trq_file_close` is the only flusher, and nothing in the language closes a handle. Natively `main` is
+`#[no_mangle] extern "C"` and bypasses `lang_start`, so no thread-local destructor runs and the
+payload is **dropped**; the interpreter's destructors do run, so it writes the file. Same source, same
+exit status, different filesystem — and `compare-backends` compares stdout. Flushed at program end on
+both sides, and **only** on the paths where native flushes: normal completion and `أنهِ_البرنامج`. Not
+on `توقف`, because `trq_panic` does not flush either — so a run that dies loses the bytes in both
+backends rather than in one. Verified empirically before the fix: with the write done and no flush,
+the file was **empty**; after, it held the bytes.
+
+Generalisable: **a primitive that hands out a resource inherits every question about when that
+resource is released**, and the answer has to be the same on every backend even when nothing in the
+language can ask for it.
+
+**The row named what it folds and not what it answers.** `٠` means failure in all three openers and
+*stdin* in the stream pair — the one value the new signature could not reuse. The check that finds it
+is #352's and #355's «read each folded name's implementation», applied to the **return value** rather
+than the dispatch. Not a new defect class; a new place to point the same check.
+
+**A directory is refused in every mode, and running the example is what found the question.** The
+line `افتح_ملف(".", ٠)` was written expecting `-١` and answered a handle, because `File::open`
+succeeds on a directory under POSIX. The first answer was to document the platform split — Windows
+refuses the same open, `CreateFile` there needing a flag `std` does not pass — and that was wrong:
+`cargo test` never runs on Windows (the matrix job only builds), so the cross-backend test would have
+encoded a Unix-only answer with nothing able to catch it. **#355's review lesson inverted** — there a
+`cfg(unix)` suite could not see a contract the docs stated unconditionally; here an ungated test could
+not see a platform the docs had just carved out. Same remedy: one documented behaviour, one
+implementation. Refused on both sides, checked through the *opened* handle so there is no window
+between test and open, and provably a no-op where the open already failed. Devices and FIFOs are not
+refused — `/dev/null` stays useful. **Third increment running where a check on the example found a
+contract row**, after #355's banner collision and #360's leading `--`.
+
+**A scalar's missing-return-type mode transfers in its two composition rows and not in its printing
+row.** Measured with the entry deleted: `نوع` → `مؤشر` and `+ ١` → native ت٠١٠١ «'%v3' defined with
+type 'ptr' but expected 'i64'» both transferred from #347/#352/#355 exactly. `اطبع` did **not**: where
+#352's `حالة_مسار` printed nothing and exited 0, this **aborts** — «misaligned pointer dereference:
+address must be a multiple of 0x8 but is 0xffffffffffffffff», exit 134 — because the sentinel's
+*value* is `-١`, which as an address is `0xffff…f`. So the rule keeps its two reliable rows and loses
+the third: **predict a scalar's `نوع` and arithmetic rows from the type; do not predict its printing
+row at all.** A narrowing of #350's rule, not a new class.
+
+**The handle table's shape was forced by observability, not chosen.** `BufReader`/`BufWriter` on both
+sides because buffering is *visible*: a program that writes and then opens the same path for reading
+sees an unflushed buffer as an empty file, so an unbuffered `File` in the interpreter would have made
+the backends disagree on the row this primitive is most likely used for. The counter is thread-local
+where the runtime's is a global atomic — indistinguishable to a single-threaded program, and it keeps
+a handle number in this crate's own test binary from depending on which other test ran first. Both
+start at 3, which is what makes the number comparable at all. The table is not cleared between REPL
+evaluations (one process is one handle space) and a DAP session gets no exit-flush, since the debugger
+does not travel the CLI exit path — adjacent to #346.
+
+**The sixth consecutive contract-forced harness helper, and the first that reads.** env on the child
+(#338), stdin on the child (#350), fixture files (#352), a tree restored per leg (#355), arguments on
+the child (#360) — and here `assert_prints_with_tree_and_contents`, which reads a fixture's bytes back
+**after** the run, because the durability row is invisible from inside the program. The check runs
+inside the backend loop, so a backend that drops the bytes fails on its own leg.
+
+**Six now-stale claims corrected in passing.** Six comments in `runtime-rs`, the execution tests and
+the debug interpreter said descriptor `٣` answers a refusal because *nothing in the language can open
+a handle*. The assertions are all still correct — those programs open none — but the reason is now
+"this program has not opened one", which is a property of the program rather than of the language.
+Rewritten rather than left, because a reader would otherwise take them as the contract.
+
+### Verification
+
+`cargo fmt` clean; the main crate clippy-clean at `--all-targets --all-features -D warnings`.
+`runtime-rs` clippy measured as a **diagnostic multiset** per #355's instruction
+(`--message-format=short`, strip `file:line:col:`, `sort | uniq -c`) and **byte-identical to
+`develop`**: 87 diagnostics — 55 `unnecessary unsafe block`, 24 `manually constructing a
+nul-terminated string`, one `match` reducible to `?`, and the 7 pre-existing deny-level
+`approx_constant` errors in `math.rs` test code (#310). Note the number: 87 with `--all-targets`,
+where #360's entry recorded 76 — recount with the command rather than trusting either figure.
+
+Full suite green: **1456** unit tests (+1, the debug-interpreter dispatchability test) and **216**
+builtin execution tests (+13), zero failures, plus 9 new `runtime-rs` unit tests
+(`cargo test -p tarqeem-runtime --lib` — `--lib` because the `integration` target fails on a
+pre-existing duplicate `main`). `cargo check -p tarqeem-runtime --target aarch64-unknown-linux-gnu
+--all-targets` clean, run because this change touches `runtime-rs` FFI and CI's cross-platform matrix
+builds only the workspace root package (#310 from another angle, #360's `c_char` lesson).
+
+`examples/مدمجات.ترقيم` byte-identical across interpreter, JIT and native, equal to its regenerated
+golden, and the diff is **purely additive** — 15 lines — which is what confirms the pre-existing
+`اكتب_مجرى(٣، …)` → `-1` line still answers the same thing now that a handle *can* exist at `٣`. The
+DAP interpreter runs the section too (`printf 'r\nc\nq\n' | tarqeem debug`), which is the fourth
+executing backend and has no leg in the cross-backend suite.
+
+The keyword sweep over all 77 Arabic keyword literals in `src/lexer/keywords.rs` found **none**
+embedded in `افتح_ملف`, so it gets no row in `test_identifier_containing_a_keyword_stays_one_token` —
+adding one dilutes what that test tests. No diacritic, so #342's check does not apply, and nothing
+contextual, so #352's does not either.
+
+**`اغلق_ملف` is next**, and its job is sharper than its row says: not "release the handle" but "make
+the bytes land *sooner* than program end". Its `(عدد) -> منطقي` return means §1.1 rule 5 applies in
+full — §6.7.1's `فراغ` note listed it by mistake, corrected there.

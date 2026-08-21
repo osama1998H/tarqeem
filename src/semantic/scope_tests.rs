@@ -186,6 +186,10 @@ fn test_global_scope_has_core_builtins() {
     assert!(scope.lookup("اكتب_مجرى").is_some());
     assert!(scope.lookup("اقرأ_مجرى").is_some());
 
+    // File opening (1) — the name that finally makes the byte-stream pair
+    // reachable over anything but the console.
+    assert!(scope.lookup("افتح_ملف").is_some());
+
     // Path status (1) — the one name four `ملفات` names reduce to.
     assert!(scope.lookup("حالة_مسار").is_some());
 

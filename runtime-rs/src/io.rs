@@ -640,6 +640,110 @@ pub extern "C" fn trq_file_open_append(path: *const TrqString) -> i64 {
     }
 }
 
+/// The three ways `افتح_ملف` can open a path.
+///
+/// Chosen to match the `ثابت`s `stdlib/ملفات/ملف.ترقيم` already declares. That
+/// file also declares `وضع_قراءة_كتابة = 3`, which has no path here: a
+/// read-write handle is neither a [`FileHandle::Reader`] nor a
+/// [`FileHandle::Writer`], and a third variant would touch all eight functions
+/// that read `FILE_HANDLES`. So `3` is refused rather than served silently by
+/// one of its halves.
+const OPEN_READ: i64 = 0;
+const OPEN_WRITE: i64 = 1;
+const OPEN_APPEND: i64 = 2;
+
+/// `افتح_ملف`'s failure answer, and deliberately **not** the `0` the three
+/// openers above return.
+///
+/// `0` names stdin in the stream pair, so a failed open answering `0` would send
+/// `اقرأ_مجرى(٠، ن)` to the keyboard — succeeding, and reading the wrong thing.
+/// `-1` is already refused by both stream primitives, and is what `اكتب_مجرى`
+/// answers when it fails.
+const OPEN_FAILED: i64 = -1;
+
+/// Backs the core builtin `افتح_ملف`: opens `path` in `mode` and answers a
+/// handle the stream pair can name.
+///
+/// The mode is settled before the path, the order [`trq_write_stream`] settles
+/// its descriptor in and [`trq_path_status`] its field: an unknown mode is not a
+/// request the filesystem should be troubled with, so `افتح_ملف(".", ٩)` creates
+/// nothing.
+///
+/// Every handle is `>= 3`, since `NEXT_FILE_HANDLE` starts there, so the answer
+/// goes straight to `اكتب_مجرى`/`اقرأ_مجرى` without colliding with a console
+/// stream.
+///
+/// **Bytes written to a handle are not guaranteed to reach the file until the
+/// program ends**, because [`trq_write_stream`]'s handle path does not flush and
+/// nothing in the language closes a handle yet. [`flush_open_writers`] is what
+/// makes them land; `اغلق_ملف` will be what makes them land sooner.
+///
+/// **A directory is refused in every mode**, so the answer does not depend on the
+/// platform — see the note in the body.
+///
+/// # Returns
+/// * The handle, or `-1` for an unknown mode, a directory, an absent path *in read
+///   mode*, a path that cannot be opened or created, an empty name, or a null
+///   pointer. Write and append modes create an absent path rather than refusing
+///   it.
+///
+/// # Safety
+///
+/// - `path` must be a valid pointer to a `TrqString` or null.
+///
+/// # C Equivalent
+/// ```c
+/// int64_t trq_file_open(const TrqString* path, int64_t mode);
+/// ```
+#[no_mangle]
+pub extern "C" fn trq_file_open(path: *const TrqString, mode: i64) -> i64 {
+    let handle = match mode {
+        OPEN_READ => trq_file_open_read(path),
+        OPEN_WRITE => trq_file_open_write(path),
+        OPEN_APPEND => trq_file_open_append(path),
+        _ => return OPEN_FAILED,
+    };
+
+    if handle == 0 {
+        return OPEN_FAILED;
+    }
+
+    // A directory is refused, and this is what makes the answer the same on every
+    // platform. `File::open` succeeds on one under POSIX and fails on Windows,
+    // where opening a directory handle needs `FILE_FLAG_BACKUP_SEMANTICS` that
+    // `std` does not pass — so honouring `open(2)` literally would make one
+    // program answer a handle on Linux and `-1` on Windows, in a contract row.
+    // The handle would be useless either way: `اقرأ_مجرى` reads nothing from it
+    // and `قائمة_مجلد` is how a directory is listed.
+    //
+    // Checked through the open handle rather than the path, so there is no window
+    // between the test and the open. Provably a no-op on Windows, where the open
+    // already failed — the shape #355 chose over a `cfg(windows)` arm, because one
+    // documented behaviour should have one implementation. Devices and FIFOs are
+    // **not** refused: `/dev/null` opens usefully and portably enough.
+    if handle_is_directory(handle) {
+        trq_file_close(handle);
+        return OPEN_FAILED;
+    }
+
+    handle
+}
+
+/// Whether an open handle names a directory, answering `false` if it cannot tell.
+fn handle_is_directory(handle: i64) -> bool {
+    FILE_HANDLES.with(|handles| {
+        let handles = handles.borrow();
+        match handles.get(&handle) {
+            Some(FileHandle::Reader(reader)) => reader
+                .get_ref()
+                .metadata()
+                .map(|data| data.is_dir())
+                .unwrap_or(false),
+            _ => false,
+        }
+    })
+}
+
 /// Close a file handle.
 /// Returns true on success, false on error (invalid handle).
 #[no_mangle]
@@ -745,6 +849,24 @@ pub extern "C" fn trq_file_flush(handle: i64) -> bool {
             false
         }
     })
+}
+
+/// Flush every open writer, closing nothing.
+///
+/// Called at program end. Nothing in the language can flush until `اغلق_ملف`
+/// lands, and [`trq_write_stream`]'s handle path does not — so without this a
+/// `BufWriter`'s contents are **lost** natively, where `main` is `extern "C"`
+/// and no thread-local destructor runs, while the interpreter still wrote them.
+/// That is the divergence [`crate::trq_exit`]'s stdout flush already exists to
+/// prevent, one layer down.
+pub(crate) fn flush_open_writers() {
+    FILE_HANDLES.with(|handles| {
+        for handle in handles.borrow_mut().values_mut() {
+            if let FileHandle::Writer(writer) = handle {
+                let _ = writer.flush();
+            }
+        }
+    });
 }
 
 // ============================================================================
@@ -1712,10 +1834,9 @@ mod tests {
     /// The `٣`-and-up half of `اكتب_مجرى`'s descriptor map: bytes reach a handle
     /// opened by `trq_file_open_write`.
     ///
-    /// Driven from Rust because no Arabic name opens a handle yet — `افتح_ملف` is
-    /// still ahead in Increment G — so this path is unreachable from Tarqeem
-    /// source. It is implemented rather than stubbed, and covered here so the
-    /// contract cannot shift under it when the opener lands.
+    /// Driven from Rust because it predates `افتح_ملف` (#362), which is what made
+    /// this path reachable from Tarqeem source. Kept here as the unit-level pin:
+    /// the cross-backend tests exercise the same path through the opener.
     #[test]
     fn test_write_stream_writes_to_a_file_handle() {
         let test_path = "/tmp/tarqeem_test_write_stream_handle.txt";
@@ -1832,10 +1953,9 @@ mod tests {
 
     /// `اقرأ_مجرى` over a handle from `trq_file_open_read`.
     ///
-    /// Driven from Rust for the reason the write test is: no Arabic name opens a
-    /// handle yet, so this path is unreachable from Tarqeem source. Implemented
-    /// rather than stubbed, and covered here so the contract cannot shift under
-    /// it when `افتح_ملف` lands.
+    /// Driven from Rust for the reason the write test is: it predates `افتح_ملف`
+    /// (#362). Kept as the unit-level pin for a path the cross-backend tests now
+    /// reach through the opener.
     #[test]
     fn test_read_stream_reads_a_file_handle() {
         let test_path = "/tmp/tarqeem_test_read_stream_handle.txt";
@@ -2261,5 +2381,230 @@ mod tests {
             }
         }
         arr
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // trq_file_open — افتح_ملف
+    // ────────────────────────────────────────────────────────────────────
+
+    /// Every handle is past the console streams, so a program may hand the
+    /// answer straight to `اكتب_مجرى`/`اقرأ_مجرى`. Asserted as `>= 3` and never
+    /// `== 3`: `NEXT_FILE_HANDLE` is process-global, so the value depends on how
+    /// many handles other tests in this binary have taken.
+    #[test]
+    fn test_file_open_answers_a_handle_past_the_console_streams() {
+        let target = "/tmp/tarqeem_test_file_open_read.txt";
+        std::fs::write(target, "مرحبا").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        let handle = trq_file_open(path, OPEN_READ);
+        assert!(
+            handle >= 3,
+            "المعرِّف {handle} يزاحم مجرى قياسياً / handle collides with a standard stream"
+        );
+
+        assert!(trq_file_close(handle));
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// Write mode creates the file, and that is observable with no flush and no
+    /// close — `File::create` reaches the filesystem before any byte does. It is
+    /// what lets `حالة_مسار` see a file the program just opened.
+    #[test]
+    fn test_file_open_in_write_mode_creates_the_file() {
+        let target = "/tmp/tarqeem_test_file_open_creates.txt";
+        std::fs::remove_file(target).ok();
+
+        let path = path_string(target);
+        let handle = trq_file_open(path, OPEN_WRITE);
+        assert!(handle >= 3);
+        assert_eq!(trq_path_status(path, STAT_FIELD_KIND), PATH_KIND_FILE);
+
+        assert!(trq_file_close(handle));
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// Append keeps what was there; write truncates it. The two modes differ in
+    /// exactly this, so one test covers both.
+    #[test]
+    fn test_file_open_appends_where_write_truncates() {
+        let target = "/tmp/tarqeem_test_file_open_append.txt";
+        std::fs::write(target, "أ").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        let appender = trq_file_open(path, OPEN_APPEND);
+        assert!(appender >= 3);
+        assert_eq!(trq_write_stream(appender, byte_array(b"B")), 1);
+        assert!(trq_file_close(appender));
+        assert_eq!(std::fs::read(target).unwrap(), "أB".as_bytes());
+
+        let truncater = trq_file_open(path, OPEN_WRITE);
+        assert!(truncater >= 3);
+        assert!(trq_file_close(truncater));
+        assert!(std::fs::read(target).unwrap().is_empty());
+
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// A mode this function does not know is refused **before** the path, so a
+    /// bad mode creates nothing. `3` is `وضع_قراءة_كتابة` in
+    /// `stdlib/ملفات/ملف.ترقيم`, which has no handle kind here — the row that
+    /// makes this test more than a range check.
+    #[test]
+    fn test_file_open_refuses_an_unknown_mode_without_touching_the_path() {
+        let target = "/tmp/tarqeem_test_file_open_bad_mode.txt";
+        std::fs::remove_file(target).ok();
+
+        let path = path_string(target);
+        for mode in [3, 9, -1, i64::MIN, i64::MAX] {
+            assert_eq!(trq_file_open(path, mode), OPEN_FAILED, "الوضع {mode}");
+            assert!(
+                !std::path::Path::new(target).exists(),
+                "الوضع {mode} أنشأ ملفاً / mode created a file"
+            );
+        }
+
+        release_path(path);
+    }
+
+    /// `-1`, never `0`: `0` names stdin, so a failed open answering it would send
+    /// a later `اقرأ_مجرى` to the keyboard. An absent path, an empty name and a
+    /// null pointer are one answer.
+    #[test]
+    fn test_file_open_answers_minus_one_for_nothing_to_open() {
+        let absent = path_string("/tmp/tarqeem_test_file_open_absent_dir/nothing.txt");
+        assert_eq!(trq_file_open(absent, OPEN_READ), OPEN_FAILED);
+        release_path(absent);
+
+        let empty = path_string("");
+        assert_eq!(trq_file_open(empty, OPEN_READ), OPEN_FAILED);
+        release_path(empty);
+
+        assert_eq!(trq_file_open(std::ptr::null(), OPEN_READ), OPEN_FAILED);
+    }
+
+    /// A directory is refused in every mode, which is a deliberate deviation from
+    /// `open(2)`: POSIX opens a directory read-only and Windows does not, so a
+    /// literal reading would answer a handle on one platform and `-1` on the other
+    /// in a contract row. The handle is useless either way.
+    ///
+    /// Also asserts the handle is not leaked — the refusal closes what it opened,
+    /// so a following open answers the *next* id rather than skipping two.
+    #[test]
+    fn test_file_open_refuses_a_directory_in_every_mode() {
+        let target = "/tmp/tarqeem_test_file_open_dir";
+        std::fs::remove_dir_all(target).ok();
+        std::fs::create_dir(target).expect("تعذّر إنشاء المجلد / could not create the directory");
+
+        let path = path_string(target);
+        for mode in [OPEN_READ, OPEN_WRITE, OPEN_APPEND] {
+            assert_eq!(trq_file_open(path, mode), OPEN_FAILED, "الوضع {mode}");
+        }
+        assert!(
+            std::path::Path::new(target).is_dir(),
+            "المجلد تغيّر / the directory was disturbed"
+        );
+
+        std::fs::remove_dir_all(target).ok();
+        release_path(path);
+    }
+
+    /// Two opens are two handles. They must differ, or a program holding both
+    /// would write through the one it meant to read.
+    #[test]
+    fn test_file_open_hands_out_distinct_handles() {
+        let target = "/tmp/tarqeem_test_file_open_distinct.txt";
+        std::fs::write(target, "مرحبا").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        let first = trq_file_open(path, OPEN_READ);
+        let second = trq_file_open(path, OPEN_READ);
+        assert!(first >= 3 && second >= 3);
+        assert_ne!(first, second);
+
+        assert!(trq_file_close(first));
+        assert!(trq_file_close(second));
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// A handle carries a direction, and the stream pair honours it: writing to a
+    /// reader fails and reading a writer answers nothing. Both refusals already
+    /// existed for a handle that was never opened; this is the first time a
+    /// *live* handle can be the wrong kind.
+    #[test]
+    fn test_file_open_handles_carry_their_direction() {
+        let target = "/tmp/tarqeem_test_file_open_direction.txt";
+        std::fs::write(target, "مرحبا").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        let reader = trq_file_open(path, OPEN_READ);
+        assert_eq!(trq_write_stream(reader, byte_array(b"x")), WRITE_FAILED);
+
+        let writer = trq_file_open(path, OPEN_APPEND);
+        let nothing = trq_read_stream(writer, 4);
+        assert!(slots_of(nothing).is_empty());
+
+        assert!(trq_file_close(reader));
+        assert!(trq_file_close(writer));
+        std::fs::remove_file(target).ok();
+        release_path(path);
+        crate::memory::trq_release(nothing as *mut u8);
+    }
+
+    /// The round trip the opener exists for: open, write bytes through
+    /// `اكتب_مجرى`, open again, read them back through `اقرأ_مجرى`. Arabic
+    /// content on purpose — two bytes per character, so a byte count and a
+    /// character count cannot be confused for one another.
+    #[test]
+    fn test_file_open_round_trips_bytes_through_the_stream_pair() {
+        let target = "/tmp/tarqeem_test_file_open_round_trip.txt";
+        std::fs::remove_file(target).ok();
+
+        let path = path_string(target);
+        let writer = trq_file_open(path, OPEN_WRITE);
+        assert_eq!(trq_write_stream(writer, byte_array("مرحبا".as_bytes())), 10);
+        assert!(trq_file_close(writer));
+
+        let reader = trq_file_open(path, OPEN_READ);
+        let answer = trq_read_stream(reader, 64);
+        let expected: Vec<i64> = "مرحبا".as_bytes().iter().map(|b| *b as i64).collect();
+        assert_eq!(slots_of(answer), expected);
+
+        assert!(trq_file_close(reader));
+        std::fs::remove_file(target).ok();
+        release_path(path);
+        crate::memory::trq_release(answer as *mut u8);
+    }
+
+    /// The durability row, and the reason [`flush_open_writers`] exists.
+    ///
+    /// `trq_write_stream`'s handle path does not flush and nothing in the
+    /// language closes a handle yet, so without this call the bytes sit in a
+    /// `BufWriter` that no destructor runs — `main` is `extern "C"`. The empty
+    /// read before it is what proves the flush is doing the work rather than the
+    /// write having already landed.
+    #[test]
+    fn test_flush_open_writers_lands_bytes_with_no_close() {
+        let target = "/tmp/tarqeem_test_file_open_flush.txt";
+        std::fs::remove_file(target).ok();
+
+        let path = path_string(target);
+        let writer = trq_file_open(path, OPEN_WRITE);
+        assert_eq!(trq_write_stream(writer, byte_array(b"hi")), 2);
+        assert!(
+            std::fs::read(target).unwrap().is_empty(),
+            "الكتابة بلغت الملف قبل الإفراغ"
+        );
+
+        flush_open_writers();
+        assert_eq!(std::fs::read(target).unwrap(), b"hi");
+
+        assert!(trq_file_close(writer));
+        std::fs::remove_file(target).ok();
+        release_path(path);
     }
 }

@@ -413,6 +413,13 @@ impl IrBuilder {
         self.function_return_types
             .insert("حالة_مسار".to_string(), IrType::Int);
 
+        // `افتح_ملف` answers an `عدد` descriptor, so #347's scalar prediction
+        // applies for the third time: `اطبع` prints nothing natively, `نوع`
+        // answers `مؤشر`, and `+`/`==` fail native compilation with ت٠١٠١. The
+        // composition test asserts exactly those.
+        self.function_return_types
+            .insert("افتح_ملف".to_string(), IrType::Int);
+
         // `احذف_مسار` answers a `منطقي`, and #347's scalar prediction is what
         // applies — confirmed again here, and it transfers across names where
         // #330's array measurement did not (#350). Measured with this entry

@@ -39,6 +39,11 @@ pub extern "C" fn trq_runtime_cleanup() {
     // - Release global resources
     // - Report memory leaks in debug mode
 
+    // Open file writers first, for the reason the stdout flush below exists: no
+    // thread-local destructor runs after an `extern "C"` main, so a buffered
+    // handle would lose its bytes where the interpreter kept them.
+    crate::io::flush_open_writers();
+
     // Flush stdout and stderr to ensure all output is written
     use std::io::Write;
     let _ = std::io::stdout().flush();
@@ -144,11 +149,14 @@ pub(crate) fn exit_status(status: i64) -> i32 {
 /// The flushes are load-bearing. `process::exit` runs no destructors, so a
 /// buffered `print!` with no trailing newline would be dropped here while the
 /// interpreter's own path still printed it — a cross-backend divergence in the
-/// one direction stdout buffering can produce.
+/// one direction stdout buffering can produce. Open file writers are flushed for
+/// the same reason: since #362 a program can hold one, and nothing in the
+/// language closes it.
 #[no_mangle]
 pub extern "C" fn trq_exit(status: i64) -> ! {
     use std::io::Write;
 
+    crate::io::flush_open_writers();
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
     process::exit(exit_status(status));

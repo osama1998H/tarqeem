@@ -115,6 +115,7 @@ pub use io::{
     trq_file_is_dir,
     trq_file_is_file,
     trq_file_move,
+    trq_file_open,
     trq_file_open_append,
     trq_file_open_read,
     trq_file_open_write,

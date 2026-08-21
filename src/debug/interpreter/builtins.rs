@@ -4,9 +4,9 @@ use std::io::{self, Write};
 
 use crate::interpreter::epoch_millis;
 use crate::interpreter::{
-    bytes_to_string, call_env_var, call_exit_program, call_path_delete, call_path_status,
-    call_program_args, call_read_stream, call_substring_by_chars, call_write_stream, RuntimeError,
-    RuntimeResult, Value,
+    bytes_to_string, call_env_var, call_exit_program, call_file_open, call_path_delete,
+    call_path_status, call_program_args, call_read_stream, call_substring_by_chars,
+    call_write_stream, RuntimeError, RuntimeResult, Value,
 };
 
 use super::DebugInterpreter;
@@ -39,6 +39,7 @@ impl DebugInterpreter {
                 | "متغير_بيئة"
                 | "اكتب_مجرى"
                 | "اقرأ_مجرى"
+                | "افتح_ملف"
                 | "حالة_مسار"
                 | "احذف_مسار"
                 | "معاملات_البرنامج"
@@ -272,6 +273,7 @@ impl DebugInterpreter {
 
             "اكتب_مجرى" => call_write_stream(&args),
             "اقرأ_مجرى" => call_read_stream(&args),
+            "افتح_ملف" => call_file_open(&args),
             "حالة_مسار" => call_path_status(&args),
             "احذف_مسار" => call_path_delete(&args),
             "معاملات_البرنامج" => call_program_args(&args),
@@ -729,7 +731,7 @@ mod tests {
             crate::debug::DebugContext::default(),
         );
 
-        // `٠` is stdin and `٣` upward names a handle nothing can have opened, so
+        // `٠` is stdin and `٣` upward names a handle this test has not opened, so
         // both answer `-١` — the same answers the runtime gives.
         for descriptor in [0, 3, -1] {
             let refused = interpreter
@@ -799,8 +801,8 @@ mod tests {
             }
         }
 
-        // `١` and `٢` carry bytes the other way, `٣` upward names a handle
-        // nothing can have opened, and a negative descriptor names nothing — all
+        // `١` and `٢` carry bytes the other way, `٣` upward names a handle this
+        // test has not opened, and a negative descriptor names nothing — all
         // answer the empty array, as the runtime does.
         for descriptor in [1, 2, 3, -1] {
             let refused = interpreter
@@ -930,6 +932,42 @@ mod tests {
             ),
             other => panic!("متوقع مصفوفة، وُجد {}", other.type_name()),
         }
+    }
+
+    /// `افتح_ملف` under the debug interpreter.
+    ///
+    /// Driven on a **refusal** deliberately: an unknown mode is settled before
+    /// the path, so this touches no filesystem at all — which an in-process unit
+    /// test in a shared handle space should not. `٣` is the row worth using, since
+    /// `stdlib/ملفات/ملف.ترقيم` calls it `وضع_قراءة_كتابة` and no handle
+    /// direction here can serve it.
+    ///
+    /// It pins the answer's *shape* too — an `عدد`, not a null — which is what
+    /// would break if the dispatch arm were dropped while `is_builtin` kept the
+    /// name.
+    #[test]
+    fn test_file_open_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("افتح_ملف"),
+            "افتح_ملف غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let refused = interpreter
+            .call_builtin("افتح_ملف", vec![Value::string("/tmp"), Value::Int(3)])
+            .expect("افتح_ملف تُرجع قيمة لا خطأ");
+        assert_eq!(refused, Value::Int(-1));
+
+        // A pointer parameter, so `لا_شيء` is an answer rather than a type error
+        // — the runtime's null guard mirrored (#324).
+        let absent = interpreter
+            .call_builtin("افتح_ملف", vec![Value::Null, Value::Int(0)])
+            .expect("افتح_ملف تُرجع قيمة لا خطأ");
+        assert_eq!(absent, Value::Int(-1));
     }
 
     /// `احذف_مسار` under the debug interpreter, which is the only backend a

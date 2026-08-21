@@ -6,6 +6,8 @@
 //! Note: Tarqeem is an Arabic-only programming language.
 //! All built-in functions use Arabic names exclusively.
 
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, BufRead, Read, Write};
 
@@ -151,16 +153,167 @@ const STREAM_STDERR: i64 = 2;
 /// negative.
 const WRITE_FAILED: i64 = -1;
 
+/// `افتح_ملف`'s modes and its failure answer, mirroring `runtime-rs/src/io.rs`.
+///
+/// `-١` and not `٠`, because `٠` is stdin above: a failed open answering `٠`
+/// would send a later `اقرأ_مجرى` to the keyboard and succeed.
+const OPEN_READ: i64 = 0;
+const OPEN_WRITE: i64 = 1;
+const OPEN_APPEND: i64 = 2;
+const OPEN_FAILED: i64 = -1;
+
+/// An open file, one direction each, mirroring `runtime-rs/src/io.rs`'s
+/// `FileHandle`.
+///
+/// The buffering is copied deliberately, not chosen: it is **observable**, since
+/// a program that writes and then opens the same path for reading sees an
+/// unflushed buffer as an empty file. An unbuffered `File` here would make the
+/// two backends disagree about exactly that.
+enum InterpreterFileHandle {
+    Reader(io::BufReader<fs::File>),
+    Writer(io::BufWriter<fs::File>),
+}
+
+thread_local! {
+    /// The interpreter's handle table — the first state either interpreter keeps
+    /// *between* builtin calls.
+    ///
+    /// Module state rather than a field on `Interpreter` for the reason
+    /// `PROGRAM_ARGS` is: every shared helper here is a stateless free function
+    /// over `&[Value]`, so a field would hand the two interpreters separate
+    /// tables to drift apart. Unlike `PROGRAM_ARGS` this one is *mutable*.
+    ///
+    /// Not cleared between REPL evaluations, deliberately: one process is one
+    /// handle space, which is what a compiled program gets.
+    static OPEN_FILES: RefCell<HashMap<i64, InterpreterFileHandle>> =
+        RefCell::new(HashMap::new());
+
+    /// Starts at 3 to match `NEXT_FILE_HANDLE` in the runtime, so the first
+    /// handle a program opens carries the same number in every backend — a
+    /// program may print it, and the CI backend diff would see a difference.
+    ///
+    /// Thread-local where the runtime's counter is a global atomic: a Tarqeem
+    /// program is single-threaded, so the two are indistinguishable to it, and
+    /// keeping it thread-local means a handle number in this crate's own test
+    /// binary does not depend on which other test ran first.
+    static NEXT_HANDLE: Cell<i64> = const { Cell::new(3) };
+}
+
+/// Files a freshly opened handle and answers its descriptor.
+fn store_handle(handle: InterpreterFileHandle) -> i64 {
+    let id = NEXT_HANDLE.with(|next| {
+        let id = next.get();
+        next.set(id + 1);
+        id
+    });
+    OPEN_FILES.with(|files| files.borrow_mut().insert(id, handle));
+    id
+}
+
+/// `افتح_ملف`'s whole dispatch, shared with the debug interpreter the way
+/// `call_write_stream` below is.
+///
+/// The mode is settled before the path, the order `call_path_status` settles its
+/// field in: an unknown mode is refused without the filesystem being touched, so
+/// a bad mode creates nothing. `٣` is refused with the rest — it is
+/// `وضع_قراءة_كتابة` in `stdlib/ملفات/ملف.ترقيم`, and neither handle direction
+/// can serve it.
+///
+/// The path is a pointer, so an un-narrowed `نص؟` arrives as `لا_شيء` and answers
+/// `-١`, matching the runtime's null guard (#324). The mode is an `عدد` and gets
+/// no such arm: codegen turns `لا_شيء` into `0` above the runtime, which is a
+/// *valid* mode, so mirroring it would encode #327 as contract.
+pub(crate) fn call_file_open(args: &[Value]) -> RuntimeResult<Value> {
+    const ARITY: &str = "افتح_ملف() تتطلب معاملين: المسار والوضع";
+
+    let path = args
+        .first()
+        .ok_or_else(|| RuntimeError::invalid_operation(ARITY))?;
+    let mode = args
+        .get(1)
+        .ok_or_else(|| RuntimeError::invalid_operation(ARITY))?;
+    let mode = mode
+        .as_int()
+        .ok_or_else(|| RuntimeError::type_error("عدد", mode.type_name()))?;
+
+    if !matches!(mode, OPEN_READ | OPEN_WRITE | OPEN_APPEND) {
+        return Ok(Value::Int(OPEN_FAILED));
+    }
+
+    let path = match path {
+        Value::String(text) => text.as_str().to_string(),
+        Value::Null => return Ok(Value::Int(OPEN_FAILED)),
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+
+    let opened = match mode {
+        OPEN_READ => {
+            fs::File::open(&path).map(|f| InterpreterFileHandle::Reader(io::BufReader::new(f)))
+        }
+        OPEN_WRITE => {
+            fs::File::create(&path).map(|f| InterpreterFileHandle::Writer(io::BufWriter::new(f)))
+        }
+        _ => fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&path)
+            .map(|f| InterpreterFileHandle::Writer(io::BufWriter::new(f))),
+    };
+
+    let handle = match opened {
+        Ok(handle) => handle,
+        Err(_) => return Ok(Value::Int(OPEN_FAILED)),
+    };
+
+    // A directory is refused, mirroring `trq_file_open`, and for the reason given
+    // there: `File::open` succeeds on one under POSIX and fails on Windows, so
+    // honouring `open(2)` literally would put a platform split in a contract row.
+    // Checked through the opened handle, so there is no window between the test
+    // and the open, and it is a no-op where the open already failed.
+    if let InterpreterFileHandle::Reader(reader) = &handle {
+        if reader
+            .get_ref()
+            .metadata()
+            .map(|data| data.is_dir())
+            .unwrap_or(false)
+        {
+            return Ok(Value::Int(OPEN_FAILED));
+        }
+    }
+
+    Ok(Value::Int(store_handle(handle)))
+}
+
+/// Flush every open writer, closing nothing.
+///
+/// Called from the CLI where a program ends, for the reason
+/// `runtime-rs`'s `trq_runtime_cleanup` and `trq_exit` call `flush_open_writers`:
+/// nothing in the language can flush until `اغلق_ملف` lands and the handle path
+/// in `call_write_stream` does not. Without it the interpreter would keep bytes
+/// the native binary drops, or drop bytes on `أنهِ_البرنامج` that native keeps.
+pub fn flush_program_files() {
+    OPEN_FILES.with(|files| {
+        for handle in files.borrow_mut().values_mut() {
+            if let InterpreterFileHandle::Writer(writer) = handle {
+                let _ = writer.flush();
+            }
+        }
+    });
+}
+
 /// `اكتب_مجرى`'s whole dispatch, shared with the debug interpreter the way
 /// `call_substring_by_chars` is: three parameters' worth of contract, of which
 /// the argument checks are most.
 ///
 /// The descriptor is resolved before the array is read, so a write to nowhere is
 /// refused whatever it was going to carry. `١` is stdout and `٢` is stderr;
-/// `٣` upward names a file handle, and since no Arabic name opens one yet, the
-/// table is provably empty and every such descriptor answers `-١` here **and**
-/// natively. The two agree today for the same reason, not by coincidence — when
-/// `افتح_ملف` lands, this arm needs a handle table of its own.
+/// `٣` upward names a handle from `افتح_ملف`, looked up in `OPEN_FILES`, where a
+/// reader and an absent handle answer alike.
+///
+/// **The handle path does not flush**, matching `trq_write_stream`: a
+/// `BufWriter` exists to batch, so the count means "accepted by the stream" for a
+/// handle and "left for the descriptor" for a console stream. The bytes land when
+/// `flush_program_files` runs at program end.
 ///
 /// An element outside `0..=255` is not a byte, and the whole call is refused
 /// rather than the value truncated: `[٣٠٠]` would otherwise be indistinguishable
@@ -230,8 +383,21 @@ pub(crate) fn call_write_stream(args: &[Value]) -> RuntimeResult<Value> {
             }
             Ok(Value::Int(written))
         }
-        // No handle can exist: nothing in the language opens one yet.
-        _ => Ok(Value::Int(WRITE_FAILED)),
+        // A live handle since #362. The runtime's trichotomy, mirrored: a writer
+        // takes the bytes, and a reader is as wrong a destination as a handle
+        // that was never opened, so both answer the same.
+        handle => OPEN_FILES.with(|files| {
+            let mut files = files.borrow_mut();
+            match files.get_mut(&handle) {
+                Some(InterpreterFileHandle::Writer(writer)) => {
+                    if writer.write_all(&payload).is_err() {
+                        return Ok(Value::Int(WRITE_FAILED));
+                    }
+                    Ok(Value::Int(written))
+                }
+                _ => Ok(Value::Int(WRITE_FAILED)),
+            }
+        }),
     }
 }
 
@@ -241,10 +407,8 @@ pub(crate) fn call_write_stream(args: &[Value]) -> RuntimeResult<Value> {
 /// The descriptor is settled before anything is read, the order its sibling
 /// checks in: a read from nowhere is refused whatever it was going to hold. `٠`
 /// is stdin; `١` and `٢` carry bytes the other way, so reading them answers
-/// nothing. `٣` upward names a file handle, and since no Arabic name opens one
-/// yet, the table is provably empty and every such descriptor answers an empty
-/// array here **and** natively. The two agree today for the same reason, not by
-/// coincidence — when `افتح_ملف` lands, this arm needs a handle table of its own.
+/// nothing. `٣` upward names a handle from `افتح_ملف`, looked up in `OPEN_FILES`,
+/// where a writer and an absent handle answer alike.
 ///
 /// **The read loops until `count` bytes or EOF**, mirroring `write_all` on the
 /// other side. A single read answers whatever a pipe happens to hold, so the
@@ -287,29 +451,46 @@ pub(crate) fn call_read_stream(args: &[Value]) -> RuntimeResult<Value> {
         other => return Err(RuntimeError::type_error("عدد", other.type_name())),
     };
 
-    // Stdin is the only readable stream there is, so one comparison covers every
-    // refusal the runtime spells out separately: `١` and `٢` carry bytes the
-    // other way, a negative descriptor names nothing, and `٣` upward names a
-    // handle that cannot exist while nothing in the language opens one. Written
-    // as one test rather than four so it does not read as more than it is —
-    // **`افتح_ملف` must split the `≥٣` case out**, and that is the whole change
-    // this arm needs when handles arrive.
-    if stream != STREAM_STDIN || wanted <= 0 {
+    // The descriptor is settled before anything is read, the order its sibling
+    // checks in. `١` and `٢` carry bytes the other way and a negative descriptor
+    // names nothing, so neither can be read; a non-positive count reads nothing
+    // from anywhere and leaves the stream untouched.
+    if wanted <= 0 || stream == STREAM_STDOUT || stream == STREAM_STDERR || stream < 0 {
         return Ok(Value::array_from(Vec::new()));
     }
 
-    let payload = fill_from_stdin(wanted);
+    let payload = if stream == STREAM_STDIN {
+        fill_from_stdin(wanted)
+    } else {
+        // A live handle since #362, mirroring `trq_read_stream`: a writer and an
+        // absent handle both answer nothing, which an array return cannot
+        // distinguish from EOF and deliberately does not try to.
+        OPEN_FILES.with(|files| {
+            let mut files = files.borrow_mut();
+            match files.get_mut(&stream) {
+                Some(InterpreterFileHandle::Reader(reader)) => fill_from(reader, wanted),
+                _ => Vec::new(),
+            }
+        })
+    };
+
     Ok(Value::array_from(
         payload.into_iter().map(|b| Value::Int(b as i64)).collect(),
     ))
 }
 
 /// Reads until `wanted` bytes have arrived or stdin ends.
+fn fill_from_stdin(wanted: i64) -> Vec<u8> {
+    let stdin = io::stdin();
+    fill_from(&mut stdin.lock(), wanted)
+}
+
+/// Reads until `wanted` bytes have arrived or `source` ends.
 ///
 /// Kept byte-for-byte equivalent to `fill_from` in `runtime-rs/src/io.rs`,
 /// including the chunk bound: `wanted` is an `i64`, so allocating it up front
 /// would let a typo'd `١٠**١٢` reserve a terabyte before a byte arrived.
-fn fill_from_stdin(wanted: i64) -> Vec<u8> {
+fn fill_from<R: Read>(source: &mut R, wanted: i64) -> Vec<u8> {
     const READ_CHUNK: usize = 64 * 1024;
 
     // Saturating rather than `as usize`: `عدد` is 64-bit but `usize` is 32 on a
@@ -319,8 +500,6 @@ fn fill_from_stdin(wanted: i64) -> Vec<u8> {
     let wanted = usize::try_from(wanted).unwrap_or(usize::MAX);
     let mut payload = Vec::new();
     let mut chunk = vec![0u8; wanted.min(READ_CHUNK)];
-    let stdin = io::stdin();
-    let mut source = stdin.lock();
 
     while payload.len() < wanted {
         let room = (wanted - payload.len()).min(chunk.len());
@@ -648,6 +827,7 @@ impl Interpreter {
                 | "متغير_بيئة"
                 | "اكتب_مجرى"
                 | "اقرأ_مجرى"
+                | "افتح_ملف"
                 | "حالة_مسار"
                 | "احذف_مسار"
                 | "معاملات_البرنامج"
@@ -1562,6 +1742,7 @@ impl Interpreter {
             "اكتب_مجرى" => call_write_stream(&args),
 
             "اقرأ_مجرى" => call_read_stream(&args),
+            "افتح_ملف" => call_file_open(&args),
 
             "حالة_مسار" => call_path_status(&args),
 

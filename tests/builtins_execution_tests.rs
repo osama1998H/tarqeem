@@ -427,6 +427,29 @@ fn assert_prints_with_tree(
     body: &str,
     expected: &[&str],
 ) {
+    assert_prints_with_tree_and_contents(name, fixtures, body, expected, &[])
+}
+
+/// `assert_prints_with_tree`, plus what the tree must **contain** once the
+/// program has ended.
+///
+/// The sixth helper a primitive's contract has forced — env on the child (#338),
+/// stdin on the child (#350), fixture files (#352), a tree restored per leg
+/// (#355), arguments on the child (#360), and a file read back here.
+///
+/// `افتح_ملف` needs it because its durability row is invisible from inside the
+/// program: bytes written to a handle sit in a `BufWriter` until program end, so
+/// nothing the program can print distinguishes "flushed at exit" from "lost". The
+/// check runs **inside** the backend loop, after the tree the leg rebuilt, so a
+/// backend that drops the bytes fails on its own leg rather than on the next
+/// one's fixture.
+fn assert_prints_with_tree_and_contents(
+    name: &str,
+    fixtures: &[(&str, Fixture)],
+    body: &str,
+    expected: &[&str],
+    after: &[(&str, &str)],
+) {
     let temp = TempDir::new().unwrap();
 
     let mut resolved = body.to_string();
@@ -468,6 +491,19 @@ fn assert_prints_with_tree(
             "خرج غير متطابق [{backend:?}] لـ {name}\n{}",
             output.report()
         );
+
+        for (fixture_name, contents) in after {
+            let path = temp.path().join(fixture_name);
+            let found = fs::read(&path).unwrap_or_else(|error| {
+                panic!("تعذّر قراءة {fixture_name} بعد التنفيذ [{backend:?}] لـ {name}: {error}")
+            });
+            assert_eq!(
+                String::from_utf8_lossy(&found),
+                *contents,
+                "محتوى {fixture_name} بعد التنفيذ [{backend:?}] لـ {name}\n{}",
+                output.report()
+            );
+        }
     }
 }
 
@@ -3329,6 +3365,11 @@ fn test_every_core_builtin_agrees_across_backends() {
         // Printing the array is safe *because* it is empty: a non-empty
         // `مصفوفة<نص>` prints its elements' addresses natively (#359).
         ("معاملات_البرنامج", "اطبع(طول(معاملات_البرنامج()))", &["0"]),
+        // A refusal, so the sweep needs no fixture and creates nothing: the mode
+        // is settled before the path, so an unknown one never reaches the
+        // filesystem. The success rows are in the section below, where a tree
+        // helper can supply a file.
+        ("افتح_ملف", "اطبع(افتح_ملف(\".\", 9))", &["-1"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
@@ -3689,10 +3730,12 @@ fn test_write_stream_sends_descriptor_two_to_stderr_in_every_backend() {
 /// Every descriptor that names nowhere to write, answering `-١`.
 ///
 /// `٠` is stdin, so writing to it is an error rather than an alias for stdout.
-/// `٣` upward names a file handle, and nothing in the language opens one yet, so
-/// the table is provably empty — both interpreters and the runtime agree on
-/// `-١` here for the same reason, not by coincidence. A negative descriptor
-/// folds into the same clause instead of getting its own.
+/// `٣` upward names a file handle, and this program opens none, so the table is
+/// empty — both interpreters and the runtime agree on `-١` here for the same
+/// reason, not by coincidence. Since #362 that is a property of *this program*
+/// rather than of the language: `افتح_ملف` can put a live handle at `٣`, and the
+/// section for it asserts what happens then. A negative descriptor folds into the
+/// same clause instead of getting its own.
 #[test]
 fn test_write_stream_refuses_a_descriptor_it_cannot_write_to() {
     assert_prints(
@@ -4054,7 +4097,8 @@ fn test_read_stream_reads_bytes_that_are_not_text() {
 }
 
 /// The refusal rows. `١` and `٢` carry bytes the other way, `٣` upward names a
-/// handle nothing can have opened yet, and a negative descriptor names nothing.
+/// handle *this program* has not opened (#362 made that reachable, so it is no
+/// longer a property of the language), and a negative descriptor names nothing.
 ///
 /// All four answer the same empty array EOF does — an array return has no value
 /// to spare for a sentinel, the way `اكتب_مجرى` has `-١`. The stdin bytes are
@@ -4743,5 +4787,291 @@ fn test_user_function_shadows_program_args() {
         ),
         &["أول"],
         &["دالتي"],
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// افتح_ملف — open(2), and the first name that puts a live handle on a stream
+// ═══════════════════════════════════════════════════════════════════════
+
+/// A handle is always past the console streams, so it goes straight into
+/// `اكتب_مجرى`/`اقرأ_مجرى` without colliding with one.
+///
+/// Asserted as `>= 3` rather than `== 3` on purpose: the number is observable, so
+/// pinning it would be a promise about allocation order rather than about the
+/// reserved range. Both backends do start at 3, which is what keeps the
+/// comparison meaningful at all.
+#[test]
+fn test_file_open_answers_a_handle_past_the_console_streams() {
+    assert_prints_with_tree(
+        "فتح_معرّف",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير م = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(م >= 3)\n",
+            "اطبع(م != 0)"
+        ),
+        &["صحيح", "صحيح"],
+    );
+}
+
+/// The round trip the opener exists for: a file's bytes reach a program through
+/// the stream pair, which before this could only read stdin.
+///
+/// Arabic content deliberately — «مرحبا» is five characters and ten bytes, so a
+/// read that counted characters would answer 5 here and pass on an ASCII fixture.
+#[test]
+fn test_file_open_round_trips_a_file_through_the_stream_pair() {
+    assert_prints_with_tree(
+        "فتح_دورة",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير م = افتح_ملف(\"{مسار}\", 0)\n",
+            "متغير بايتات = اقرأ_مجرى(م, 64)\n",
+            "اطبع(طول(بايتات))\n",
+            "اطبع(ثنائي_إلى_نص(بايتات))\n",
+            "اطبع(طول(ثنائي_إلى_نص(بايتات)))"
+        ),
+        &["10", "مرحبا", "5"],
+    );
+}
+
+/// Write mode creates the file, and that is visible with no flush and no close —
+/// `File::create` reaches the filesystem before any byte does. Append mode creates
+/// it too.
+///
+/// The program deletes the fixture first, so the row being tested is genuinely
+/// *creation* rather than truncation of something the harness put there.
+#[test]
+fn test_file_open_in_write_and_append_modes_create_the_file() {
+    assert_prints_with_tree(
+        "فتح_إنشاء",
+        &[("مكتوب.نص", Fixture::File("قديم"))],
+        concat!(
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\", 0))\n",
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 1)\n",
+            "اطبع(كاتب >= 3)\n",
+            "اطبع(حالة_مسار(\"{مسار}\", 0))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "متغير ملحق = افتح_ملف(\"{مسار}\", 2)\n",
+            "اطبع(ملحق >= 3)\n",
+            "اطبع(حالة_مسار(\"{مسار}\", 0))"
+        ),
+        &["صحيح", "0", "صحيح", "1", "صحيح", "صحيح", "1"],
+    );
+}
+
+/// The durability row, and the reason the flush at program end exists.
+///
+/// It cannot be asserted from inside the program: the bytes sit in a `BufWriter`
+/// until the end, so nothing the program prints tells "flushed at exit" from
+/// "lost". Hence the file is read back **after** the run, once per backend leg.
+///
+/// Without that flush the two backends part company invisibly — the interpreter is
+/// an ordinary Rust binary whose thread-local destructors run, while native's
+/// `main` is `extern "C"` and skips them, so the compiled program would write
+/// nothing and still exit 0. The CI backend diff compares stdout, so it could not
+/// see it.
+#[test]
+fn test_file_open_lands_written_bytes_by_the_end_of_the_program() {
+    assert_prints_with_tree_and_contents(
+        "فتح_ثبات",
+        &[("مكتوب.نص", Fixture::File(""))],
+        concat!(
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 1)\n",
+            "اطبع(اكتب_مجرى(كاتب, نص_إلى_ثنائي(\"مرحبا\")))"
+        ),
+        &["10"],
+        &[("مكتوب.نص", "مرحبا")],
+    );
+}
+
+/// Append keeps what is there where write truncates it — the one thing the two
+/// modes differ in, so one test covers both. The content check is what sees it.
+#[test]
+fn test_file_open_appends_where_write_truncates() {
+    assert_prints_with_tree_and_contents(
+        "فتح_إلحاق",
+        &[("مكتوب.نص", Fixture::File("أ"))],
+        concat!(
+            "متغير ملحق = افتح_ملف(\"{مسار}\", 2)\n",
+            "اطبع(اكتب_مجرى(ملحق, نص_إلى_ثنائي(\"ب\")))"
+        ),
+        &["2"],
+        &[("مكتوب.نص", "أب")],
+    );
+}
+
+#[test]
+fn test_file_open_in_write_mode_truncates_what_was_there() {
+    assert_prints_with_tree_and_contents(
+        "فتح_اقتطاع",
+        &[("مكتوب.نص", Fixture::File("قديم جداً"))],
+        concat!(
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 1)\n",
+            "اطبع(اكتب_مجرى(كاتب, نص_إلى_ثنائي(\"ج\")))"
+        ),
+        &["2"],
+        &[("مكتوب.نص", "ج")],
+    );
+}
+
+/// Bytes written to a handle are **not guaranteed** visible until the program
+/// ends, because the write path does not flush and nothing closes a handle yet.
+///
+/// Pinning current behaviour, not the rule: a payload larger than the
+/// `BufWriter`'s capacity would flush mid-write and *would* be visible. Both
+/// backends share the same buffer type, so they agree either way — which is the
+/// property worth having. `اغلق_ملف` is what will make the bytes land sooner.
+#[test]
+fn test_file_open_does_not_promise_bytes_before_the_program_ends() {
+    assert_prints_with_tree(
+        "فتح_قبل_الإفراغ",
+        &[("مكتوب.نص", Fixture::File(""))],
+        concat!(
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 1)\n",
+            "اطبع(اكتب_مجرى(كاتب, نص_إلى_ثنائي(\"مرحبا\")))\n",
+            "متغير قارئ = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(طول(اقرأ_مجرى(قارئ, 64)))\n",
+            "اطبع(حالة_مسار(\"{مسار}\", 0))"
+        ),
+        &["10", "0", "1"],
+    );
+}
+
+/// A mode this primitive does not know is refused **before** the path, so a bad
+/// mode creates nothing.
+///
+/// `3` is the row that makes this more than a range check: it is
+/// `وضع_قراءة_كتابة` in `stdlib/ملفات/ملف.ترقيم`, and no handle direction here can
+/// serve it, so it is refused with the rest rather than served by one half.
+#[test]
+fn test_file_open_refuses_an_unknown_mode_without_touching_the_path() {
+    assert_prints_with_tree(
+        "فتح_وضع",
+        &[("مكتوب.نص", Fixture::File("قديم"))],
+        concat!(
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "اطبع(افتح_ملف(\"{مسار}\", 3))\n",
+            "اطبع(افتح_ملف(\"{مسار}\", 9))\n",
+            "اطبع(افتح_ملف(\"{مسار}\", 0 - 1))\n",
+            "اطبع(حالة_مسار(\"{مسار}\", 0))"
+        ),
+        &["صحيح", "-1", "-1", "-1", "0"],
+    );
+}
+
+/// `-1`, and never `0`: `0` names stdin in the stream pair, so a failed open
+/// answering it would send a later `اقرأ_مجرى` to the keyboard and succeed.
+///
+/// An absent path, an empty name and `لا_شيء` are one answer. The `لا_شيء` row is
+/// the **path**, which is a pointer, so an un-narrowed `نص?` reaches the runtime's
+/// null guard; the mode is an `عدد` and has no such row (#327).
+#[test]
+fn test_file_open_answers_minus_one_for_nothing_to_open() {
+    assert_prints_with_tree(
+        "فتح_معدوم",
+        &[("مجلد", Fixture::EmptyDir)],
+        concat!(
+            "متغير غائب_فتح: نص? = لا_شيء\n",
+            "اطبع(افتح_ملف(\"{مسار}/لا_يوجد/ملف.نص\", 0))\n",
+            "اطبع(افتح_ملف(\"\", 0))\n",
+            "اطبع(افتح_ملف(غائب_فتح, 0))"
+        ),
+        &["-1", "-1", "-1"],
+    );
+}
+
+/// Two opens are two handles, or a program holding both would write through the
+/// one it meant to read.
+#[test]
+fn test_file_open_hands_out_distinct_handles() {
+    assert_prints_with_tree(
+        "فتح_تعدد",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير أول = افتح_ملف(\"{مسار}\", 0)\n",
+            "متغير ثان = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(أول >= 3)\n",
+            "اطبع(ثان >= 3)\n",
+            "اطبع(أول != ثان)"
+        ),
+        &["صحيح", "صحيح", "صحيح"],
+    );
+}
+
+/// A handle carries a direction and the stream pair honours it: writing to a
+/// reader fails, reading a writer answers nothing.
+///
+/// Both refusals existed for a handle that was never opened; this is the first
+/// time a **live** handle can be the wrong kind, and the first time the two
+/// backends have to agree about a handle rather than about its absence.
+#[test]
+fn test_file_open_handles_carry_their_direction() {
+    assert_prints_with_tree(
+        "فتح_اتجاه",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير قارئ = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(اكتب_مجرى(قارئ, نص_إلى_ثنائي(\"س\")))\n",
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 2)\n",
+            "اطبع(طول(اقرأ_مجرى(كاتب, 4)))"
+        ),
+        &["-1", "0"],
+    );
+}
+
+/// A directory is refused in **every** mode, and that is a deliberate deviation
+/// from `open(2)` rather than a faithful reading of it.
+///
+/// Found by running the CI example — the line `افتح_ملف(".", 0)` was written
+/// expecting `-1` and answered a handle, because `File::open` succeeds on a
+/// directory under POSIX. Left that way it would have been a **platform** split in
+/// a contract row: Windows refuses the same open, since `CreateFile` needs a flag
+/// `std` does not pass, and `cargo test` never runs there — the Windows CI job
+/// only builds. So this test would have encoded a Unix-only answer with nothing
+/// able to catch it, which is #355's review lesson inverted.
+///
+/// Refused on both sides instead, checked through the opened handle so there is no
+/// window between the test and the open. One documented behaviour, one
+/// implementation — the shape #355 chose over a `cfg(windows)` arm.
+#[test]
+fn test_file_open_refuses_a_directory_in_every_mode() {
+    assert_prints_with_tree(
+        "فتح_مجلد",
+        &[("مجلد", Fixture::EmptyDir)],
+        concat!(
+            "اطبع(افتح_ملف(\"{مسار}\", 0))\n",
+            "اطبع(افتح_ملف(\"{مسار}\", 1))\n",
+            "اطبع(افتح_ملف(\"{مسار}\", 2))"
+        ),
+        &["-1", "-1", "-1"],
+    );
+}
+
+/// The composition gate, per standing rule 5: printing a sentinel-typed result
+/// passes while composing it is silently wrong.
+///
+/// A scalar return's missing-`register_builtin_return_types` mode is predictable
+/// across names (#347, confirmed at #352 and #355), and these are the three rows
+/// it shows up in: `نوع` answers `مؤشر`, and `+`/`==` fail native compilation with
+/// ت٠١٠١ because an `add`/`icmp` on a `ptr` is not valid IR. `اطبع` alone would
+/// print nothing natively and pass here either way, so it is not the gate.
+#[test]
+fn test_file_open_result_composes_as_an_integer() {
+    assert_prints_with_tree(
+        "فتح_تركيب",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير م = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(نوع(م))\n",
+            "اطبع(م - م)\n",
+            "اطبع(م >= 3)\n",
+            "متغير مرفوض = افتح_ملف(\"{مسار}\", 9)\n",
+            "اطبع(مرفوض + 1)\n",
+            "اطبع(مرفوض == 0 - 1)"
+        ),
+        &["عدد", "0", "صحيح", "0", "صحيح"],
     );
 }
