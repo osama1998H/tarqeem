@@ -2703,10 +2703,20 @@ mod tests {
 
     /// A negative handle names nothing. `99999` is pinned above, with the rest of
     /// the pre-`افتح_ملف` handle tests.
+    ///
+    /// Neither value is one any test could have opened, and that is deliberate
+    /// rather than a bug being fixed: `FILE_HANDLES` is a `thread_local!` that
+    /// every test in this binary shares under `--test-threads=1`, so a hardcoded
+    /// plausible number like `٣` would answer `true` for any *future* test that
+    /// leaves a handle stored. No test leaks one today — measured, every open that
+    /// goes unclosed here is one that failed — so `٣` passes; it is simply not
+    /// worth depending on test order for. Same reasoning as the debug
+    /// interpreter's dispatch test, and the `٣` row is pinned per-process anyway,
+    /// in the cross-backend suite.
     #[test]
     fn test_file_close_refuses_a_handle_never_opened() {
         assert!(!trq_file_close(-1));
-        assert!(!trq_file_close(3));
+        assert!(!trq_file_close(i64::MAX));
     }
 
     /// Closing frees the entry, never the number: the counter only ever counts

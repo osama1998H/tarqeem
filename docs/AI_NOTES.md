@@ -4860,8 +4860,10 @@ handle" but "make the bytes land *sooner* than program end".
 
 ## #364 — `اغلق_ملف`: `close(2)`, and the first forecast that the caveat would stay quiet
 
-Category 7's eleventh and last name, over the existing `trq_file_close`. With it **Increment G's
-seven I/O primitives are complete**, which is what the increment was waiting for.
+The sixth of Category 7's eleven names and the last of its six `new` rows, over the existing
+`trq_file_close`. With it **every Category 7 row marked `new` has landed** — the plan's "seven I/O
+primitives" figure no longer matches the table and needs a recount, see §6.7 — which is what the
+increment was waiting for.
 
 ### Decisions taken before the work
 
@@ -4969,6 +4971,6 @@ one in the execution tests, one in the CI example, one in `LANGUAGE_SPEC.md`. Th
 true; the reason becomes "this program closes nothing" rather than "the language cannot".
 
 **Next in the plan is Increment G proper** — writing the 21 `ملفات` names as self-hosted Tarqeem on
-these seven primitives. Category 7's three remaining names (`انشئ_مجلد`, `قائمة_مجلد`, `انقل_ملف`)
+these primitives. Category 7's three remaining names (`انشئ_مجلد`, `قائمة_مجلد`, `انقل_ملف`)
 are `unchanged` rows already in the registry, so they are repairs — no interpreter arm — not new
 registrations.

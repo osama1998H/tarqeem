@@ -1134,10 +1134,13 @@ misleading parse errors.
 
 ### 6.7 Increment G — `ملفات` + `طرفية`
 
-Requires the seven new I/O primitives; **all seven have landed** — `اكتب_مجرى` (#347, §6.7.2) and
+Requires the seven new I/O primitives; **six have landed** — `اكتب_مجرى` (#347, §6.7.2) and
 `اقرأ_مجرى` (#350, §6.7.3), the byte-level stream pair, `حالة_مسار` (#352, §6.7.4) and
-`احذف_مسار` (#355, §6.7.5), the path pair, and `افتح_ملف` (#362, §6.7.7), which is what made the
-stream pair reach anything but the console. and `اغلق_ملف` (#364, §6.7.8), its release half. **All seven have landed.** 21 names. **20 after #338**, which landed `متغير_بيئة` ahead
+`احذف_مسار` (#355, §6.7.5), the path pair, `افتح_ملف` (#362, §6.7.7), which is what made the
+stream pair reach anything but the console, and `اغلق_ملف` (#364, §6.7.8), its release half. That is
+every row Category 7 marks `new`, so **the plan's figure of seven no longer matches the table and
+needs a recount** rather than a claim of completion — the failure mode §1.3 names, a later increment
+reconciling two numbers by "fixing" the difference. 21 names. **20 after #338**, which landed `متغير_بيئة` ahead
 of this increment: `مجلد_مستخدم` reduces to it, so it becomes a stdlib one-liner rather than a syscall
 wrapper — `trq_dir_home` is `getenv("HOME")` and nothing else. `مجلد_مؤقت` does **not** collapse with
 it: `trq_dir_temp` calls `std::env::temp_dir()`, which falls back to `/tmp` when `TMPDIR` is unset and
@@ -1760,12 +1763,16 @@ test tests. No diacritic and nothing contextual, so neither #342's nor #352's ex
 **`اغلق_ملف` landed next (#364, §6.7.8)**, and its job was indeed sharper than its row said: not
 "release the handle" but "make the bytes land *sooner* than program end".
 
-### 6.7.8 `اغلق_ملف` — the seventh Increment G primitive, and the first time the caveat was forecast *not* to fire (#364)
+### 6.7.8 `اغلق_ملف` — the sixth Increment G primitive, and the first time the caveat was forecast *not* to fire (#364)
 
-**The discriminator was right and the caveat stayed quiet, both as forecast.** §6.7's question —
-*which half of the path already exists* — found the **whole runtime half** present: `trq_file_close`
-defined, re-exported at `lib.rs:109`, and a live `FILE_HANDLES` table under it. That is #338's
-eight-site shape minus the re-export it still had to add, so **seven**. Then #342's caveat question
+**The discriminator got the shape right and undercounted by three; the caveat stayed quiet exactly as
+forecast.** §6.7's question — *which half of the path already exists* — found the **whole runtime
+half** present: `trq_file_close` defined, re-exported at `lib.rs:109`, and a live `FILE_HANDLES`
+table under it. That is #338's eight-site shape minus the re-export it still had to add, so **seven**
+— and it cost **ten**. The three it missed were all named before the work, so the miss is in the
+discriminator's scope rather than in the estimate: it answers "which half exists" and says nothing
+about a *shared dispatch* the interpreter still needs, nor about a contract defect in the half that
+does exist. Then #342's caveat question
 — *does the effect have anywhere to arrive?* — answered **yes on both sides** for the first time
 since the handle table existed, because #362 had just built the interpreter half. So the caveat was
 forecast **not** to fire, and did not. It has now fired three times in seventeen increments and been
@@ -1828,10 +1835,10 @@ The keyword sweep over all 77 Arabic keyword literals found **none** embedded in
 gets no row in `test_identifier_containing_a_keyword_stays_one_token`. No diacritic and nothing
 contextual, so neither #342's nor #352's extra check applies.
 
-**Category 7 is complete.** The remaining three names in it — `انشئ_مجلد`, `قائمة_مجلد`, `انقل_ملف`
-— are `unchanged` rows already in the registry, so they are repairs (no interpreter arm) rather than
-new registrations. Increment G's 21 `ملفات` names can now be written as self-hosted Tarqeem on top
-of the seven primitives, which is what the increment was waiting for.
+**Category 7's new registrations are complete.** The remaining three names in it — `انشئ_مجلد`,
+`قائمة_مجلد`, `انقل_ملف` — are `unchanged` rows already in the registry, so they are repairs (no
+interpreter arm) rather than new registrations. Increment G's 21 `ملفات` names can now be written as
+self-hosted Tarqeem on top of these primitives, which is what the increment was waiting for.
 
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 

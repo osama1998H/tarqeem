@@ -302,10 +302,9 @@ pub(crate) fn call_file_close(args: &[Value]) -> RuntimeResult<Value> {
         .first()
         .ok_or_else(|| RuntimeError::invalid_operation("اغلق_ملف() تتطلب معاملاً: المعرِّف"))?;
 
-    let handle = match handle {
-        Value::Int(id) => *id,
-        other => return Err(RuntimeError::type_error("عدد", other.type_name())),
-    };
+    let handle = handle
+        .as_int()
+        .ok_or_else(|| RuntimeError::type_error("عدد", handle.type_name()))?;
 
     // `٠`, `١` and `٢` need no arm of their own: handles start at 3, so a console
     // stream is a table miss like any other number never handed out.
