@@ -4988,10 +4988,14 @@ tier — no import — and the module arm and export entry are deleted in the sa
   path in, `منطقي` out — so the tree harness and the three catchers transfer with no new machinery.
   `قائمة_مجلد` walks into #359 (a non-empty `مصفوفة<نص>` prints addresses natively) and an
   unspecified readdir order; `انقل_ملف` follows later.
-- **Non-recursive, and the reused implementation was read before being trusted** — the check that
-  has now paid five consecutive increments. `trq_dir_create` is `std::fs::create_dir`, exactly what
-  the row requires; `trq_dir_create_all` stays a declare-only orphan, untouched under standing
-  rule 3. `stdlib/ملفات/مجلد.ترقيم`'s own docstring («يفشل إذا كان المجلد الأب غير موجود»)
+- **Non-recursive, and the reused implementation was read before being trusted** — and this is the
+  check's **first empty return**, which is itself information. Four increments in a row it found a
+  defect (#352 a fold needing more range, #355 the wrong syscall, #362 an uninheritable return,
+  #364 a discarded flush); here `trq_dir_create` is `std::fs::create_dir`, exactly what the row
+  requires, so the read *confirmed* rather than corrected. Keep running it — a check that can come
+  back empty is a check, not a ritual — but a future increment should not expect a defect just
+  because the streak was long. `trq_dir_create_all` stays a declare-only orphan, untouched under
+  standing rule 3. `stdlib/ملفات/مجلد.ترقيم`'s own docstring («يفشل إذا كان المجلد الأب غير موجود»)
   independently corroborates the contract.
 - **Nothing is removed.** No related name carries a `يُحذف` verdict, so the removal step of the
   increment template is empty — stated so the untouched orphan is not read as an oversight.
