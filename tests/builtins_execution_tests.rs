@@ -3379,6 +3379,10 @@ fn test_every_core_builtin_agrees_across_backends() {
         // the sweep creates nothing. The success rows are in the section below,
         // where a tree helper supplies a parent to create into.
         ("انشئ_مجلد", "اطبع(انشئ_مجلد(\".\"))", &["خطأ"]),
+        // A refusal: the empty name names nothing at either end, so the sweep
+        // moves nothing wherever it runs. The success rows are in the section
+        // below, where a tree helper supplies both ends.
+        ("انقل_مسار", "اطبع(انقل_مسار(\"\"، \"\"))", &["خطأ"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
@@ -5416,6 +5420,208 @@ fn test_dir_create_can_be_shadowed_by_a_user_function() {
             "    أرجع صحيح\n",
             "}\n",
             "اطبع(انشئ_مجلد(\"\"))"
+        ),
+        &["صحيح"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// انقل_مسار — `rename(2)`, the move half of the path family (#368)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Pinned cross-backend for `احذف_مسار`'s reason: the rename kernel exists twice
+// — in `trq_file_move` and in `call_path_move` — and nothing but these rows
+// keeps the two equal. The destination rule is the row that earns the pinning:
+// an occupied destination is replaced only when it is a regular file, and the
+// dir-over-empty-dir case below is exactly where POSIX `rename` would have
+// answered `صحيح` — the guard, not the syscall, is what these legs agree on.
+
+/// The effect gate. Both ends are asked through `حالة_مسار` rather than
+/// trusting the `منطقي` that came back, and the bytes are read back after the
+/// run — a move that lost the payload would answer every printed row correctly.
+#[test]
+fn test_path_move_moves_a_file_and_the_siblings_see_it() {
+    assert_prints_with_tree_and_contents(
+        "نقل_ملف",
+        &[
+            ("مصدر.نص", Fixture::File("محتوى")),
+            ("وجهة_أب", Fixture::EmptyDir),
+        ],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار2}/وجهة.نص\"، 0))\n",
+            "اطبع(انقل_مسار(\"{مسار}\"، \"{مسار2}/وجهة.نص\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار2}/وجهة.نص\"، 0))",
+        ),
+        &["0", "صحيح", "0", "1"],
+        &[("وجهة_أب/وجهة.نص", "محتوى")],
+    );
+}
+
+/// The mover is `مسار`, not `ملف`: a directory moves whole, atomically, which
+/// no composition of the other primitives can do — copy-then-delete needs a
+/// lister the registry does not have, and would not be atomic if it did.
+#[test]
+fn test_path_move_moves_a_directory_whole() {
+    assert_prints_with_tree(
+        "نقل_مجلد",
+        &[
+            ("مجلد_مصدر", Fixture::EmptyDir),
+            ("وجهة_أب", Fixture::EmptyDir),
+        ],
+        concat!(
+            "اطبع(انقل_مسار(\"{مسار}\"، \"{مسار2}/مجلد_جديد\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار2}/مجلد_جديد\"، 0))",
+        ),
+        &["صحيح", "0", "2"],
+    );
+}
+
+/// The one occupied destination that is replaced: a regular file. This is the
+/// atomic write-temp-then-rename idiom — the primitive's point — and the bytes
+/// prove which file won.
+#[test]
+fn test_path_move_replaces_a_regular_file_destination() {
+    assert_prints_with_tree_and_contents(
+        "نقل_استبدال",
+        &[
+            ("جديد.نص", Fixture::File("جديد")),
+            ("قديم.نص", Fixture::File("قديم")),
+        ],
+        concat!(
+            "اطبع(انقل_مسار(\"{مسار}\"، \"{مسار2}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))",
+        ),
+        &["صحيح", "0"],
+        &[("قديم.نص", "جديد")],
+    );
+}
+
+/// A directory destination refuses **even empty — where POSIX `rename` would
+/// succeed** — because Windows refuses the same call and one documented
+/// behaviour gets one implementation (the #355/#362 rule). Both ends survive:
+/// a refusal is a read-only answer.
+#[test]
+fn test_path_move_refuses_a_directory_destination_and_both_stay() {
+    assert_prints_with_tree(
+        "نقل_وجهة_مجلد",
+        &[
+            ("مصدر_مجلد", Fixture::EmptyDir),
+            ("وجهة_مجلد", Fixture::EmptyDir),
+        ],
+        concat!(
+            "اطبع(انقل_مسار(\"{مسار}\"، \"{مسار2}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار2}\"، 0))",
+        ),
+        &["خطأ", "2", "2"],
+    );
+}
+
+/// Absent source, empty names and `لا_شيء` in **either** position are one
+/// answer. Both parameters are pointers, so the `Null` arms are the designed
+/// answer on each (#330's rule), and the un-narrowed `نص?` route is the one
+/// that reaches them.
+#[test]
+fn test_path_move_refuses_what_has_no_name() {
+    assert_prints(
+        "نقل_بلا_اسم",
+        concat!(
+            "اطبع(انقل_مسار(\"لا_يوجد_هذا_المسار\"، \"وجهة_لا_تهم\"))\n",
+            "اطبع(انقل_مسار(\"\"، \"\"))\n",
+            "متغير غائب_مصدر: نص? = لا_شيء\n",
+            "اطبع(انقل_مسار(غائب_مصدر، \"وجهة\"))\n",
+            "متغير غائب_وجهة: نص? = لا_شيء\n",
+            "اطبع(انقل_مسار(\"مصدر\"، غائب_وجهة))",
+        ),
+        &["خطأ", "خطأ", "خطأ", "خطأ"],
+    );
+}
+
+/// A dangling symlink source moves **as itself**: `rename(2)` acts on the name,
+/// so the follower (`حالة_مسار`) reads it as absent at both ends while the
+/// name-acting sibling (`احذف_مسار`) finds nothing at the old name and the link
+/// itself at the new one.
+#[test]
+#[cfg(unix)]
+fn test_path_move_moves_a_dangling_symlink_as_itself() {
+    assert_prints_with_tree(
+        "نقل_وصلة",
+        &[
+            (
+                "وصلة_مقطوعة",
+                Fixture::Symlink {
+                    to: "هدف_لا_يوجد"
+                },
+            ),
+            ("وجهة_أب", Fixture::EmptyDir),
+        ],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(انقل_مسار(\"{مسار}\"، \"{مسار2}/وصلة_منقولة\"))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "اطبع(احذف_مسار(\"{مسار2}/وصلة_منقولة\"))",
+        ),
+        &["0", "صحيح", "خطأ", "صحيح"],
+    );
+}
+
+/// A symlink **destination** is occupied-and-not-a-regular-file, so it refuses
+/// where POSIX `rename` would have replaced the link — checked on the name, so
+/// what it points at never matters. The final `احذف_مسار` proves the link
+/// survived its own refusal.
+#[test]
+#[cfg(unix)]
+fn test_path_move_refuses_a_symlink_destination() {
+    assert_prints_with_tree(
+        "نقل_وجهة_وصلة",
+        &[
+            ("مصدر.نص", Fixture::File("محتوى")),
+            (
+                "وصلة_وجهة",
+                Fixture::Symlink {
+                    to: "هدف_غائب"
+                },
+            ),
+        ],
+        concat!(
+            "اطبع(انقل_مسار(\"{مسار}\"، \"{مسار2}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(احذف_مسار(\"{مسار2}\"))",
+        ),
+        &["خطأ", "1", "صحيح"],
+    );
+}
+
+/// The load-bearing test for the `register_builtin_return_types` entry: the
+/// three `منطقي` catchers (#364). Measured with the entry deleted, `نوع`
+/// answers `مؤشر` on all three backends and the other two rows fail native
+/// compilation with ت٠١٠١; printing alone would have passed.
+#[test]
+fn test_path_move_result_composes_as_a_boolean() {
+    assert_prints(
+        "تركيب_النقل",
+        concat!(
+            "اطبع(نوع(انقل_مسار(\"\"، \"\")))\n",
+            "اطبع(انقل_مسار(\"\"، \"\") == خطأ)\n",
+            "إذا (ليس انقل_مسار(\"\"، \"\")) { اطبع(\"لم يُنقل\") }"
+        ),
+        &["منطقي", "صحيح", "لم يُنقل"],
+    );
+}
+
+/// A user function named `انقل_مسار` shadows the builtin, like every other core
+/// name: builtins are the last resort in name resolution, not reserved words.
+#[test]
+fn test_path_move_can_be_shadowed_by_a_user_function() {
+    assert_prints(
+        "تظليل_النقل",
+        concat!(
+            "دالة انقل_مسار(مصدر: نص، وجهة: نص) -> منطقي {\n",
+            "    أرجع صحيح\n",
+            "}\n",
+            "اطبع(انقل_مسار(\"\"، \"\"))"
         ),
         &["صحيح"],
     );

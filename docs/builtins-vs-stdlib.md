@@ -332,7 +332,7 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | `احذف_مسار` | `(نص) -> منطقي` | new — **مُنفَّذ (#355)** | `unlink(2)` for a file, `rmdir(2)` for an empty directory, chosen by **`lstat`** — **the row said `stat`, and that was wrong; see the correction below.** Folds two symbols; `احذف_ملف` and `احذف_مجلد` survive as stdlib wrappers, each with one documented delta. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: an absent path, an empty name, `لا_شيء`, an unreadable path and a non-empty directory all answer `خطأ`, indistinguishably. Not recursive. |
 | `انشئ_مجلد` | `(نص) -> منطقي` | narrowed — **مُنفَّذ (#366)** | `mkdir(2)`. No composition of open/read/write/close/stat creates a directory. Recursive creation becomes a stdlib loop, not a second primitive. **Narrowed** because it moves from the `ملفات` module tier to the core tier (no import), the promotion `قص_حروف` made at #336. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: `صحيح` means this call created it; an existing entry of any kind — a dangling symlink included, since the *entry* blocks the name and the target is never consulted — a missing parent, an empty name and `لا_شيء` all answer `خطأ`, indistinguishably. |
 | `قائمة_مجلد` | `(نص) -> مصفوفة<نص>` | unchanged | `readdir(3)`. Directory entries are not readable through a byte stream. One array-returning primitive is a smaller surface than an opendir/readdir/closedir triple. Criterion (b). |
-| `انقل_ملف` | `(نص، نص) -> منطقي` | unchanged | `rename(2)` is **atomic**; copy-then-delete is not, and the difference is observable. A capability that cannot be composed from the others is exactly criterion (b). |
+| `انقل_مسار` | `(نص، نص) -> منطقي` | renamed — **مُنفَّذ (#368)** | `rename(2)` is **atomic**; copy-then-delete is not, and the difference is observable. A capability that cannot be composed from the others is exactly criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). **Renamed from `انقل_ملف`, and its destination rule was decided where the row was silent** — see the correction below. Total: acts on the *name* at both ends, so a symlink moves as itself, dangling included; an existing destination is replaced only when it is a **regular file**, and any other occupied destination — directory, symlink, device — answers `خطأ` on every platform alike; an absent source, a missing destination parent, a cross-device move, empty names and `لا_شيء` in either argument all answer `خطأ`, indistinguishably. |
 
 > **Correction (#347): the "returns bytes written so short writes stay visible" clause is
 > withdrawn.** It is not unimplementable the way #333's no-validation clause was — it is
@@ -470,6 +470,34 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 > new signature could not reuse. **When a row folds N functions, check what they return, not only
 > what they do** — the same "read each folded name's implementation" check that paid off at #352 and
 > #355, applied to the return value rather than the dispatch.
+
+> **Correction (#368): `انقل_ملف` is renamed `انقل_مسار`, and its destination rule is decided
+> where the row was silent.** Two changes, and both are shapes this document has seen.
+>
+> - **The name.** `مسار`, not `ملف`: `rename(2)` acts on the *name* and moves files, directories
+>   and symlinks alike, never following links — the #352 naming correction applied to the mover,
+>   taken by the owner before the work, and the family's own vocabulary (`حالة_مسار`,
+>   `احذف_مسار`). The old spelling leaves the registry outright in the same change; the
+>   one-release `م`-warning of §1.1 rule 3 is skipped on the #336 `قص_نص` precedent. **Deviation
+>   recorded**, not argued: blast radius is nil — the name never had an interpreter arm, no test
+>   or example used it, and its one caller is the non-loadable `stdlib/ملفات/ملف.ترقيم:181`,
+>   updated in the same change. The `trq_file_move` **symbol** stays, per §1.4's standing rule.
+> - **The destination.** The row said nothing about an occupied destination, and `std::fs::rename`
+>   answers differently per platform: POSIX replaces a regular file, replaces a symlink, and
+>   replaces an *empty directory* with a directory; Windows replaces only the file. Documenting
+>   the split would put a platform answer into a contract row that `cargo test` can never check
+>   on Windows (#355 f.6 / #362, the same class both times). So the rule is platform-invariant
+>   and checked on the name: **an existing destination is replaced only when it is a regular
+>   file** (`symlink_metadata`), which keeps the atomic write-temp-then-rename idiom — the
+>   primitive's point — and refuses every other occupied destination identically everywhere.
+>   Corollary, decided rather than inherited: file-onto-itself `صحيح`, directory-onto-itself
+>   `خطأ`. The guard is the one contract change `trq_file_move` needed (#364's `+1` shape); it
+>   was a bare `fs::rename(..).is_ok()`.
+>
+> No new defect class. The first point is #352's rename repeating; the second is the
+> row-leaves-a-contract-question-open shape from #352, #360 and #362 — answered before the work
+> this time, because the question ("what does the syscall do to an occupied destination, per
+> platform?") is the one #362's directory refusal taught this family to ask.
 
 #### Category 8 — Environment & time (6)
 
@@ -1838,9 +1866,11 @@ contextual, so neither #342's nor #352's extra check applies.
 **Category 7's new registrations are complete.** The remaining three names in it — `انشئ_مجلد`,
 `قائمة_مجلد`, `انقل_ملف` — are `unchanged` rows already in the registry, so they are repairs (no
 interpreter arm) rather than new registrations. **`انشئ_مجلد` landed first (#366, §6.7.9)**, promoted
-to the core tier on the #336 precedent, so two remain and the `ملفات` module now holds 20 names.
-Increment G's `ملفات` names can now be written as self-hosted Tarqeem on top of these primitives,
-which is what the increment was waiting for.
+to the core tier on the #336 precedent, **and the mover second (#368, §6.7.10)** — the same
+promotion carrying the #352 rename, so its core name is `انقل_مسار`. One remains: `قائمة_مجلد`,
+whose deferral reasons (#359 and an unspecified readdir order) are still standing, and the `ملفات`
+module now holds 19 names. Increment G's `ملفات` names can now be written as self-hosted Tarqeem on
+top of these primitives, which is what the increment was waiting for.
 
 ### 6.7.9 `انشئ_مجلد` — the first Category-7 repair, and the first re-measured cost shape (#366)
 
@@ -1905,6 +1935,66 @@ the `انشئ` prefix but is not a substring, and `من` does not occur — so i
 `src/lexer/keywords.rs` holds **69** keyword literals, not the 77 this document and `AI_NOTES`
 have repeated since #350. The 69 is the source-of-truth number; earlier mentions are left as
 written, per the §2 snapshot convention.
+
+### 6.7.10 `انقل_مسار` — the second Category-7 repair, and the first overforecast (#368)
+
+**The discriminator picked the wrong base, and the miss is the lesson.** The forecast was
+**10–11**, counted from #338's eight-site shape (symbol exists, new name) plus the promotion
+deletions and #364's contract change. It cost **nine**, counted from the base that was actually
+nearer: #366's six-site promotion-repair — `Scope` with the module arm and export entry deleted in
+the same file, the return type, the interpreter arm and its `interpreter/mod.rs` re-export, the
+debug arm, and the guard ratchets — plus exactly three deltas, each one a move an earlier increment
+had already measured: the `get_runtime_function_name` entry renamed (the name changed, so the
+mapping had to), a one-line contract change to `trq_file_move` (#364's `+1` — the destination
+guard), and the `stdlib/ملفات/ملف.ترقيم` callee fix (#336's move, forced by the removal exactly as
+`قص_نص`'s was). **Pick the nearer measured shape and add its deltas; do not reach past a promotion
+for the new-name shape just because the name is new.** #342's caveat was forecast quiet —
+`fs::rename` is in-process on both sides — and stayed quiet, the third correct quiet forecast.
+
+Landed as the name §6.7.9 implicitly ordered: it shares `احذف_مسار`'s and `انشئ_مجلد`'s contract
+shape — paths in, `منطقي` out — so the tree harness and the three catchers transferred with no new
+machinery, while `قائمة_مجلد` still owes answers to #359 and to readdir ordering.
+
+Four things it found that the plan did not state:
+
+1. **The destination rule was decided *before* the work, and that inverts this family's usual
+   order.** #352's fold-range defect, #355's wrong syscall and #362's directory refusal were all
+   found mid-increment by reading or running; here the same class of question — *what does the
+   syscall do to an occupied destination, on each platform?* — was asked at planning time, because
+   #362 taught it. `std::fs::rename` diverges three ways (POSIX replaces a file, a symlink, and an
+   empty directory; Windows replaces only the file), so the rule became strict-and-invariant:
+   replace a regular file only, refuse everything else, `symlink_metadata` on the name. The
+   dir-over-empty-dir row in the cross-backend tests pins the guard **where POSIX itself would have
+   answered `صحيح`** — the guard, not the syscall, is what the backends agree on.
+
+2. **One sibling can be the observer of another's effect, and the symlink rows need it.** A moved
+   dangling link is invisible to `حالة_مسار` at both ends — it follows, and the target is absent
+   either way — so the cross-backend proof that the link *itself* travelled is `احذف_مسار`: `خطأ`
+   at the old name, `صحيح` at the new one. First test in the suite to use one primitive's
+   name-not-target selector to observe another's effect; the byte-level survival stays in
+   `runtime-rs`, where `symlink_metadata` can see what no builtin can.
+
+3. **The `اغلق_ملف` catcher profile held a fourth time, measured rather than forecast.** With the
+   `register_builtin_return_types` entry deleted: `اطبع` prints nothing natively while both
+   interpreters print `خطأ` (#352's silent mode — measured, per #364's rule, not predicted), `نوع`
+   answers `مؤشر` on all three, and `== خطأ` and `ليس` both fail native compilation with ت٠١٠١ —
+   «'%v' defined with type 'i1' but expected 'ptr'» at the comparison, the reverse at the negation.
+   Four names, one profile: the `منطقي` return's three catchers are now boring, which is what a
+   measured catalogue is for.
+
+4. **`trq_file_move` had zero tests anywhere — the first folded/reused symbol in this sequence with
+   *no* checked-in behaviour at all.** #352 and #355 read their folded names' implementations and
+   found defects; #364 read a reused one and found a lying answer. Here the read found nothing wrong
+   but also nothing *pinned*: no unit test, no integration row, one caller in a non-loadable module.
+   The eight `runtime-rs` unit tests this increment adds are the symbol's first, which is worth a
+   line because "already implemented" had quietly been carrying "already exercised" in this
+   document, and this is the row where the two came apart.
+
+One smaller result: the keyword sweep over the **69** literals in `src/lexer/keywords.rs` (#366's
+recount) found none embedded in `انقل_مسار`, so it gets no row in
+`test_identifier_containing_a_keyword_stays_one_token`; no diacritic, and nothing contextual, so
+neither #342's nor #352's extra check applies. And no harness helper was needed — the third
+increment running, which is #364's point about building the last two general still paying out.
 
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 

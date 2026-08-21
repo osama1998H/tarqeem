@@ -201,6 +201,9 @@ fn test_global_scope_has_core_builtins() {
     // Directory creation (1) — the create half of that pair, promoted out of
     // `ملفات` at #366 the way `قص_حروف` left `نص` at #336.
     assert!(scope.lookup("انشئ_مجلد").is_some());
+    // Path move (1) — rename(2), promoted out of `ملفات` at #368 under the
+    // #352 rename: the mover acts on the name, so it is `مسار` not `ملف`.
+    assert!(scope.lookup("انقل_مسار").is_some());
     assert!(scope.lookup("معاملات_البرنامج").is_some());
 
     // Termination (2) — one primitive in two spellings, so both need pinning:

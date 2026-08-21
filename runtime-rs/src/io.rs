@@ -357,7 +357,22 @@ pub extern "C" fn trq_file_copy(src: *const TrqString, dst: *const TrqString) ->
     std::fs::copy(&src_str, &dst_str).is_ok()
 }
 
-/// Move/rename a file.
+/// Move a path — `انقل_مسار` (#368; the name was `انقل_ملف` before the #352
+/// rename precedent reached the mover).
+///
+/// One `rename(2)`: atomic, never a copy, so a cross-device move answers
+/// `false` instead of degrading into one. Acts on the *name* at both ends — a
+/// symlink source moves as itself, dangling included, its target never
+/// consulted. An existing destination is replaced only when it is a **regular
+/// file** (checked on the name, `symlink_metadata`), which keeps the atomic
+/// write-temp-then-rename idiom and refuses every other occupied destination
+/// — directory, symlink, device — on every platform alike: POSIX `rename`
+/// would replace an empty directory or a symlink where Windows refuses, and
+/// one documented behaviour gets one implementation. Total: an absent source,
+/// empty names and null in either position all answer `false`.
+///
+/// Duplicated in the interpreters' `call_path_move` for `call_path_status`'s
+/// reason; the cross-backend tests are what hold the two copies together.
 #[no_mangle]
 pub extern "C" fn trq_file_move(src: *const TrqString, dst: *const TrqString) -> bool {
     let src_str = match trq_string_to_path(src) {
@@ -368,6 +383,12 @@ pub extern "C" fn trq_file_move(src: *const TrqString, dst: *const TrqString) ->
         Some(p) => p,
         None => return false,
     };
+
+    if let Ok(meta) = std::fs::symlink_metadata(&dst_str) {
+        if !meta.is_file() {
+            return false;
+        }
+    }
 
     std::fs::rename(&src_str, &dst_str).is_ok()
 }
@@ -2538,6 +2559,193 @@ mod tests {
 
         release_path(path);
         std::fs::remove_file(link).ok();
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // trq_file_move — انقل_مسار
+    // ────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_file_move_moves_a_file_and_its_bytes() {
+        let src = "/tmp/tarqeem_test_file_move_src.txt";
+        let dst = "/tmp/tarqeem_test_file_move_dst.txt";
+        std::fs::remove_file(dst).ok();
+        std::fs::write(src, "محتوى").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let src_p = path_string(src);
+        let dst_p = path_string(dst);
+        assert!(trq_file_move(src_p, dst_p));
+        // The sibling agrees about both ends: the source is gone, the bytes moved.
+        assert_eq!(trq_path_status(src_p, STAT_FIELD_KIND), PATH_KIND_ABSENT);
+        assert_eq!(trq_path_status(dst_p, STAT_FIELD_KIND), PATH_KIND_FILE);
+        assert_eq!(std::fs::read(dst).expect("الوجهة زالت"), "محتوى".as_bytes());
+
+        release_path(src_p);
+        release_path(dst_p);
+        std::fs::remove_file(dst).ok();
+    }
+
+    /// The mover is `مسار`, not `ملف`: `rename(2)` moves a directory whole, and
+    /// refusing that would make an atomic directory move inexpressible.
+    #[test]
+    fn test_file_move_moves_a_directory() {
+        let src = "/tmp/tarqeem_test_file_move_dir_src";
+        let dst = "/tmp/tarqeem_test_file_move_dir_dst";
+        std::fs::remove_dir_all(src).ok();
+        std::fs::remove_dir_all(dst).ok();
+        std::fs::create_dir(src).expect("تعذّر إنشاء المجلد / could not create the directory");
+
+        let src_p = path_string(src);
+        let dst_p = path_string(dst);
+        assert!(trq_file_move(src_p, dst_p));
+        assert_eq!(trq_path_status(src_p, STAT_FIELD_KIND), PATH_KIND_ABSENT);
+        assert_eq!(trq_path_status(dst_p, STAT_FIELD_KIND), PATH_KIND_DIR);
+
+        release_path(src_p);
+        release_path(dst_p);
+        std::fs::remove_dir_all(dst).ok();
+    }
+
+    /// The one occupied destination that is replaced: a regular file. That is
+    /// the atomic write-temp-then-rename idiom, and it is the primitive's point.
+    #[test]
+    fn test_file_move_replaces_a_regular_file_destination() {
+        let src = "/tmp/tarqeem_test_file_move_replace_src.txt";
+        let dst = "/tmp/tarqeem_test_file_move_replace_dst.txt";
+        std::fs::write(src, "جديد").expect("تعذّر إنشاء الملف / could not create the file");
+        std::fs::write(dst, "قديم").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let src_p = path_string(src);
+        let dst_p = path_string(dst);
+        assert!(trq_file_move(src_p, dst_p));
+        assert_eq!(trq_path_status(src_p, STAT_FIELD_KIND), PATH_KIND_ABSENT);
+        assert_eq!(std::fs::read(dst).expect("الوجهة زالت"), "جديد".as_bytes());
+
+        release_path(src_p);
+        release_path(dst_p);
+        std::fs::remove_file(dst).ok();
+    }
+
+    /// A directory destination refuses **even where POSIX `rename` would
+    /// succeed** — an empty directory replaced by a directory — because Windows
+    /// refuses the same call, and one documented behaviour gets one
+    /// implementation (the #355/#362 rule). Both ends survive the refusal.
+    #[test]
+    fn test_file_move_refuses_a_directory_destination_and_both_stay() {
+        let src = "/tmp/tarqeem_test_file_move_dirdst_src";
+        let dst = "/tmp/tarqeem_test_file_move_dirdst_dst";
+        std::fs::remove_dir_all(src).ok();
+        std::fs::remove_dir_all(dst).ok();
+        std::fs::create_dir(src).expect("تعذّر إنشاء المجلد / could not create the directory");
+        std::fs::create_dir(dst).expect("تعذّر إنشاء المجلد / could not create the directory");
+
+        let src_p = path_string(src);
+        let dst_p = path_string(dst);
+        assert!(!trq_file_move(src_p, dst_p));
+        assert_eq!(trq_path_status(src_p, STAT_FIELD_KIND), PATH_KIND_DIR);
+        assert_eq!(trq_path_status(dst_p, STAT_FIELD_KIND), PATH_KIND_DIR);
+
+        release_path(src_p);
+        release_path(dst_p);
+        std::fs::remove_dir_all(src).ok();
+        std::fs::remove_dir_all(dst).ok();
+    }
+
+    /// A symlink destination is occupied-and-not-a-regular-file, so it refuses —
+    /// POSIX `rename` would replace the link. Checked on the *name*
+    /// (`symlink_metadata`), so what the link points at never matters.
+    #[test]
+    #[cfg(unix)]
+    fn test_file_move_refuses_a_symlink_destination() {
+        let src = "/tmp/tarqeem_test_file_move_linkdst_src.txt";
+        let dst = "/tmp/tarqeem_test_file_move_linkdst_link";
+        std::fs::write(src, "محتوى").expect("تعذّر إنشاء الملف / could not create the file");
+        std::fs::remove_file(dst).ok();
+        std::os::unix::fs::symlink("/tmp/tarqeem_test_file_move_never_existed", dst)
+            .expect("تعذّر إنشاء الوصلة / could not link");
+
+        let src_p = path_string(src);
+        let dst_p = path_string(dst);
+        assert!(!trq_file_move(src_p, dst_p));
+        assert!(std::fs::symlink_metadata(dst).is_ok(), "الوصلة زالت بالرفض");
+        assert_eq!(std::fs::read(src).expect("المصدر زال"), "محتوى".as_bytes());
+
+        release_path(src_p);
+        release_path(dst_p);
+        std::fs::remove_file(src).ok();
+        std::fs::remove_file(dst).ok();
+    }
+
+    /// A dangling symlink **source** moves as itself: `rename(2)` acts on the
+    /// name, so the link travels and its absent target is never consulted —
+    /// the same name-not-target rule as [`trq_path_delete`].
+    #[test]
+    #[cfg(unix)]
+    fn test_file_move_moves_a_dangling_symlink_as_itself() {
+        let src = "/tmp/tarqeem_test_file_move_dangling_src";
+        let dst = "/tmp/tarqeem_test_file_move_dangling_dst";
+        std::fs::remove_file(src).ok();
+        std::fs::remove_file(dst).ok();
+        std::os::unix::fs::symlink("/tmp/tarqeem_test_file_move_never_existed", src)
+            .expect("تعذّر إنشاء الوصلة / could not link");
+
+        let src_p = path_string(src);
+        let dst_p = path_string(dst);
+        assert!(trq_file_move(src_p, dst_p));
+        assert!(std::fs::symlink_metadata(src).is_err(), "المصدر باقٍ");
+        assert!(std::fs::symlink_metadata(dst).is_ok(), "الوصلة لم تصل");
+        assert!(
+            std::fs::symlink_metadata("/tmp/tarqeem_test_file_move_never_existed").is_err(),
+            "ظهر الهدف من حيث لا يُطلب"
+        );
+
+        release_path(src_p);
+        release_path(dst_p);
+        std::fs::remove_file(dst).ok();
+    }
+
+    /// File-onto-itself is `صحيح` — the destination is a regular file, and
+    /// `rename(2)` over the same entry succeeds doing nothing. The corollary of
+    /// the destination rule, pinned so it is a decision and not an accident.
+    #[test]
+    fn test_file_move_answers_true_for_a_file_onto_itself() {
+        let target = "/tmp/tarqeem_test_file_move_self.txt";
+        std::fs::write(target, "محتوى").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        assert!(trq_file_move(path, path));
+        assert_eq!(
+            std::fs::read(target).expect("الملف زال"),
+            "محتوى".as_bytes()
+        );
+
+        release_path(path);
+        std::fs::remove_file(target).ok();
+    }
+
+    /// Absent source, empty names and null in either position are one answer,
+    /// as in [`trq_path_delete`], and a refusal moves nothing.
+    #[test]
+    fn test_file_move_moves_nothing_that_has_no_name() {
+        let absent = path_string("/tmp/tarqeem_test_file_move_absent");
+        let dst = path_string("/tmp/tarqeem_test_file_move_absent_dst");
+        assert!(!trq_file_move(absent, dst));
+
+        let src = "/tmp/tarqeem_test_file_move_stays.txt";
+        std::fs::write(src, "محتوى").expect("تعذّر إنشاء الملف / could not create the file");
+        let src_p = path_string(src);
+        let empty = path_string("");
+        assert!(!trq_file_move(empty, dst));
+        assert!(!trq_file_move(src_p, empty));
+        assert!(!trq_file_move(src_p, std::ptr::null()));
+        assert!(!trq_file_move(std::ptr::null(), dst));
+        assert_eq!(std::fs::read(src).expect("المصدر زال"), "محتوى".as_bytes());
+
+        release_path(absent);
+        release_path(dst);
+        release_path(src_p);
+        release_path(empty);
+        std::fs::remove_file(src).ok();
     }
 
     // ────────────────────────────────────────────────────────────────────

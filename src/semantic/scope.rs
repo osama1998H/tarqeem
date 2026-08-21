@@ -327,6 +327,20 @@ impl Scope {
             // is what blocks the name — an empty name and `لا_شيء` all answer
             // `خطأ`, indistinguishably; `صحيح` means this call created it.
             ("انشئ_مجلد", vec![Type::String], Type::Bool),
+            // Path move - نقل المسار
+            // `rename(2)`, **atomic** — copy-then-delete is not, and the
+            // difference is observable. Acts on the *name* at both ends: a
+            // symlink moves as itself, dangling included, its target never
+            // consulted — the scope `مسار` names, so the #352 rename
+            // (`حالة_ملف` → `حالة_مسار`) applies to the mover too (#368,
+            // renamed from `انقل_ملف`). An existing destination is replaced
+            // only when it is a regular file, which keeps the atomic
+            // write-temp-then-rename idiom; any other existing destination —
+            // directory, symlink, device — answers `خطأ` on every platform
+            // alike. Total: absent source, a missing destination parent, a
+            // cross-device move, empty names and `لا_شيء` in either argument
+            // all answer `خطأ`, indistinguishably.
+            ("انقل_مسار", vec![Type::String, Type::String], Type::Bool),
             // Program arguments - معاملات البرنامج
             // The vector the OS hands over at `execve`, which nothing in the
             // language can otherwise reach: `متغير_بيئة` reads a different
@@ -715,11 +729,10 @@ impl Scope {
                     vec![Type::String, Type::String],
                     Type::Bool,
                 )),
-                "انقل_ملف" => Some(builtin(
-                    "انقل_ملف",
-                    vec![Type::String, Type::String],
-                    Type::Bool,
-                )),
+                // `انقل_ملف` used to sit here and is now the core-tier
+                // `انقل_مسار` (#368), so it needs no import — the #352 rename
+                // (`حالة_ملف` → `حالة_مسار`) applied to the mover, carried by
+                // the same promotion `انشئ_مجلد` made at #366.
                 "حجم_ملف" => Some(builtin("حجم_ملف", vec![Type::String], Type::Int)),
 
                 // Directory operations. `انشئ_مجلد` used to sit here and is now
@@ -1053,7 +1066,6 @@ impl Scope {
                 "الحق_ملف",
                 "احذف_ملف",
                 "انسخ_ملف",
-                "انقل_ملف",
                 "حجم_ملف",
                 "قائمة_مجلد",
                 "احذف_مجلد",

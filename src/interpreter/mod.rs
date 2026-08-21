@@ -62,6 +62,10 @@ pub(crate) use executor::builtins::call_file_close;
 /// parent, an existing entry of any kind — answer identically in both.
 pub(crate) use executor::builtins::call_dir_create;
 pub(crate) use executor::builtins::call_path_delete;
+/// Shared with the debug interpreter so `rename(2)`'s destination rule — a
+/// regular file is replaced, any other occupied destination refuses — answers
+/// identically in both.
+pub(crate) use executor::builtins::call_path_move;
 /// Shared for a reason the others do not have: the kind/size mapping is already
 /// duplicated once, in `trq_path_status`, because the compiler crate does not
 /// depend on `tarqeem-runtime`. A third copy in the debug interpreter would give

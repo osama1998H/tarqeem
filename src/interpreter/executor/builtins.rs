@@ -705,6 +705,51 @@ pub(crate) fn call_dir_create(args: &[Value]) -> RuntimeResult<Value> {
     Ok(Value::Bool(std::fs::create_dir(&path).is_ok()))
 }
 
+/// `انقل_مسار`'s whole dispatch, shared with the debug interpreter the way
+/// `call_dir_create` above is.
+///
+/// One stateless `rename(2)` — atomic, never a copy, so a cross-device move
+/// answers `خطأ` instead of degrading into one. It acts on the *name* at both
+/// ends: a symlink source moves as itself, dangling included, its target never
+/// consulted. An existing destination is replaced only when it is a **regular
+/// file** — checked on the name, `symlink_metadata` — which keeps the atomic
+/// write-temp-then-rename idiom and refuses every other occupied destination
+/// (directory, symlink, device) on every platform alike; POSIX would replace
+/// an empty directory or a symlink where Windows refuses, and one documented
+/// behaviour gets one implementation.
+///
+/// Duplicated in `trq_file_move` for the reason `call_path_status` records, so
+/// every row is pinned cross-backend rather than only here.
+pub(crate) fn call_path_move(args: &[Value]) -> RuntimeResult<Value> {
+    if args.len() < 2 {
+        return Err(RuntimeError::invalid_operation(
+            "انقل_مسار() تتطلب معاملين: المصدر والوجهة",
+        ));
+    }
+
+    // The runtime answers `false` for a null path in either position, so the
+    // `Null` arms are the designed answer — the same arm `call_dir_create`
+    // carries, on both parameters because both are pointers (#330's rule).
+    let src = match &args[0] {
+        Value::String(text) => text.as_str().to_string(),
+        Value::Null => return Ok(Value::Bool(false)),
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+    let dst = match &args[1] {
+        Value::String(text) => text.as_str().to_string(),
+        Value::Null => return Ok(Value::Bool(false)),
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+
+    if let Ok(meta) = std::fs::symlink_metadata(&dst) {
+        if !meta.is_file() {
+            return Ok(Value::Bool(false));
+        }
+    }
+
+    Ok(Value::Bool(std::fs::rename(&src, &dst).is_ok()))
+}
+
 /// The arguments the CLI was invoked with, minus the program's own name.
 ///
 /// Set once, before the program runs, and read for the rest of the process. It
@@ -893,6 +938,7 @@ impl Interpreter {
                 | "حالة_مسار"
                 | "احذف_مسار"
                 | "انشئ_مجلد"
+                | "انقل_مسار"
                 | "معاملات_البرنامج"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
@@ -1812,6 +1858,7 @@ impl Interpreter {
 
             "احذف_مسار" => call_path_delete(&args),
             "انشئ_مجلد" => call_dir_create(&args),
+            "انقل_مسار" => call_path_move(&args),
             "معاملات_البرنامج" => call_program_args(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),

@@ -448,6 +448,17 @@ impl IrBuilder {
         self.function_return_types
             .insert("انشئ_مجلد".to_string(), IrType::Bool);
 
+        // `انقل_مسار` answers a `منطقي`, the fourth name to carry the
+        // `اغلق_ملف` catcher profile; measured with this entry deleted rather
+        // than forecast, per #364's rule for the printing row. The results are
+        // in `docs/AI_NOTES.md`: `اطبع` prints nothing natively while both
+        // interpreters print `خطأ`, `نوع` answers `مؤشر` on all three, and
+        // `== خطأ` and `ليس` both fail native compilation (ت٠١٠١). The
+        // arithmetic row stays unwritable — `منطقي + عدد` is a semantic error
+        // before this map is consulted.
+        self.function_return_types
+            .insert("انقل_مسار".to_string(), IrType::Bool);
+
         // `معاملات_البرنامج` answers `مصفوفة<نص>` — the first `Array(String)` any
         // builtin has registered, so #330's `Array(Int)` measurement does not
         // transfer and neither does #350's. Measured with this entry deleted,
