@@ -412,6 +412,13 @@ impl IrBuilder {
         // modes above, and printing alone would pass either way.
         self.function_return_types
             .insert("حالة_مسار".to_string(), IrType::Int);
+
+        // `احذف_مسار` answers a `منطقي`, and #347's scalar prediction is what
+        // applies — confirmed again here, and it transfers across names where
+        // #330's array measurement did not (#350). Measured with this entry
+        // deleted, the results are in `docs/AI_NOTES.md`.
+        self.function_return_types
+            .insert("احذف_مسار".to_string(), IrType::Bool);
         // `أنهِ_البرنامج` has **no entry here, deliberately** — the one exception to
         // the rule the rest of this function embodies (`docs/builtins-vs-stdlib.md`
         // §1.1 rule 5: Scope entry + return type + interpreter arms, "any two of the

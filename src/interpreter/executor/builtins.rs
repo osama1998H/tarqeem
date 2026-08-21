@@ -428,6 +428,43 @@ pub(crate) fn call_path_status(args: &[Value]) -> RuntimeResult<Value> {
     }))
 }
 
+/// `احذف_مسار`'s whole dispatch, shared with the debug interpreter the way
+/// `call_path_status` above is.
+///
+/// The selector is **`symlink_metadata`, not `metadata`** — the one place this
+/// deliberately disagrees with its sibling. `احذف_ملف` is `remove_file`, which
+/// unlinks a symlink whatever it points at; `احذف_مجلد` is `remove_dir`, which
+/// refuses one. Following the link would answer `خطأ` for a symlink-to-directory
+/// where `احذف_ملف` answers `صحيح`, and could never delete a **broken** link at
+/// all, since `حالة_مسار` reads one as absent.
+///
+/// Duplicated in `trq_path_delete` for the reason `call_path_status` records, so
+/// every row is pinned cross-backend rather than only here.
+pub(crate) fn call_path_delete(args: &[Value]) -> RuntimeResult<Value> {
+    let path = args
+        .first()
+        .ok_or_else(|| RuntimeError::invalid_operation("احذف_مسار() تتطلب معاملاً: المسار"))?;
+
+    let path = match path {
+        Value::String(text) => text.as_str().to_string(),
+        // The runtime answers `false` for a null path, so this is the designed
+        // answer and not an artifact — the same arm `call_path_status` carries.
+        Value::Null => return Ok(Value::Bool(false)),
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+
+    Ok(Value::Bool(match std::fs::symlink_metadata(&path) {
+        // `rmdir`, not `rm -r`: a non-empty directory answers `خطأ`, which keeps
+        // `احذف_مجلد`'s contract when it becomes a wrapper over this.
+        Ok(meta) if meta.is_dir() => std::fs::remove_dir(&path).is_ok(),
+        // The `||` is the Windows directory-symlink fallback `trq_path_delete`
+        // documents, and a no-op everywhere else for the reason given there. Both
+        // copies carry it because nothing but a test keeps them equal.
+        Ok(_) => std::fs::remove_file(&path).is_ok() || std::fs::remove_dir(&path).is_ok(),
+        Err(_) => false,
+    }))
+}
+
 /// `متغير_بيئة`'s whole dispatch, shared the way `call_substring_by_chars` above
 /// is: the contract here lives almost entirely in the argument checks.
 ///
@@ -571,6 +608,7 @@ impl Interpreter {
                 | "اكتب_مجرى"
                 | "اقرأ_مجرى"
                 | "حالة_مسار"
+                | "احذف_مسار"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
                 | "نص_ينتهي_بـ"
@@ -1484,6 +1522,8 @@ impl Interpreter {
             "اقرأ_مجرى" => call_read_stream(&args),
 
             "حالة_مسار" => call_path_status(&args),
+
+            "احذف_مسار" => call_path_delete(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 

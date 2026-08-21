@@ -835,6 +835,7 @@ impl LlvmCodegen {
         emit!(self, "declare i1 @trq_file_move(ptr, ptr)");
         emit!(self, "declare i64 @trq_file_size(ptr)");
         emit!(self, "declare i64 @trq_path_status(ptr, i64)");
+        emit!(self, "declare i1 @trq_path_delete(ptr)");
         emit!(self, "declare i1 @trq_dir_create(ptr)");
         emit!(self, "declare i1 @trq_dir_create_all(ptr)");
         emit!(self, "declare i1 @trq_dir_delete(ptr)");
@@ -2962,6 +2963,10 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         // flips `ملفات` to disk — standing rule 3: a symbol is not deleted just
         // because a name that folds it landed.
         "حالة_مسار" => Some("trq_path_status"),
+        // Core tier too, and the sibling that *acts* where that one asks. It
+        // folds `احذف_ملف` and `احذف_مجلد`, which stay mapped above until
+        // Increment G flips `ملفات` — standing rule 3.
+        "احذف_مسار" => Some("trq_path_delete"),
         // Both spellings of one primitive, mapped to one symbol — the kasra-less
         // variant is an orthographic pair like the keyword table's `ارمِ`/`ارم`,
         // not a second capability.
