@@ -58,6 +58,9 @@ pub(crate) use executor::builtins::call_file_open;
 /// the other.
 pub(crate) use executor::builtins::call_file_close;
 
+/// Shared with the debug interpreter so `mkdir(2)`'s refusals — a missing
+/// parent, an existing entry of any kind — answer identically in both.
+pub(crate) use executor::builtins::call_dir_create;
 pub(crate) use executor::builtins::call_path_delete;
 /// Shared for a reason the others do not have: the kind/size mapping is already
 /// duplicated once, in `trq_path_status`, because the compiler crate does not

@@ -4974,3 +4974,84 @@ true; the reason becomes "this program closes nothing" rather than "the language
 these primitives. Category 7's three remaining names (`انشئ_مجلد`, `قائمة_مجلد`, `انقل_ملف`)
 are `unchanged` rows already in the registry, so they are repairs — no interpreter arm — not new
 registrations.
+
+## #366 — `انشئ_مجلد`: `mkdir(2)`, and the first cost shape re-measured rather than added
+
+The first of Category 7's three repairs, and the first **promotion** since `قص_حروف` left `نص` at
+#336: the name was declared in the `ملفات` tier with a live `trq_dir_create`, a codegen mapping and
+a `declare`, and had no interpreter arm, no debug arm and no IR return type. It moves to the core
+tier — no import — and the module arm and export entry are deleted in the same commit.
+
+### Decisions taken before the work
+
+- **Chosen over its two siblings deliberately.** `انشئ_مجلد` shares `احذف_مسار`'s exact shape —
+  path in, `منطقي` out — so the tree harness and the three catchers transfer with no new machinery.
+  `قائمة_مجلد` walks into #359 (a non-empty `مصفوفة<نص>` prints addresses natively) and an
+  unspecified readdir order; `انقل_ملف` follows later.
+- **Non-recursive, and the reused implementation was read before being trusted** — and this is the
+  check's **first empty return**, which is itself information. Four increments in a row it found a
+  defect (#352 a fold needing more range, #355 the wrong syscall, #362 an uninheritable return,
+  #364 a discarded flush); here `trq_dir_create` is `std::fs::create_dir`, exactly what the row
+  requires, so the read *confirmed* rather than corrected. Keep running it — a check that can come
+  back empty is a check, not a ritual — but a future increment should not expect a defect just
+  because the streak was long. `trq_dir_create_all` stays a declare-only orphan, untouched under
+  standing rule 3. `stdlib/ملفات/مجلد.ترقيم`'s own docstring («يفشل إذا كان المجلد الأب غير موجود»)
+  independently corroborates the contract.
+- **Nothing is removed.** No related name carries a `يُحذف` verdict, so the removal step of the
+  increment template is empty — stated so the untouched orphan is not read as an oversight.
+
+### The cost forecast, and what it cost
+
+The discriminator — *which half of the path already exists?* — found the whole runtime and codegen
+half present and the name registered import-gated: #336's promotion-repair, forecast **six**. It
+cost six: `scope.rs` (core entry + module arm and export deleted), `ir/builder/mod.rs`,
+`interpreter/executor/builtins.rs` (`is_builtin` + dispatch + `call_dir_create`),
+`interpreter/mod.rs` (re-export), `debug/interpreter/builtins.rs` (import + list + dispatch), and
+the guard ratchets. The first increment to **re-hit a measured shape instead of adding one** —
+which is what the catalogue of shapes exists for. #342's caveat was forecast quiet
+(`std::fs::create_dir` is in-process on both sides) and stayed quiet — the second correct quiet
+forecast after #364.
+
+### What it found that the plan did not state
+
+**1. The *entry* blocks the name, which grounds an unconditional doc claim a `cfg(unix)` test could
+never carry alone.** A dangling symlink reads absent through `حالة_مسار` — which follows — yet
+`mkdir` refuses it, with no `lstat` anywhere in the implementation: POSIX and Windows both refuse
+because the directory entry exists (`EEXIST` / `ERROR_ALREADY_EXISTS`), so the target is never
+consulted. #355 f.6's lesson applied in advance: the LANGUAGE_SPEC prose states the mechanism
+("القيد يحجز الاسم") rather than a platform behaviour, so the Unix-gated test legitimately supports
+the unconditional claim. Refusal-despite-absent is pinned cross-backend; the link's survival is
+pinned in `runtime-rs`, where `symlink_metadata` sees what no builtin can.
+
+**2. The `اغلق_ملف` catcher profile held a third time, measured with the entry deleted.** `اطبع`
+prints nothing natively while both interpreters print `خطأ`; `نوع` answers `مؤشر` on all three;
+`== خطأ` and `ليس` fail native compilation, clang rejecting the untyped `ptr` at `icmp eq` and at
+`xor i1`. The printing row was measured, per #364's rule, and landed in #352's silent mode.
+
+**3. The refusal-only example rule reached its sharpest case.** This is the first primitive whose
+happy path *is* creation, so the success row itself is the effect the repository root cannot
+absorb. The example section demonstrates the contract — `"."` refused and untouched, a missing
+parent refused with nothing appearing along the way, `""` and `لا_شيء` refused — and the whole
+absent→create→observe cycle lives in the cross-backend tests, where a **textual child of an
+`EmptyDir` fixture** (`{مسار}/جديد`) starts absent on every leg because per-leg re-materialization
+resets it. No harness helper was needed — the second increment running.
+
+**4. A promotion's replacement comment must not quote the deleted arm.**
+`every_stdlib_signature_arm_is_exported` text-scans `scope.rs` for `Some(builtin(` inside each
+module block, so a comment pasting the old line back as documentation would count as a live arm and
+fail the guard in a confusing direction. The comment names the move; it does not quote the code.
+
+Counts after this: registry **203** (41 core + 162 stdlib — the split moves, the total does not),
+debug interpreter **41** (34 Arabic + 7 `trq_*`, recounted with comments stripped and every
+`is_builtin` name checked for a dispatch mention), `trq_*` exports **227 unchanged**,
+`get_runtime_function_name` **226 unchanged**, IR-intercepted 20 unchanged.
+
+The keyword sweep found **none** of the keyword literals embedded in `انشئ_مجلد` — `منشئ` is one
+letter away from the `انشئ` prefix but is not a substring, and `من` does not occur — so no row in
+`test_identifier_containing_a_keyword_stays_one_token`. No diacritic, nothing contextual. **And the
+sweep recounted the map: `src/lexer/keywords.rs` holds 69 keyword literals, not the 77 this file
+has repeated since #350.** 69 is the source-of-truth number; earlier mentions stay as written.
+
+**Next in the plan**: Category 7's two remaining repairs — `قائمة_مجلد` (owes an answer to #359 and
+to readdir ordering before its rows can be written) and `انقل_ملف` (`rename(2)`, atomic, likely
+another six-shape promotion) — then Increment G proper, the `ملفات` module as self-hosted Tarqeem.

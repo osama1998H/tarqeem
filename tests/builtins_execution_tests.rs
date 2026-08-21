@@ -3374,6 +3374,11 @@ fn test_every_core_builtin_agrees_across_backends() {
         // handle. The success rows are in the section below, where a tree helper
         // can supply a file to write and read back.
         ("اغلق_ملف", "اطبع(اغلق_ملف(3))", &["خطأ"]),
+        // A refusal for `حالة_مسار`'s reason inverted: `"."` exists wherever the
+        // program runs, so `mkdir` refuses it identically on all three legs and
+        // the sweep creates nothing. The success rows are in the section below,
+        // where a tree helper supplies a parent to create into.
+        ("انشئ_مجلد", "اطبع(انشئ_مجلد(\".\"))", &["خطأ"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
@@ -5271,6 +5276,146 @@ fn test_file_close_can_be_shadowed_by_a_user_function() {
             "    أرجع صحيح\n",
             "}\n",
             "اطبع(اغلق_ملف(3))"
+        ),
+        &["صحيح"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// انشئ_مجلد — `mkdir(2)`, the create half of the path pair (#366)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Pinned cross-backend for `احذف_مسار`'s reason: the `create_dir` kernel exists
+// twice — in `trq_dir_create` and in `call_dir_create` — and nothing but these
+// rows keeps the two equal. And like its remove half this primitive has an
+// *effect*, so every row that should create something asks `حالة_مسار`
+// afterwards rather than trusting the `منطقي` that came back.
+
+/// The effect gate. The parent is a tree fixture, re-materialized per backend
+/// leg, so each leg starts with the child absent, watches it appear, and then
+/// hits `EEXIST` on the second attempt — `صحيح` means *this call created it*.
+#[test]
+fn test_dir_create_creates_a_directory_and_the_sibling_sees_it() {
+    assert_prints_with_tree(
+        "إنشاء_مجلد",
+        &[("أب", Fixture::EmptyDir)],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}/جديد\"، 0))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}/جديد\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}/جديد\"، 0))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}/جديد\"))",
+        ),
+        &["0", "صحيح", "2", "خطأ"],
+    );
+}
+
+/// `mkdir(2)`, not `mkdir -p`: a grandchild under an absent child is refused and
+/// nothing appears anywhere along the path. Then the same target is reached
+/// level by level — the stdlib recursion written out, which is why no second
+/// primitive is needed.
+#[test]
+fn test_dir_create_refuses_a_missing_parent_and_composes_level_by_level() {
+    assert_prints_with_tree(
+        "إنشاء_متداخل",
+        &[("جذر", Fixture::EmptyDir)],
+        concat!(
+            "اطبع(انشئ_مجلد(\"{مسار}/أ/ب\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}/أ\"، 0))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}/أ\"))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}/أ/ب\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}/أ/ب\"، 0))",
+        ),
+        &["خطأ", "0", "صحيح", "صحيح", "2"],
+    );
+}
+
+/// A file blocks the name and keeps its bytes: refusal is a read-only answer,
+/// never a replacement. The kind row proves the file is still a file.
+#[test]
+fn test_dir_create_refuses_an_existing_file_and_leaves_it() {
+    assert_prints_with_tree(
+        "إنشاء_فوق_ملف",
+        &[("قائم.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "اطبع(انشئ_مجلد(\"{مسار}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 1))",
+        ),
+        &["خطأ", "1", "10"],
+    );
+}
+
+/// An empty name and both spellings of a null are one answer, as they are for
+/// `احذف_مسار`: an un-narrowed `نص?` through `Type::compat`, and an `أي` holder.
+#[test]
+fn test_dir_create_creates_nothing_that_has_no_name() {
+    assert_prints(
+        "إنشاء_بلا_اسم",
+        concat!(
+            "متغير غائب: نص? = لا_شيء\n",
+            "متغير مجهول: أي = لا_شيء\n",
+            "اطبع(انشئ_مجلد(\"\"))\n",
+            "اطبع(انشئ_مجلد(غائب))\n",
+            "اطبع(انشئ_مجلد(مجهول))",
+        ),
+        &["خطأ", "خطأ", "خطأ"],
+    );
+}
+
+/// The *entry* is what blocks the name. A dangling symlink reads as absent
+/// through `حالة_مسار` — which follows — yet `mkdir` refuses it, because the
+/// directory entry exists whether or not its target does. The refusal-despite-
+/// absent pair is the observable half; the link's own survival is pinned in
+/// `runtime-rs`, where `symlink_metadata` can see what no builtin can.
+#[test]
+#[cfg(unix)]
+fn test_dir_create_refuses_a_dangling_symlink_by_its_entry() {
+    assert_prints_with_tree(
+        "إنشاء_فوق_وصلة",
+        &[(
+            "معلقة",
+            Fixture::Symlink {
+                to: "لا_يوجد_هدف"
+            },
+        )],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}\"))",
+        ),
+        &["0", "خطأ"],
+    );
+}
+
+/// The load-bearing test for the `register_builtin_return_types` entry. Printing
+/// alone passes without it — natively it prints nothing at all — so the
+/// assertions that matter are `نوع` and the two that fail native compilation
+/// outright when the entry is missing: `== خطأ` at `icmp eq ptr` and `ليس` at
+/// `xor i1`. No arithmetic row: `منطقي + عدد` is refused by the semantic layer,
+/// which never consults the IR return type.
+#[test]
+fn test_dir_create_result_composes_as_a_boolean() {
+    assert_prints(
+        "تركيب_الإنشاء",
+        concat!(
+            "اطبع(نوع(انشئ_مجلد(\".\")))\n",
+            "اطبع(انشئ_مجلد(\".\") == خطأ)\n",
+            "إذا (ليس انشئ_مجلد(\".\")) { اطبع(\"لم يُنشأ\") }"
+        ),
+        &["منطقي", "صحيح", "لم يُنشأ"],
+    );
+}
+
+/// A user function named `انشئ_مجلد` shadows the builtin, like every other core
+/// name: builtins are the last resort in name resolution, not reserved words.
+#[test]
+fn test_dir_create_can_be_shadowed_by_a_user_function() {
+    assert_prints(
+        "تظليل_الإنشاء",
+        concat!(
+            "دالة انشئ_مجلد(مسار: نص) -> منطقي {\n",
+            "    أرجع صحيح\n",
+            "}\n",
+            "اطبع(انشئ_مجلد(\"\"))"
         ),
         &["صحيح"],
     );

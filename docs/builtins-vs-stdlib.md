@@ -330,7 +330,7 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | `اغلق_ملف` | `(عدد) -> منطقي` | new — **مُنفَّذ (#364)** | `close(2)`, and the name that makes written bytes land *sooner* than program end rather than at it. **The "reused unchanged" clause is withdrawn** — see the correction below. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Folds nothing: `trq_file_flush`, `read_line`, `write_line` and `eof` stay nameless orphans. Total: the console streams `٠`/`١`/`٢` are **not** closable (deliberately unlike `close(2)`), and a handle already released, one never opened, a negative one and a failed flush all answer `خطأ`, indistinguishably. A released number is never handed out again. |
 | `حالة_مسار` | `(نص، عدد) -> عدد` | new — **مُنفَّذ (#352)** | `stat(2)`, one field per call, so the answer stays an `عدد` and no struct crosses the FFI. `حقل ٠` = kind, `حقل ١` = size. **Folds four syscall wrappers into one** — `ملف_موجود`, `هل_ملف`, `هل_مجلد`, `حجم_ملف` all become stdlib one-liners. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). **Renamed from `حالة_ملف`, and the kind gained a fourth value; the size clause was completed** — see the correction below. Total: the field is settled before the path, symlinks are followed, and an absent path, an unreadable one, an empty name and `لا_شيء` all answer `٠` / `-١`. |
 | `احذف_مسار` | `(نص) -> منطقي` | new — **مُنفَّذ (#355)** | `unlink(2)` for a file, `rmdir(2)` for an empty directory, chosen by **`lstat`** — **the row said `stat`, and that was wrong; see the correction below.** Folds two symbols; `احذف_ملف` and `احذف_مجلد` survive as stdlib wrappers, each with one documented delta. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: an absent path, an empty name, `لا_شيء`, an unreadable path and a non-empty directory all answer `خطأ`, indistinguishably. Not recursive. |
-| `انشئ_مجلد` | `(نص) -> منطقي` | unchanged | `mkdir(2)`. No composition of open/read/write/close/stat creates a directory. Recursive creation becomes a stdlib loop, not a second primitive. Criterion (b). |
+| `انشئ_مجلد` | `(نص) -> منطقي` | narrowed — **مُنفَّذ (#366)** | `mkdir(2)`. No composition of open/read/write/close/stat creates a directory. Recursive creation becomes a stdlib loop, not a second primitive. **Narrowed** because it moves from the `ملفات` module tier to the core tier (no import), the promotion `قص_حروف` made at #336. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). Total: `صحيح` means this call created it; an existing entry of any kind — a dangling symlink included, since the *entry* blocks the name and the target is never consulted — a missing parent, an empty name and `لا_شيء` all answer `خطأ`, indistinguishably. |
 | `قائمة_مجلد` | `(نص) -> مصفوفة<نص>` | unchanged | `readdir(3)`. Directory entries are not readable through a byte stream. One array-returning primitive is a smaller surface than an opendir/readdir/closedir triple. Criterion (b). |
 | `انقل_ملف` | `(نص، نص) -> منطقي` | unchanged | `rename(2)` is **atomic**; copy-then-delete is not, and the difference is observable. A capability that cannot be composed from the others is exactly criterion (b). |
 
@@ -1837,8 +1837,74 @@ contextual, so neither #342's nor #352's extra check applies.
 
 **Category 7's new registrations are complete.** The remaining three names in it — `انشئ_مجلد`,
 `قائمة_مجلد`, `انقل_ملف` — are `unchanged` rows already in the registry, so they are repairs (no
-interpreter arm) rather than new registrations. Increment G's 21 `ملفات` names can now be written as
-self-hosted Tarqeem on top of these primitives, which is what the increment was waiting for.
+interpreter arm) rather than new registrations. **`انشئ_مجلد` landed first (#366, §6.7.9)**, promoted
+to the core tier on the #336 precedent, so two remain and the `ملفات` module now holds 20 names.
+Increment G's `ملفات` names can now be written as self-hosted Tarqeem on top of these primitives,
+which is what the increment was waiting for.
+
+### 6.7.9 `انشئ_مجلد` — the first Category-7 repair, and the first re-measured cost shape (#366)
+
+**The discriminator's answer was a shape it had already measured, and the shape held exactly.**
+§6.7's question — *which half of the path already exists?* — found the whole runtime and codegen
+half present (`trq_dir_create` defined, re-exported, mapped in `get_runtime_function_name`, and
+`declare`d), and the name already registered, import-gated, in the `ملفات` tier. That is #336's
+promotion-repair, so the forecast was **six** — `Scope` (with the module arm and export entry
+deleted in the same file), the return type, the interpreter arm and its `interpreter/mod.rs`
+re-export, the debug arm, and the guard ratchets — and it cost six. Every previous increment
+either added a shape or confirmed the nine; this is the first to re-hit an existing one, which is
+what a measured catalogue is for. #342's caveat — *does the effect have anywhere to arrive?* —
+was forecast quiet, because `std::fs::create_dir` is in-process on both sides and the runtime
+already performs it, and stayed quiet: the second correct quiet forecast after #364.
+
+Landed ahead of its two siblings deliberately: it shares `احذف_مسار`'s exact shape — path in,
+`منطقي` out — so the tree harness and the three catchers transfer with no new machinery, while
+`قائمة_مجلد` walks into #359 (a non-empty `مصفوفة<نص>` prints addresses natively) and an
+unspecified readdir order, both contract questions this increment did not need to answer.
+
+Four things it found that the plan did not state:
+
+1. **What blocks the name is the directory *entry*, and that grounds an unconditional doc claim a
+   `cfg(unix)` test could never carry alone.** A dangling symlink reads as absent through
+   `حالة_مسار` — which follows — yet `mkdir` refuses it, and the refusal involves no `lstat` in
+   the implementation at all: both POSIX and Windows refuse because the entry exists
+   (`EEXIST` / `ERROR_ALREADY_EXISTS`), so whether the link dangles is never consulted. #355 f.6
+   warned that a Unix-gated suite cannot see an unconditional contract; here the contract is
+   *written by its mechanism* — the entry blocks, the target is not asked — so the one-platform
+   test legitimately supports a no-platform claim. The refusal-despite-absent pair is pinned
+   cross-backend; the link's own survival is pinned in `runtime-rs`, where `symlink_metadata` can
+   see what no builtin can.
+
+2. **The `اغلق_ملف` catcher profile held a third time, measured rather than forecast.** With the
+   `register_builtin_return_types` entry deleted: `اطبع` prints nothing natively while both
+   interpreters print `خطأ`, `نوع` answers `مؤشر` on all three, and `== خطأ` and `ليس` both fail
+   native compilation — clang rejects the untyped `ptr` at `icmp eq` and at `xor i1`
+   respectively. The printing row was measured, per #364's rule, and landed in #352's silent
+   mode.
+
+3. **The refusal-only example rule reached its sharpest case: the first primitive whose happy path
+   *is* creation.** #355 established that a destructive name's example covers only refusals;
+   here the success row itself is the effect the repository root cannot absorb, so the section
+   demonstrates the *contract* — `"."` refused and untouched, the missing parent refused with
+   nothing appearing along the way, `""` and `لا_شيء` refused — and the whole
+   absent→create→observe cycle lives in the three-backend tests, where the tree fixture's
+   per-leg re-materialization supplies what the example cannot: a child path that does not exist
+   at each leg's start. No harness helper was needed — the second increment running — because a
+   *textual* child of an `EmptyDir` fixture (`{مسار}/جديد`) is reset by the same
+   `remove_dir_all` that resets the fixture.
+
+4. **The promotion mechanics carry one trap the #336 precedent did not have to write down: the
+   replacement comment must not quote the deleted arm.** `every_stdlib_signature_arm_is_exported`
+   text-scans `scope.rs` for `Some(builtin(` inside each module block, so a comment that pastes
+   the old line back as documentation would be counted as a live arm and fail the guard in a
+   confusing direction. The comment names the move; it does not quote the code.
+
+One smaller result, and a correction to this document's own running number: the keyword sweep
+found **none** of the keyword literals embedded in `انشئ_مجلد` — `منشئ` is one letter away from
+the `انشئ` prefix but is not a substring, and `من` does not occur — so it gets no row in
+`test_identifier_containing_a_keyword_stays_one_token`. The sweep also recounted the map:
+`src/lexer/keywords.rs` holds **69** keyword literals, not the 77 this document and `AI_NOTES`
+have repeated since #350. The 69 is the source-of-truth number; earlier mentions are left as
+written, per the §2 snapshot convention.
 
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 

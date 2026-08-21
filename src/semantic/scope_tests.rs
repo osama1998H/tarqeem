@@ -198,6 +198,9 @@ fn test_global_scope_has_core_builtins() {
 
     // Path deletion (1) — the sibling that acts where that one asks.
     assert!(scope.lookup("احذف_مسار").is_some());
+    // Directory creation (1) — the create half of that pair, promoted out of
+    // `ملفات` at #366 the way `قص_حروف` left `نص` at #336.
+    assert!(scope.lookup("انشئ_مجلد").is_some());
     assert!(scope.lookup("معاملات_البرنامج").is_some());
 
     // Termination (2) — one primitive in two spellings, so both need pinning:

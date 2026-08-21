@@ -317,6 +317,16 @@ impl Scope {
             // contract when it becomes a wrapper. Total: absent, empty and
             // `لا_شيء` all answer `خطأ`.
             ("احذف_مسار", vec![Type::String], Type::Bool),
+            // Directory creation - إنشاء المجلد
+            // `mkdir(2)`, the create half `احذف_مسار` removes: no composition of
+            // open/read/write/close/stat makes a directory exist. **Not
+            // recursive** — a missing parent answers `خطأ`, and the stdlib loop
+            // is where recursion lives, so `احذف_مسار`'s one-level contract has
+            // a one-level inverse. Total: an existing directory, an existing
+            // file, an existing symlink — dangling included, since the *entry*
+            // is what blocks the name — an empty name and `لا_شيء` all answer
+            // `خطأ`, indistinguishably; `صحيح` means this call created it.
+            ("انشئ_مجلد", vec![Type::String], Type::Bool),
             // Program arguments - معاملات البرنامج
             // The vector the OS hands over at `execve`, which nothing in the
             // language can otherwise reach: `متغير_بيئة` reads a different
@@ -712,8 +722,9 @@ impl Scope {
                 )),
                 "حجم_ملف" => Some(builtin("حجم_ملف", vec![Type::String], Type::Int)),
 
-                // Directory operations
-                "انشئ_مجلد" => Some(builtin("انشئ_مجلد", vec![Type::String], Type::Bool)),
+                // Directory operations. `انشئ_مجلد` used to sit here and is now
+                // core tier (#366), so it needs no import — the same promotion
+                // `قص_حروف` made out of `نص` at #336.
                 "قائمة_مجلد" => Some(builtin(
                     "قائمة_مجلد",
                     vec![Type::String],
@@ -1044,7 +1055,6 @@ impl Scope {
                 "انسخ_ملف",
                 "انقل_ملف",
                 "حجم_ملف",
-                "انشئ_مجلد",
                 "قائمة_مجلد",
                 "احذف_مجلد",
                 "مجلد_حالي",
