@@ -5123,9 +5123,8 @@ forecast** (per #364's rule for the printing row):
 
 Four names, one profile — the `منطقي` return is now boring, which is what the catalogue is for.
 
-**4. The keyword sweep found none of the 69 literals embedded** (`منشئ` is one letter off the
-`انقل`-adjacent `انشئ` prefix of its sibling, but nothing embeds here), so no lexer row; no
-diacritic, nothing contextual. And no harness helper was needed — the third increment running.
+**4. The keyword sweep found none of the 69 literals embedded**, so no lexer row; no diacritic,
+nothing contextual. And no harness helper was needed — the third increment running.
 
 ### State after #368
 
