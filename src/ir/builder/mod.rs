@@ -419,6 +419,20 @@ impl IrBuilder {
         // deleted, the results are in `docs/AI_NOTES.md`.
         self.function_return_types
             .insert("احذف_مسار".to_string(), IrType::Bool);
+
+        // `معاملات_البرنامج` answers `مصفوفة<نص>` — the first `Array(String)` any
+        // builtin has registered, so #330's `Array(Int)` measurement does not
+        // transfer and neither does #350's. Measured with this entry deleted,
+        // the results are in `docs/AI_NOTES.md`; the short version is that the
+        // element is a `Ptr(Void)` under the sentinel, so `طول` and `نوع` behave
+        // as they always do while **indexing** is what degrades. The composition
+        // test therefore indexes, concatenates and compares, and deliberately
+        // does not print the array — #359 makes printing a non-empty
+        // `مصفوفة<نص>` wrong natively with or without this entry.
+        self.function_return_types.insert(
+            "معاملات_البرنامج".to_string(),
+            IrType::Array(Box::new(IrType::String), 0),
+        );
         // `أنهِ_البرنامج` has **no entry here, deliberately** — the one exception to
         // the rule the rest of this function embodies (`docs/builtins-vs-stdlib.md`
         // §1.1 rule 5: Scope entry + return type + interpreter arms, "any two of the
