@@ -319,10 +319,8 @@ fn assert_prints_with_stdin(name: &str, body: &str, stdin: &[u8], expected: &[&s
 #[derive(Clone, Copy)]
 enum Fixture<'a> {
     File(&'a str),
-    #[allow(dead_code)]
     EmptyDir,
     #[cfg(unix)]
-    #[allow(dead_code)]
     Symlink {
         to: &'a str,
     },

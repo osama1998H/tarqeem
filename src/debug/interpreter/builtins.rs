@@ -894,11 +894,10 @@ mod tests {
         assert_eq!(err.kind, ErrorKind::TypeError);
     }
 
-    /// `احذف_مسار` under the debug interpreter, for `حالة_مسار`'s reason plus one
-    /// of its own: the lstat-versus-stat choice is the whole contract, and it is
-    /// the only place the two copies of the kernel can silently disagree.
+    /// `احذف_مسار` under the debug interpreter, which is the only backend a
+    /// cross-backend test cannot reach. The portable rows live here; the symlink
+    /// row — which is the whole contract — is the test below.
     #[test]
-    #[cfg(unix)]
     fn test_path_delete_is_dispatchable() {
         assert!(
             DebugInterpreter::is_builtin("احذف_مسار"),
@@ -925,11 +924,35 @@ mod tests {
             assert_eq!(delete(&mut interpreter, path), Value::Bool(false));
         }
 
-        // A non-empty directory is refused: `rmdir`, not `rm -r`.
+        // A non-empty directory is refused: `rmdir`, not `rm -r`. The system temp
+        // directory rather than a literal `/tmp`, so the row runs on Windows too.
+        let temp = std::env::temp_dir();
         assert_eq!(
-            delete(&mut interpreter, Value::string("/tmp")),
+            delete(
+                &mut interpreter,
+                Value::string(temp.to_str().expect("مسار مؤقت صالح"))
+            ),
             Value::Bool(false)
         );
+    }
+
+    /// The lstat-versus-stat choice, which is the only place the two copies of the
+    /// kernel can silently disagree — so it is asserted here as well as
+    /// cross-backend. Split from the test above so the portable rows still run on
+    /// Windows.
+    #[test]
+    #[cfg(unix)]
+    fn test_path_delete_unlinks_a_symlink_rather_than_following_it() {
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let delete = |interpreter: &mut DebugInterpreter, path: Value| {
+            interpreter
+                .call_builtin("احذف_مسار", vec![path])
+                .expect("احذف_مسار تُرجع قيمة لا خطأ")
+        };
 
         let target = "/tmp/tarqeem_debug_path_delete_target_dir";
         let link = "/tmp/tarqeem_debug_path_delete_link";
