@@ -3370,6 +3370,10 @@ fn test_every_core_builtin_agrees_across_backends() {
         // filesystem. The success rows are in the section below, where a tree
         // helper can supply a file.
         ("افتح_ملف", "اطبع(افتح_ملف(\".\", 9))", &["-1"]),
+        // A refusal too, and this program has opened nothing, so `3` names no
+        // handle. The success rows are in the section below, where a tree helper
+        // can supply a file to write and read back.
+        ("اغلق_ملف", "اطبع(اغلق_ملف(3))", &["خطأ"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
@@ -4917,13 +4921,15 @@ fn test_file_open_in_write_mode_truncates_what_was_there() {
     );
 }
 
-/// Bytes written to a handle are **not guaranteed** visible until the program
-/// ends, because the write path does not flush and nothing closes a handle yet.
+/// Bytes written to a handle a program **does not close** are not guaranteed
+/// visible until it ends, because the write path never flushes.
 ///
 /// Pinning current behaviour, not the rule: a payload larger than the
 /// `BufWriter`'s capacity would flush mid-write and *would* be visible. Both
 /// backends share the same buffer type, so they agree either way — which is the
-/// property worth having. `اغلق_ملف` is what will make the bytes land sooner.
+/// property worth having. The contrast is
+/// `test_file_close_lands_written_bytes_before_the_program_ends` below: the same
+/// program with one `اغلق_ملف` reads its own bytes back.
 #[test]
 fn test_file_open_does_not_promise_bytes_before_the_program_ends() {
     assert_prints_with_tree(
@@ -5073,5 +5079,199 @@ fn test_file_open_result_composes_as_an_integer() {
             "اطبع(مرفوض == 0 - 1)"
         ),
         &["عدد", "0", "صحيح", "0", "صحيح"],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// اغلق_ملف — close(2), and the name that makes written bytes land early
+// ---------------------------------------------------------------------------
+
+/// The row the name exists for, and the capability `افتح_ملف` could not deliver:
+/// a program writes a file and reads it back **within its own run**.
+///
+/// Its contrast is `test_file_open_does_not_promise_bytes_before_the_program_ends`
+/// above — the identical program without the close reads `0` bytes. Arabic
+/// content deliberately: five characters and ten bytes, so a wrong unit anywhere
+/// on the path cannot pass.
+#[test]
+fn test_file_close_lands_written_bytes_before_the_program_ends() {
+    assert_prints_with_tree(
+        "إغلاق_يُنزل_البايتات",
+        &[("مكتوب.نص", Fixture::File(""))],
+        concat!(
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 1)\n",
+            "اطبع(اكتب_مجرى(كاتب, نص_إلى_ثنائي(\"مرحبا\")))\n",
+            "اطبع(اغلق_ملف(كاتب))\n",
+            "متغير قارئ = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(ثنائي_إلى_نص(اقرأ_مجرى(قارئ, 64)))"
+        ),
+        &["10", "صحيح", "مرحبا"],
+    );
+}
+
+/// And the bytes are on disk when the run is over, not merely readable inside it.
+///
+/// Invisible from within the program, which is what `_and_contents` is for: it
+/// reads the fixture back after each backend's leg.
+#[test]
+fn test_file_close_leaves_the_bytes_on_disk() {
+    assert_prints_with_tree_and_contents(
+        "إغلاق_يُثبت_البايتات",
+        &[("مكتوب.نص", Fixture::File(""))],
+        concat!(
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 1)\n",
+            "اطبع(اكتب_مجرى(كاتب, نص_إلى_ثنائي(\"ج\")))\n",
+            "اطبع(اغلق_ملف(كاتب))"
+        ),
+        &["2", "صحيح"],
+        &[("مكتوب.نص", "ج")],
+    );
+}
+
+/// A reader closes too, and answers the same `صحيح` — there is simply nothing to
+/// flush.
+#[test]
+fn test_file_close_releases_a_reader() {
+    assert_prints_with_tree(
+        "إغلاق_قارئ",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير قارئ = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(ثنائي_إلى_نص(اقرأ_مجرى(قارئ, 64)))\n",
+            "اطبع(اغلق_ملف(قارئ))"
+        ),
+        &["مرحبا", "صحيح"],
+    );
+}
+
+/// The handle leaves the table, so the second close is a miss like any other.
+#[test]
+fn test_file_close_refuses_a_handle_it_already_released() {
+    assert_prints_with_tree(
+        "إغلاق_مرتين",
+        &[("مقروء.نص", Fixture::File("م"))],
+        concat!(
+            "متغير قارئ = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(اغلق_ملف(قارئ))\n",
+            "اطبع(اغلق_ملف(قارئ))"
+        ),
+        &["صحيح", "خطأ"],
+    );
+}
+
+/// **The console streams are not closable**, deviating from `close(2)`, which
+/// does close descriptor 1.
+///
+/// They need no special arm: handles start at `٣`, so `٠`/`١`/`٢` were never in
+/// the table and a refusal falls out of the lookup. One documented behaviour and
+/// one implementation, the shape #362 chose for its directory refusal — and here
+/// it also keeps a program from closing the stream the harness reads its output
+/// from.
+#[test]
+fn test_file_close_refuses_the_console_streams() {
+    assert_prints(
+        "إغلاق_المجاري_القياسية",
+        concat!(
+            "اطبع(اغلق_ملف(0))\n",
+            "اطبع(اغلق_ملف(1))\n",
+            "اطبع(اغلق_ملف(2))"
+        ),
+        &["خطأ", "خطأ", "خطأ"],
+    );
+}
+
+/// A handle never opened, and a negative one. Total: no range check is needed
+/// before the call, and nothing throws.
+#[test]
+fn test_file_close_refuses_a_handle_never_opened() {
+    assert_prints(
+        "إغلاق_معرِّف_مجهول",
+        concat!(
+            "اطبع(اغلق_ملف(3))\n",
+            "اطبع(اغلق_ملف(99))\n",
+            "اطبع(اغلق_ملف(0 - 1))"
+        ),
+        &["خطأ", "خطأ", "خطأ"],
+    );
+}
+
+/// Closing frees the entry, never the number.
+///
+/// Both backends count up from 3 and neither recycles, so a program that prints a
+/// handle prints the same sequence everywhere — which is the only reason the
+/// numbers are comparable at all.
+#[test]
+fn test_file_close_does_not_recycle_the_number() {
+    assert_prints_with_tree(
+        "إغلاق_لا_يُعيد_الرقم",
+        &[("مقروء.نص", Fixture::File("م"))],
+        concat!(
+            "متغير أول = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(أول)\n",
+            "اطبع(اغلق_ملف(أول))\n",
+            "متغير ثان = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(ثان)\n",
+            "اطبع(ثان > أول)"
+        ),
+        &["3", "صحيح", "4", "صحيح"],
+    );
+}
+
+/// The stream pair inherits the release with no arm of its own: a closed number
+/// is absent from the table, which both halves already refuse.
+///
+/// The two answers differ because the two return types do — `اكتب_مجرى` has `-١`
+/// to spare and an array return has nothing, so a closed handle reads exactly
+/// like EOF.
+#[test]
+fn test_the_stream_pair_refuses_a_closed_handle() {
+    assert_prints_with_tree(
+        "إغلاق_ثم_المجاري",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير قارئ = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(اغلق_ملف(قارئ))\n",
+            "اطبع(طول(اقرأ_مجرى(قارئ, 64)))\n",
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 2)\n",
+            "اطبع(اغلق_ملف(كاتب))\n",
+            "اطبع(اكتب_مجرى(كاتب, نص_إلى_ثنائي(\"x\")))"
+        ),
+        &["صحيح", "0", "صحيح", "-1"],
+    );
+}
+
+/// The composition gate — the three things a `منطقي` result must be able to do.
+///
+/// No arithmetic row: `منطقي + عدد` is refused by the **semantic** layer, which
+/// never consults the IR return type, so the `+ ١` row every measurement since
+/// #347 used is unwritable here. `ليس` is the substitute. Measured with the
+/// `register_builtin_return_types` entry deleted, `نوع` answers `مؤشر` and
+/// `== خطأ` fails native compilation with ت٠١٠١.
+#[test]
+fn test_file_close_result_composes_as_a_boolean() {
+    assert_prints(
+        "تركيب_الإغلاق",
+        concat!(
+            "اطبع(نوع(اغلق_ملف(3)))\n",
+            "اطبع(اغلق_ملف(3) == خطأ)\n",
+            "إذا (ليس اغلق_ملف(3)) { اطبع(\"لم يُغلق\") }"
+        ),
+        &["منطقي", "صحيح", "لم يُغلق"],
+    );
+}
+
+/// A user function named `اغلق_ملف` shadows the builtin, like every other core
+/// name: builtins are the last resort in name resolution, not reserved words.
+#[test]
+fn test_file_close_can_be_shadowed_by_a_user_function() {
+    assert_prints(
+        "تظليل_الإغلاق",
+        concat!(
+            "دالة اغلق_ملف(معرف: عدد) -> منطقي {\n",
+            "    أرجع صحيح\n",
+            "}\n",
+            "اطبع(اغلق_ملف(3))"
+        ),
+        &["صحيح"],
     );
 }

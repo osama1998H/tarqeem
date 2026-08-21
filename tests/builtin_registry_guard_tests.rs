@@ -5,7 +5,7 @@
 //! name lists — and until now nothing compared them. They happen to agree today;
 //! that agreement was coincidence, not enforcement.
 //!
-//! These are **ratchet** tests. They pin the registry as it stands (39 core + 163
+//! These are **ratchet** tests. They pin the registry as it stands (40 core + 163
 //! stdlib) while the builtin/stdlib boundary described in `docs/builtins-vs-stdlib.md`
 //! is migrated. A name may only enter or leave the registry by editing the expected
 //! list here, which is exactly the deliberate step the plan requires — a migration
@@ -65,6 +65,7 @@ const CORE_BUILTINS: &[&str] = &[
     "اكتب_مجرى",
     "اقرأ_مجرى",
     "افتح_ملف",
+    "اغلق_ملف",
     "حالة_مسار",
     "احذف_مسار",
     "معاملات_البرنامج",
@@ -237,10 +238,16 @@ fn stdlib_registry_size_is_locked() {
     // 202 with #362 (`افتح_ملف`), one name for one capability. It folds the three
     // path-only `trq_file_open_*` openers behind one mode and removes none of
     // them — they are runtime symbols, not registry names — so no module size
-    // moves. `اغلق_ملف` is a separate slot and has not landed.
+    // moves.
+    //
+    // 203 with #364 (`اغلق_ملف`), its release half. One name for one capability
+    // again, and this one folds nothing at all: `trq_file_flush`, `read_line`,
+    // `write_line` and `eof` stay nameless orphans. So the `ملفات` size is
+    // unchanged for the fifth increment running, and the gap between this count
+    // and the 40-primitive budget is still the one `أنهِ_البرنامج` spelling.
     assert_eq!(
         total + CORE_BUILTINS.len(),
-        202,
+        203,
         "total registry size changed; docs/builtins-vs-stdlib.md targets 40 primitives — reached \
          by migrating ~150 names out and adding 21 new ones, so this number moves in both \
          directions, but only ever deliberately"
