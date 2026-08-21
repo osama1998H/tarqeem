@@ -284,13 +284,48 @@ pub(crate) fn call_file_open(args: &[Value]) -> RuntimeResult<Value> {
     Ok(Value::Int(store_handle(handle)))
 }
 
+/// `اغلق_ملف`'s whole dispatch, shared with the debug interpreter the way
+/// `call_file_open` above is — and for the same reason: it acts on the one table,
+/// so a second dispatch would be a second table.
+///
+/// Mirrors `trq_file_close` line for line, including the fold: the answer means
+/// "released, and a writer's bytes are away", not merely "the table held it".
+/// Mirrored rather than improved on, because a divergence here would show up only
+/// on a failing disk, where no test can see it.
+///
+/// The parameter is an `عدد`, so there is **no `Value::Null` arm**: codegen turns
+/// `لا_شيء` into `0` above the runtime and `0` is a valid descriptor, so an arm
+/// would encode #327 as contract. `نم` and `رمز_إلى_حرف` are the precedent, and
+/// `call_file_open`'s null arm is not — its path is a pointer.
+pub(crate) fn call_file_close(args: &[Value]) -> RuntimeResult<Value> {
+    let handle = args
+        .first()
+        .ok_or_else(|| RuntimeError::invalid_operation("اغلق_ملف() تتطلب معاملاً: المعرِّف"))?;
+
+    let handle = match handle {
+        Value::Int(id) => *id,
+        other => return Err(RuntimeError::type_error("عدد", other.type_name())),
+    };
+
+    // `٠`, `١` and `٢` need no arm of their own: handles start at 3, so a console
+    // stream is a table miss like any other number never handed out.
+    Ok(Value::Bool(OPEN_FILES.with(
+        |files| match files.borrow_mut().remove(&handle) {
+            Some(InterpreterFileHandle::Writer(mut writer)) => writer.flush().is_ok(),
+            Some(InterpreterFileHandle::Reader(_)) => true,
+            None => false,
+        },
+    )))
+}
+
 /// Flush every open writer, closing nothing.
 ///
 /// Called from the CLI where a program ends, for the reason
 /// `runtime-rs`'s `trq_runtime_cleanup` and `trq_exit` call `flush_open_writers`:
-/// nothing in the language can flush until `اغلق_ملف` lands and the handle path
-/// in `call_write_stream` does not. Without it the interpreter would keep bytes
-/// the native binary drops, or drop bytes on `أنهِ_البرنامج` that native keeps.
+/// `اغلق_ملف` flushes the handles a program closes itself, and the handle path in
+/// `call_write_stream` never flushes, so whatever is still open at the end lands
+/// here. Without it the interpreter would keep bytes the native binary drops, or
+/// drop bytes on `أنهِ_البرنامج` that native keeps.
 pub fn flush_program_files() {
     OPEN_FILES.with(|files| {
         for handle in files.borrow_mut().values_mut() {
@@ -828,6 +863,7 @@ impl Interpreter {
                 | "اكتب_مجرى"
                 | "اقرأ_مجرى"
                 | "افتح_ملف"
+                | "اغلق_ملف"
                 | "حالة_مسار"
                 | "احذف_مسار"
                 | "معاملات_البرنامج"
@@ -1743,6 +1779,7 @@ impl Interpreter {
 
             "اقرأ_مجرى" => call_read_stream(&args),
             "افتح_ملف" => call_file_open(&args),
+            "اغلق_ملف" => call_file_close(&args),
 
             "حالة_مسار" => call_path_status(&args),
 

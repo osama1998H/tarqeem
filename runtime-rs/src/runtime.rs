@@ -150,8 +150,8 @@ pub(crate) fn exit_status(status: i64) -> i32 {
 /// buffered `print!` with no trailing newline would be dropped here while the
 /// interpreter's own path still printed it — a cross-backend divergence in the
 /// one direction stdout buffering can produce. Open file writers are flushed for
-/// the same reason: since #362 a program can hold one, and nothing in the
-/// language closes it.
+/// the same reason: since #362 a program can hold one, and `اغلق_ملف` closes only
+/// the ones it asks to.
 #[no_mangle]
 pub extern "C" fn trq_exit(status: i64) -> ! {
     use std::io::Write;

@@ -53,6 +53,11 @@ pub(crate) use executor::builtins::call_read_stream;
 /// so a second dispatch would be a second table.
 pub(crate) use executor::builtins::call_file_open;
 
+/// Shared for its sibling's reason: it *removes* from that same table, so a
+/// second dispatch would release a handle in one interpreter and leave it open in
+/// the other.
+pub(crate) use executor::builtins::call_file_close;
+
 pub(crate) use executor::builtins::call_path_delete;
 /// Shared for a reason the others do not have: the kind/size mapping is already
 /// duplicated once, in `trq_path_status`, because the compiler crate does not

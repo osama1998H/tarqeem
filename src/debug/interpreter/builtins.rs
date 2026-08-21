@@ -4,9 +4,9 @@ use std::io::{self, Write};
 
 use crate::interpreter::epoch_millis;
 use crate::interpreter::{
-    bytes_to_string, call_env_var, call_exit_program, call_file_open, call_path_delete,
-    call_path_status, call_program_args, call_read_stream, call_substring_by_chars,
-    call_write_stream, RuntimeError, RuntimeResult, Value,
+    bytes_to_string, call_env_var, call_exit_program, call_file_close, call_file_open,
+    call_path_delete, call_path_status, call_program_args, call_read_stream,
+    call_substring_by_chars, call_write_stream, RuntimeError, RuntimeResult, Value,
 };
 
 use super::DebugInterpreter;
@@ -40,6 +40,7 @@ impl DebugInterpreter {
                 | "اكتب_مجرى"
                 | "اقرأ_مجرى"
                 | "افتح_ملف"
+                | "اغلق_ملف"
                 | "حالة_مسار"
                 | "احذف_مسار"
                 | "معاملات_البرنامج"
@@ -274,6 +275,7 @@ impl DebugInterpreter {
             "اكتب_مجرى" => call_write_stream(&args),
             "اقرأ_مجرى" => call_read_stream(&args),
             "افتح_ملف" => call_file_open(&args),
+            "اغلق_ملف" => call_file_close(&args),
             "حالة_مسار" => call_path_status(&args),
             "احذف_مسار" => call_path_delete(&args),
             "معاملات_البرنامج" => call_program_args(&args),
@@ -968,6 +970,41 @@ mod tests {
             .call_builtin("افتح_ملف", vec![Value::Null, Value::Int(0)])
             .expect("افتح_ملف تُرجع قيمة لا خطأ");
         assert_eq!(absent, Value::Int(-1));
+    }
+
+    /// `اغلق_ملف` under the debug interpreter, the one backend the cross-backend
+    /// suite has no leg for.
+    ///
+    /// Driven on a **negative** descriptor, not on `٣`: `OPEN_FILES` is a
+    /// `thread_local!` shared by every test in this binary, so a plausible handle
+    /// number could be one another test had opened and the answer would depend on
+    /// test order. A negative one can never be in the table.
+    ///
+    /// It pins the answer's *shape* as well — a `منطقي`, which is what would break
+    /// if the dispatch arm were dropped while `is_builtin` kept the name.
+    #[test]
+    fn test_file_close_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("اغلق_ملف"),
+            "اغلق_ملف غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let refused = interpreter
+            .call_builtin("اغلق_ملف", vec![Value::Int(-1)])
+            .expect("اغلق_ملف تُرجع قيمة لا خطأ");
+        assert_eq!(refused, Value::Bool(false));
+
+        // An `عدد` parameter, so `لا_شيء` is a **type error** and not an answer —
+        // the mirror of the arm above, and why this name has no `Value::Null` arm
+        // (#326: codegen turns `لا_شيء` into a valid `0` above the runtime).
+        assert!(interpreter
+            .call_builtin("اغلق_ملف", vec![Value::Null])
+            .is_err());
     }
 
     /// `احذف_مسار` under the debug interpreter, which is the only backend a
