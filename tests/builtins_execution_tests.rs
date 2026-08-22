@@ -3509,6 +3509,15 @@ fn test_every_core_builtin_agrees_across_backends() {
         // pass here; the unit pins in `runtime-rs` and the debug interpreter
         // compare against `std`'s answer instead.
         ("مجلد_حالي", "اطبع(حالة_مسار(مجلد_حالي()، 0))", &["2"]),
+        // The value depends on when in the process the clock is first read, so
+        // this probe asserts the one thing that cannot vary: it never goes
+        // backwards. Magnitude and advance are pinned by the dedicated test
+        // below, whose sleep would be wasted repeating here.
+        (
+            "وقت_أداء",
+            "متغير أ = وقت_أداء()\nاطبع(وقت_أداء() >= أ)",
+            &["صحيح"],
+        ),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
@@ -3688,66 +3697,114 @@ fn test_halt_builtin_aborts_in_every_backend() {
     assert_fails("توقف_مباشر", "توقف(\"انتهى\")\nاطبع(\"لا ينبغي طباعته\")");
 }
 
-/// The two `وقت` builtins read a clock, so their value cannot be pinned the way
-/// `assert_prints` requires. Assert the shape instead: one line holding a
-/// positive integer of epoch-millisecond magnitude.
-///
-/// Both were declared by codegen with nothing defining them, so every program
-/// importing either failed to link (#241). The range below is what makes this a
-/// real assertion — it rejects the `0` a stubbed call yields and the huge value
-/// a pointer printed as an integer would give, which is how the missing IR
-/// return type would have surfaced.
+/// Runs a clock program on the interpreter and native, returning every printed
+/// line parsed as an integer. A clock's value cannot be pinned the way
+/// `assert_prints` requires, so the two tests below assert on ranges instead.
 ///
 /// Two backends, not four, and neither omission is an oversight:
 /// - **JIT** stubs every call to the constant `0` (#262), so it would assert
 ///   nothing here.
 /// - **`tarqeem debug`** has no leg in this harness; it launches a DAP server
-///   rather than running to completion. The debug interpreter's own copy of
-///   these builtins is covered by a unit test beside it.
-#[test]
-fn test_time_builtins_read_a_real_clock_in_interpreter_and_native() {
-    // Wide enough never to expire in practice (through the year 5138), tight
-    // enough that a pointer, a zero, or a byte count all fall outside.
-    const PLAUSIBLE_MILLIS: std::ops::Range<i64> = 1_000_000_000_000..100_000_000_000_000;
+///   rather than running to completion. The debug interpreter's own copies of
+///   these builtins are covered by unit tests beside them.
+fn clock_readings(name: &str, source: &str) -> Vec<(Backend, Vec<i64>)> {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), "ساعة", source);
 
-    for name in ["وقت_الآن", "وقت_أداء"] {
-        let temp = TempDir::new().unwrap();
-        let main = write_program(
-            temp.path(),
-            "ساعة",
-            &format!("استورد {{ {name} }} من \"وقت\"\nاطبع({name}())"),
-        );
-
-        for backend in [Backend::Interpreter, Backend::Native] {
+    [Backend::Interpreter, Backend::Native]
+        .into_iter()
+        .map(|backend| {
             let output = execute(backend, &main, &format!("ساعة_{backend:?}"));
-
             assert!(
                 output.succeeded(),
                 "فشل تنفيذ {name} [{backend:?}]\n{}",
                 output.report()
             );
 
-            let lines = output.lines();
-            assert_eq!(
-                lines.len(),
-                1,
-                "توقّعنا سطراً واحداً من {name} [{backend:?}]\n{}",
-                output.report()
-            );
+            let readings = output
+                .lines()
+                .iter()
+                .map(|line| {
+                    line.parse::<i64>().unwrap_or_else(|_| {
+                        panic!(
+                            "لم يُرجع {name} عدداً [{backend:?}]: {line:?}\n{}",
+                            output.report()
+                        )
+                    })
+                })
+                .collect();
+            (backend, readings)
+        })
+        .collect()
+}
 
-            let millis: i64 = lines[0].parse().unwrap_or_else(|_| {
-                panic!(
-                    "لم يُرجع {name} عدداً [{backend:?}]: {:?}\n{}",
-                    lines[0],
-                    output.report()
-                )
-            });
+/// `وقت_الآن` is the wall clock — `clock_gettime(CLOCK_REALTIME)`, epoch
+/// milliseconds.
+///
+/// It was declared by codegen with nothing defining it, so every program
+/// importing it failed to link (#241). The range is what makes this a real
+/// assertion: it rejects the `0` a stubbed call yields and the huge value a
+/// pointer printed as an integer would give, which is how the missing IR return
+/// type would have surfaced.
+#[test]
+fn test_wall_clock_builtin_reads_epoch_millis_in_interpreter_and_native() {
+    // Wide enough never to expire in practice (through the year 5138), tight
+    // enough that a pointer, a zero, or a byte count all fall outside.
+    const PLAUSIBLE_MILLIS: std::ops::Range<i64> = 1_000_000_000_000..100_000_000_000_000;
+
+    for (backend, readings) in
+        clock_readings("وقت_الآن", "استورد { وقت_الآن } من \"وقت\"\nاطبع(وقت_الآن())")
+    {
+        assert_eq!(
+            readings.len(),
+            1,
+            "توقّعنا سطراً واحداً من وقت_الآن [{backend:?}]"
+        );
+        assert!(
+            PLAUSIBLE_MILLIS.contains(&readings[0]),
+            "وقت_الآن أرجع {} [{backend:?}]، وهو ليس توقيتاً بالميلي ثانية",
+            readings[0]
+        );
+    }
+}
+
+/// `وقت_أداء` is the *monotonic* clock, and its two assertions are deliberately
+/// opposite in kind to its sibling's.
+///
+/// The range is **inverted**: this clock counts from an origin inside the
+/// process, so a small value is correct and an epoch-magnitude one is the defect
+/// #389 fixed — `trq_performance_now` served the monotonic promise from
+/// `SystemTime`, and both interpreters carried the same arm, so all three
+/// backends agreed on the wrong answer and no backend-diff could see it. A range
+/// widened to admit both would pass either way and prove nothing.
+///
+/// The sleep is what proves the clock *runs*, since a body hardcoded to `0`
+/// satisfies the range on its own. `نم` guarantees a lower bound, so 10ms of the
+/// 50 is slack for millisecond truncation on both reads.
+#[test]
+fn test_monotonic_clock_builtin_counts_from_a_process_origin_and_advances() {
+    // Ten minutes: unreachable for a test process counting from its own first
+    // call, and three orders of magnitude below any epoch millisecond value.
+    const WITHIN_PROCESS_MILLIS: std::ops::Range<i64> = 0..600_000;
+
+    // No import — core tier since #389.
+    for (backend, readings) in
+        clock_readings("وقت_أداء", "اطبع(وقت_أداء())\nنم(50)\nاطبع(وقت_أداء())")
+    {
+        assert_eq!(readings.len(), 2, "توقّعنا سطرين من وقت_أداء [{backend:?}]");
+
+        for reading in &readings {
             assert!(
-                PLAUSIBLE_MILLIS.contains(&millis),
-                "{name} أرجع {millis} [{backend:?}]، وهو ليس توقيتاً بالميلي ثانية\n{}",
-                output.report()
+                WITHIN_PROCESS_MILLIS.contains(reading),
+                "وقت_أداء أرجع {reading} [{backend:?}] — هذا توقيت الحائط لا أصلٌ داخل العملية"
             );
         }
+
+        let elapsed = readings[1] - readings[0];
+        assert!(
+            elapsed >= 40,
+            "وقت_أداء تقدّم {elapsed} ميلي ثانية عبر نم(50) [{backend:?}]، والساعة لا تجري"
+        );
     }
 }
 

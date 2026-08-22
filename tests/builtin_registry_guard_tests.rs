@@ -84,6 +84,7 @@ const CORE_BUILTINS: &[&str] = &[
     "ثنائي_إلى_نص",
     "نم",
     "نوع",
+    "وقت_أداء",
 ];
 
 /// Names per stdlib module, as a ratchet on the size of each import surface.
@@ -107,7 +108,12 @@ const STDLIB_MODULE_SIZES: &[(&str, usize)] = &[
     // 18 until #373, which promoted `مجلد_حالي` — the actual last
     // `مدمج`-verdict name this module held, a Category-8 row.
     ("ملفات", 17),
-    ("وقت", 2),
+    // 2 until #389, which promoted `وقت_أداء` to the core tier — the sixth
+    // size-neutral move after #336, #366, #368, #370 and #373. It rode along with
+    // that name's monotonic repair because the CI builtins example is import-free
+    // by design, so nothing could have exercised the fixed clock otherwise.
+    // `وقت_الآن` is the only name left here, and `مدمج`-verdict too.
+    ("وقت", 1),
     ("تشفير", 8),
     ("ضغط", 6),
     ("شبكة", 23),

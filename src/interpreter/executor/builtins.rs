@@ -18,16 +18,34 @@ use sha2::{Digest, Sha256};
 
 use super::{Interpreter, RuntimeError, RuntimeResult, Value};
 
-/// Milliseconds since the UNIX epoch, backing both `وقت_الآن` and `وقت_أداء`.
+/// Milliseconds since the UNIX epoch, backing `وقت_الآن`.
 ///
 /// Shared with the debug interpreter so the two registries cannot drift; the
 /// native runtime mirrors it in `runtime-rs/src/runtime.rs` (#241).
+///
+/// It backed `وقت_أداء` too until #389, and that was the defect: this clock is
+/// settable. See [`monotonic_millis`].
 pub(crate) fn epoch_millis() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// Milliseconds since a fixed origin inside this process, backing `وقت_أداء`.
+///
+/// Shared with the debug interpreter and mirrored by `trq_performance_now`, so
+/// all three implementations answer the same kind of number (#389). The origin
+/// is lazy because only the native runtime has an init hook — anchoring to
+/// process start would have given the three of them three different origins.
+///
+/// Meaningless across processes: only differences carry information.
+pub(crate) fn monotonic_millis() -> i64 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    static ORIGIN: OnceLock<Instant> = OnceLock::new();
+    ORIGIN.get_or_init(Instant::now).elapsed().as_millis() as i64
 }
 
 /// Convert a Value to a byte (0-255) with range validation.
@@ -1783,7 +1801,10 @@ impl Interpreter {
                 Ok(Value::Null)
             }
 
-            "وقت_الآن" | "وقت_أداء" => Ok(Value::Int(epoch_millis())),
+            // One arm each since #389: sharing one is what let `وقت_أداء` serve
+            // its monotonic promise from the settable wall clock.
+            "وقت_الآن" => Ok(Value::Int(epoch_millis())),
+            "وقت_أداء" => Ok(Value::Int(monotonic_millis())),
 
             "ادخل_رسالة" => {
                 let prompt = args

@@ -92,8 +92,12 @@ pub use executor::builtins::set_program_args;
 pub use executor::Interpreter;
 pub use value::Value;
 
-/// Shared with the debug interpreter so both time builtins agree (#241).
+/// Shared with the debug interpreter so `وقت_الآن` agrees between them (#241).
 pub(crate) use executor::builtins::epoch_millis;
+
+/// The same, for `وقت_أداء` — a *different* clock since #389, when sharing one
+/// with `وقت_الآن` turned out to be the defect rather than the safeguard.
+pub(crate) use executor::builtins::monotonic_millis;
 
 /// Shared with the debug interpreter so `احذف_آخر`'s empty-array answer cannot
 /// drift between the two.
