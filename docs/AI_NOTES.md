@@ -5215,3 +5215,86 @@ complete** — every name it marks `new` or promotes is `✓ ✓ ✓ ✓` — so
 now has every primitive it was waiting for. The remaining half-wired rows in the plan's own tables
 are Category 8's: `مجلد_حالي` (a promotion candidate with `trq_dir_current` live), and the
 `وقت_الآن` return-type / `وقت_أداء` monotonic repairs §1.3 already orders.
+
+## #373 — `مجلد_حالي`: `getcwd(2)` promoted, Category 8's first, and the second exact re-measured hit
+
+### Decisions taken before the work
+
+Selection first: after #370 closed Category 7, the candidates were checked against source rather
+than against the plan's own rows. `احذف_آخر` is hard-blocked (B10, worse than the blocker says —
+`trq_array_pop` returns a borrowed pointer into the buffer, and `(مصفوفة<ن>) -> ن` cannot sit in
+the flat `name → IrType` map); `وقت_الآن` needed **nothing** — its "repair required" row expired
+when #241 landed and nobody noticed; `وقت_أداء`'s monotonic defect is real but is a semantic
+repair, not a registration. That left `مجلد_حالي`: the last `مدمج`-verdict name in the `ملفات`
+tier, broken on the default backend (`✓ ✗ ✗ ~`), and prerequisite work for the Increment G module
+flip (§3.1 + §4.4).
+
+Contract rows, decided at planning time (#368's move): the answer is the directory **as the OS
+reports it, verbatim** — whether symlinks are resolved is the OS's report, the only wording that
+is platform-invariant and honest (POSIX `getcwd` answers the physical path, Windows the stored
+one, and `cargo test` never runs on Windows); non-UTF-8 decoded lossily on the argv rule with
+`قائمة_مجلد`'s honesty rider; `""` for a cwd the OS cannot report — collision-free, unlike
+`متغير_بيئة`'s conflated `""`, because no legitimate cwd is the empty string; stability worded as
+a property of the program ("nothing in the language today changes it"), so a future chdir
+primitive costs no contract edit; total, zero arguments.
+
+### The cost forecast, and what it cost
+
+Forecast **six** from #366's promotion base with zero deltas — spelling unchanged (no #368
+codegen/stdlib-callee deltas), and reading `trq_dir_current` found the body already honest on all
+three contract clauses, so no #370-style `+1` symbol change. Cost **six**: `scope.rs` (core tuple
+in, `ملفات` arm and export out), the `IrType::String` return type, the shared `call_dir_current`
+kernel + both `is_builtin`/dispatch arms, the `interpreter/mod.rs` re-export, the debug
+interpreter's three edits, the guard ratchets. #342's caveat forecast quiet (`getcwd` is
+in-process on both sides) and stayed quiet — the fifth correct quiet forecast.
+
+### What it found that the plan did not state
+
+**1. The three execution-test legs deliberately run in three different working directories.**
+`execute_all` sets `current_dir` to the fixture TempDir for the interpreter and JIT legs; the
+native binary inherits the harness's cwd. Nothing before this name could observe that asymmetry —
+every earlier fixture path is absolute for exactly this reason (the helper's own doc says so) —
+but for a cwd-reading primitive it decides the whole test design: every cross-backend row must be
+value-independent, and the *value* is pinned in-process (runtime unit test + debug-interpreter
+test, each against `std`'s own answer; both kernels are the same two-line composition, so
+cross-backend equality follows transitively). A `مجلد_حالي() + "/Cargo.toml"` row is dead on
+arrival: it answers differently per leg.
+
+**2. The `نص` missing-entry profile gained a split #360 had only seen on `Array(String)`
+elements.** Measured with the entry deleted, one row per program (#370's rule), from an
+Arabic-named cwd: `نوع` → `مؤشر` ×3; `طول` → 118 native vs 110 interpreted (bytes vs chars,
+`قص_حروف`'s mode, silent per-leg); `==` on two separately-allocated returns → `خطأ` native /
+`صحيح` interpreted; and `"X" + …` → **run-time type error (exit 1) interpreted** vs printed
+pointer (exit 0) native. The composition test therefore compares two concats (`"موقع: " + س ==
+"موقع: " + س`), which catches the entry on *both* sides while staying value-independent. Printing
+alone passed, as on every shape so far.
+
+**3. `test_dir_current` was the implemented-but-not-exercised smell again** (#368's finding, third
+sighting): it asserted non-null and `len > 0` and never the value — a stub answering any fixed
+non-empty string would have passed. It now compares against `std::env::current_dir()` lossy, with
+the race-free justification (nothing in the repo calls `set_current_dir`) written as a tripwire
+sentence for the day a chdir primitive lands.
+
+**4. #370's guard comment overclaimed by one name** — "the module now holds only names whose
+verdict is `مكتبة`" was false while `مجلد_حالي` (verdict `مدمج`) still sat there. Corrected in the
+guard comment rather than silently rewritten. The #364-review lesson again: the risk lives in
+sentences no test can fail.
+
+**5. Two stale "repair required" claims were corrected in place** (§1.1 rule 5's proof and
+`وقت_الآن`'s row) — both instructed a repair #241 had already landed. Left alone they would have
+sent a future run planning a no-op increment. `وقت_أداء`'s row now separates the landed half
+(return type) from the open half (monotonic source, four coordinated sites).
+
+The keyword sweep over the 69 `phf_map` literals (recounted from `src/lexer/keywords.rs`, not
+read off #366's figure) found none embedded in `مجلد_حالي`; no diacritic, nothing contextual —
+no lexer row, and neither #342's nor #352's extra check applies.
+
+### State after #373
+
+Registry: 44 core + 159 stdlib = 203 (size-neutral; `ملفات` 18 → 17). The `ملفات` module now
+genuinely holds only `مكتبة`-verdict names, so Increment G's rewrite has every primitive it was
+waiting for. Debug interpreter: 44 names (37 Arabic + 7 `trq_*`), recounted from source with comment lines
+stripped and every `is_builtin` name checked for a dispatch mention — the increment-instead-of-
+recount trap fired again in this note's own draft, which said 42. `trq_*` exports: 227, unchanged
+(named an existing symbol). Unit baseline 1461; builtin execution suite 254. Remaining Category-8
+work: `وقت_أداء`'s monotonic repair (runtime + both interpreters at once).

@@ -4,10 +4,10 @@ use std::io::{self, Write};
 
 use crate::interpreter::epoch_millis;
 use crate::interpreter::{
-    bytes_to_string, call_dir_create, call_dir_list, call_env_var, call_exit_program,
-    call_file_close, call_file_open, call_path_delete, call_path_move, call_path_status,
-    call_program_args, call_read_stream, call_substring_by_chars, call_write_stream, RuntimeError,
-    RuntimeResult, Value,
+    bytes_to_string, call_dir_create, call_dir_current, call_dir_list, call_env_var,
+    call_exit_program, call_file_close, call_file_open, call_path_delete, call_path_move,
+    call_path_status, call_program_args, call_read_stream, call_substring_by_chars,
+    call_write_stream, RuntimeError, RuntimeResult, Value,
 };
 
 use super::DebugInterpreter;
@@ -47,6 +47,7 @@ impl DebugInterpreter {
                 | "انشئ_مجلد"
                 | "انقل_مسار"
                 | "قائمة_مجلد"
+                | "مجلد_حالي"
                 | "معاملات_البرنامج"
                 // Termination. Absent here, stepping through `أنهِ_البرنامج(٠)`
                 // would abort with «دالة غير معرّفة» while every other backend
@@ -285,6 +286,7 @@ impl DebugInterpreter {
             "انشئ_مجلد" => call_dir_create(&args),
             "انقل_مسار" => call_path_move(&args),
             "قائمة_مجلد" => call_dir_list(&args),
+            "مجلد_حالي" => call_dir_current(&args),
             "معاملات_البرنامج" => call_program_args(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
@@ -1297,6 +1299,36 @@ mod tests {
         assert_eq!(listed, vec!["أ".to_string(), "ب.نص".to_string()]);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// `مجلد_حالي` under the debug interpreter, pinned against `std`'s own
+    /// answer. This routes through the shared `call_dir_current` kernel, so
+    /// one test pins the value both interpreters answer — and the pin is
+    /// race-free because nothing in the repository calls `set_current_dir`;
+    /// the day a chdir primitive lands, this sentence is the tripwire.
+    #[test]
+    fn test_dir_current_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("مجلد_حالي"),
+            "مجلد_حالي غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let answer = interpreter
+            .call_builtin("مجلد_حالي", vec![])
+            .expect("مجلد_حالي تُرجع قيمة لا خطأ");
+        let expected = std::env::current_dir()
+            .expect("للاختبار مجلد حالٍ")
+            .to_string_lossy()
+            .into_owned();
+        match answer {
+            Value::String(text) => assert_eq!(text.as_str(), expected),
+            other => panic!("مجلد_حالي أجابت {other:?} لا نصاً"),
+        }
     }
 
     #[test]

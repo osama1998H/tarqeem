@@ -3393,6 +3393,14 @@ fn test_every_core_builtin_agrees_across_backends() {
             "اطبع(طول(قائمة_مجلد(\"لا_يوجد_هذا_المسار\")))",
             &["0"],
         ),
+        // The working directory exists wherever each leg runs — and the three
+        // legs deliberately do not share one (the interpreter and JIT legs run
+        // in the fixture directory, the native binary in the harness's own),
+        // which is why this probe asserts the answer's shape through
+        // `حالة_مسار`, never its value. A stub answering a fixed value would
+        // pass here; the unit pins in `runtime-rs` and the debug interpreter
+        // compare against `std`'s answer instead.
+        ("مجلد_حالي", "اطبع(حالة_مسار(مجلد_حالي()، 0))", &["2"]),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
@@ -5820,6 +5828,81 @@ fn test_dir_list_can_be_shadowed_by_a_user_function() {
             "    أرجع 42\n",
             "}\n",
             "اطبع(قائمة_مجلد(\"\"))"
+        ),
+        &["42"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// مجلد_حالي — `getcwd(2)`, the place relative paths resolve against (#373)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Pinned cross-backend for `قائمة_مجلد`'s reason: the kernel exists twice — in
+// `trq_dir_current` and in `call_dir_current` — and nothing but these rows and
+// the unit pins keeps the two equal. Every row here is value-independent,
+// because the three legs deliberately hold three *different* working
+// directories: the interpreter and JIT legs run in the fixture directory
+// (`execute_all` sets `current_dir`), while the native binary inherits the
+// harness's own. The value itself is pinned in-process instead — the
+// `runtime-rs` unit test and the debug-interpreter test each compare their
+// kernel against `std`'s answer, and since both kernels are the same two-line
+// composition over `std`, cross-backend value equality follows for any cwd.
+//
+// The failure row (a cwd the OS cannot report answers `""`) and the non-UTF-8
+// row (decoded lossily) are contract-only and deliberately untested: the
+// program cannot chdir, the harness cannot delete a directory out from under a
+// running child deterministically, and `set_current_dir` in-process would race
+// every other test in the binary. Both rows become testable in-language the
+// day a chdir primitive lands.
+
+/// The wiring rows: the answer names a real, existing directory on every
+/// backend — `حالة_مسار` reads it as a directory, it is never empty, and
+/// `قائمة_مجلد` can enumerate it (the interpreter legs' cwd holds the program
+/// file, the native leg's holds the repo checkout, so both are non-empty).
+#[test]
+fn test_dir_current_answers_an_existing_directory() {
+    assert_prints(
+        "مجلد_حالي_موجود",
+        concat!(
+            "اطبع(حالة_مسار(مجلد_حالي()، 0))\n",
+            "اطبع(طول(مجلد_حالي()) > 0)\n",
+            "اطبع(طول(قائمة_مجلد(مجلد_حالي())) > 0)",
+        ),
+        &["2", "صحيح", "صحيح"],
+    );
+}
+
+/// The `register_builtin_return_types` catchers, measured with the entry
+/// deleted (table in `src/ir/builder/mod.rs`): `نوع` answers `مؤشر` on every
+/// backend; two separately-allocated returns compare `==` as pointers natively
+/// (`خطأ`); and concatenation splits — a run-time type error (exit 1)
+/// interpreted, a printed pointer (exit 0) natively — so comparing two concats
+/// catches it on both sides. All three rows stay value-independent.
+#[test]
+fn test_dir_current_result_composes_as_a_string() {
+    assert_prints(
+        "تركيب_المجلد_الحالي",
+        concat!(
+            "اطبع(نوع(مجلد_حالي()))\n",
+            "اطبع(مجلد_حالي() == مجلد_حالي())\n",
+            "اطبع(\"موقع: \" + مجلد_حالي() == \"موقع: \" + مجلد_حالي())",
+        ),
+        &["نص", "صحيح", "صحيح"],
+    );
+}
+
+/// A user function named `مجلد_حالي` shadows the builtin, like every other
+/// core name: builtins are the last resort in name resolution, not reserved
+/// words.
+#[test]
+fn test_dir_current_can_be_shadowed_by_a_user_function() {
+    assert_prints(
+        "تظليل_المجلد_الحالي",
+        concat!(
+            "دالة مجلد_حالي() -> عدد {\n",
+            "    أرجع 42\n",
+            "}\n",
+            "اطبع(مجلد_حالي())"
         ),
         &["42"],
     );

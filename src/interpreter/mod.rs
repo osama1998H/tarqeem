@@ -61,6 +61,10 @@ pub(crate) use executor::builtins::call_file_close;
 /// Shared with the debug interpreter so `mkdir(2)`'s refusals — a missing
 /// parent, an existing entry of any kind — answer identically in both.
 pub(crate) use executor::builtins::call_dir_create;
+/// Shared with the debug interpreter so `getcwd(2)`'s answer — the directory
+/// verbatim, lossily decoded, `""` for a cwd the OS cannot report — is one
+/// answer in both.
+pub(crate) use executor::builtins::call_dir_current;
 /// Shared with the debug interpreter so `readdir(3)`'s answer — bare names,
 /// sorted by code point, lossily decoded, the empty array for every refusal —
 /// is one answer in both.

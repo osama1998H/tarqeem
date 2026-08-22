@@ -477,6 +477,20 @@ impl IrBuilder {
             IrType::Array(Box::new(IrType::String), 0),
         );
 
+        // `مجلد_حالي` answers `نص`. Measured with this entry deleted, one row
+        // per program, from an Arabic-named cwd so the byte/char split is
+        // observable (#373): `نوع` answers `مؤشر` on every backend; `طول`
+        // answers the *byte* count natively (118) against the char count
+        // interpreted (110) — `قص_حروف`'s mode, silent on each leg alone; two
+        // separately-allocated returns compare `==` as pointers natively
+        // (`خطأ`) while the interpreter answers `صحيح`; and `"X" + …` splits
+        // the loudest — a run-time type error (exit 1) interpreted, a printed
+        // pointer (exit 0) natively, the split #360 measured for an array
+        // element, now on a plain `نص` return. Printing the value alone stays
+        // correct on both, as it has on every shape so far.
+        self.function_return_types
+            .insert("مجلد_حالي".to_string(), IrType::String);
+
         // `معاملات_البرنامج` answers `مصفوفة<نص>` — the first `Array(String)` any
         // builtin has registered, so #330's `Array(Int)` measurement does not
         // transfer and neither does #350's. Measured with this entry deleted,
