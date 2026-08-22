@@ -5484,4 +5484,94 @@ gained its first caller. Intercepted names: 21, the first added since Increment 
 1467 (1461 + the DCE pass test, three interpreter tests, the codegen test and the debug-interpreter
 test); builtin execution suite 263 (255 + the eight new tests — the sweep probe is a row inside an
 existing test and adds no count), both measured. **With this, §1.3 has no unimplemented row left**; the only registry work remaining is
-`وقت_أداء`'s monotonic repair.
+`وقت_أداء`'s monotonic repair — which #389 then landed.
+
+---
+
+## #389 — `وقت_أداء`: the first body repair, and a defect a passing test was pinning
+
+The first increment in this sequence that adds **no capability**. #382 left §1.3 with no
+unimplemented row, so the open work moved from *what is missing* to *what is wrong*, and this row
+was the only entry in that column.
+
+`trq_performance_now` returned `epoch_millis()` — the settable wall clock — and both interpreters
+carried the same shared `"وقت_الآن" | "وقت_أداء"` arm. So the name moved backwards on an NTP step and
+a duration measured across one came out negative. **All three backends agreed on the wrong answer**,
+which is exactly the failure the backend-diff gate cannot see: it detects disagreement, not
+falsehood.
+
+### The cost shape — a re-measurement, six sites, forecast six
+
+| Half | Sites |
+|---|---|
+| Monotonic body | 4 — `runtime-rs/src/runtime.rs`, both interpreters' arms, and the `interpreter/mod.rs` re-export that shares them |
+| Promotion out of `وقت` | 2 — `scope.rs` (core entry + module arm + export, one file), the guard's two ratchets |
+
+The fourth exact hit on a re-measured shape, after #370, #373 and #382. The promotion half is
+#373's bare six **minus four**: a long-registered name already has the IR return type
+(`ir/builder/mod.rs`), the codegen mapping (`codegen.rs`) and both interpreter arms that a promotion
+normally pays for. So a repair *and* a promotion cost the same as a bare promotion.
+
+**Added to the discriminator:** *for a promotion, count what the name already reaches, not what a new
+name would need.* #342's caveat was forecast quiet — `Instant` is in-process on both sides — and
+stayed quiet, the eighth.
+
+### Contract decisions, taken at planning time
+
+Milliseconds since an arbitrary origin inside the current process, set on the **first call**.
+Non-decreasing. Only differences carry meaning, so the absolute value is not comparable across
+processes or backends. Total: no arguments, no failure mode. Two calls inside one millisecond answer
+the same value, so a difference of `٠` is not proof that no time passed. Nothing asserts `== ٠`: the
+`OnceLock` origin is process-global, and a preemption between init and the read can make the first
+answer `١`.
+
+Resolution was left alone deliberately. The row's defect is monotonicity, not granularity;
+milliseconds is coarse for a performance timer, but changing it is a separate contract change.
+
+### Findings worth carrying
+
+- **A passing test was pinning the defect.**
+  `test_time_builtins_read_a_real_clock_in_interpreter_and_native` looped over *both* names and
+  asserted each landed in `1_000_000_000_000..100_000_000_000_000` — which *is* the wall clock.
+  Green, cross-backend, and asserting the bug. Splitting it, the monotonic half needs the
+  **inverted** range (`0..600_000`); a range widened to admit both magnitudes would pass either way
+  and prove nothing. **An eighth defect class, and it inverts this document's usual assumption that
+  the risk lives in prose no test can fail.** Before fixing a body a row calls wrong, grep for what
+  currently asserts that body's value.
+- **The lazy origin is a correctness constraint, not a convenience.** The native runtime has
+  `trq_runtime_init`; neither interpreter has anything like it. Anchoring to process start would
+  have given the three implementations three different origins for one name. First-call
+  initialisation is the only shape under which they agree — and it makes the first read `٠`
+  everywhere, which is what makes a deterministic CI example possible at all.
+- **The tier question was load-bearing for a body fix.** `examples/مدمجات.ترقيم` is import-free by
+  design, so an import-gated name had nowhere to be exercised, and §11 rule 4 requires the
+  backend-diff gate. **A repair that cannot be demonstrated in CI is not done.** That is what forced
+  the promotion to be decided at planning time rather than discovered mid-implementation — the #373
+  row-is-silent-on-the-tier shape repeating for the second increment running.
+- **The two example gates are not interchangeable.** `compare-backends` would agree on a wrong
+  constant, so the `< ٦٠٠٠٠٠` line is caught only by `expected-output`'s byte diff against the
+  committed file. Print booleans, never values — and know which job reads which.
+- **`std::time::Instant`, not `libc::clock_gettime`.** The libc route needs a `#[cfg]` split for
+  Windows, and #360's review established that CI's cross-platform matrix builds only the workspace
+  root, so a `runtime-rs` FFI mistake is invisible there. `Instant` is monotonic by documented
+  contract and needs no dependency; `OnceLock` was already in this file (`CAPTURED_ARGV`, #360).
+- **The `core` inventory table was one row low, and the §1 registry row was nine increments stale.**
+  Incrementing the section header from 46 to 47 produced a figure that a mechanical row count then
+  read as 48 — the trap the inventory's own debug-interpreter row warns about, walked into while
+  editing that same document. The §1 Semantic row still said 36/163/163 from #352. Both recounted
+  from the guard's ratchet lists, which a passing test checks against `Scope`. **Recount both sides
+  of every count you touch; do not increment.**
+
+### State after #389
+
+Registry: **46 core + 158 stdlib = 204** — the sixth size-neutral promotion, total unchanged.
+`("وقت", 2)` → `("وقت", 1)`; `وقت_الآن` is the only name that module still holds and is
+`مدمج`-verdict too, so it follows next. Debug interpreter: 44 names, unchanged — `وقت_أداء` was
+already listed, and every one of the 44 was re-checked for a dispatch *mention*. `trq_*` exports:
+227, unchanged — no new symbol, only a changed body. Orphans: 22, unchanged. Intercepted names: 21;
+`get_runtime_function_name`: 226 — both unchanged, and both recounted. Unit baseline 1469
+(1468 + one, the debug-interpreter time test having split into two); builtin execution suite 264
+(263 + one, the merged clock test having split into two, with the sweep probe a row inside an
+existing test), both measured. Clippy diagnostics identical to `develop` as a multiset, 88 = 88.
+**§1.3's registry is now complete and honest**; the remaining work is Increment C onward, plus
+`نوع`'s dynamic-report and `توقف`'s stderr divergence, both open riders on `unchanged` rows.

@@ -552,7 +552,7 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 | الاسم | التوقيع | الحالة | التبرير |
 |---|---|---|---|
 | `وقت_الآن` | `() -> عدد` | unchanged | `clock_gettime(CLOCK_REALTIME)`, epoch ms. Every date value in the language descends from this one read. **Also the entropy source** the stdlib RNG seeds from — that is literally what `runtime-rs` does today, so no separate entropy primitive is proposed. ~~**Repair required now:** register its IR return type (see §1.1 rule 5)~~ — **already done**: #241 registered it (`src/ir/builder/mod.rs`) and gave both interpreters arms, pinned cross-backend by `tests/builtins_execution_tests.rs`; the claim expired unnoticed and is corrected at #373. Criterion (b). |
-| `وقت_أداء` | `() -> عدد` | unchanged | `clock_gettime(CLOCK_MONOTONIC)`. A distinct OS service from the wall clock. **Its body is wrong today** — `trq_performance_now` serves the monotonic promise from the wall clock (a shared `epoch_millis()` over `SystemTime`, mirrored in both interpreters), so it moves backwards on an NTP step. The return-type half of the old repair note landed at #241; the monotonic fix is the part still open, and it must land in the runtime and both interpreters at once or the backends diverge. A name that lies is worse than a missing name. Criterion (b). |
+| `وقت_أداء` | `() -> عدد` | narrowed — **مُنفَّذ (#389)** | `clock_gettime(CLOCK_MONOTONIC)`. A distinct OS service from the wall clock. ~~**Its body is wrong today**~~ — it was: `trq_performance_now` served the monotonic promise from the wall clock (a shared `epoch_millis()` over `SystemTime`, mirrored in both interpreters), so it moved backwards on an NTP step, and **every backend agreed on the wrong answer** — the one failure mode `compare-backends` cannot see. #389 landed the fix in the runtime and both interpreters at once, as this row required. The return-type half of the old repair note landed at #241. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). **Narrowed** because it also moves from the `وقت` module tier to the core tier — **the row said `unchanged` and was silent on the tier, the #373 shape repeating; see the correction below.** Total: no arguments and no failure mode. Milliseconds since an arbitrary origin inside *this* process, set on the first call; non-decreasing; only differences carry meaning, so unlike `وقت_الآن` the absolute value is not comparable across processes or backends. Two calls inside one millisecond answer the same value, so a difference of `٠` is not proof that no time passed. |
 | `نم` | `(عدد) -> فراغ` | unchanged | `nanosleep(2)`. A busy-wait over `وقت_أداء` burns a core and cannot yield. Already a clean monomorphic wrapper. Criterion (b). |
 | `متغير_بيئة` | `(نص) -> نص` | new — **مُنفَّذ (#338)** | `getenv(3)`, `""` when unset. **New Arabic name over an already-implemented orphan symbol** (`trq_env_get`) — implemented, linkable, and unreachable before #338 because no name mapped to it. `مجلد_مستخدم` reduces to it exactly (`trq_dir_home` is `getenv("HOME")`); `مجلد_مؤقت` does **not** — `trq_dir_temp` calls `std::env::temp_dir()`, which falls back to `/tmp` when `TMPDIR` is unset. Criterion (b), re-derived at implementation time and **held** — see the note below. Total: an absent variable, an empty name and `لا_شيء` all answer `""`, so set-but-empty is indistinguishable from unset. |
 | `مجلد_حالي` | `() -> نص` | narrowed — **مُنفَّذ (#373)** | `getcwd(2)` is **process state**, not an environment variable. Deriving it from `$PWD` is wrong: PWD is shell-maintained, absent under non-shell parents, and stale after any chdir. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). **Narrowed** because it moves from the `ملفات` module tier to the core tier (no import), the #336/#366/#370 promotion with the spelling unchanged — **the row said `unchanged` and was silent on the tier; see the correction below.** Total: zero arguments; the answer is the directory as the OS reports it, verbatim — no resolution or normalization of the primitive's own — decoded lossily on `معاملات_البرنامج`'s argv rule; a cwd the OS cannot report answers `""`, which unlike `متغير_بيئة`'s conflated `""` is collision-free, since no legitimate working directory is the empty string. |
@@ -590,7 +590,8 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 
 > The contract check did find something, though not a defect: `trq_env_get` was read rather than
 > trusted, because the orphan precedent in this document is `trq_performance_now` — implemented,
-> linkable, and lying about being monotonic. This one is honest. All five of its paths (null pointer,
+> linkable, and lying about being monotonic (repaired at #389; it was lying when this was written,
+> and for eight increments after). This one is honest. All five of its paths (null pointer,
 > null data, empty name, invalid UTF-8, unset variable) already return `trq_string_new(null, 0)`, an
 > empty `TrqString` rather than a null pointer, so the row's `""`-when-unset clause was satisfied by
 > code that predated the row. **Read an orphan before planning on it; the two in this document
@@ -617,7 +618,29 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 >   `tests/builtins_execution_tests.rs` pins them cross-backend). Corrected in place rather than
 >   left to send a future increment planning a no-op; `وقت_أداء`'s *monotonic* defect is real and
 >   remains open. A doc-accuracy finding of the #364-review kind: the risk lives in prose no test
->   can fail.
+>   can fail. (That defect closed at #389 — see below.)
+
+> **Correction (#389): `وقت_أداء` is a promotion too, and the test suite was pinning the defect.**
+> Two findings, the first a repeat and the second new.
+>
+> - **The tier, again.** The row said `unchanged` and was silent on where the name lives — the
+>   identical shape #373 corrected for `مجلد_حالي` one increment earlier, and #352's
+>   row-leaves-a-contract-question-open lesson before that. It lived in the `وقت` module tier, and
+>   the guard's `("وقت", 2)` showed that module held *only* `مدمج`-verdict names, so §3.1 blocks the
+>   Increment D flip until both leave. It ships `narrowed`. What forced the question at planning
+>   time rather than mid-implementation was the **example**: `examples/مدمجات.ترقيم` is import-free
+>   by design, so an import-gated name had nowhere to be exercised, and §11 rule 4 requires the
+>   backend-diff gate. **A repair that cannot be demonstrated in CI is not done** — which is how a
+>   tier question became load-bearing for a body fix.
+> - **A defect can be pinned by a passing test, and this one was.**
+>   `test_time_builtins_read_a_real_clock_in_interpreter_and_native` looped over *both* names and
+>   asserted each landed in `1_000_000_000_000..100_000_000_000_000` — which *is* the wall clock. The
+>   test was green, cross-backend, and asserting the bug. Splitting it, the monotonic half needs the
+>   **inverted** range (`0..600_000`): a range widened to admit both magnitudes would pass either way
+>   and prove nothing. **An eighth defect class, and the sharpest yet, because it inverts the
+>   document's usual assumption that the risk lives in prose no test can fail:** here a test
+>   *codified* the lie, so the fix had to change an assertion that was passing. When a row says a
+>   body is wrong, grep for what currently asserts that body's value before planning the fix.
 
 #### Category 9 — Optional: **0 primitives in the v1 core**
 
@@ -2138,7 +2161,8 @@ tier: #366's promotion-repair, taken per #368's base-picking rule. Forecast **si
 delta (spelling unchanged, and `stdlib/ملفات/مجلد.ترقيم:184`'s `هنا()` kept resolving with zero
 edits, the #370 precedent) nor #370's `+1` (reading `trq_dir_current` found the body already
 honest: lossy decode on the argv rule, `""` on failure — the second honest orphan-adjacent body
-after `trq_env_get`, against `trq_performance_now`'s lying one). It cost **six**. #342's caveat was
+after `trq_env_get`, against `trq_performance_now`'s then-lying one — repaired at #389). It cost
+**six**. #342's caveat was
 forecast quiet — `getcwd` is in-process on both sides — and stayed quiet, the fifth correct quiet
 forecast.
 
@@ -2273,6 +2297,60 @@ Two smaller things worth carrying:
 - **`git checkout <file>` to undo a scratch edit reverts the real work in that file too.** A
   temporary one-line removal, used to prove the DCE test fails without its fix, was reverted that
   way and took three genuine edits with it. Revert the scratch line by hand.
+
+### 6.7.14 `وقت_أداء` — the first body repair, and a defect a passing test was pinning (#389)
+
+The first increment in this sequence that adds **no capability**. Every one before it made
+something possible that was not; this one makes an existing name stop lying. §1.3 had no
+unimplemented row left after #382, so the open work moved from *what is missing* to *what is
+wrong*, and this row was the only entry in that column.
+
+**The defect.** `trq_performance_now` returned `epoch_millis()` — the settable wall clock — and
+both interpreters carried the same shared arm. So `وقت_أداء` moved backwards on an NTP step, and a
+duration measured across one came out negative. **All three backends agreed on the wrong answer**,
+which is why nothing caught it: the backend-diff gate this document leans on (§11 rule 4) sees
+disagreement, not falsehood. It is the exact case the gate cannot cover.
+
+**Cost: six sites, forecast six** — the fourth exact hit on a re-measured shape, after #370, #373
+and #382. Two shapes composed, and the arithmetic is the interesting part:
+
+| Half | Sites | Shape |
+|---|---|---|
+| Monotonic body | 4 | new — the runtime, both interpreters, and the re-export that shares them |
+| Promotion | 2 | #373's bare six **minus four**: the IR return type, the codegen mapping and both interpreter arms already existed |
+
+So a **repair** and a **promotion** cost the same six as a bare promotion, because the promotion's
+four expensive sites are exactly the four a long-registered name already has. Add to the
+discriminator: *for a promotion, count what the name already reaches, not what a new name would
+need.* The caveat — *does the effect have anywhere to arrive?* — was forecast quiet (`Instant` is
+in-process on both sides) and stayed quiet, the eighth.
+
+**Why the promotion was not optional.** `examples/مدمجات.ترقيم` is import-free by design and
+`وقت_أداء` was import-gated, so the fixed clock had nowhere to be exercised in CI. §11 rule 4 is
+not satisfiable for a name the flagship example cannot call. The tier question was therefore
+load-bearing for a body fix — see the correction under §1.3 Category 8.
+
+**Three findings worth carrying:**
+
+- **A passing test was asserting the bug.** The pre-existing cross-backend test looped over both
+  time names and asserted each landed in the epoch-millisecond range. Splitting it, the monotonic
+  half needs the **inverted** range — small values correct, epoch magnitude wrong. A range widened
+  to admit both would have passed before and after and proved nothing. Before fixing a body a row
+  calls wrong, grep for what asserts that body's value.
+- **The origin must be lazy, and that is a correctness constraint rather than a convenience.** The
+  native runtime has `trq_runtime_init`; neither interpreter has anything like it. Anchoring to
+  process start would have given the three implementations three different origins for the same
+  name. Setting it on first call is the only shape under which they agree — and it has the pleasant
+  side effect that the first read is `٠` on every backend, which is what makes a deterministic CI
+  example possible at all.
+- **`std::time::Instant`, not `libc::clock_gettime`.** The libc route needs a `#[cfg]` split for
+  Windows, and #360's review established that CI's cross-platform matrix builds only the workspace
+  root — so a `runtime-rs` FFI mistake is invisible there. `Instant` is monotonic by documented
+  contract and needs no dependency.
+
+The example prints four booleans, never a value: `compare-backends` would agree on a wrong constant,
+so the `< ٦٠٠٠٠٠` line is the discriminator and `expected-output` is the job that reads it. Worth
+noting which gate catches what — they are not interchangeable.
 
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 
