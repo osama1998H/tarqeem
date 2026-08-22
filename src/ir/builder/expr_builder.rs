@@ -639,12 +639,12 @@ impl IrBuilder {
                 self.emit_void()
             }
 
-            "الحق" => {
+            "ألحق" => {
                 let Some(&value) = args.get(1) else {
                     return Ok(None);
                 };
                 // The array's element type wins over the pushed value's, as the
-                // `ألحق` member path below does: pushing `2` into `[1.5]` with
+                // member path below does: pushing `2` into `[1.5]` with
                 // `elem_ty: Int` stores an i64 bit pattern the reader decodes as
                 // a double.
                 let elem_ty = match &arg_ty {

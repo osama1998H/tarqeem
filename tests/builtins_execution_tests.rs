@@ -3,8 +3,9 @@
 //! Six of the core builtins type-checked and ran under the interpreter while
 //! failing to compile natively, because `get_runtime_function_name` never knew
 //! their names and codegen fell through to mangling the Arabic identifier — a
-//! call to a symbol nothing defines. Two more (`طول_مصفوفة`, `الحق`) had the
-//! mirror problem: a native mapping with no interpreter implementation.
+//! call to a symbol nothing defines. Two more (`طول_مصفوفة`, `ألحق` — spelled
+//! `الحق` until #375) had the mirror problem: a native mapping with no
+//! interpreter implementation.
 //!
 //! Nothing caught that, because no test ran a core builtin in more than one
 //! backend. So every fixture here asserts *stdout*, under all three backends,
@@ -642,6 +643,50 @@ fn assert_exits_with(name: &str, body: &str, status: i32, expected: &[&str]) {
     }
 }
 
+/// Asserts `body` is refused as an undefined identifier (`د٠٠٠١`) *before
+/// anything runs*, under all three backends — the shape of a name removed from
+/// the registry outright.
+///
+/// The helper prepends the sentinel `اطبع` line itself: a runtime failure
+/// would print it first, so an empty stdout is the compile-time/run-time
+/// discriminator. `assert_fails` cannot express this — it demands the failure
+/// happen at run time — and `compile_failed` is only ever set on the native
+/// leg, so the other two legs rely on the sentinel alone. stderr must carry
+/// `د٠٠٠١` so the test pins *why* the program was refused: without it, a
+/// fixture broken for any unrelated reason satisfies every assertion and the
+/// test stops proving the removal.
+fn assert_refused_as_undefined(name: &str, body: &str) {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), name, &format!("اطبع(\"قبل\")\n{body}"));
+
+    for backend in Backend::ALL {
+        let output = execute(backend, &main, &format!("{name}_{backend:?}"));
+
+        assert!(
+            !output.succeeded(),
+            "توقّعنا رفض الاسم [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        assert!(
+            output.lines().is_empty(),
+            "رفضٌ وقت الترجمة لا وقت التنفيذ [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        assert!(
+            output.stderr.contains("د٠٠٠١"),
+            "توقّعنا رفضاً بـ«معرّف غير معروف» [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        if matches!(backend, Backend::Native) {
+            assert!(
+                output.compile_failed,
+                "توقّعنا فشل الترجمة الأصلية لـ {name}\n{}",
+                output.report()
+            );
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // تأكد / تأكد_رسالة
 // ---------------------------------------------------------------------------
@@ -743,8 +788,8 @@ fn test_append_uses_the_array_element_type_not_the_value_type() {
     // `elem_ty` taken from the pushed value stored an i64 bit pattern into a
     // float array, which the reader decoded as a denormal double.
     assert_prints(
-        "الحق_عشري",
-        "متغير م = [1.5]\nالحق(م، 2)\nاطبع(م[1] + 0.5)",
+        "ألحق_عشري",
+        "متغير م = [1.5]\nألحق(م، 2)\nاطبع(م[1] + 0.5)",
         &["2.5"],
     );
 }
@@ -763,7 +808,7 @@ fn test_invalid_float_string_fails_rather_than_yielding_zero() {
 }
 
 // ---------------------------------------------------------------------------
-// طول_مصفوفة / الحق — the mirror image: mapped natively, absent from the interpreter
+// طول_مصفوفة / ألحق (née الحق، #375) — the mirror image: mapped natively, absent from the interpreter
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -2198,7 +2243,7 @@ fn test_appending_to_an_empty_byte_array_grows_it_in_every_backend() {
         "ثنائي_إلحاق",
         concat!(
             "متغير ب = نص_إلى_ثنائي(\"\")\n",
-            "الحق(ب، 5)\n",
+            "ألحق(ب، 5)\n",
             "اطبع(طول(ب))\n",
             "اطبع(ب[0])",
         ),
@@ -2532,7 +2577,7 @@ fn test_substr_chars_accepts_a_null_holder() {
 ///
 /// The accumulator is seeded with `نص_إلى_ثنائي("")` rather than a `[]` literal:
 /// the literal route is refused by codegen for a typed array, and the empty
-/// array's zero capacity is the shape that used to hang `الحق` natively.
+/// array's zero capacity is the shape that used to hang `ألحق` natively.
 #[test]
 fn test_substr_chars_matches_the_slicer_it_names() {
     assert_prints(
@@ -2559,7 +2604,7 @@ fn test_substr_chars_matches_the_slicer_it_names() {
             "        إذا (رقم_الحرف >= بداية && رقم_الحرف < بداية + عدد_أحرف) {\n",
             "            متغير خطوة = 0\n",
             "            طالما (خطوة < عرض) {\n",
-            "                الحق(ناتج، بايتات[موضع + خطوة])\n",
+            "                ألحق(ناتج، بايتات[موضع + خطوة])\n",
             "                خطوة = خطوة + 1\n",
             "            }\n",
             "        }\n",
@@ -3037,13 +3082,27 @@ fn test_float_reads_the_same_printed_and_concatenated() {
     );
 }
 
+/// The member form `م.ألحق(س)` and the global form `ألحق(م، س)` lower to the
+/// same `Instruction::ArrayPush`; the member form had no coverage at all before
+/// #375. Int-only on purpose: the member path skips the عدد → عدد_عشري
+/// widening the global path applies, so a float row would pin that divergence
+/// instead of the agreement.
 #[test]
-fn test_array_push_builtin_works_in_every_backend() {
+fn test_member_and_global_push_agree_in_every_backend() {
     assert_prints(
-        "الحق_مباشر",
-        "متغير م = [1]\nالحق(م، 2)\nاطبع(طول_مصفوفة(م))",
-        &["2"],
+        "ألحق_عضوي",
+        "متغير م = [1]\nم.ألحق(2)\nألحق(م، 3)\nاطبع(طول_مصفوفة(م))\nاطبع(م[1] + م[2])",
+        &["3", "5"],
     );
+}
+
+/// `الحق` left the registry outright at #375 — `ألحق` is the one spelling — so
+/// a program calling the old name is refused as `د٠٠٠١` before anything runs.
+/// The edit-distance hint is deliberately not asserted: the suggester's offer
+/// is not part of the contract, the error code is.
+#[test]
+fn test_the_old_push_spelling_is_refused_in_every_backend() {
+    assert_refused_as_undefined("الحق_محذوف", "متغير م = [1]\nالحق(م، 2)");
 }
 
 // ---------------------------------------------------------------------------
@@ -3284,8 +3343,8 @@ fn test_every_core_builtin_agrees_across_backends() {
         ("نم", "نم(0)\nاطبع(\"تم\")", &["تم"]),
         ("طول_مصفوفة", "اطبع(طول_مصفوفة([1، 2]))", &["2"]),
         (
-            "الحق",
-            "متغير م = [1]\nالحق(م، 2)\nاطبع(طول_مصفوفة(م))",
+            "ألحق",
+            "متغير م = [1]\nألحق(م، 2)\nاطبع(طول_مصفوفة(م))",
             &["2"],
         ),
         ("بتات_و", "اطبع(بتات_و(12، 10))", &["8"]),

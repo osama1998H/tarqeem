@@ -5298,3 +5298,67 @@ stripped and every `is_builtin` name checked for a dispatch mention — the incr
 recount trap fired again in this note's own draft, which said 42. `trq_*` exports: 227, unchanged
 (named an existing symbol). Unit baseline 1461; builtin execution suite 254. Remaining Category-8
 work: `وقت_أداء`'s monotonic repair (runtime + both interpreters at once).
+
+## #375 — `ألحق`: array push unified on the correct spelling, `الحق` removed outright
+
+The last registry item that was a registration rather than a repair (`وقت_أداء`'s monotonic fix)
+or a hard-blocked hole (`احذف_آخر`/B10). §1.3 Category 4's rename row, and the first increment
+that touched **no dispatch arm and no runtime symbol on either side**: both call forms lower to
+the name-free `Instruction::ArrayPush`, so the whole unification is four name-table sites — the
+`core_builtins()` entry, the interception key in `build_core_builtin_call`, the
+`get_runtime_function_name` key, and the one live caller (`stdlib/نص/بناء.ترقيم:45`, which CI
+cannot see: the stdlib job is parse-only, and nothing in CI imports `نص/بناء`).
+
+### Decisions
+
+- **`الحق` removed outright, no `م`-warning alias — deviation recorded in §1.3's row.** The row
+  promised one release of `م`-warnings; the `م` (مهمل) category has exactly one code constant and
+  zero emission sites, so honoring the promise meant building deprecation plumbing inside a rename.
+  #336 (`قص_نص`) and #368 (`انقل_ملف`) both chose outright removal and recorded it; this follows.
+- **The codegen mapping was renamed, not deleted as dead.** It is unreachable either way — arity
+  mismatches die at the semantic layer (`expr_analyzer.rs` checks the `Type::Function` signature)
+  before the IR interception could ever fall through — but `طول_مصفوفة` keeps its equally-dead
+  mapping one line above, and a dead-arm sweep is a separate change, not a spelling change.
+- **Criterion (a) re-derived and held.** A Tarqeem function can build a *new* array; nothing can
+  grow one in place so the mutation stays visible through every alias, which is what push is.
+- **`أضف` untouched.** It shares both member arms (`method_resolver.rs:99`,
+  `expr_builder.rs:1206`) but is a separate name with its own verdict.
+
+### Measured
+
+- **A ninth cost shape: 4 sites for renaming an IR-intercepted name** — the two-site shape's own
+  sites, plus the codegen mapping key, plus the stdlib callee fix (#336's forced-callee move).
+  #342's caveat was forecast quiet (ArrayPush arms pre-exist in every backend) and stayed quiet,
+  the sixth correct quiet forecast.
+- **`assert_fails` cannot assert a removal.** It demands the failure happen at *run time*
+  (`!output.compile_failed`), and a removed name fails semantic analysis, so the removal-regression
+  test is an inline per-backend loop with a sentinel `اطبع("قبل")` as the compile-time/run-time
+  discriminator, asserting `compile_failed` on the native leg only (it is never set elsewhere).
+- **The member form had zero test coverage anywhere** — first pinned here
+  (`test_member_and_global_push_agree_in_every_backend`), int-only on purpose: the member path
+  skips the `coerce_args_to_params` widening the global path applies.
+- **Two pre-existing divergences found by the pre-example probes, filed not fixed:**
+  [#376](https://github.com/osama1998H/tarqeem/issues/376) — member-form push of an int into a
+  float array is refused by clang natively (`store double %v2` from an `i64` def) while both
+  interpreters print `2.5`; [#377](https://github.com/osama1998H/tarqeem/issues/377) — pushing
+  onto a `لا_شيء` array through `أي` halts both interpreters with a type error while the native
+  binary prints a stderr message, **continues**, and exits 0. Both rows stay out of the
+  cross-backend suites and the example.
+- **Keyword-embedding check: clean.** None of the 69 literals in `keywords.rs` is a substring of
+  `ألحق` (or of `الحق`), so no lexer row.
+- The removal's diagnostic is a plain `د٠٠٠١`; the edit-distance hint was not asserted (brittle),
+  matching the `قص_نص` lesson that the suggester's offer is not part of the contract.
+
+### State after #375
+
+Registry: 44 core + 159 stdlib = 203 — a rename inside the core tier, so every ratchet number is
+untouched and only the `CORE_BUILTINS` string moved. Debug interpreter: 44 names, unchanged
+(neither spelling ever was a dispatch name). `trq_*` exports: 227, unchanged. Unit baseline 1461,
+unchanged — the `scope_tests` edits add assertions inside an existing test, not a test — and
+builtin execution suite 255 (254 + the member/global and removal tests, − the standalone
+`ألحق_مباشر` probe, deleted in review as byte-identical to the sweep's `ألحق` row and strictly
+subsumed by the member/global test), both measured. The
+golden `مدمجات.خرج` gained exactly the new section's 11 lines, verified identical across all
+three backends by hand. Remaining registry work after this: `وقت_أداء`'s monotonic repair, and
+`احذف_آخر` behind B10 — every future run in this family is a repair or a migration, not a
+registration.

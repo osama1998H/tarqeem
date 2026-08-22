@@ -44,7 +44,8 @@ const CORE_BUILTINS: &[&str] = &[
     "اطبع",
     "اطبع_خطأ",
     "اطبع_سطر",
-    "الحق",
+    // #375: renamed from الحق; the misspelling left outright on the #336 precedent.
+    "ألحق",
     "بتات_أو",
     "بتات_أو_حصري",
     "بتات_إزاحة_يسار",

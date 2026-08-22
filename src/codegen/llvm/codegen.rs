@@ -3124,7 +3124,7 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "توقف" => Some("trq_panic"),
         "طول" => Some("trq_array_len"), // Generic length function for arrays
         "طول_مصفوفة" => Some("trq_array_len"),
-        "الحق" => Some("trq_array_push"),
+        "ألحق" => Some("trq_array_push"),
 
         // Networking - الشبكة
         // TCP Operations
