@@ -178,6 +178,13 @@ impl Scope {
             ("تأكد_رسالة", vec![Type::Bool, Type::String], Type::Void),
             ("توقف", vec![Type::String], Type::Void),
             ("نم", vec![Type::Int], Type::Void),
+            // Monotonic clock - الساعة التي لا تتراجع
+            // A distinct OS service from the wall clock `وقت_الآن` reads:
+            // milliseconds since an arbitrary origin inside *this* process, so
+            // only differences mean anything. Core tier since #389, promoted out
+            // of `وقت` on the #336/#373 pattern because §3.1 forbids a stdlib
+            // wrapper over a live builtin of the same name.
+            ("وقت_أداء", vec![], Type::Int),
             // Arrays - دوال المصفوفات
             ("طول_مصفوفة", vec![Type::Any], Type::Int),
             ("ألحق", vec![Type::Any, Type::Any], Type::Void),
@@ -800,8 +807,10 @@ impl Scope {
             // وقت (Time) - Time functions
             // =======================================================================
             "وقت" => match name {
+                // `وقت_أداء` moved to the core tier at #389 — still callable, now
+                // with no import — as `قص_حروف` did out of `نص` at #336.
+                // `وقت_الآن` is the last name here, and `مدمج`-verdict too.
                 "وقت_الآن" => Some(builtin("وقت_الآن", vec![], Type::Int)),
-                "وقت_أداء" => Some(builtin("وقت_أداء", vec![], Type::Int)),
                 _ => None,
             },
 
@@ -1108,7 +1117,7 @@ impl Scope {
                 "امتداد_ملف",
                 "فاصل_مسار",
             ],
-            "وقت" => vec!["وقت_الآن", "وقت_أداء"],
+            "وقت" => vec!["وقت_الآن"],
             "تشفير" => vec![
                 "احسب_بصمة",
                 "بصمة_ملف",

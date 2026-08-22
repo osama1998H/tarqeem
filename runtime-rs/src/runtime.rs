@@ -175,13 +175,30 @@ pub extern "C" fn trq_sleep(milliseconds: i64) {
 
 /// Milliseconds since the UNIX epoch, or 0 if the clock predates it.
 ///
-/// The single source of truth for both time builtins, so the value native code
-/// sees cannot drift from `src/interpreter/executor/builtins.rs`.
+/// The single source of truth for `وقت_الآن`, so the value native code sees
+/// cannot drift from `src/interpreter/executor/builtins.rs`. It backed `وقت_أداء`
+/// too until #389, and that was the defect: this clock is settable.
 fn epoch_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// Milliseconds since a fixed origin inside this process, backing `وقت_أداء`.
+///
+/// The origin is lazy rather than set in `trq_runtime_init` because neither
+/// interpreter has an init hook: anchoring to process start would give the three
+/// implementations three different origins.
+///
+/// `Instant` rather than `libc::clock_gettime`, which would need a `#[cfg]`
+/// split for Windows that CI's matrix — workspace root only — could not see.
+fn monotonic_millis() -> i64 {
+    static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    ORIGIN
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis() as i64
 }
 
 /// Backs the stdlib builtin `وقت_الآن` (`استورد { وقت_الآن } من "وقت"`).
@@ -193,12 +210,15 @@ pub extern "C" fn trq_time_now() -> i64 {
     epoch_millis()
 }
 
-/// Backs the stdlib builtin `وقت_أداء`. Returns the same epoch-millisecond
-/// clock as `trq_time_now`, matching the interpreter, which treats the two
-/// names identically.
+/// Backs the core builtin `وقت_أداء` — no import since #389, which also made it
+/// monotonic.
+///
+/// It returned `epoch_millis()` before, so the one promise the name makes was the
+/// one it did not keep. Both interpreters carried the same arm, so every backend
+/// agreed on the wrong answer and no backend-diff could catch it.
 #[no_mangle]
 pub extern "C" fn trq_performance_now() -> i64 {
-    epoch_millis()
+    monotonic_millis()
 }
 
 // ============================================================================
@@ -728,5 +748,32 @@ mod tests {
         // happens in i64 and only then narrows.
         assert_eq!(exit_status(i64::MIN), 0);
         assert_eq!(exit_status(i64::MAX), 255);
+    }
+
+    /// The native half of `وقت_أداء`, pinned here so it cannot regress to the
+    /// wall clock independently of the interpreters (#389).
+    ///
+    /// Asserted as non-decreasing and small — never `== 0`. The origin is a
+    /// process-global `OnceLock`, so a sibling test in this binary may have
+    /// started the clock first and test order is not defined.
+    #[test]
+    fn test_performance_now_is_monotonic_and_process_relative() {
+        use super::{trq_performance_now, trq_time_now};
+
+        let first = trq_performance_now();
+        let second = trq_performance_now();
+        assert!(second >= first, "الساعة تراجعت من {first} إلى {second}");
+
+        // Ten minutes: unreachable for a test process counting from its own
+        // first call, and three orders of magnitude below any epoch value. This
+        // is the assertion that fails if the body goes back to `epoch_millis`.
+        assert!(
+            first < 600_000,
+            "trq_performance_now أرجعت {first} — هذا توقيت الحائط"
+        );
+
+        // And the two clocks are not the same clock, which is the whole point:
+        // before #389 both symbols returned the identical epoch value.
+        assert!(trq_time_now() > 1_000_000_000_000);
     }
 }

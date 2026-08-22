@@ -2,13 +2,13 @@
 
 use std::io::{self, Write};
 
-use crate::interpreter::epoch_millis;
 use crate::interpreter::{
     bytes_to_string, call_dir_create, call_dir_current, call_dir_list, call_env_var,
     call_exit_program, call_file_close, call_file_open, call_path_delete, call_path_move,
     call_path_status, call_program_args, call_read_stream, call_substring_by_chars,
     call_write_stream, RuntimeError, RuntimeResult, Value,
 };
+use crate::interpreter::{epoch_millis, monotonic_millis};
 
 use super::DebugInterpreter;
 
@@ -69,8 +69,9 @@ impl DebugInterpreter {
                 | "trq_int_to_string"
                 | "trq_float_to_string"
                 | "trq_bool_to_string"
-                // Stdlib time builtins. Absent here, stepping through
-                // `وقت_أداء()` aborted while every other backend ran it (#241).
+                // The time builtins. Absent here, stepping through `وقت_أداء()`
+                // aborted while every other backend ran it (#241). `وقت_أداء` is
+                // core tier since #389; `وقت_الآن` still needs its import.
                 | "وقت_الآن"
                 | "وقت_أداء"
         )
@@ -78,7 +79,10 @@ impl DebugInterpreter {
 
     pub(crate) fn call_builtin(&mut self, name: &str, args: Vec<Value>) -> RuntimeResult<Value> {
         match name {
-            "وقت_الآن" | "وقت_أداء" => Ok(Value::Int(epoch_millis())),
+            // One arm each since #389, matching the main interpreter: the wall
+            // clock for `وقت_الآن`, the monotonic one for `وقت_أداء`.
+            "وقت_الآن" => Ok(Value::Int(epoch_millis())),
+            "وقت_أداء" => Ok(Value::Int(monotonic_millis())),
 
             "اطبع" => {
                 let output = args
@@ -1331,13 +1335,48 @@ mod tests {
         }
     }
 
+    /// The two names read the same helpers the main interpreter does, so neither
+    /// can drift from it — but they are *different* helpers since #389, when
+    /// sharing one turned out to be `وقت_أداء`'s defect rather than its
+    /// safeguard.
     #[test]
-    fn test_time_builtins_share_the_interpreter_clock() {
-        // Same helper the main interpreter calls, so the two cannot drift.
+    fn test_wall_clock_builtin_reads_epoch_millis() {
         let millis = epoch_millis();
         assert!(
             millis > 1_000_000_000_000,
             "التوقيت {millis} ليس بالميلي ثانية منذ ١٩٧٠"
+        );
+    }
+
+    /// Driven through `call_builtin` rather than the helper: `is_builtin` and the
+    /// dispatch `match` are separate lists, and a name in one but not the other
+    /// still aborts at run time.
+    ///
+    /// Asserted as non-decreasing and small — never `== 0`. The origin is a
+    /// process-global `OnceLock`, so a sibling test in this binary may have
+    /// started the clock first, and test order is not defined.
+    #[test]
+    fn test_monotonic_clock_builtin_never_goes_backwards() {
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let first = interpreter
+            .call_builtin("وقت_أداء", vec![])
+            .expect("وقت_أداء تُرجع قيمة لا خطأ")
+            .as_int()
+            .expect("وقت_أداء تُرجع عدداً");
+        let second = interpreter
+            .call_builtin("وقت_أداء", vec![])
+            .expect("وقت_أداء تُرجع قيمة لا خطأ")
+            .as_int()
+            .expect("وقت_أداء تُرجع عدداً");
+
+        assert!(second >= first, "الساعة تراجعت من {first} إلى {second}");
+        assert!(
+            first < 600_000,
+            "وقت_أداء أرجعت {first} — هذا توقيت الحائط لا أصلٌ داخل العملية"
         );
     }
 }
