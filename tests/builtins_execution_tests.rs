@@ -3347,6 +3347,11 @@ fn test_every_core_builtin_agrees_across_backends() {
             "متغير م = [1]\nألحق(م، 2)\nاطبع(طول_مصفوفة(م))",
             &["2"],
         ),
+        (
+            "احذف_آخر",
+            "متغير م = [1، 2]\nاطبع(احذف_آخر(م))\nاطبع(طول_مصفوفة(م))",
+            &["2", "1"],
+        ),
         ("بتات_و", "اطبع(بتات_و(12، 10))", &["8"]),
         ("بتات_أو", "اطبع(بتات_أو(12، 10))", &["14"]),
         ("بتات_أو_حصري", "اطبع(بتات_أو_حصري(12، 10))", &["6"]),
@@ -5964,5 +5969,134 @@ fn test_dir_current_can_be_shadowed_by_a_user_function() {
             "اطبع(مجلد_حالي())"
         ),
         &["42"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────
+// احذف_آخر — إزالة آخر عنصر والإجابة به
+// ────────────────────────────────────────────────────────────
+
+/// The effect and the answer at once: the element leaves, the length drops, and
+/// the change is visible through the array itself — which is what makes this
+/// inexpressible in Tarqeem, since a function can only build a new array.
+#[test]
+fn test_pop_removes_the_last_element_and_answers_it() {
+    assert_prints(
+        "احذف_آخر_أساسي",
+        "متغير م = [1، 2، 3]\nمتغير آخر = احذف_آخر(م)\nاطبع(آخر)\nاطبع(طول(م))\nاطبع(م[1])",
+        &["3", "2", "2"],
+    );
+}
+
+/// Composition, not printing: a result carrying `أي` prints correctly and then
+/// fails or misreads under `+`, so this is what separates the element-type
+/// derivation in `infer_call_expr` from an `أي` leak.
+#[test]
+fn test_pop_composes_at_the_element_type() {
+    assert_prints(
+        "احذف_آخر_تركيب",
+        concat!(
+            "متغير م = [10، 20]\n",
+            "اطبع(احذف_آخر(م) + 5)\n",
+            "متغير كسور = [1.5، 2.5]\n",
+            "اطبع(احذف_آخر(كسور) + 0.5)",
+        ),
+        &["25", "3.0"],
+    );
+}
+
+/// An empty array answers the element type's zero rather than failing:
+/// `trq_array_pop` hands back a zero buffer and both interpreters answer the
+/// same value. Indistinguishable from removing a genuine zero, by design.
+#[test]
+fn test_pop_from_an_empty_array_answers_the_element_zero() {
+    assert_prints(
+        "احذف_آخر_فارغة",
+        concat!(
+            "متغير م = [7]\n",
+            "اطبع(احذف_آخر(م))\n",
+            "اطبع(احذف_آخر(م))\n",
+            "اطبع(طول(م))\n",
+            "متغير كسور = [1.5]\n",
+            "احذف_آخر(كسور)\n",
+            "اطبع(احذف_آخر(كسور) + 0.5)\n",
+            "متغير منطقيات = [صحيح]\n",
+            "احذف_آخر(منطقيات)\n",
+            "اطبع(احذف_آخر(منطقيات))",
+        ),
+        &["7", "0", "0", "0.5", "خطأ"],
+    );
+}
+
+/// A string element: natively the load yields a null pointer where the
+/// interpreters yield `""`, and the two agree on everything observable —
+/// `trq_string_len_chars` answers 0 for null and `trq_string_concat` guards it.
+#[test]
+fn test_pop_from_an_empty_string_array_answers_the_empty_string() {
+    assert_prints(
+        "احذف_آخر_نص",
+        "متغير م: مصفوفة<نص> = []\nمتغير س = احذف_آخر(م)\nاطبع(طول(س))\nاطبع(س + \"ب\")",
+        &["0", "ب"],
+    );
+}
+
+/// The member and global forms lower to the same `ArrayPop`. The member one
+/// replaced `احذف`, which resolved in the type checker and then died at run
+/// time because nothing lowered it.
+#[test]
+fn test_member_and_global_pop_agree_in_every_backend() {
+    assert_prints(
+        "احذف_آخر_عضوي",
+        "متغير م = [1، 2، 3]\nاطبع(م.احذف_آخر())\nاطبع(احذف_آخر(م))\nاطبع(طول(م))",
+        &["3", "2", "1"],
+    );
+}
+
+/// In statement position the result is never read, and the array shortens all
+/// the same. Dead-code elimination deletes exactly this shape unless the
+/// instruction is also marked as having an effect.
+#[test]
+fn test_pop_in_statement_position_still_shortens_the_array() {
+    assert_prints(
+        "احذف_آخر_جملة",
+        "متغير م = [1، 2، 3]\nاحذف_آخر(م)\nاطبع(طول(م))",
+        &["2"],
+    );
+}
+
+/// And inside a loop: its one operand is defined outside, so loop-invariant
+/// code motion would hoist it into the preheader and run it once, leaving 2.
+#[test]
+fn test_pop_inside_a_loop_runs_every_iteration() {
+    assert_prints(
+        "احذف_آخر_حلقة",
+        concat!(
+            "متغير م = [1، 2، 3]\n",
+            "لكل (متغير ي = 0؛ ي < 3؛ ي++) {\n",
+            "    احذف_آخر(م)\n",
+            "}\n",
+            "اطبع(طول(م))",
+        ),
+        &["0"],
+    );
+}
+
+/// Builtins are the last tier in name resolution, so a user function of the
+/// same name wins and the array is left alone. The parameter is typed
+/// concretely on purpose: an `أي` parameter is refused by native codegen
+/// (ت٠٣٠١), so an `أي` signature here would test the refusal, not the shadow.
+#[test]
+fn test_pop_can_be_shadowed_by_a_user_function() {
+    assert_prints(
+        "احذف_آخر_تظليل",
+        concat!(
+            "دالة احذف_آخر(م: مصفوفة<عدد>) -> عدد {\n",
+            "    أرجع 99\n",
+            "}\n",
+            "متغير م = [1، 2]\n",
+            "اطبع(احذف_آخر(م))\n",
+            "اطبع(طول(م))",
+        ),
+        &["99", "2"],
     );
 }
