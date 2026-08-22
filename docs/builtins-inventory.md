@@ -79,8 +79,12 @@ the refactor; fixing them is scoped in the plan document, not here.
 > *are* kept current. Known drift since: #336 moved `قص_حروف` to core tier and removed `قص_نص`, so
 > §2.2's «32 of 41 نص» and §2.10's stdlib-registry figures are each one or two low. #338 then added
 > `متغير_بيئة`, taking the core tier to 31 and the declared total to 194, and retiring one orphan.
-> #375 renamed the core-tier `الحق` to `ألحق`, so §2.1's four-name interpreter-hole list and §2.9's
-> editor row read under the old spelling.
+> #375 renamed the core-tier `الحق` to `ألحق`, so §2.9's editor row reads under the old spelling.
+> §2.1's four-name interpreter-hole list also still names `الحق`, but that entry is retired, not
+> respelled: the hole itself has since closed — both push forms lower to the name-free `ArrayPush`,
+> which every backend executes (§4's row is ✓✓✓✓ مُنفَّذ) — so do not chase it as open Category work.
+> And with `الحق`'s `يُحذف` row gone from §4, §3's «counts 48» reconciliation reads high: 46 `يُحذف`
+> rows enumerate today, and one unit of that gap predates #375.
 
 ### 2.1 The default backend is the weakest one
 

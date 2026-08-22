@@ -5355,7 +5355,9 @@ Registry: 44 core + 159 stdlib = 203 — a rename inside the core tier, so every
 untouched and only the `CORE_BUILTINS` string moved. Debug interpreter: 44 names, unchanged
 (neither spelling ever was a dispatch name). `trq_*` exports: 227, unchanged. Unit baseline 1461,
 unchanged — the `scope_tests` edits add assertions inside an existing test, not a test — and
-builtin execution suite 256 (254 + the member/global and removal tests), both measured. The
+builtin execution suite 255 (254 + the member/global and removal tests, − the standalone
+`ألحق_مباشر` probe, deleted in review as byte-identical to the sweep's `ألحق` row and strictly
+subsumed by the member/global test), both measured. The
 golden `مدمجات.خرج` gained exactly the new section's 11 lines, verified identical across all
 three backends by hand. Remaining registry work after this: `وقت_أداء`'s monotonic repair, and
 `احذف_آخر` behind B10 — every future run in this family is a repair or a migration, not a

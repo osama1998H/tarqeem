@@ -643,6 +643,50 @@ fn assert_exits_with(name: &str, body: &str, status: i32, expected: &[&str]) {
     }
 }
 
+/// Asserts `body` is refused as an undefined identifier (`د٠٠٠١`) *before
+/// anything runs*, under all three backends — the shape of a name removed from
+/// the registry outright.
+///
+/// The helper prepends the sentinel `اطبع` line itself: a runtime failure
+/// would print it first, so an empty stdout is the compile-time/run-time
+/// discriminator. `assert_fails` cannot express this — it demands the failure
+/// happen at run time — and `compile_failed` is only ever set on the native
+/// leg, so the other two legs rely on the sentinel alone. stderr must carry
+/// `د٠٠٠١` so the test pins *why* the program was refused: without it, a
+/// fixture broken for any unrelated reason satisfies every assertion and the
+/// test stops proving the removal.
+fn assert_refused_as_undefined(name: &str, body: &str) {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), name, &format!("اطبع(\"قبل\")\n{body}"));
+
+    for backend in Backend::ALL {
+        let output = execute(backend, &main, &format!("{name}_{backend:?}"));
+
+        assert!(
+            !output.succeeded(),
+            "توقّعنا رفض الاسم [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        assert!(
+            output.lines().is_empty(),
+            "رفضٌ وقت الترجمة لا وقت التنفيذ [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        assert!(
+            output.stderr.contains("د٠٠٠١"),
+            "توقّعنا رفضاً بـ«معرّف غير معروف» [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        if matches!(backend, Backend::Native) {
+            assert!(
+                output.compile_failed,
+                "توقّعنا فشل الترجمة الأصلية لـ {name}\n{}",
+                output.report()
+            );
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // تأكد / تأكد_رسالة
 // ---------------------------------------------------------------------------
@@ -3038,15 +3082,6 @@ fn test_float_reads_the_same_printed_and_concatenated() {
     );
 }
 
-#[test]
-fn test_array_push_builtin_works_in_every_backend() {
-    assert_prints(
-        "ألحق_مباشر",
-        "متغير م = [1]\nألحق(م، 2)\nاطبع(طول_مصفوفة(م))",
-        &["2"],
-    );
-}
-
 /// The member form `م.ألحق(س)` and the global form `ألحق(م، س)` lower to the
 /// same `Instruction::ArrayPush`; the member form had no coverage at all before
 /// #375. Int-only on purpose: the member path skips the عدد → عدد_عشري
@@ -3062,38 +3097,12 @@ fn test_member_and_global_push_agree_in_every_backend() {
 }
 
 /// `الحق` left the registry outright at #375 — `ألحق` is the one spelling — so
-/// a program calling the old name is refused before anything runs. The sentinel
-/// print is the discriminator: a *runtime* failure would print it first.
-/// `assert_fails` is the wrong helper here — it demands the failure happen at
-/// run time, and `compile_failed` is only ever set on the native leg.
+/// a program calling the old name is refused as `د٠٠٠١` before anything runs.
+/// The edit-distance hint is deliberately not asserted: the suggester's offer
+/// is not part of the contract, the error code is.
 #[test]
 fn test_the_old_push_spelling_is_refused_in_every_backend() {
-    let temp = TempDir::new().unwrap();
-    let main = write_program(
-        temp.path(),
-        "الحق_محذوف",
-        "اطبع(\"قبل\")\nمتغير م = [1]\nالحق(م، 2)",
-    );
-    for backend in Backend::ALL {
-        let output = execute(backend, &main, &format!("الحق_محذوف_{backend:?}"));
-        assert!(
-            !output.succeeded(),
-            "توقّعنا رفض الرسم القديم [{backend:?}]\n{}",
-            output.report()
-        );
-        assert!(
-            !output.stdout.contains("قبل"),
-            "رفضٌ وقت الترجمة لا وقت التنفيذ [{backend:?}]\n{}",
-            output.report()
-        );
-        if matches!(backend, Backend::Native) {
-            assert!(
-                output.compile_failed,
-                "توقّعنا فشل الترجمة الأصلية\n{}",
-                output.report()
-            );
-        }
-    }
+    assert_refused_as_undefined("الحق_محذوف", "متغير م = [1]\nالحق(م، 2)");
 }
 
 // ---------------------------------------------------------------------------
