@@ -5362,3 +5362,116 @@ golden `مدمجات.خرج` gained exactly the new section's 11 lines, verified
 three backends by hand. Remaining registry work after this: `وقت_أداء`'s monotonic repair, and
 `احذف_آخر` behind B10 — every future run in this family is a repair or a migration, not a
 registration.
+
+> **Superseded by #382.** `احذف_آخر` landed, so the only registry work left is `وقت_أداء`'s
+> monotonic repair. The four earlier notes calling it hard-blocked — at lines 4433, 4714, 5224 and
+> 5305 — are stale as of that increment; B10 is closed and two of its claims were wrong (see §6.7.13
+> of `builtins-vs-stdlib.md`).
+
+
+---
+
+## #382 — `احذف_آخر`: B10, and the first IR instruction that both mutates and yields a value
+
+The last unimplemented row in the §1.3 registry, and the only one the plan ever flagged as needing
+genuine per-backend work. Full write-up in `docs/builtins-vs-stdlib.md` §6.7.13; this records the
+decisions and the measurements.
+
+### The cost shape — a tenth, and the largest: 25 sites across 13 files
+
+Forecast 25 before the work, cost 25 — the third exact hit after #370 and #373. What makes it new is
+that §6.7's discriminator (*which half of the path already exists?*) answers **both**:
+`trq_array_pop` was defined, re-exported and already `declare`d by codegen. On #338's reading that
+predicts eight or fewer. It was 25, because the cost is not in the path — it is in the IR:
+
+    runtime-rs contract change              1
+    Instruction variant + Display           2
+    IR builder: global arm, member arm      2
+    src/ir/opt (dce 3, inline 3, loop 3,
+      cse 1)                               10
+    interpreter + debug interpreter         2
+    LLVM codegen (declare pre-existed)      1
+    JIT tiers (explicit-unsupported)        2
+    semantic (Scope, analyzer override,
+      resolve_array_member, its call site)  4
+    LSP completion list                     1
+
+**The question to add to the discriminator:** *does the name need a new `Instruction` variant, and
+does that variant fit the shapes the passes already assume?* Ten of the 25 exist only because the
+answer is no. Every table in `src/ir/opt/` reads *has a `dest`* and *mutates* as alternatives, and
+`ArrayPop` is the first instruction that is both.
+
+**Only 6 of the 25 are compile errors** — `Display`, `dce::collect_uses`, `inline::remap_instruction`
+and the three backend matches. The other 19 are silent, and two are miscompiles:
+
+- `dce::has_side_effects` — without it, a pop whose result is unread is deleted. Proved rather than
+  argued: `test_keep_array_pop_whose_result_is_unused` was run against a build with that one row
+  removed and fails there.
+- `loop_opt::is_loop_invariant` — the one operand is the array, usually defined outside the loop, so
+  without the row the pop is hoisted into the preheader and runs once.
+
+Both are pinned twice: a unit test on the pass, and a cross-backend row that runs the real optimizer
+through all three backends.
+
+### Contract decisions, taken at planning time
+
+- **Empty array and `لا_شيء` answer the element type's zero**, and the array is unchanged. Totality
+  over a loud refusal: the refusal needs a null check plus a panic call in codegen and would still
+  have to agree on exit code and stderr across three backends. The answer is indistinguishable from
+  removing a genuine zero — #350's fourth defect class, stated in advance instead of corrected
+  afterwards, and unavoidable here: the return type **is** the element type, so it has no spare
+  value at all.
+- **`trq_array_pop` had to become total to serve that.** It answered `null` and `eprintln!`ed;
+  codegen `load`s the result unconditionally, so the empty case would have segfaulted natively where
+  both interpreters answered a value. Now a pointer to eight zero bytes — read as `0` / `0.0` /
+  `false` / null by element type, one buffer for all four. Reading the orphan before wiring it is
+  the #364 move, and this is the second body it has found dishonest (after `trq_performance_now`).
+- **A non-array static type is refused at IR-build time.** `ألحق` can fall back on the pushed value's
+  type; there is no value here, and guessing `عدد` would read a `double` slot as a raw bit pattern.
+
+### `(مصفوفة<ن>) -> ن` is not expressible in the registry
+
+`core_builtins()`'s return column is a constant `Type`, and `Type::Generic` serves user classes whose
+substitution is B1-broken. The return is derived at the call site in `infer_call_expr`, mirroring
+`infer_index_expr` — the only core name whose answer depends on an argument. Registering `أي` and
+stopping was cheaper and was rejected under standing rule 5: the value would then compose at `أي`
+everywhere, which is where #349, #345 and #327 live. The override is gated on the builtin's exact
+signature, so a user function of the same name still shadows it.
+
+### Findings worth carrying
+
+- **`احذف`'s removal changed nothing observable, and the hole is generic.** §1.3 cited it as a name
+  that type-checks and then dies; deleting it does not make the call an error, because
+  `expr_analyzer.rs:1002-1015` diagnoses `MemberResolution::NotFound` only for a class receiver. So
+  `م.أي_اسم_كان()` type-checks for **any** name. Filed as #383. A seventh §1.3 defect class, and the
+  first about a removal: *a row can cite a defect as belonging to one name when it belongs to the
+  mechanism the name sits in.* `اول`/`اخر` have the identical defect: #384.
+- **An `أي` parameter is refused by native codegen (ت٠٣٠١), so a shadowing test cannot use one.** The
+  obvious shadow `دالة احذف_آخر(م: أي) -> عدد` tests the refusal, not the shadow. Found by running
+  it, the #362 move.
+- **The `نص` element type is the row that could have split the backends and does not.** Natively the
+  load yields a null `TrqString*` where the interpreters yield `""`; they agree on everything
+  observable because `trq_string_len_chars` answers 0 for null and `trq_string_concat` guards it —
+  checked before the test was written, not after it passed.
+- **A float sum prints `3.0`, not `3`.** The first draft of the composition test expected `3` and
+  failed on all three backends identically — a wrong expectation, not a divergence. Read which side
+  of the assertion moved.
+- **`git checkout <file>` to undo a scratch edit reverts the real work in that file too.** The
+  one-line removal used to prove the DCE test fails without its fix was reverted that way and took
+  three genuine edits with it. Undo a scratch line by hand.
+- **B10 was wrong twice.** The JIT tiers need no arms — neither has one for *any* array instruction —
+  and the borrowed-pointer objection dissolves into `ArrayGet`'s existing call+load. A blocker row
+  can overstate its own per-backend work, and the check that finds it is the one #355 taught: read
+  the implementation before trusting the row.
+
+### State after #382
+
+Registry: **45 core + 159 stdlib = 204** — a plain addition, the first since #338; it folds nothing
+and leaves no module, so `STDLIB_MODULE_SIZES` is untouched. Debug interpreter: 44 names, unchanged
+(`احذف_آخر` is IR-intercepted and has no name-dispatch arm, exactly as `ألحق` and `طول` have none).
+`trq_*` exports: 227, unchanged — no new symbol. Orphans: 22, down one, `trq_array_pop` having
+gained its first caller. Intercepted names: 21, the first added since Increment A. Unit baseline
+1467 (1461 + the DCE pass test, three interpreter tests, the codegen test and the debug-interpreter
+test); builtin execution suite 263 (255 + the eight new tests — the sweep probe is a row inside an
+existing test and adds no count), both measured. **With this, §1.3 has no unimplemented row left**; the only registry work remaining is
+`وقت_أداء`'s monotonic repair.

@@ -270,11 +270,32 @@ advantage over the bridge is allocation avoidance. Perf-only, therefore cut.
 |---|---|---|---|
 | `طول` | `(أي) -> عدد` | unchanged | Reads the length field of the core array/string representation; the header layout (`TrqArray` 32B / `TrqString` 24B) is not addressable from Tarqeem. Already correctly polymorphic on the live path (`Instruction::ArrayLen` → `trq_string_len_chars` for strings, `trq_array_len` otherwise), verified identical across backends. **Absorbs `طول_مصفوفة`**, which shares literally the same match arm. Criterion (a). |
 | `ألحق` | `(مصفوفة<ن>، ن) -> فراغ` | renamed — **مُنفَّذ (#375)** | Appending may reallocate the payload and rewrite the header's len/cap — inexpressible in Tarqeem. Criterion (a), re-derived at implementation time and **held**: a Tarqeem function can build a *new* array, but nothing can grow one in place so the mutation stays visible through every alias, which is what push *is*. The rename is **not an invention**: `ألحق` is the spelling README and LANGUAGE_SPEC §14.3 already document *and* the spelling the live member form already implements (`method_resolver.rs:99`). Before #375 the two forms disagreed — `الحق(أ،٤)` worked but `أ.الحق(٤)` failed; `ألحق(أ،٤)` failed but `أ.ألحق(٤)` worked. Unifying on `ألحق` fixed both halves and corrected an orthographic error (`ألحق` is the imperative of أَلْحَقَ). **Deviation (#375):** `الحق` was removed **outright**, not retained one release as a `م`-warning alias as this row promised — the `م` category has no emission plumbing anywhere in the compiler, and #336 (`قص_نص`) and #368 (`انقل_ملف`) recorded the same deviation. Both forms lower to the name-free `Instruction::ArrayPush`, so the unification cost four name-table sites and zero dispatch or runtime work; the member form's skipped widening and the null-through-`أي` push divergence were found while probing and filed as [#376](https://github.com/osama1998H/tarqeem/issues/376) and [#377](https://github.com/osama1998H/tarqeem/issues/377) rather than folded in. |
-| `احذف_آخر` | `(مصفوفة<ن>) -> ن` | new (name pre-existing) | The one genuine category-4 hole. Verified missing in every form and every backend: `د٠٠٠١` as a global, «دالة غير معرّفة» as a member; the type checker's alternative spelling `احذف` type-checks and then dies at runtime. The name is **not coined** — LANGUAGE_SPEC §14.3 already documents it and `trq_array_pop` already exists, unused. Criterion (a). |
+| `احذف_آخر` | `(مصفوفة<ن>) -> ن` | new (name pre-existing) — **مُنفَّذ (#382)** | The one genuine category-4 hole, and the last row in this registry to land. Verified missing in every form and every backend: `د٠٠٠١` as a global, «دالة غير معرّفة» as a member; the type checker's alternative spelling `احذف` type-checked and then died at runtime. The name is **not coined** — LANGUAGE_SPEC §14.3 already documents it and `trq_array_pop` already existed, unused. Criterion (a), re-derived at implementation time and **held**: a Tarqeem function can build a *new* array, but nothing can shorten one in place so the change is visible through every alias, which is what pop *is* — the mirror of `ألحق`'s claim, and it expires on the same day that one does. Total: **an empty array and `لا_شيء` both answer the element type's zero** — `٠` / `٠.٠` / `خطأ` / `""` — and leave the array as it was, which no caller can tell from removing a genuine zero; a reference element type answers the null reference, the one row no test pins. A static type that is not an array is refused at IR-build time in all three backends. **`احذف` was removed outright, and removing it changed nothing observable** — see the correction below. |
 
 `new`, `get` and `set` need no names: array literals and `أ[i]` / `أ[i] = v` are syntax, verified
 working in all three backends (probe `مصفوفة_دوال`). `trq_array_set` is dead — native element
 assignment is lowered directly as GEP+store.
+
+> **Correction (#382): removing the array member `احذف` changed nothing observable, and the hole it
+> stood for is generic.** The row above cites it as a name that «type-checks and then dies at
+> runtime», and that was true — but deleting it does not make the call an error. `resolve_member`
+> answers `MemberResolution::NotFound`, and `expr_analyzer.rs:1002-1015` raises a diagnostic for that
+> only when the receiver is a `Type::Class`; on an array, a string or a map it silently answers
+> `Type::Any` and the call still falls through to class-method resolution against an empty class name.
+> So `م.أي_اسم_كان()` type-checks today for any name at all. Filed as
+> [#383](https://github.com/osama1998H/tarqeem/issues/383) rather than widened into this change, and
+> no test pins the old spelling's failure, because that failure is undefined behaviour and not a
+> contract. `احذف` left outright, with no `م`-warning, on the #336 `قص_نص` precedent — the fourth
+> such removal after `قص_نص`, `انقل_ملف` (#368) and `الحق` (#375).
+>
+> A **seventh** defect class for §1.3 rows, and the first that is about a *removal* rather than an
+> addition: **a row can cite a defect as belonging to one name when it belongs to the mechanism the
+> name sits in.** The check that finds it is the one #355 and #352 already taught — read the
+> implementation of what you are folding or replacing — applied one layer further out, to the
+> resolver rather than to the name.
+>
+> Its two neighbours `اول` and `اخر` (`method_resolver.rs:113,117`) have the identical defect and are
+> untouched: [#384](https://github.com/osama1998H/tarqeem/issues/384).
 
 #### Category 5 — Map / hash primitives: **0 primitives**
 
@@ -2156,6 +2177,89 @@ One bookkeeping note: #370's guard comment claimed the `ملفات` module was l
 `مكتبة`-verdict names; that overclaimed by exactly this name, and the guard comment now records
 the correction. With #373 the claim is true.
 
+### 6.7.13 `احذف_آخر` — B10, a tenth cost shape, and the last row in the registry (#382)
+
+Category 4, not 7, and it landed here because it is what was left: with it §1.3 has no
+unimplemented row. It is also the only row the plan ever flagged as needing genuine per-backend
+work, which is what makes its shape new.
+
+**A tenth cost shape: a new IR instruction that both mutates and yields a value — 25 sites.**
+Forecast 25 across 13 files before the work, measured 25. The discriminator §6.7 named — *which
+half of the path already exists?* — answers "both, and neither is the cost": `trq_array_pop` was
+defined, re-exported and already `declare`d by codegen, so on the #338 reading this should have
+been an eight, or less. It was not, because the discriminator asks about the **path** and this
+increment's cost is in the **IR**:
+
+| Group | Sites |
+|---|---|
+| `runtime-rs` contract change | 1 |
+| `Instruction` variant + `Display` | 2 |
+| IR builder: global arm + member arm (+ the `not_an_array` helper) | 2 |
+| `ir::opt` — dce ×3, inline ×3, loop_opt ×3, cse ×1 | 10 |
+| Interpreter + debug interpreter (each an arm plus an `element_zero` helper) | 2 |
+| LLVM codegen (the `declare` already existed) | 1 |
+| JIT tiers — explicit-unsupported, not arms | 2 |
+| Semantic: `Scope`, the analyzer override, `resolve_array_member`, its call site | 4 |
+| LSP completion list | 1 |
+
+So the question to add to the discriminator, and it is the whole finding: **does the name need a
+new `Instruction` variant, and if so does that variant fit the shapes the passes already assume?**
+Ten of the twenty-five sites exist only because it does not fit. Every table in `src/ir/opt/` reads
+*has a `dest`* and *mutates* as alternatives — `ArrayLen`/`ArrayGet` have a dest and are pure,
+`ArraySet`/`ArrayPush` mutate and have none — and `ArrayPop` is the first instruction that is both.
+
+**Only six of the twenty-five are compile errors.** `cargo check` after adding the variant names
+`Display`, `dce::collect_uses`, `inline::remap_instruction` and the three backend matches. The
+other nineteen are silent, and two of them are miscompiles:
+
+- **`dce::has_side_effects`.** Without the row, `احذف_آخر(م)` in statement position is deleted and
+  the array keeps its length. Verified rather than argued: `test_keep_array_pop_whose_result_is_unused`
+  was run against a build with that one row removed, and fails there.
+- **`loop_opt::is_loop_invariant`.** The instruction's one operand is the array, usually defined
+  outside the loop, so without the row the pop looks invariant and is hoisted into the preheader —
+  running once instead of once per iteration.
+
+Both are pinned twice over: a unit test on the pass, and a cross-backend row in
+`tests/builtins_execution_tests.rs` that runs the real optimizer through all three backends.
+
+**Two things the contract needed, decided at planning time** (the #368/#370 move):
+
+1. **An empty array answers the element type's zero.** The house alternative — a loud refusal —
+   needs a null check and a panic call in codegen and would still have to agree on exit code and
+   stderr across three backends. Totality is cheaper *and* it is what every primitive since #324
+   does. The answer is indistinguishable from removing a genuine zero, which is #350's fourth defect
+   class stated in advance rather than corrected afterwards: the return type **is** the element
+   type, so it has no spare value at all.
+2. **`trq_array_pop` had to become total to serve it.** It answered `ptr::null_mut()` and
+   `eprintln!`ed, and codegen `load`s its result unconditionally — so the empty case would have
+   segfaulted natively where both interpreters answered a value. It now returns a pointer to eight
+   zero bytes, read as `0` / `0.0` / `false` / null by element type; one buffer serves all four.
+   A one-function contract change to an orphan, the #364/#370 move.
+
+**The `نص` element type is the row that could have split the backends, and it does not.** Natively
+the load yields a null `TrqString*` where the interpreters yield `""`. They agree on everything
+observable because `trq_string_len_chars` answers 0 for null (`string.rs:253-257`) and
+`trq_string_concat` guards it (`string.rs:566-576`) — checked before the test was written, not after
+it passed. A reference element type answers the null reference and is the one contract row no test
+pins, because `اطبع` on such a value already diverges for a *populated* array (#359).
+
+**`(مصفوفة<ن>) -> ن` is not expressible in the registry.** `core_builtins()`'s return column is a
+constant `Type`, and `Type::Generic` serves user classes whose substitution is **B1**-broken. So the
+return is derived at the call site in `infer_call_expr`, mirroring `infer_index_expr` — the only
+core name whose answer depends on an argument. Registering it as `أي` and stopping was the cheaper
+option and was rejected under standing rule 5: a popped value would then compose at `أي` everywhere,
+which is where #349, #345 and #327 all live. The override is gated on the builtin's exact signature,
+so a user function of the same name still shadows it, and that is pinned across the three backends.
+
+Two smaller things worth carrying:
+
+- **An `أي` parameter is refused by native codegen (ت٠٣٠١), so a shadowing test cannot use one.**
+  The obvious shadow — `دالة احذف_آخر(م: أي) -> عدد` — tests the refusal, not the shadow. Found by
+  running it, the #362 move.
+- **`git checkout <file>` to undo a scratch edit reverts the real work in that file too.** A
+  temporary one-line removal, used to prove the DCE test fails without its fix, was reverted that
+  way and took three genuine edits with it. Revert the scratch line by hand.
+
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 
 Requires the linker change (§5.2) and the `stdlib/أخطاء/فهرس.ترقيم` parse fix. `تأكد` /
@@ -2193,7 +2297,7 @@ the same disease as the nine `#298` date constructors.
 | ~~**B7**~~ | **Closed (#336).** `قص_حروف` is core tier with an `IrType::String` return type and arms in both interpreters. Measured before the fix, natively: `نوع` → `مؤشر`, `"X" + …` → `X4341079168`, `== "رح"` → `خطأ`, and `طول` → **6 instead of 3** — the sentinel routes it to `trq_array_len`, which reads `TrqString.len`, the byte count. `حرف_في` still has the defect and is still native-only. | `p8`; `"X" + حرف_في(س،١)` → `X4377631856` | ~~Increment B, and everything downstream~~ |
 | **B8** | **No bitwise capability exists** in any spelling — no lexer token, no Arabic name, nothing to reuse. | `ثنائي_عامل` probe: `أ & ب` → `ب٠٠٠٢` at the `&` | Increments E, I, J and the RNG |
 | ~~**B9**~~ | **Closed (#333).** char↔code (#324, #326), string→bytes (#330) and bytes→string (#333) all land, so the bridge is total in both directions. One caveat inherited from the contract above: the bytes→string direction **validates**, so it carries text, not arbitrary octets. | grep over all 235 names and all 42 `string.rs` exports, as of the original census | ~~Increments E, F, I~~ |
-| **B10** | **`احذف_آخر` needs a new IR instruction.** The only proposed primitive requiring genuine per-backend work: `ArrayPop` plus arms in the interpreter, debug interpreter, both JIT tiers and LLVM. `trq_array_pop` already exists, unused. | `سحب` probe fails in all three | `مجموعات/مكدس`, `طابور` |
+| ~~**B10**~~ | **Closed (#382).** `ArrayPop` landed with arms in the interpreter, the debug interpreter and LLVM. **Two of the row's claims were wrong.** *The JIT tiers need no arms:* neither has an arm for **any** array instruction — `ArrayPush`, `ArrayGet` and `ArrayLen` all fall into a silent `_ => {}` — so `ArrayPop` joins the explicit `unsupported_instruction` group instead, only because a skip would leave its `dest` out of `var_map` and surface at whatever later instruction reads it. *And the borrowed-pointer objection recorded in `AI_NOTES.md` dissolves:* `ArrayGet` already lowers as `call ptr @trq_array_get` then `load`, and `ArrayPop` copies that verbatim. What the row **missed** is the real cost — see §6.7.13. | `سحب` probe failed in all three | ~~`مجموعات/مكدس`, `طابور`~~ |
 | **B11** | **Array `==` emits invalid LLVM IR.** Works interpreted (reference identity); natively clang rejects *"'%v10' defined with type 'ptr' but expected 'i64'"* at `icmp eq i64`. | `هوية3` | Any self-hosted collection that compares arrays |
 | **B12** | **The linker treats prelude-origin declarations as fatal collisions** rather than displaceable. | `P3_collision`, `P3_linkercollide` vs `P3b` | Increment H; all prelude-gated names |
 | **B13** | **`ارمِ` is still refused by native codegen (`ت٠٣٠٣`).** Migrated stdlib **must not use it**. Error signalling uses sentinels (`-١`, `i64::MIN`) or `توقف`. | LANGUAGE_SPEC §11.3 | All increments |
