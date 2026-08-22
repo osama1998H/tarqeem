@@ -181,6 +181,10 @@ impl Scope {
             // Arrays - دوال المصفوفات
             ("طول_مصفوفة", vec![Type::Any], Type::Int),
             ("ألحق", vec![Type::Any, Type::Any], Type::Void),
+            // The `أي` return is a placeholder: the real answer is the array's
+            // element type, derived at the call site in `infer_call_expr` —
+            // the only core entry whose return depends on an argument.
+            ("احذف_آخر", vec![Type::Any], Type::Any),
             // Strings - دوال النصوص
             // The codepoint slicer, and core tier rather than the `نص` module
             // because §5.2 keeps a no-import name a builtin: it indexes by
@@ -1211,6 +1215,21 @@ impl Scope {
             parent.lookup(name)
         } else {
             None
+        }
+    }
+
+    /// Whether `name` resolves to a builtin registration rather than a user
+    /// binding. Mirrors `lookup`'s traversal: the first scope whose symbols
+    /// hold the name decides, and `define` evicts a displaced builtin from
+    /// `builtin_names` (#262), so a user declaration in any scope answers false.
+    pub fn resolves_to_builtin(&self, name: &str) -> bool {
+        let normalized = normalize_name(name);
+        if self.symbols.contains_key(&normalized) {
+            self.builtin_names.contains(&normalized)
+        } else if let Some(parent) = &self.parent {
+            parent.resolves_to_builtin(name)
+        } else {
+            false
         }
     }
 

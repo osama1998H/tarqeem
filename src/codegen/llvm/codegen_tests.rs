@@ -1633,6 +1633,42 @@ fn test_array_get() {
     assert!(result.contains("load i64"));
 }
 
+/// `ArrayPop` lowers the way `ArrayGet` does — a call answering a borrowed
+/// pointer, then an immediate load at the element type. The element type is
+/// what the load reads, so a float array must emit `load double`, not `load i64`.
+#[test]
+fn test_array_pop() {
+    let mut codegen = create_codegen();
+    let mut module = create_test_module("test");
+
+    let mut func = create_test_function(
+        "array_pop_test",
+        vec![Parameter {
+            id: VarId(0),
+            name: "arr".to_string(),
+            ty: IrType::Array(Box::new(IrType::Float), 0),
+        }],
+        IrType::Float,
+    );
+
+    func.blocks[0].instructions.push(Instruction::ArrayPop {
+        dest: VarId(1),
+        array: VarId(0),
+        elem_ty: IrType::Float,
+    });
+
+    func.blocks[0].instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
+    module.functions.push(func);
+
+    let result = codegen.generate(&module).unwrap();
+
+    assert!(result.contains("declare ptr @trq_array_pop(ptr)"));
+    assert!(result.contains("call ptr @trq_array_pop"));
+    assert!(result.contains("load double"));
+}
+
 #[test]
 fn test_string_concat() {
     let mut codegen = create_codegen();

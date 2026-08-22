@@ -400,6 +400,14 @@ pub enum Instruction {
         value: VarId,
         elem_ty: IrType,
     },
+    /// Remove the last element and yield it — the only instruction that both
+    /// mutates and defines a value, so every "has a dest ⟹ pure" table in
+    /// `ir::opt` needs a row for it.
+    ArrayPop {
+        dest: VarId,
+        array: VarId,
+        elem_ty: IrType,
+    },
 
     StringConcat {
         dest: VarId,
@@ -672,6 +680,13 @@ impl fmt::Display for Instruction {
                 elem_ty,
             } => {
                 write!(f, "array_push {}, {}: {}", array, value, elem_ty)
+            }
+            Instruction::ArrayPop {
+                dest,
+                array,
+                elem_ty,
+            } => {
+                write!(f, "{}: {} = array_pop {}", dest, elem_ty, array)
             }
             Instruction::StringConcat { dest, left, right } => {
                 write!(f, "{}: str = string_concat {}, {}", dest, left, right)
@@ -1116,6 +1131,15 @@ mod tests {
             ty: IrType::Int,
         };
         assert_eq!(format!("{}", inst), "%2: i64 = add %0, %1");
+
+        // The dest is what distinguishes it from `array_push` on sight, and the
+        // JIT tiers put this rendering into their unsupported-instruction error.
+        let inst = Instruction::ArrayPop {
+            dest: VarId(3),
+            array: VarId(1),
+            elem_ty: IrType::Int,
+        };
+        assert_eq!(format!("{}", inst), "%3: i64 = array_pop %1");
     }
 
     #[test]

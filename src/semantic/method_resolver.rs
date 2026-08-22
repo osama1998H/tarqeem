@@ -55,7 +55,7 @@ impl<'a> MethodResolver<'a> {
     pub fn resolve_member(&mut self, object_type: &Type, member_name: &str) -> MemberResolution {
         match object_type {
             Type::Class(class_name) => self.resolve_class_member(class_name, member_name),
-            Type::Array(_) => self.resolve_array_member(member_name),
+            Type::Array(elem) => self.resolve_array_member(member_name, elem),
             Type::String => self.resolve_string_member(member_name),
             Type::Map(_, _) => self.resolve_map_member(member_name),
             Type::Any => MemberResolution::BuiltinProperty {
@@ -90,7 +90,9 @@ impl<'a> MethodResolver<'a> {
         MemberResolution::NotFound
     }
 
-    fn resolve_array_member(&self, member_name: &str) -> MemberResolution {
+    /// `elem` types `احذف_آخر`'s answer, so the member form composes at the
+    /// element type exactly as the global form does.
+    fn resolve_array_member(&self, member_name: &str, elem: &Type) -> MemberResolution {
         match member_name {
             "طول" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
@@ -103,11 +105,14 @@ impl<'a> MethodResolver<'a> {
                     return_type: Box::new(Type::Void),
                 },
             },
-            "احذف" => MemberResolution::BuiltinProperty {
+            // Replaces `احذف`, which resolved here and then had no lowering at
+            // all: the call fell through to class-method resolution against an
+            // empty class name and died at run time.
+            "احذف_آخر" => MemberResolution::BuiltinProperty {
                 name: member_name.to_string(),
                 ty: Type::Function {
                     params: vec![],
-                    return_type: Box::new(Type::Any),
+                    return_type: Box::new(elem.clone()),
                 },
             },
             "اول" => MemberResolution::BuiltinProperty {
@@ -383,6 +388,28 @@ mod tests {
             }
             _ => panic!("Expected BuiltinProperty"),
         }
+
+        // `احذف_آخر` answers the element type, not `أي` — the whole reason the
+        // element type is threaded into `resolve_array_member`.
+        let text_array = Type::Array(Box::new(Type::String));
+        match method_resolver.resolve_member(&text_array, "احذف_آخر") {
+            MemberResolution::BuiltinProperty { ty, .. } => {
+                assert_eq!(
+                    ty,
+                    Type::Function {
+                        params: vec![],
+                        return_type: Box::new(Type::String),
+                    }
+                );
+            }
+            _ => panic!("Expected BuiltinProperty"),
+        }
+
+        // The spelling it replaced is gone.
+        assert!(matches!(
+            method_resolver.resolve_member(&array_type, "احذف"),
+            MemberResolution::NotFound
+        ));
     }
 
     #[test]

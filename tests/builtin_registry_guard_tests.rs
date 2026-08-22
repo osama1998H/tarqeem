@@ -46,6 +46,8 @@ const CORE_BUILTINS: &[&str] = &[
     "اطبع_سطر",
     // #375: renamed from الحق; the misspelling left outright on the #336 precedent.
     "ألحق",
+    // #382: its inverse, and the last unimplemented row in the §1.3 registry.
+    "احذف_آخر",
     "بتات_أو",
     "بتات_أو_حصري",
     "بتات_إزاحة_يسار",
@@ -279,9 +281,14 @@ fn stdlib_registry_size_is_locked() {
     //
     // Still 203 with #373 (`مجلد_حالي`) — the fourth promotion, first from
     // Category 8: spelling unchanged, `ملفات` 18 → 17, core 43 → 44.
+    //
+    // 204 with #382 (`احذف_آخر`) — the first move since #338 that is a plain
+    // addition rather than a promotion. It folds nothing and leaves no module,
+    // so `STDLIB_MODULE_SIZES` is untouched and the core tier goes 44 → 45. It
+    // closes Category 4, and with it the last unimplemented row in §1.3.
     assert_eq!(
         total + CORE_BUILTINS.len(),
-        203,
+        204,
         "total registry size changed; docs/builtins-vs-stdlib.md targets 40 primitives — reached \
          by migrating ~150 names out and adding 21 new ones, so this number moves in both \
          directions, but only ever deliberately"

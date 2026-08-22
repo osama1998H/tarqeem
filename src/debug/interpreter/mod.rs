@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use crate::interpreter::{ErrorKind, RuntimeError, RuntimeResult, Value};
+use crate::interpreter::{element_zero, ErrorKind, RuntimeError, RuntimeResult, Value};
 use crate::ir::{
     BasicBlock, BlockId, Constant, FuncId, Function, Instruction, MethodId, Module, VarId,
 };
@@ -1368,6 +1368,28 @@ impl DebugInterpreter {
                     }
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 }
+                Ok(InstructionResult::Continue)
+            }
+
+            Instruction::ArrayPop {
+                dest,
+                array,
+                elem_ty,
+            } => {
+                let arr_val = self.get_local(*array)?;
+
+                // Mirrors the executor's arm; the empty-array zero itself is
+                // the shared `element_zero`, so that half cannot drift.
+                let result = match arr_val {
+                    Value::Array(arr) => arr
+                        .borrow_mut()
+                        .pop()
+                        .unwrap_or_else(|| element_zero(elem_ty)),
+                    Value::Null => element_zero(elem_ty),
+                    _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
+                };
+
+                self.set_local(*dest, result);
                 Ok(InstructionResult::Continue)
             }
 

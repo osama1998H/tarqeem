@@ -1250,6 +1250,124 @@ fn test_array_push() {
 }
 
 #[test]
+fn test_array_pop_yields_the_last_element_and_shortens_the_array() {
+    let mut module = create_empty_module();
+    let mut func = create_main_function();
+    let mut block = BasicBlock::new(BlockId(0));
+
+    block.instructions.push(Instruction::Const {
+        dest: VarId(0),
+        value: Constant::Int(7),
+        ty: IrType::Int,
+    });
+    block.instructions.push(Instruction::Const {
+        dest: VarId(1),
+        value: Constant::Int(9),
+        ty: IrType::Int,
+    });
+    block.instructions.push(Instruction::NewArray {
+        dest: VarId(2),
+        elem_ty: IrType::Int,
+        elements: vec![VarId(0), VarId(1)],
+    });
+
+    block.instructions.push(Instruction::ArrayPop {
+        dest: VarId(3),
+        array: VarId(2),
+        elem_ty: IrType::Int,
+    });
+    block.instructions.push(Instruction::ArrayLen {
+        dest: VarId(4),
+        array: VarId(2),
+    });
+
+    // 9 popped, one element left: 9 * 10 + 1 pins both halves in one value.
+    block.instructions.push(Instruction::Const {
+        dest: VarId(5),
+        value: Constant::Int(10),
+        ty: IrType::Int,
+    });
+    block.instructions.push(Instruction::Binary {
+        dest: VarId(6),
+        op: BinaryOp::Mul,
+        left: VarId(3),
+        right: VarId(5),
+        ty: IrType::Int,
+    });
+    block.instructions.push(Instruction::Binary {
+        dest: VarId(7),
+        op: BinaryOp::Add,
+        left: VarId(6),
+        right: VarId(4),
+        ty: IrType::Int,
+    });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(7)),
+    });
+
+    func.blocks.push(block);
+    module.functions.push(func);
+
+    assert_eq!(run_module(module).unwrap(), Value::Int(91));
+}
+
+/// The empty array answers the element type's zero rather than failing, which
+/// is what keeps it agreeing with `trq_array_pop`'s zero buffer natively.
+#[test]
+fn test_array_pop_on_an_empty_array_yields_the_element_zero() {
+    let mut module = create_empty_module();
+    let mut func = create_main_function();
+    let mut block = BasicBlock::new(BlockId(0));
+
+    block.instructions.push(Instruction::NewArray {
+        dest: VarId(0),
+        elem_ty: IrType::Float,
+        elements: vec![],
+    });
+    block.instructions.push(Instruction::ArrayPop {
+        dest: VarId(1),
+        array: VarId(0),
+        elem_ty: IrType::Float,
+    });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
+
+    func.blocks.push(block);
+    module.functions.push(func);
+
+    assert_eq!(run_module(module).unwrap(), Value::Float(0.0));
+}
+
+/// A null receiver takes the same path — the runtime's null guard answers the
+/// zero buffer too, so a type error here would split the backends.
+#[test]
+fn test_array_pop_on_null_yields_the_element_zero() {
+    let mut module = create_empty_module();
+    let mut func = create_main_function();
+    let mut block = BasicBlock::new(BlockId(0));
+
+    block.instructions.push(Instruction::Const {
+        dest: VarId(0),
+        value: Constant::Null,
+        ty: IrType::Ptr(Box::new(IrType::Void)),
+    });
+    block.instructions.push(Instruction::ArrayPop {
+        dest: VarId(1),
+        array: VarId(0),
+        elem_ty: IrType::Int,
+    });
+    block.instructions.push(Instruction::Return {
+        value: Some(VarId(1)),
+    });
+
+    func.blocks.push(block);
+    module.functions.push(func);
+
+    assert_eq!(run_module(module).unwrap(), Value::Int(0));
+}
+
+#[test]
 fn test_array_index_out_of_bounds() {
     let mut module = create_empty_module();
     let mut func = create_main_function();

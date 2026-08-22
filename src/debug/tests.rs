@@ -571,3 +571,79 @@ fn test_user_request_pause_reason() {
     assert!(reason.description().contains("user") || reason.description().contains("User"));
     assert!(reason.description_ar().contains("المستخدم"));
 }
+
+/// The debug interpreter's `ArrayPop` arm is hand-mirrored from the executor's
+/// and no cross-backend test reaches this backend, so it is pinned here: the
+/// popped element, the shortened array, and the element zero for an empty one.
+#[test]
+fn test_debug_interpreter_array_pop() {
+    let mut module = Module::new("test".to_string());
+
+    let mut main_func = Function::new(
+        FuncId("main".to_string()),
+        "main".to_string(),
+        vec![],
+        IrType::Int,
+    );
+
+    let mut entry = BasicBlock::new(BlockId(0));
+
+    entry.instructions.push(Instruction::Const {
+        dest: VarId(0),
+        value: Constant::Int(4),
+        ty: IrType::Int,
+    });
+    entry.instructions.push(Instruction::NewArray {
+        dest: VarId(1),
+        elem_ty: IrType::Int,
+        elements: vec![VarId(0)],
+    });
+
+    entry.instructions.push(Instruction::ArrayPop {
+        dest: VarId(2),
+        array: VarId(1),
+        elem_ty: IrType::Int,
+    });
+    // The array is empty now, so this second pop takes the zero path.
+    entry.instructions.push(Instruction::ArrayPop {
+        dest: VarId(3),
+        array: VarId(1),
+        elem_ty: IrType::Int,
+    });
+    entry.instructions.push(Instruction::ArrayLen {
+        dest: VarId(4),
+        array: VarId(1),
+    });
+
+    // 4 + 0 + 0 — the element, the zero, and the length left behind.
+    entry.instructions.push(Instruction::Binary {
+        dest: VarId(5),
+        op: crate::ir::BinaryOp::Add,
+        left: VarId(2),
+        right: VarId(3),
+        ty: IrType::Int,
+    });
+    entry.instructions.push(Instruction::Binary {
+        dest: VarId(6),
+        op: crate::ir::BinaryOp::Add,
+        left: VarId(5),
+        right: VarId(4),
+        ty: IrType::Int,
+    });
+    entry.instructions.push(Instruction::Return {
+        value: Some(VarId(6)),
+    });
+
+    main_func.blocks.push(entry);
+    module.functions.push(main_func);
+
+    let mut interpreter = DebugInterpreter::new(module, DebugContext::new());
+    interpreter.start().unwrap();
+
+    match interpreter.run().unwrap() {
+        StepResult::Completed(value) => {
+            assert_eq!(value, crate::interpreter::Value::Int(4));
+        }
+        other => panic!("Expected Completed, got {:?}", other),
+    }
+}
