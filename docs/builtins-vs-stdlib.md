@@ -2222,6 +2222,16 @@ other nineteen are silent, and two of them are miscompiles:
 Both are pinned twice over: a unit test on the pass, and a cross-backend row in
 `tests/builtins_execution_tests.rs` that runs the real optimizer through all three backends.
 
+**Filling those tables turned up that `ArrayPush` is missing from three of them**
+([#385](https://github.com/osama1998H/tarqeem/issues/385)): `loop_opt::is_loop_invariant` and
+`instruction_operands` — so LICM can hoist a push out of a loop **today**, since an instruction with
+no operand row is vacuously invariant — and `cse::apply_replacements`, so its operands are never
+remapped after an elimination. Plus the silent JIT skip, which makes a JIT-compiled `ألحق` a no-op.
+Pre-existing, and left alone: `ArrayPop` is wired correctly and fixing its sibling in the same change
+would be an optimizer behaviour change riding on a builtin PR. Worth recording as a pattern —
+**adding the row that a new instruction needs is the cheapest moment to notice which existing
+instructions never got theirs.**
+
 **Two things the contract needed, decided at planning time** (the #368/#370 move):
 
 1. **An empty array answers the element type's zero.** The house alternative — a loud refusal —

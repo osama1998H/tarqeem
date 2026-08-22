@@ -5459,6 +5459,13 @@ signature, so a user function of the same name still shadows it.
 - **`git checkout <file>` to undo a scratch edit reverts the real work in that file too.** The
   one-line removal used to prove the DCE test fails without its fix was reverted that way and took
   three genuine edits with it. Undo a scratch line by hand.
+- **Filling the opt tables showed which ones `ArrayPush` never got** (#385): it is absent from
+  `loop_opt::is_loop_invariant` **and** `instruction_operands`, so LICM can hoist a push out of a
+  loop today — an instruction with no operand row is vacuously invariant — and from
+  `cse::apply_replacements`, so its operands are never remapped after an elimination. Left alone:
+  fixing a sibling's optimizer behaviour inside a builtin PR is the wrong diff. The pattern:
+  *adding the row a new instruction needs is the cheapest moment to notice which existing
+  instructions never got theirs.*
 - **B10 was wrong twice.** The JIT tiers need no arms — neither has one for *any* array instruction —
   and the borrowed-pointer objection dissolves into `ArrayGet`'s existing call+load. A blocker row
   can overstate its own per-backend work, and the check that finds it is the one #355 taught: read
