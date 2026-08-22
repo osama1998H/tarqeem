@@ -10,9 +10,9 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use crate::interpreter::{ErrorKind, RuntimeError, RuntimeResult, Value};
+use crate::interpreter::{element_zero, ErrorKind, RuntimeError, RuntimeResult, Value};
 use crate::ir::{
-    BasicBlock, BlockId, Constant, FuncId, Function, Instruction, IrType, MethodId, Module, VarId,
+    BasicBlock, BlockId, Constant, FuncId, Function, Instruction, MethodId, Module, VarId,
 };
 use crate::semantic::EXCEPTION_MESSAGE_FIELD;
 
@@ -1378,14 +1378,14 @@ impl DebugInterpreter {
             } => {
                 let arr_val = self.get_local(*array)?;
 
-                // Mirrors the executor's arm exactly; the two are hand-kept in
-                // step and nothing tests them against each other.
+                // Mirrors the executor's arm; the empty-array zero itself is
+                // the shared `element_zero`, so that half cannot drift.
                 let result = match arr_val {
                     Value::Array(arr) => arr
                         .borrow_mut()
                         .pop()
-                        .unwrap_or_else(|| Self::element_zero(elem_ty)),
-                    Value::Null => Self::element_zero(elem_ty),
+                        .unwrap_or_else(|| element_zero(elem_ty)),
+                    Value::Null => element_zero(elem_ty),
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 };
 
@@ -1525,18 +1525,6 @@ impl DebugInterpreter {
                 Value::string(s)
             }
             Constant::Function(name) => Value::Function(name.clone()),
-        }
-    }
-
-    /// What `احذف_آخر` answers when there is nothing to remove — the twin of
-    /// `Interpreter::element_zero`, and of the eight zero bytes codegen loads.
-    fn element_zero(elem_ty: &IrType) -> Value {
-        match elem_ty {
-            IrType::Int => Value::Int(0),
-            IrType::Float => Value::Float(0.0),
-            IrType::Bool => Value::Bool(false),
-            IrType::String => Value::string(String::new()),
-            _ => Value::Null,
         }
     }
 

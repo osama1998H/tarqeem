@@ -540,6 +540,50 @@ fn assert_prints_with_env(name: &str, body: &str, env: &[(&str, &str)], expected
     }
 }
 
+/// Asserts `body` prints exactly `expected` when compiled natively at `-O 2`.
+///
+/// Only the native leg constructs an `Optimizer` — `run` and `run --jit` never
+/// do, and plain `compile` defaults to `-O 0` — so this is the one place the
+/// dce/loop_opt rows a mutating-and-yielding instruction needs are exercised
+/// end to end rather than by the passes' unit tests alone.
+fn assert_prints_native_o2(name: &str, body: &str, expected: &[&str]) {
+    ensure_runtime_library();
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), name, body);
+    let cwd = main.parent().expect("للبرنامج مجلد");
+    let arg = main.to_str().expect("مسار غير صالح");
+
+    let exe = cwd.join(format!("مخرج_{name}_o2"));
+    let exe_arg = exe.to_str().expect("مسار غير صالح").to_string();
+    let compiled = tarqeem(&["compile", arg, "-O", "2", "-o", &exe_arg], cwd);
+    assert!(
+        compiled.succeeded(),
+        "فشلت الترجمة الأصلية -O2 لـ {name}\n{}",
+        compiled.report()
+    );
+
+    let run = Command::new(&exe)
+        .output()
+        .unwrap_or_else(|e| panic!("تعذّر تشغيل {}: {}", exe.display(), e));
+    let output = Output {
+        status: run.status.code(),
+        stdout: String::from_utf8_lossy(&run.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&run.stderr).into_owned(),
+        compile_failed: false,
+    };
+    assert!(
+        output.succeeded(),
+        "فشل التنفيذ الأصلي -O2 لـ {name}\nالمتوقع/expected: {expected:?}\n{}",
+        output.report()
+    );
+    assert_eq!(
+        output.lines(),
+        expected,
+        "خرج غير متطابق [أصلي -O2] لـ {name}\n{}",
+        output.report()
+    );
+}
+
 /// Asserts `body` prints exactly `expected` under all three backends, with
 /// `args` handed to the **program** rather than to `tarqeem`.
 fn assert_prints_with_args(name: &str, body: &str, args: &[&str], expected: &[&str]) {
@@ -6054,31 +6098,30 @@ fn test_member_and_global_pop_agree_in_every_backend() {
 
 /// In statement position the result is never read, and the array shortens all
 /// the same. Dead-code elimination deletes exactly this shape unless the
-/// instruction is also marked as having an effect.
+/// instruction is also marked as having an effect — hence the extra `-O 2`
+/// native leg, the only path that runs the real optimizer.
 #[test]
 fn test_pop_in_statement_position_still_shortens_the_array() {
-    assert_prints(
-        "احذف_آخر_جملة",
-        "متغير م = [1، 2، 3]\nاحذف_آخر(م)\nاطبع(طول(م))",
-        &["2"],
-    );
+    let body = "متغير م = [1، 2، 3]\nاحذف_آخر(م)\nاطبع(طول(م))";
+    assert_prints("احذف_آخر_جملة", body, &["2"]);
+    assert_prints_native_o2("احذف_آخر_جملة", body, &["2"]);
 }
 
 /// And inside a loop: its one operand is defined outside, so loop-invariant
-/// code motion would hoist it into the preheader and run it once, leaving 2.
+/// code motion would hoist it into the preheader and run it once, leaving 2 —
+/// hence the extra `-O 2` native leg, the only path that runs the real
+/// optimizer.
 #[test]
 fn test_pop_inside_a_loop_runs_every_iteration() {
-    assert_prints(
-        "احذف_آخر_حلقة",
-        concat!(
-            "متغير م = [1، 2، 3]\n",
-            "لكل (متغير ي = 0؛ ي < 3؛ ي++) {\n",
-            "    احذف_آخر(م)\n",
-            "}\n",
-            "اطبع(طول(م))",
-        ),
-        &["0"],
+    let body = concat!(
+        "متغير م = [1، 2، 3]\n",
+        "لكل (متغير ي = 0؛ ي < 3؛ ي++) {\n",
+        "    احذف_آخر(م)\n",
+        "}\n",
+        "اطبع(طول(م))",
     );
+    assert_prints("احذف_آخر_حلقة", body, &["0"]);
+    assert_prints_native_o2("احذف_آخر_حلقة", body, &["0"]);
 }
 
 /// Builtins are the last tier in name resolution, so a user function of the

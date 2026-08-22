@@ -227,6 +227,40 @@ fn test_global_scope_has_core_builtins() {
     assert!(scope.lookup("قوة").is_none());
 }
 
+/// `resolves_to_builtin` is the gate `element_typed_return` relies on: a user
+/// binding of the builtin's exact `(أي) -> أي` shape must still answer false,
+/// whether it displaces the global registration or shadows from an inner scope.
+#[test]
+fn test_resolves_to_builtin_tracks_displacement_and_shadowing() {
+    let mut scope = Scope::new_global();
+    assert!(scope.resolves_to_builtin("احذف_آخر"));
+    assert!(!scope.resolves_to_builtin("اسم_غير_موجود"));
+
+    // A user declaration in the global scope displaces the builtin.
+    assert!(scope.define(Symbol::function(
+        "احذف_آخر",
+        vec![Type::Any],
+        Type::Any,
+        Span::default(),
+    )));
+    assert!(!scope.resolves_to_builtin("احذف_آخر"));
+
+    // An inner-scope binding shadows without touching the global registration.
+    let global = Scope::new_global();
+    let mut inner = Scope::new_child(global, ScopeKind::Function);
+    assert!(inner.resolves_to_builtin("احذف_آخر"));
+    assert!(inner.define(Symbol::variable(
+        "احذف_آخر",
+        Type::Function {
+            params: vec![Type::Any],
+            return_type: Box::new(Type::Any),
+        },
+        false,
+        Span::default(),
+    )));
+    assert!(!inner.resolves_to_builtin("احذف_آخر"));
+}
+
 #[test]
 fn test_stdlib_builtins_available_via_import() {
     // Math functions should be available via get_stdlib_builtin

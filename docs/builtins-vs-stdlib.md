@@ -2219,8 +2219,10 @@ other nineteen are silent, and two of them are miscompiles:
   outside the loop, so without the row the pop looks invariant and is hoisted into the preheader —
   running once instead of once per iteration.
 
-Both are pinned twice over: a unit test on the pass, and a cross-backend row in
-`tests/builtins_execution_tests.rs` that runs the real optimizer through all three backends.
+Both are pinned twice over: a unit test on the pass, and a native `-O 2` execution leg in
+`tests/builtins_execution_tests.rs` (`assert_prints_native_o2`). A cross-backend row alone cannot
+exercise them — only the native path ever constructs an `Optimizer` (`run` and `run --jit` never
+do), and it defaults to `-O 0`.
 
 **Filling those tables turned up that `ArrayPush` is missing from three of them**
 ([#385](https://github.com/osama1998H/tarqeem/issues/385)): `loop_opt::is_loop_invariant` and
@@ -2258,8 +2260,10 @@ constant `Type`, and `Type::Generic` serves user classes whose substitution is *
 return is derived at the call site in `infer_call_expr`, mirroring `infer_index_expr` — the only
 core name whose answer depends on an argument. Registering it as `أي` and stopping was the cheaper
 option and was rejected under standing rule 5: a popped value would then compose at `أي` everywhere,
-which is where #349, #345 and #327 all live. The override is gated on the builtin's exact signature,
-so a user function of the same name still shadows it, and that is pinned across the three backends.
+which is where #349, #345 and #327 all live. The override is gated on the name still resolving to
+the builtin tier (`Scope::resolves_to_builtin`, riding #262's displacement bookkeeping), so any user
+binding of the same name shadows it, and that is pinned across the three backends — a signature test
+alone would misfire on a user binding of the exact `(أي) -> أي` shape, such as an unannotated lambda.
 
 Two smaller things worth carrying:
 

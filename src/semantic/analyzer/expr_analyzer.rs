@@ -271,7 +271,15 @@ impl Analyzer {
                     }
                 }
 
-                Self::element_typed_return(callee, &params, *return_type, first_arg_type)
+                let callee_is_builtin = matches!(&callee.kind,
+                    ExprKind::Identifier(name) if self.scope.resolves_to_builtin(name));
+                Self::element_typed_return(
+                    callee,
+                    &params,
+                    *return_type,
+                    first_arg_type,
+                    callee_is_builtin,
+                )
             }
             Type::Any => {
                 for arg in args {
@@ -294,16 +302,19 @@ impl Analyzer {
     /// here, the way `infer_index_expr` derives the type of `س[ي]`; without it
     /// every use of a popped value composes at `أي`.
     ///
-    /// The signature test is the shadowing gate: builtins are the last lookup
-    /// tier, and a user function of the same name carries its own types, so the
-    /// override cannot fire on it.
+    /// The shadowing gate is the binding tier, not the signature: a user
+    /// binding of the exact shape `(أي) -> أي` — a `م: أي` function, or an
+    /// unannotated lambda — would satisfy a signature test, so the scope is
+    /// asked whether the name still resolves to the builtin registration.
     fn element_typed_return(
         callee: &Expr,
         params: &[Type],
         return_type: Type,
         first_arg_type: Option<Type>,
+        callee_is_builtin: bool,
     ) -> Type {
-        let is_the_builtin = matches!(&callee.kind, ExprKind::Identifier(name) if name == "احذف_آخر")
+        let is_the_builtin = callee_is_builtin
+            && matches!(&callee.kind, ExprKind::Identifier(name) if name == "احذف_آخر")
             && return_type == Type::Any
             && params == [Type::Any];
 

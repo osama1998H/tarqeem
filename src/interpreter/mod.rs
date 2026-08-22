@@ -94,3 +94,7 @@ pub use value::Value;
 
 /// Shared with the debug interpreter so both time builtins agree (#241).
 pub(crate) use executor::builtins::epoch_millis;
+
+/// Shared with the debug interpreter so `احذف_آخر`'s empty-array answer cannot
+/// drift between the two.
+pub(crate) use executor::element_zero;

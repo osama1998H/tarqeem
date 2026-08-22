@@ -756,8 +756,8 @@ impl Interpreter {
                     Value::Array(arr) => arr
                         .borrow_mut()
                         .pop()
-                        .unwrap_or_else(|| Self::element_zero(elem_ty)),
-                    Value::Null => Self::element_zero(elem_ty),
+                        .unwrap_or_else(|| element_zero(elem_ty)),
+                    Value::Null => element_zero(elem_ty),
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 };
 
@@ -1064,23 +1064,6 @@ impl Interpreter {
         }
     }
 
-    /// What `احذف_آخر` answers when there is nothing to remove.
-    ///
-    /// Natively the same call loads eight zero bytes from `POP_EMPTY_ZERO`,
-    /// which read as `0`, `0.0`, `false` and a null pointer; this reproduces
-    /// that per element type. A reference element type answers `لا_شيء`, the
-    /// one row the contract leaves unpinned because printing such a value
-    /// already diverges for a populated array (#359).
-    fn element_zero(elem_ty: &IrType) -> Value {
-        match elem_ty {
-            IrType::Int => Value::Int(0),
-            IrType::Float => Value::Float(0.0),
-            IrType::Bool => Value::Bool(false),
-            IrType::String => Value::string(String::new()),
-            _ => Value::Null,
-        }
-    }
-
     fn get_local(&self, var: VarId) -> RuntimeResult<Value> {
         self.call_stack
             .last()
@@ -1099,6 +1082,21 @@ impl Interpreter {
         self.call_stack
             .last_mut()
             .and_then(|frame| frame.try_stack.pop())
+    }
+}
+
+/// What `احذف_آخر` answers when there is nothing to remove — mirroring the
+/// eight zero bytes `trq_array_pop` hands codegen; a reference element type
+/// answers `لا_شيء`, the one contract row left unpinned (#359). Shared with
+/// the debug interpreter so the two zeros cannot drift (the `epoch_millis`
+/// pattern).
+pub(crate) fn element_zero(elem_ty: &IrType) -> Value {
+    match elem_ty {
+        IrType::Int => Value::Int(0),
+        IrType::Float => Value::Float(0.0),
+        IrType::Bool => Value::Bool(false),
+        IrType::String => Value::string(String::new()),
+        _ => Value::Null,
     }
 }
 

@@ -370,19 +370,11 @@ pub extern "C" fn trq_array_pop(arr: *mut TrqArray) -> *mut u8 {
     }
 }
 
-/// Eight zero bytes, eight-byte aligned, handed out when there is nothing to
-/// pop.
-///
-/// Backs the core builtin `احذف_آخر`, whose contract is total: an empty array
-/// answers the element type's zero. Codegen lowers the builtin as a call to
-/// `trq_array_pop` followed by an unconditional `load`, mirroring
-/// `trq_array_get`, so answering NULL here would segfault natively where both
-/// interpreters answer a value. Reading it as `i64`, `f64`, `bool` or a pointer
-/// gives `0`, `0.0`, `false` and null respectively — one buffer serves every
-/// element type.
-///
-/// Read-only by contract: unlike `trq_array_get`'s pointer, which `ArraySet`
-/// stores through, nothing ever writes to this one.
+/// Eight zero bytes handed out when there is nothing to pop: codegen lowers
+/// `احذف_آخر` as `call` + unconditional `load`, so NULL here would segfault
+/// natively where both interpreters answer a value; read at any element type
+/// it gives that type's zero, so one buffer serves them all. Read-only by
+/// contract — unlike `trq_array_get`'s pointer, nothing ever writes to it.
 static POP_EMPTY_ZERO: [u64; 1] = [0];
 
 fn pop_empty_zero() -> *mut u8 {

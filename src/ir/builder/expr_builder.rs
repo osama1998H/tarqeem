@@ -647,14 +647,7 @@ impl IrBuilder {
                 // member path below does: pushing `2` into `[1.5]` with
                 // `elem_ty: Int` stores an i64 bit pattern the reader decodes as
                 // a double.
-                let elem_ty = match &arg_ty {
-                    IrType::Array(elem, _) => (**elem).clone(),
-                    IrType::Ptr(inner) => match inner.as_ref() {
-                        IrType::Array(elem, _) => (**elem).clone(),
-                        _ => self.arg_type(value),
-                    },
-                    _ => self.arg_type(value),
-                };
+                let elem_ty = Self::array_elem_ty(&arg_ty).unwrap_or_else(|| self.arg_type(value));
                 // …and the value is widened to it, the same عدد → عدد_عشري
                 // coercion call arguments get: storing a raw i64 into a
                 // `double` slot is an LLVM type error.
@@ -674,14 +667,8 @@ impl IrBuilder {
                 // `ألحق` can fall back on the pushed value's type, and there is
                 // no value here. Guessing `عدد` would read a `double` slot as a
                 // raw bit pattern, silently, so a non-array is refused instead.
-                let elem_ty = match &arg_ty {
-                    IrType::Array(elem, _) => (**elem).clone(),
-                    IrType::Ptr(inner) => match inner.as_ref() {
-                        IrType::Array(elem, _) => (**elem).clone(),
-                        _ => return Err(Self::not_an_array(&arg_ty, "احذف_آخر")),
-                    },
-                    _ => return Err(Self::not_an_array(&arg_ty, "احذف_آخر")),
-                };
+                let elem_ty = Self::array_elem_ty(&arg_ty)
+                    .ok_or_else(|| Self::not_an_array(&arg_ty, "احذف_آخر"))?;
                 let dest = self.new_var();
                 self.emit(Instruction::ArrayPop {
                     dest,
@@ -871,6 +858,20 @@ impl IrBuilder {
             Self::type_name_ar(ty),
             target
         ))
+    }
+
+    /// The element type of an array-shaped `IrType`, through one level of
+    /// `Ptr`. `None` for anything else — each caller keeps its own fallback,
+    /// because they deliberately differ (refuse, pushed value's type, `Int`).
+    fn array_elem_ty(ty: &IrType) -> Option<IrType> {
+        match ty {
+            IrType::Array(elem, _) => Some((**elem).clone()),
+            IrType::Ptr(inner) => match inner.as_ref() {
+                IrType::Array(elem, _) => Some((**elem).clone()),
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     fn not_an_array(ty: &IrType, name: &str) -> IrError {
@@ -1238,22 +1239,12 @@ impl IrBuilder {
                 match property.as_str() {
                     "ألحق" | "أضف" => {
                         if let Some(value_var) = arg_vars.first() {
-                            let elem_ty = match &obj_type {
-                                IrType::Array(inner, _) => (**inner).clone(),
-                                IrType::Ptr(inner) => match inner.as_ref() {
-                                    IrType::Array(elem, _) => (**elem).clone(),
-                                    _ => self
-                                        .var_types
-                                        .get(&value_var.0)
-                                        .cloned()
-                                        .unwrap_or(IrType::Int),
-                                },
-                                _ => self
-                                    .var_types
+                            let elem_ty = Self::array_elem_ty(&obj_type).unwrap_or_else(|| {
+                                self.var_types
                                     .get(&value_var.0)
                                     .cloned()
-                                    .unwrap_or(IrType::Int),
-                            };
+                                    .unwrap_or(IrType::Int)
+                            });
                             self.emit(Instruction::ArrayPush {
                                 array: obj_var,
                                 value: *value_var,
@@ -1268,14 +1259,7 @@ impl IrBuilder {
                         // type was lost upstream, so this needs the fallback the
                         // global arm refuses on — there it means "not an array",
                         // here it means "an array we know less about".
-                        let elem_ty = match &obj_type {
-                            IrType::Array(inner, _) => (**inner).clone(),
-                            IrType::Ptr(inner) => match inner.as_ref() {
-                                IrType::Array(elem, _) => (**elem).clone(),
-                                _ => IrType::Int,
-                            },
-                            _ => IrType::Int,
-                        };
+                        let elem_ty = Self::array_elem_ty(&obj_type).unwrap_or(IrType::Int);
                         let dest = self.new_var();
                         self.emit(Instruction::ArrayPop {
                             dest,
