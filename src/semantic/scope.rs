@@ -180,7 +180,7 @@ impl Scope {
             ("نم", vec![Type::Int], Type::Void),
             // Arrays - دوال المصفوفات
             ("طول_مصفوفة", vec![Type::Any], Type::Int),
-            ("الحق", vec![Type::Any, Type::Any], Type::Void),
+            ("ألحق", vec![Type::Any, Type::Any], Type::Void),
             // Strings - دوال النصوص
             // The codepoint slicer, and core tier rather than the `نص` module
             // because §5.2 keeps a no-import name a builtin: it indexes by
@@ -203,7 +203,7 @@ impl Scope {
             ("رمز_إلى_حرف", vec![Type::Int], Type::String),
             // The byte bridge. `مصفوفة<عدد>` rather than `أي` — the only core
             // entry with a concrete array type, and it is what types the
-            // element for `س[ي]`; `طول_مصفوفة`/`الحق` take `أي` and cannot.
+            // element for `س[ي]`; `طول_مصفوفة`/`ألحق` take `أي` and cannot.
             (
                 "نص_إلى_ثنائي",
                 vec![Type::String],
