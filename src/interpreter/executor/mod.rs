@@ -741,6 +741,30 @@ impl Interpreter {
                 Ok(InstructionResult::Continue)
             }
 
+            Instruction::ArrayPop {
+                dest,
+                array,
+                elem_ty,
+            } => {
+                let arr_val = self.get_local(*array)?;
+
+                // An empty array and `لا_شيء` both answer the element type's
+                // zero, matching `trq_array_pop`'s zero buffer. Failing on
+                // either here while codegen answers a value would put the
+                // backends at odds in a documented row of the contract.
+                let result = match arr_val {
+                    Value::Array(arr) => arr
+                        .borrow_mut()
+                        .pop()
+                        .unwrap_or_else(|| Self::element_zero(elem_ty)),
+                    Value::Null => Self::element_zero(elem_ty),
+                    _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
+                };
+
+                self.set_local(*dest, result);
+                Ok(InstructionResult::Continue)
+            }
+
             Instruction::StringConcat { dest, left, right } => {
                 let left_val = self.get_local(*left)?;
                 let right_val = self.get_local(*right)?;
@@ -1037,6 +1061,23 @@ impl Interpreter {
                 Value::string(s)
             }
             Constant::Function(name) => Value::Function(name.clone()),
+        }
+    }
+
+    /// What `احذف_آخر` answers when there is nothing to remove.
+    ///
+    /// Natively the same call loads eight zero bytes from `POP_EMPTY_ZERO`,
+    /// which read as `0`, `0.0`, `false` and a null pointer; this reproduces
+    /// that per element type. A reference element type answers `لا_شيء`, the
+    /// one row the contract leaves unpinned because printing such a value
+    /// already diverges for a populated array (#359).
+    fn element_zero(elem_ty: &IrType) -> Value {
+        match elem_ty {
+            IrType::Int => Value::Int(0),
+            IrType::Float => Value::Float(0.0),
+            IrType::Bool => Value::Bool(false),
+            IrType::String => Value::string(String::new()),
+            _ => Value::Null,
         }
     }
 

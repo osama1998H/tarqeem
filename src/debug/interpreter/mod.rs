@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use crate::interpreter::{ErrorKind, RuntimeError, RuntimeResult, Value};
 use crate::ir::{
-    BasicBlock, BlockId, Constant, FuncId, Function, Instruction, MethodId, Module, VarId,
+    BasicBlock, BlockId, Constant, FuncId, Function, Instruction, IrType, MethodId, Module, VarId,
 };
 use crate::semantic::EXCEPTION_MESSAGE_FIELD;
 
@@ -1371,6 +1371,28 @@ impl DebugInterpreter {
                 Ok(InstructionResult::Continue)
             }
 
+            Instruction::ArrayPop {
+                dest,
+                array,
+                elem_ty,
+            } => {
+                let arr_val = self.get_local(*array)?;
+
+                // Mirrors the executor's arm exactly; the two are hand-kept in
+                // step and nothing tests them against each other.
+                let result = match arr_val {
+                    Value::Array(arr) => arr
+                        .borrow_mut()
+                        .pop()
+                        .unwrap_or_else(|| Self::element_zero(elem_ty)),
+                    Value::Null => Self::element_zero(elem_ty),
+                    _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
+                };
+
+                self.set_local(*dest, result);
+                Ok(InstructionResult::Continue)
+            }
+
             Instruction::StringConcat { dest, left, right } => {
                 let left_val = self.get_local(*left)?;
                 let right_val = self.get_local(*right)?;
@@ -1503,6 +1525,18 @@ impl DebugInterpreter {
                 Value::string(s)
             }
             Constant::Function(name) => Value::Function(name.clone()),
+        }
+    }
+
+    /// What `احذف_آخر` answers when there is nothing to remove — the twin of
+    /// `Interpreter::element_zero`, and of the eight zero bytes codegen loads.
+    fn element_zero(elem_ty: &IrType) -> Value {
+        match elem_ty {
+            IrType::Int => Value::Int(0),
+            IrType::Float => Value::Float(0.0),
+            IrType::Bool => Value::Bool(false),
+            IrType::String => Value::string(String::new()),
+            _ => Value::Null,
         }
     }
 

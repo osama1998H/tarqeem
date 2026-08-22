@@ -476,10 +476,15 @@ fn compile_instruction(
         // would compile the function with the throw silently *deleted* — a
         // miscompile waiting for the day `JitExecutor` dispatches compiled code
         // instead of always delegating to the interpreter (issue #181).
+        // `ArrayPop` joins them for a second reason: no array instruction has
+        // an arm here, and skipping the void ones merely loses their effect,
+        // but skipping this one leaves its `dest` out of `var_map` — so the
+        // failure surfaces at whatever later instruction reads it.
         Instruction::TryBegin { .. }
         | Instruction::TryEnd
         | Instruction::Throw { .. }
-        | Instruction::GetException { .. } => {
+        | Instruction::GetException { .. }
+        | Instruction::ArrayPop { .. } => {
             return Err(JitError::unsupported_instruction(format!("{}", inst)));
         }
 

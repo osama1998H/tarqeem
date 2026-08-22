@@ -551,6 +551,16 @@ impl FunctionInliner {
                 elem_ty: elem_ty.clone(),
             },
 
+            Instruction::ArrayPop {
+                dest,
+                array,
+                elem_ty,
+            } => Instruction::ArrayPop {
+                dest: map_var(dest),
+                array: map_var(array),
+                elem_ty: elem_ty.clone(),
+            },
+
             Instruction::StringConcat { dest, left, right } => Instruction::StringConcat {
                 dest: map_var(dest),
                 left: map_var(left),
@@ -662,6 +672,7 @@ impl FunctionInliner {
             | Instruction::NewArray { dest, .. }
             | Instruction::ArrayLen { dest, .. }
             | Instruction::ArrayGet { dest, .. }
+            | Instruction::ArrayPop { dest, .. }
             | Instruction::StringConcat { dest, .. }
             | Instruction::BoolToInt { dest, .. }
             | Instruction::IntToFloat { dest, .. }
@@ -721,6 +732,7 @@ impl FunctionInliner {
                 value,
             } => vec![*array, *index, *value],
             Instruction::ArrayPush { array, value, .. } => vec![*array, *value],
+            Instruction::ArrayPop { array, .. } => vec![*array],
             Instruction::StringConcat { left, right, .. } => vec![*left, *right],
             Instruction::BoolToInt { src, .. }
             | Instruction::IntToFloat { src, .. }

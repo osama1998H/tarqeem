@@ -228,6 +228,9 @@ impl DeadCodeEliminator {
                 used.insert(*array);
                 used.insert(*value);
             }
+            Instruction::ArrayPop { array, .. } => {
+                used.insert(*array);
+            }
             Instruction::StringConcat { left, right, .. } => {
                 used.insert(*left);
                 used.insert(*right);
@@ -308,6 +311,7 @@ impl DeadCodeEliminator {
             | Instruction::NewArray { dest, .. }
             | Instruction::ArrayLen { dest, .. }
             | Instruction::ArrayGet { dest, .. }
+            | Instruction::ArrayPop { dest, .. }
             | Instruction::StringConcat { dest, .. }
             | Instruction::GetException { dest }
             | Instruction::Phi { dest, .. }
@@ -333,6 +337,9 @@ impl DeadCodeEliminator {
                 | Instruction::GlobalStore { .. }
                 | Instruction::SetField { .. }
                 | Instruction::ArraySet { .. }
+                // Alone among the value-defining instructions: it shortens the
+                // array, so an unread result is not the same as no effect.
+                | Instruction::ArrayPop { .. }
                 | Instruction::Call { .. }
                 | Instruction::CallIndirect { .. }
                 | Instruction::CallMethod { .. }
@@ -470,5 +477,51 @@ mod tests {
 
         assert_eq!(dce.stats().dead_instructions_removed, 0);
         assert_eq!(module.functions[0].blocks[0].instructions.len(), 3);
+    }
+
+    /// `ArrayPop` is the first instruction that both mutates and defines a
+    /// value, and this pass reads those as alternatives: anything with a `dest`
+    /// nobody uses is dead. Backing `احذف_آخر(م)` in statement position, that
+    /// reading deletes the call and leaves the array at its old length.
+    #[test]
+    fn test_keep_array_pop_whose_result_is_unused() {
+        let mut func = Function::new(
+            FuncId("test".to_string()),
+            "test".to_string(),
+            vec![],
+            IrType::Void,
+        );
+
+        let mut block = BasicBlock::new(BlockId(0));
+
+        block.instructions.push(Instruction::NewArray {
+            dest: VarId(0),
+            elem_ty: IrType::Int,
+            elements: vec![],
+        });
+
+        block.instructions.push(Instruction::ArrayPop {
+            dest: VarId(1),
+            array: VarId(0),
+            elem_ty: IrType::Int,
+        });
+
+        block.instructions.push(Instruction::Return { value: None });
+
+        func.blocks.push(block);
+
+        let mut module = Module::new("test".to_string());
+        module.functions.push(func);
+
+        let mut dce = DeadCodeEliminator::new();
+        dce.run(&mut module);
+
+        assert!(
+            module.functions[0].blocks[0]
+                .instructions
+                .iter()
+                .any(|inst| matches!(inst, Instruction::ArrayPop { .. })),
+            "حُذفت تعليمة تُقصّر المصفوفة لأن جوابها لم يُقرأ"
+        );
     }
 }

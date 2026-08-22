@@ -1897,6 +1897,30 @@ impl LlvmCodegen {
                 .unwrap();
             }
 
+            Instruction::ArrayPop {
+                dest,
+                array,
+                elem_ty,
+            } => {
+                let dest_name = self.get_or_create_var(*dest);
+                let array_name = self.get_var(*array)?;
+                let llvm_ty = self.type_mapper.map_type(elem_ty);
+
+                // `trq_array_pop` is total — an empty or null array answers a
+                // pointer to eight zero bytes — so this load is always defined.
+                // The pointer is borrowed into the array's buffer, hence the
+                // read here and nowhere later, exactly as `ArrayGet` does.
+                let elem_ptr = self.fresh_name("pop.ptr");
+                emit!(
+                    self,
+                    "  {} = call ptr @trq_array_pop(ptr {})",
+                    elem_ptr,
+                    array_name
+                );
+                emit!(self, "  {} = load {}, ptr {}", dest_name, llvm_ty, elem_ptr);
+                self.var_types.insert(dest.0, elem_ty.clone());
+            }
+
             Instruction::ArrayPush {
                 array,
                 value,
