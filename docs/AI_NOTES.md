@@ -5285,8 +5285,8 @@ sentences no test can fail.
 sent a future run planning a no-op increment. `وقت_أداء`'s row now separates the landed half
 (return type) from the open half (monotonic source, four coordinated sites).
 
-The keyword sweep over the 69 literals found none embedded in `مجلد_حالي` (`منشئ` is one letter
-away from the `انشئ` substring pattern but not a substring); no diacritic, nothing contextual —
+The keyword sweep over the 69 `phf_map` literals (recounted from `src/lexer/keywords.rs`, not
+read off #366's figure) found none embedded in `مجلد_حالي`; no diacritic, nothing contextual —
 no lexer row, and neither #342's nor #352's extra check applies.
 
 ### State after #373
