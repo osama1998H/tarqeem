@@ -334,7 +334,8 @@ pub extern "C" fn trq_array_push(arr: *mut TrqArray, value: *const u8, _elem_siz
 /// - `arr`: Pointer to the array
 ///
 /// # Returns
-/// Pointer to the last element (still in array memory), or NULL if array is empty.
+/// Pointer to the last element (still in array memory). Never NULL: a null or
+/// empty array answers `POP_EMPTY_ZERO`.
 ///
 /// # Safety
 ///
@@ -352,24 +353,40 @@ pub extern "C" fn trq_array_push(arr: *mut TrqArray, value: *const u8, _elem_siz
 /// but relying on this is undefined behavior.
 ///
 /// # Errors
-/// Prints an error message to stderr if:
-/// - Array is NULL or empty
+/// None. The operation is total — see `POP_EMPTY_ZERO`.
 #[no_mangle]
 pub extern "C" fn trq_array_pop(arr: *mut TrqArray) -> *mut u8 {
     if arr.is_null() {
-        eprintln!("Error: Pop from empty array / خطأ: إزالة من مصفوفة فارغة");
-        return ptr::null_mut();
+        return pop_empty_zero();
     }
 
     unsafe {
         if (*arr).len == 0 {
-            eprintln!("Error: Pop from empty array / خطأ: إزالة من مصفوفة فارغة");
-            return ptr::null_mut();
+            return pop_empty_zero();
         }
 
         (*arr).len -= 1;
         (*arr).data.add(((*arr).len * (*arr).elem_size) as usize)
     }
+}
+
+/// Eight zero bytes, eight-byte aligned, handed out when there is nothing to
+/// pop.
+///
+/// Backs the core builtin `احذف_آخر`, whose contract is total: an empty array
+/// answers the element type's zero. Codegen lowers the builtin as a call to
+/// `trq_array_pop` followed by an unconditional `load`, mirroring
+/// `trq_array_get`, so answering NULL here would segfault natively where both
+/// interpreters answer a value. Reading it as `i64`, `f64`, `bool` or a pointer
+/// gives `0`, `0.0`, `false` and null respectively — one buffer serves every
+/// element type.
+///
+/// Read-only by contract: unlike `trq_array_get`'s pointer, which `ArraySet`
+/// stores through, nothing ever writes to this one.
+static POP_EMPTY_ZERO: [u64; 1] = [0];
+
+fn pop_empty_zero() -> *mut u8 {
+    POP_EMPTY_ZERO.as_ptr() as *mut u8
 }
 
 // ============================================================================
@@ -732,9 +749,11 @@ mod tests {
             assert_eq!(*(popped as *const i64), 10);
             assert_eq!((*arr).len, 0);
 
-            // Pop from empty
+            // Pop from empty answers a readable zero, never NULL — codegen
+            // loads the returned pointer unconditionally.
             let popped = trq_array_pop(arr);
-            assert!(popped.is_null());
+            assert!(!popped.is_null());
+            assert_eq!(*(popped as *const i64), 0);
 
             trq_array_free_data(arr);
             crate::memory::trq_release(arr as *mut u8);
@@ -975,7 +994,9 @@ mod tests {
         trq_array_set(ptr::null_mut(), 0, ptr::null()); // Should not crash
         assert!(!trq_array_ensure_capacity(ptr::null_mut(), 10));
         trq_array_push(ptr::null_mut(), ptr::null(), 0); // Should not crash
-        assert!(trq_array_pop(ptr::null_mut()).is_null());
+        let popped = trq_array_pop(ptr::null_mut());
+        assert!(!popped.is_null());
+        unsafe { assert_eq!(*(popped as *const i64), 0) };
         assert!(trq_array_clone(ptr::null(), 0).is_null());
         trq_array_free_data(ptr::null_mut()); // Should not crash
     }
@@ -1008,20 +1029,22 @@ mod tests {
         }
     }
 
+    /// Popping an empty array is a legitimate answer, not a refusal: the
+    /// compiler emits an unconditional `load` on the returned pointer, so NULL
+    /// here would be a segfault where both interpreters answer a value.
     #[test]
-    fn test_array_pop_empty() {
+    fn test_array_pop_empty_answers_zero_not_null() {
         let elem_size = std::mem::size_of::<i64>() as i64;
         let arr = trq_array_new(0, elem_size);
 
         unsafe {
-            // Pop from empty array should return null
             let result = trq_array_pop(arr);
-            assert!(result.is_null());
+            assert!(!result.is_null());
+            assert_eq!(*(result as *const i64), 0);
 
-            // Length should still be 0
+            // The array is left alone; the length never goes negative.
             assert_eq!(trq_array_len(arr), 0);
 
-            // Push one element and pop it
             let val: i64 = 42;
             trq_array_push(arr, &val as *const i64 as *const u8, elem_size);
             assert_eq!(trq_array_len(arr), 1);
@@ -1031,9 +1054,26 @@ mod tests {
             assert_eq!(*(popped as *const i64), 42);
             assert_eq!(trq_array_len(arr), 0);
 
-            // Pop again from empty
             let empty_pop = trq_array_pop(arr);
-            assert!(empty_pop.is_null());
+            assert!(!empty_pop.is_null());
+            assert_eq!(*(empty_pop as *const i64), 0);
+
+            trq_array_free_data(arr);
+            crate::memory::trq_release(arr as *mut u8);
+        }
+    }
+
+    /// A float element reads 0.0 and a bool element reads false out of the same
+    /// eight bytes, which is what lets one buffer serve every element type.
+    #[test]
+    fn test_array_pop_empty_zero_reads_as_every_element_type() {
+        let arr = trq_array_new(0, std::mem::size_of::<f64>() as i64);
+
+        unsafe {
+            let popped = trq_array_pop(arr);
+            assert_eq!(*(popped as *const f64), 0.0);
+            assert_eq!(*(popped as *const u8), 0);
+            assert!((*(popped as *const *const u8)).is_null());
 
             trq_array_free_data(arr);
             crate::memory::trq_release(arr as *mut u8);
