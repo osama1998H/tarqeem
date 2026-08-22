@@ -71,8 +71,10 @@ free, because one Tarqeem AST reaches interpreter, JIT and native from a single 
    states why no existing name covers it.
 5. **Standing completeness rule for every row below:** a primitive needs a `Scope` entry **and** a
    `register_builtin_return_types` entry **and** interpreter + debug-interpreter arms. Any two of
-   the three is a landmine. Proof: `وقت_الآن` has the Scope entry only, so `وقت_الآن() > 0`
-   type-checks and then fails native codegen with *«لا يمكن ترتيب مرجعين بالعامل Gt»*.
+   the three is a landmine. Proof: `وقت_الآن` had the Scope entry only, so `وقت_الآن() > 0`
+   type-checked and then failed native codegen with *«لا يمكن ترتيب مرجعين بالعامل Gt»*. (The
+   example has since been repaired — #241 registered both time builtins' return types and arms —
+   but the rule it proved stands; noted at #373 so no future increment re-plans that repair.)
 
    > **Amendment (#342): the return-type clause does not apply to a `فراغ` primitive, and
    > applying it does harm.** The clause protects a *value* — an unregistered call carries the
@@ -528,11 +530,11 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 
 | الاسم | التوقيع | الحالة | التبرير |
 |---|---|---|---|
-| `وقت_الآن` | `() -> عدد` | unchanged | `clock_gettime(CLOCK_REALTIME)`, epoch ms. Every date value in the language descends from this one read. **Also the entropy source** the stdlib RNG seeds from — that is literally what `runtime-rs` does today, so no separate entropy primitive is proposed. **Repair required now:** register its IR return type (see §1.1 rule 5). Criterion (b). |
-| `وقت_أداء` | `() -> عدد` | unchanged | `clock_gettime(CLOCK_MONOTONIC)`. A distinct OS service from the wall clock. **Its body is wrong today** — `trq_performance_now` is a verbatim copy of `trq_time_now`, so a monotonic promise is served by the wall clock and moves backwards on an NTP step. Fix it in the same PR that registers its return type; a name that lies is worse than a missing name. Criterion (b). |
+| `وقت_الآن` | `() -> عدد` | unchanged | `clock_gettime(CLOCK_REALTIME)`, epoch ms. Every date value in the language descends from this one read. **Also the entropy source** the stdlib RNG seeds from — that is literally what `runtime-rs` does today, so no separate entropy primitive is proposed. ~~**Repair required now:** register its IR return type (see §1.1 rule 5)~~ — **already done**: #241 registered it (`src/ir/builder/mod.rs`) and gave both interpreters arms, pinned cross-backend by `tests/builtins_execution_tests.rs`; the claim expired unnoticed and is corrected at #373. Criterion (b). |
+| `وقت_أداء` | `() -> عدد` | unchanged | `clock_gettime(CLOCK_MONOTONIC)`. A distinct OS service from the wall clock. **Its body is wrong today** — `trq_performance_now` serves the monotonic promise from the wall clock (a shared `epoch_millis()` over `SystemTime`, mirrored in both interpreters), so it moves backwards on an NTP step. The return-type half of the old repair note landed at #241; the monotonic fix is the part still open, and it must land in the runtime and both interpreters at once or the backends diverge. A name that lies is worse than a missing name. Criterion (b). |
 | `نم` | `(عدد) -> فراغ` | unchanged | `nanosleep(2)`. A busy-wait over `وقت_أداء` burns a core and cannot yield. Already a clean monomorphic wrapper. Criterion (b). |
 | `متغير_بيئة` | `(نص) -> نص` | new — **مُنفَّذ (#338)** | `getenv(3)`, `""` when unset. **New Arabic name over an already-implemented orphan symbol** (`trq_env_get`) — implemented, linkable, and unreachable before #338 because no name mapped to it. `مجلد_مستخدم` reduces to it exactly (`trq_dir_home` is `getenv("HOME")`); `مجلد_مؤقت` does **not** — `trq_dir_temp` calls `std::env::temp_dir()`, which falls back to `/tmp` when `TMPDIR` is unset. Criterion (b), re-derived at implementation time and **held** — see the note below. Total: an absent variable, an empty name and `لا_شيء` all answer `""`, so set-but-empty is indistinguishable from unset. |
-| `مجلد_حالي` | `() -> نص` | unchanged | `getcwd(2)` is **process state**, not an environment variable. Deriving it from `$PWD` is wrong: PWD is shell-maintained, absent under non-shell parents, and stale after any chdir. Criterion (b). |
+| `مجلد_حالي` | `() -> نص` | narrowed — **مُنفَّذ (#373)** | `getcwd(2)` is **process state**, not an environment variable. Deriving it from `$PWD` is wrong: PWD is shell-maintained, absent under non-shell parents, and stale after any chdir. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338). **Narrowed** because it moves from the `ملفات` module tier to the core tier (no import), the #336/#366/#370 promotion with the spelling unchanged — **the row said `unchanged` and was silent on the tier; see the correction below.** Total: zero arguments; the answer is the directory as the OS reports it, verbatim — no resolution or normalization of the primitive's own — decoded lossily on `معاملات_البرنامج`'s argv rule; a cwd the OS cannot report answers `""`, which unlike `متغير_بيئة`'s conflated `""` is collision-free, since no legitimate working directory is the empty string. |
 | `معاملات_البرنامج` | `() -> مصفوفة<نص>` | new — **مُنفَّذ (#360)** | Command-line arguments, **excluding `argv[0]`** — see the correction below. Nothing in the system exposed them: `runtime-rs/src/runtime.rs` declared `main(_argc, _argv)` and discarded both. Criterion (b), re-derived at implementation time and **held** — a syscall claim cannot expire (#338), and argv is neither the environment `متغير_بيئة` reads nor a stream `اقرأ_مجرى` reads. Total: no failure mode. No arguments answers an **empty array** — a value, not a sentinel — as does a launch that bypasses the CLI run path, indistinguishably. Arguments are carried verbatim, an invalid-UTF-8 one decoded lossily, and repeated calls answer the same list: this is state read, not consumed. |
 
 > **The first re-derivation that could not have failed (#338).** Four §1.3 rows have had criterion
@@ -572,6 +574,29 @@ compiler-side (criterion c). It remains refused by native codegen with `ت٠٣٠
 > empty `TrqString` rather than a null pointer, so the row's `""`-when-unset clause was satisfied by
 > code that predated the row. **Read an orphan before planning on it; the two in this document
 > disagree about whether they work.**
+
+> **Correction (#373): `مجلد_حالي` is a promotion, and its row's neighbours' "repair required"
+> claims had already expired.** Two findings, neither a new defect class.
+>
+> - **The tier.** The row said `unchanged` and was silent on where the name lives; it lived in the
+>   `ملفات` module tier, so "unchanged" would have left a `مدمج`-verdict name import-gated — and
+>   §3.1 forbids a stdlib wrapper bearing a still-registered builtin's name, so the Increment G
+>   module flip needs it out first. It ships `narrowed`, the #336/#366/#370 promotion with the
+>   spelling unchanged. The row-leaves-a-contract-question-open shape from #352 onward, answered at
+>   planning time as #368 taught. Its contract was also decided there: verbatim answer (no
+>   resolution or normalization of the primitive's own — whether symlinks are resolved is the OS's
+>   report, which is the only wording that is both platform-invariant and honest), lossy decode with
+>   the `قائمة_مجلد` honesty rider (the lossy answer does not round-trip through `حالة_مسار`), and
+>   `""` for a cwd the OS cannot report. Reading `trq_dir_current` found it already honest on all
+>   three clauses — the second honest pre-existing body after `trq_env_get` — so the symbol needed
+>   zero contract changes and the cost was #366's bare six.
+> - **The stale sibling claims.** §1.1 rule 5's proof and `وقت_الآن`'s row both instructed
+>   "register its IR return type" — a repair #241 had already landed (`src/ir/builder/mod.rs`
+>   registers both time builtins, both interpreters carry arms, and
+>   `tests/builtins_execution_tests.rs` pins them cross-backend). Corrected in place rather than
+>   left to send a future increment planning a no-op; `وقت_أداء`'s *monotonic* defect is real and
+>   remains open. A doc-accuracy finding of the #364-review kind: the risk lives in prose no test
+>   can fail.
 
 #### Category 9 — Optional: **0 primitives in the v1 core**
 
@@ -2082,6 +2107,54 @@ One smaller result: the keyword sweep over the **69** literals in `src/lexer/key
 recount) found none embedded in `قائمة_مجلد`, so it gets no row in
 `test_identifier_containing_a_keyword_stays_one_token`; no diacritic, and nothing contextual, so
 neither #342's nor #352's extra check applies.
+
+### 6.7.12 `مجلد_حالي` — the first Category-8 promotion, and the second exact re-measured hit (#373)
+
+**The bare promotion base, no deltas.** §6.7's question — *which half of the path already exists?* —
+found the runtime and codegen half present (`trq_dir_current` defined, re-exported, mapped in
+`get_runtime_function_name`, `declare`d) and the name registered, import-gated, in the `ملفات`
+tier: #366's promotion-repair, taken per #368's base-picking rule. Forecast **six** — neither #368
+delta (spelling unchanged, and `stdlib/ملفات/مجلد.ترقيم:184`'s `هنا()` kept resolving with zero
+edits, the #370 precedent) nor #370's `+1` (reading `trq_dir_current` found the body already
+honest: lossy decode on the argv rule, `""` on failure — the second honest orphan-adjacent body
+after `trq_env_get`, against `trq_performance_now`'s lying one). It cost **six**. #342's caveat was
+forecast quiet — `getcwd` is in-process on both sides — and stayed quiet, the fifth correct quiet
+forecast.
+
+The contract questions were answered at planning time, the #368/#370 move: verbatim answer
+(symlink resolution is the OS's report, the only platform-invariant wording — POSIX `getcwd`
+answers the physical path, Windows the stored one, and `cargo test` never runs on Windows), the
+argv lossy-decode rule with `قائمة_مجلد`'s honesty rider, and `""` as a collision-free refusal.
+
+Three things worth carrying:
+
+1. **The three test legs deliberately hold three different working directories** — `execute_all`
+   sets `current_dir` to the fixture directory for the interpreter and JIT legs while the native
+   binary inherits the harness's own — so every cross-backend row for this name is
+   value-independent by necessity, and the *value* is pinned in-process instead: the `runtime-rs`
+   unit test and the debug-interpreter test each compare their kernel against `std`'s answer, and
+   since both kernels are the same two-line composition over `std`, cross-backend equality follows
+   transitively for any cwd. The same asymmetry is why a `حالة_مسار(مجلد_حالي() + "/…")` row
+   against a repo file can never work: it answers differently per leg.
+
+2. **The failure row is contract-only, deliberately untested** — the program cannot chdir, the
+   harness cannot delete a directory out from under a running child deterministically, and
+   `set_current_dir` in-process races every other test in the binary (the reason
+   `tarqeem_with_env` exists). It becomes testable in-language the day a chdir primitive lands;
+   the unit pins carry a tripwire sentence for that day.
+
+3. **The `نص` missing-entry profile gained a split #360 had only seen on an array element.**
+   Measured with the entry deleted, one row per program, from an Arabic-named cwd: `نوع` → `مؤشر`
+   on every backend; `طول` → 118 natively against 110 interpreted (bytes vs chars, `قص_حروف`'s
+   mode, silent on each leg alone); `==` on two separately-allocated returns → `خطأ` natively,
+   `صحيح` interpreted; and `"X" + …` → a **run-time type error (exit 1) interpreted** against a
+   printed pointer (exit 0) natively — the loud-one-side/silent-other split, previously measured
+   only for `Array(String)` elements, now on a plain `نص` return. Printing the value alone stayed
+   correct on both, as it has on every shape so far.
+
+One bookkeeping note: #370's guard comment claimed the `ملفات` module was left holding only
+`مكتبة`-verdict names; that overclaimed by exactly this name, and the guard comment now records
+the correction. With #373 the claim is true.
 
 ### 6.8 Increment H — `أخطاء` + the prelude-gated names
 
