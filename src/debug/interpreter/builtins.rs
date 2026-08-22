@@ -1301,6 +1301,36 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// `مجلد_حالي` under the debug interpreter, pinned against `std`'s own
+    /// answer. This routes through the shared `call_dir_current` kernel, so
+    /// one test pins the value both interpreters answer — and the pin is
+    /// race-free because nothing in the repository calls `set_current_dir`;
+    /// the day a chdir primitive lands, this sentence is the tripwire.
+    #[test]
+    fn test_dir_current_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("مجلد_حالي"),
+            "مجلد_حالي غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let answer = interpreter
+            .call_builtin("مجلد_حالي", vec![])
+            .expect("مجلد_حالي تُرجع قيمة لا خطأ");
+        let expected = std::env::current_dir()
+            .expect("للاختبار مجلد حالٍ")
+            .to_string_lossy()
+            .into_owned();
+        match answer {
+            Value::String(text) => assert_eq!(text.as_str(), expected),
+            other => panic!("مجلد_حالي أجابت {other:?} لا نصاً"),
+        }
+    }
+
     #[test]
     fn test_time_builtins_share_the_interpreter_clock() {
         // Same helper the main interpreter calls, so the two cannot drift.

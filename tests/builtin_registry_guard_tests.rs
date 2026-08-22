@@ -5,7 +5,7 @@
 //! name lists — and until now nothing compared them. They happen to agree today;
 //! that agreement was coincidence, not enforcement.
 //!
-//! These are **ratchet** tests. They pin the registry as it stands (43 core + 160
+//! These are **ratchet** tests. They pin the registry as it stands (44 core + 159
 //! stdlib) while the builtin/stdlib boundary described in `docs/builtins-vs-stdlib.md`
 //! is migrated. A name may only enter or leave the registry by editing the expected
 //! list here, which is exactly the deliberate step the plan requires — a migration
@@ -71,6 +71,7 @@ const CORE_BUILTINS: &[&str] = &[
     "انشئ_مجلد",
     "انقل_مسار",
     "قائمة_مجلد",
+    "مجلد_حالي",
     "معاملات_البرنامج",
     "عدد",
     "عدد_عشري",
@@ -98,9 +99,11 @@ const STDLIB_MODULE_SIZES: &[(&str, usize)] = &[
     // moves directories and symlinks too. The old spelling is gone outright, on
     // the #336 `قص_نص` precedent.
     // 19 until #370, which promoted `قائمة_مجلد` the same way, spelling
-    // unchanged — the last Category-7 repair, so the module now holds only
-    // names whose verdict is `مكتبة`.
-    ("ملفات", 18),
+    // unchanged — the last Category-7 repair. (Its comment here claimed the
+    // module then held only `مكتبة`-verdict names; that overclaimed by one.)
+    // 18 until #373, which promoted `مجلد_حالي` — the actual last
+    // `مدمج`-verdict name this module held, a Category-8 row.
+    ("ملفات", 17),
     ("وقت", 2),
     ("تشفير", 8),
     ("ضغط", 6),
@@ -272,6 +275,9 @@ fn stdlib_registry_size_is_locked() {
     // Still 203 with #370 (`قائمة_مجلد`) — the third promotion in a row and the
     // simplest: spelling unchanged, `ملفات` 19 → 18, core 42 → 43. Category 7's
     // repairs are complete.
+    //
+    // Still 203 with #373 (`مجلد_حالي`) — the fourth promotion, first from
+    // Category 8: spelling unchanged, `ملفات` 18 → 17, core 43 → 44.
     assert_eq!(
         total + CORE_BUILTINS.len(),
         203,

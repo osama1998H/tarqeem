@@ -207,6 +207,9 @@ fn test_global_scope_has_core_builtins() {
     // Directory listing (1) — readdir(3), promoted out of `ملفات` at #370 with
     // its spelling unchanged, closing Category 7's repairs.
     assert!(scope.lookup("قائمة_مجلد").is_some());
+    // Current directory (1) — getcwd(2), promoted out of `ملفات` at #373: the
+    // last `مدمج`-verdict name that module held, and Category 8's first.
+    assert!(scope.lookup("مجلد_حالي").is_some());
     assert!(scope.lookup("معاملات_البرنامج").is_some());
 
     // Termination (2) — one primitive in two spellings, so both need pinning:

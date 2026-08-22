@@ -322,8 +322,12 @@ mod builtins {
 
     #[test]
     fn test_file_functions() {
+        // `مجلد_حالي` is deliberately absent from the import: it left the
+        // `ملفات` tier for the core tier at #373, so the call below resolves
+        // with no import beside a live `ملفات` import — the promotion's
+        // observable effect.
         let source = r#"
-استورد { ملف_موجود، مجلد_حالي } من "ملفات"
+استورد { ملف_موجود } من "ملفات"
 متغير موجود = ملف_موجود("test.txt")
 متغير مجلد = مجلد_حالي()
 "#;

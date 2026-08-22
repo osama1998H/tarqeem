@@ -1645,14 +1645,25 @@ mod tests {
         }
     }
 
+    /// Pins the *value* against `std`'s own composition, not just its shape —
+    /// the cross-backend rows must stay value-independent (the three test legs
+    /// deliberately run in three different directories), so this is where the
+    /// answer itself is proven. Race-free because nothing in the repository
+    /// calls `set_current_dir`; the day a chdir primitive lands, this sentence
+    /// is the tripwire.
     #[test]
     fn test_dir_current() {
         let cwd = trq_dir_current();
         assert!(!cwd.is_null());
+        let expected = std::env::current_dir()
+            .expect("للاختبار مجلد حالٍ")
+            .to_string_lossy()
+            .into_owned();
         unsafe {
-            assert!((*cwd).len > 0);
-            crate::memory::trq_release(cwd as *mut u8);
+            let bytes = std::slice::from_raw_parts((*cwd).data, (*cwd).len as usize);
+            assert_eq!(std::str::from_utf8(bytes).expect("مسار صالح"), expected);
         }
+        crate::memory::trq_release(cwd as *mut u8);
     }
 
     #[test]
