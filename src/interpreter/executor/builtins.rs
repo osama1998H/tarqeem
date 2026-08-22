@@ -798,6 +798,26 @@ pub(crate) fn call_dir_list(args: &[Value]) -> RuntimeResult<Value> {
     ))
 }
 
+/// `مجلد_حالي`'s whole dispatch, shared with the debug interpreter the way
+/// `call_dir_list` above is.
+///
+/// One stateless `getcwd(2)`: the directory as the OS reports it, verbatim —
+/// no resolution or normalization of this kernel's own — decoded lossily on
+/// `معاملات_البرنامج`'s argv rule. A cwd the OS cannot report answers `""`,
+/// and unlike `متغير_بيئة`'s conflated `""` that refusal is collision-free:
+/// no legitimate working directory is the empty string.
+///
+/// Duplicated in `trq_dir_current` for the reason `call_path_status` records;
+/// both copies are the same two-line composition over `std`, and each is
+/// pinned against `std`'s answer in its own unit test, so cross-backend
+/// equality follows for any cwd.
+pub(crate) fn call_dir_current(_args: &[Value]) -> RuntimeResult<Value> {
+    match std::env::current_dir() {
+        Ok(path) => Ok(Value::string(path.to_string_lossy().into_owned())),
+        Err(_) => Ok(Value::string("")),
+    }
+}
+
 /// The arguments the CLI was invoked with, minus the program's own name.
 ///
 /// Set once, before the program runs, and read for the rest of the process. It
@@ -988,6 +1008,7 @@ impl Interpreter {
                 | "انشئ_مجلد"
                 | "انقل_مسار"
                 | "قائمة_مجلد"
+                | "مجلد_حالي"
                 | "معاملات_البرنامج"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
@@ -1909,6 +1930,7 @@ impl Interpreter {
             "انشئ_مجلد" => call_dir_create(&args),
             "انقل_مسار" => call_path_move(&args),
             "قائمة_مجلد" => call_dir_list(&args),
+            "مجلد_حالي" => call_dir_current(&args),
             "معاملات_البرنامج" => call_program_args(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),

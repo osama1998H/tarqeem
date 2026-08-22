@@ -360,6 +360,18 @@ impl Scope {
                 vec![Type::String],
                 Type::Array(Box::new(Type::String)),
             ),
+            // Current directory - المجلد الحالي
+            // `getcwd(2)`, the place the path family's relative paths resolve
+            // against: process state, not environment — `$PWD` is
+            // shell-maintained and stale after any chdir, so `متغير_بيئة`
+            // cannot serve it (#373, promoted out of `ملفات` on the
+            // #336/#366/#370 pattern). The answer is the directory as the OS
+            // reports it, verbatim; a non-UTF-8 path is decoded lossily on
+            // `معاملات_البرنامج`'s argv rule. Total: zero arguments, and a cwd
+            // the OS cannot report answers `""` — collision-free, unlike
+            // `متغير_بيئة`'s conflated `""`, because no legitimate working
+            // directory is the empty string.
+            ("مجلد_حالي", vec![], Type::String),
             // Program arguments - معاملات البرنامج
             // The vector the OS hands over at `execve`, which nothing in the
             // language can otherwise reach: `متغير_بيئة` reads a different
@@ -758,9 +770,9 @@ impl Scope {
                 // core tier (#366), so it needs no import — the same promotion
                 // `قص_حروف` made out of `نص` at #336 — and `قائمة_مجلد`
                 // followed it out at #370, spelling unchanged, closing
-                // Category 7.
+                // Category 7. `مجلد_حالي` made the same move at #373, the last
+                // `مدمج`-verdict name this module held.
                 "احذف_مجلد" => Some(builtin("احذف_مجلد", vec![Type::String], Type::Bool)),
-                "مجلد_حالي" => Some(builtin("مجلد_حالي", vec![], Type::String)),
                 "مجلد_مستخدم" => Some(builtin("مجلد_مستخدم", vec![], Type::String)),
                 "مجلد_مؤقت" => Some(builtin("مجلد_مؤقت", vec![], Type::String)),
 
@@ -1084,7 +1096,6 @@ impl Scope {
                 "انسخ_ملف",
                 "حجم_ملف",
                 "احذف_مجلد",
-                "مجلد_حالي",
                 "مجلد_مستخدم",
                 "مجلد_مؤقت",
                 "ادمج_مسار",
