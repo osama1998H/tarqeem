@@ -159,11 +159,12 @@ fn test_global_scope_has_core_builtins() {
     assert!(scope.lookup("توقف").is_some());
     assert!(scope.lookup("نم").is_some());
 
-    // Array (2)
+    // Array (3)
     assert!(scope.lookup("طول_مصفوفة").is_some());
     assert!(scope.lookup("ألحق").is_some());
     // #375 unified the spelling on ألحق; the old رسم left outright, no alias.
     assert!(scope.lookup("الحق").is_none());
+    assert!(scope.lookup("احذف_آخر").is_some());
 
     // Bitwise (7)
     assert!(scope.lookup("بتات_و").is_some());

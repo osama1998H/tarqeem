@@ -669,6 +669,29 @@ impl IrBuilder {
                 self.emit_void()
             }
 
+            "احذف_آخر" => {
+                // The array is the only place the element type can come from —
+                // `ألحق` can fall back on the pushed value's type, and there is
+                // no value here. Guessing `عدد` would read a `double` slot as a
+                // raw bit pattern, silently, so a non-array is refused instead.
+                let elem_ty = match &arg_ty {
+                    IrType::Array(elem, _) => (**elem).clone(),
+                    IrType::Ptr(inner) => match inner.as_ref() {
+                        IrType::Array(elem, _) => (**elem).clone(),
+                        _ => return Err(Self::not_an_array(&arg_ty, "احذف_آخر")),
+                    },
+                    _ => return Err(Self::not_an_array(&arg_ty, "احذف_آخر")),
+                };
+                let dest = self.new_var();
+                self.emit(Instruction::ArrayPop {
+                    dest,
+                    array: first,
+                    elem_ty: elem_ty.clone(),
+                });
+                self.var_types.insert(dest.0, elem_ty);
+                dest
+            }
+
             // Lowered here rather than mapped to a runtime symbol: `BinaryOp` is
             // already implemented by every backend and the constant folder, so
             // an `and`/`or`/`xor i64` costs no `runtime-rs` work and no call.
@@ -847,6 +870,16 @@ impl IrBuilder {
             target,
             Self::type_name_ar(ty),
             target
+        ))
+    }
+
+    fn not_an_array(ty: &IrType, name: &str) -> IrError {
+        IrError::new(format!(
+            "'{}' تتطلب مصفوفة، ووُجد '{}' / '{}' requires an array, found '{}'",
+            name,
+            Self::type_name_ar(ty),
+            name,
+            Self::type_name_ar(ty)
         ))
     }
 
@@ -1229,6 +1262,28 @@ impl IrBuilder {
                             self.var_types.insert(obj_var.0, obj_type);
                             return Ok(obj_var);
                         }
+                    }
+                    "احذف_آخر" => {
+                        // `is_array` admits `Ptr(Void)`, an array whose element
+                        // type was lost upstream, so this needs the fallback the
+                        // global arm refuses on — there it means "not an array",
+                        // here it means "an array we know less about".
+                        let elem_ty = match &obj_type {
+                            IrType::Array(inner, _) => (**inner).clone(),
+                            IrType::Ptr(inner) => match inner.as_ref() {
+                                IrType::Array(elem, _) => (**elem).clone(),
+                                _ => IrType::Int,
+                            },
+                            _ => IrType::Int,
+                        };
+                        let dest = self.new_var();
+                        self.emit(Instruction::ArrayPop {
+                            dest,
+                            array: obj_var,
+                            elem_ty: elem_ty.clone(),
+                        });
+                        self.var_types.insert(dest.0, elem_ty);
+                        return Ok(dest);
                     }
                     "طول" => {
                         let dest = self.new_var();

@@ -181,6 +181,15 @@ impl Scope {
             // Arrays - دوال المصفوفات
             ("طول_مصفوفة", vec![Type::Any], Type::Int),
             ("ألحق", vec![Type::Any, Type::Any], Type::Void),
+            // Its inverse: remove the last element and answer it. `أي` for the
+            // parameter, as its two neighbours use, and `أي` for the return
+            // only because this table's return is a constant — the real answer
+            // is the array's element type, derived at the call site in
+            // `infer_call_expr`. The only core entry whose return depends on an
+            // argument. Total: an empty array and `لا_شيء` both answer the
+            // element type's zero and leave the array as it was, which no
+            // caller can tell from removing a genuine zero.
+            ("احذف_آخر", vec![Type::Any], Type::Any),
             // Strings - دوال النصوص
             // The codepoint slicer, and core tier rather than the `نص` module
             // because §5.2 keeps a no-import name a builtin: it indexes by

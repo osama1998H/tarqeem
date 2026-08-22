@@ -253,6 +253,7 @@ impl Analyzer {
                     );
                 }
 
+                let mut first_arg_type = None;
                 for (i, (arg, param_type)) in args.iter().zip(params.iter()).enumerate() {
                     let arg_type =
                         self.with_expected(Some(param_type.clone()), |a| a.infer_type(arg));
@@ -265,9 +266,12 @@ impl Analyzer {
                             &ERR_TYPE_MISMATCH.to_string(),
                         );
                     }
+                    if i == 0 {
+                        first_arg_type = Some(arg_type);
+                    }
                 }
 
-                *return_type
+                Self::element_typed_return(callee, &params, *return_type, first_arg_type)
             }
             Type::Any => {
                 for arg in args {
@@ -283,6 +287,33 @@ impl Analyzer {
                 Type::Error
             }
         }
+    }
+
+    /// `احذف_آخر` alone answers its argument's element type, which the builtin
+    /// table cannot express — its return column is a constant. So it is derived
+    /// here, the way `infer_index_expr` derives the type of `س[ي]`; without it
+    /// every use of a popped value composes at `أي`.
+    ///
+    /// The signature test is the shadowing gate: builtins are the last lookup
+    /// tier, and a user function of the same name carries its own types, so the
+    /// override cannot fire on it.
+    fn element_typed_return(
+        callee: &Expr,
+        params: &[Type],
+        return_type: Type,
+        first_arg_type: Option<Type>,
+    ) -> Type {
+        let is_the_builtin = matches!(&callee.kind, ExprKind::Identifier(name) if name == "احذف_آخر")
+            && return_type == Type::Any
+            && params == [Type::Any];
+
+        if is_the_builtin {
+            if let Some(Type::Array(elem)) = first_arg_type {
+                return *elem;
+            }
+        }
+
+        return_type
     }
 
     /// Infer index expression type.
