@@ -92,7 +92,6 @@ pub enum TokenKind {
     TypeBool,
     TypeArray,
     TypeMap,
-    TypeVoid,
     TypeAny,
 
     Plus,

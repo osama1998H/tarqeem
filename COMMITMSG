@@ -1,0 +1,8 @@
+fix: [CHORE] Remove dead TokenKind::TypeVoid — unreachable from any source 
+
+- src\lexer\token.rs
+- src\parser\parser\mod.rs
+
+Fixes #224
+
+Signed-off-by: Vedant Madane <6527493+VedantMadane@users.noreply.github.com>
