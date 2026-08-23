@@ -785,7 +785,6 @@ impl Parser {
                 self.advance();
                 Ok("قاموس".to_string())
             }
-            TokenKind::TypeVoid => {
                 self.advance();
                 Ok("void".to_string()) // Internal name only
             }
