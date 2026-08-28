@@ -10,7 +10,9 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use crate::interpreter::{element_zero, ErrorKind, RuntimeError, RuntimeResult, Value};
+use crate::interpreter::{
+    element_zero, substring_by_chars, ErrorKind, RuntimeError, RuntimeResult, Value,
+};
 use crate::ir::{
     BasicBlock, BlockId, Constant, FuncId, Function, Instruction, MethodId, Module, VarId,
 };
@@ -1319,13 +1321,10 @@ impl DebugInterpreter {
                         }
                         arr_ref[idx as usize].clone()
                     }
-                    Value::String(s) => {
-                        let chars: Vec<char> = s.chars().collect();
-                        if idx < 0 || (idx as usize) >= chars.len() {
-                            return Err(RuntimeError::index_out_of_bounds(idx, chars.len()));
-                        }
-                        Value::string(chars[idx as usize].to_string())
-                    }
+                    // The executor's arm, sharing its slicer rather than mirroring
+                    // it — these two files are hand-copied (#223), and the shared
+                    // helper is what keeps the totality contract from drifting.
+                    Value::String(s) => Value::string(substring_by_chars(&s, idx, 1)),
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 };
 

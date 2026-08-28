@@ -688,13 +688,12 @@ impl Interpreter {
                         }
                         arr_ref[idx as usize].clone()
                     }
-                    Value::String(s) => {
-                        let chars: Vec<char> = s.chars().collect();
-                        if idx < 0 || (idx as usize) >= chars.len() {
-                            return Err(RuntimeError::index_out_of_bounds(idx, chars.len()));
-                        }
-                        Value::string(chars[idx as usize].to_string())
-                    }
+                    // Indexing a string is total, unlike indexing an array: out of
+                    // range answers `""`. Not a chosen answer — `trq_string_char_at`
+                    // *is* `trq_string_substr_chars(s, i, 1)`, so this shares
+                    // `قص_حروف`'s slicer and cannot drift from it. Raising here made
+                    // `run` halt on source the native binary completed.
+                    Value::String(s) => Value::string(builtins::substring_by_chars(&s, idx, 1)),
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 };
 
