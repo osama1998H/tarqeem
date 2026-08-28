@@ -59,6 +59,20 @@ impl IrBuilder {
         }
     }
 
+    /// Whether an operand is a `نص` at run time.
+    ///
+    /// Deliberately the same test as codegen's `is_string_operand`, which uses it
+    /// to lower `ArrayGet` to `trq_string_char_at` — a narrowed `نص?` is the same
+    /// `TrqString*` once compiled, so the two layers must agree or the builder
+    /// records a type codegen then contradicts. Recording the `Ptr(Void)`
+    /// sentinel instead leaves a character binding's `Load` pointer-typed, and
+    /// `ح == "م"`, `"X" + ح`, `نوع(ح)` and `طول(ح)` are then all decided wrongly
+    /// (B6).
+    pub(crate) fn is_string_ir_type(ty: &IrType) -> bool {
+        matches!(ty, IrType::String)
+            || matches!(ty, IrType::Ptr(inner) if **inner == IrType::String)
+    }
+
     /// Convert a semantic type to an IR type.
     #[allow(dead_code)]
     pub(crate) fn semantic_to_ir_type(&self, ty: &crate::semantic::Type) -> IrType {
@@ -250,8 +264,12 @@ impl IrBuilder {
             }
             ExprKind::Index { object, .. } => {
                 let obj_ty = self.infer_expr_type(object);
-                if let IrType::Array(elem, _) = obj_ty {
-                    (*elem).clone()
+                if let IrType::Array(elem, _) = &obj_ty {
+                    (**elem).clone()
+                } else if Self::is_string_ir_type(&obj_ty) {
+                    // Mirrors `build_index`, so `متغير ح = س[٠]` declares its slot
+                    // at the right type instead of taking the unknown sentinel.
+                    IrType::String
                 } else {
                     IrType::Ptr(Box::new(IrType::Void))
                 }

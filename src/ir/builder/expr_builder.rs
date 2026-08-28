@@ -1527,8 +1527,16 @@ impl IrBuilder {
         let idx_var = self.build_expr(index)?;
         let dest = self.new_var();
 
+        // Indexing a string yields a one-character string. Codegen recovers this
+        // on its own for a *directly consumed* result (`ArrayGet` re-types its
+        // own dest), but the recovery never reaches the IR, so anything the
+        // builder decides from this type is already wrong by then:
+        // `convert_to_string` picks `trq_int_to_string` for the sentinel and
+        // `نوع` constant-folds it to `مؤشر` in every backend.
         let elem_ty = if let IrType::Array(elem, _) = &obj_type {
             (**elem).clone()
+        } else if Self::is_string_ir_type(&obj_type) {
+            IrType::String
         } else {
             IrType::Ptr(Box::new(IrType::Void))
         };
