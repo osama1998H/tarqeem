@@ -2878,6 +2878,215 @@ fn test_string_iteration_visits_characters_not_bytes() {
 }
 
 // ---------------------------------------------------------------------------
+// The bound character carries نص — composition, not printing (B6)
+// ---------------------------------------------------------------------------
+//
+// The two tests above pass against the defect, and that is the point: one
+// prints the element and the other never reads its binding. `اطبع(ح)` is
+// correct with the sentinel too, because `Print` routes `Ptr(_)` to
+// `trq_print` in the same arm as `String`. Everything that *composes* the
+// character was wrong, so these fixtures compose it.
+
+/// The loop binding, measured with the three `IrType::String` arms removed:
+/// `نوع(ح)` → `مؤشر` in **all three** backends (`نوع` folds at build time from
+/// the IR type, so no cross-backend diff could ever see it); `"X" + ح` →
+/// `X94339517137664` natively and a type error in both interpreters, because the
+/// builder sent a `TrqString*` through `trq_int_to_string`; `ح == "م"` → `خطأ`
+/// natively; `طول(ح)` → `2`, the byte count, because an untyped operand routes
+/// `ArrayLen` to `trq_array_len`, which reads `TrqArray.len` where a
+/// `TrqString` keeps its byte length.
+///
+/// Both comparison orders are asserted deliberately. Codegen tests only the
+/// *left* operand for `IrType::String`, so `"م" == ح` answered `صحيح` while
+/// `ح == "م"` answered `خطأ` — on the same values, in the same binary. Pinning
+/// one order would leave half the dispatch uncovered.
+#[test]
+fn test_bound_character_composes_as_a_string() {
+    assert_prints(
+        "تركيب_الحرف",
+        concat!(
+            "متغير س = \"مرحبا\"\n",
+            "لكل ح في س {\n",
+            "    اطبع(نوع(ح))\n",
+            "    اطبع(\"X\" + ح)\n",
+            "    اطبع(ح == \"م\")\n",
+            "    اطبع(\"م\" == ح)\n",
+            "    اطبع(طول(ح))\n",
+            "    أوقف\n",
+            "}",
+        ),
+        &["نص", "Xم", "صحيح", "صحيح", "1"],
+    );
+}
+
+/// The index form. It diverged less than the loop binding and for an instructive
+/// reason: `ArrayGet` re-types its own dest in codegen, so a *directly consumed*
+/// `س[ي]` already compared correctly. The loop binding goes through
+/// Alloca/Store/Load and `Load` trusts the recorded type, which discarded that
+/// recovery. `نوع` and `+` were wrong in both shapes, since the builder decides
+/// those before codegen runs.
+#[test]
+fn test_string_index_composes_as_a_string() {
+    assert_prints(
+        "تركيب_الفهرسة",
+        concat!(
+            "متغير س = \"مرحبا\"\n",
+            "اطبع(نوع(س[1]))\n",
+            "اطبع(\"X\" + س[1])\n",
+            "اطبع(س[1] == \"ر\")\n",
+            "اطبع(طول(س[1]))",
+        ),
+        &["نص", "Xر", "صحيح", "1"],
+    );
+}
+
+/// All four UTF-8 widths in one string, so a byte-indexed implementation cannot
+/// pass by accident: `A` is one byte, `﷽` three, `م` two, `𞸀` four. The
+/// codepoint of `𞸀` is asserted through `حرف_إلى_رمز` rather than by eye,
+/// because a 4-byte character is exactly where a lead-byte walk goes wrong.
+///
+/// This one passes against the defect and is kept as a *contract* test, not a
+/// regression test: every row consumes the index directly, and codegen re-types
+/// its own `ArrayGet` dest, so the widths were already walked correctly. What
+/// was broken is what survives a store — see the two tests above.
+#[test]
+fn test_string_index_walks_codepoints_not_bytes() {
+    assert_prints(
+        "فهرسة_بالحروف",
+        concat!(
+            "متغير س = \"A﷽م𞸀ب\"\n",
+            "اطبع(طول(س))\n",
+            "اطبع(س[1] == \"﷽\")\n",
+            "اطبع(س[3] == \"𞸀\")\n",
+            "اطبع(طول(س[3]))\n",
+            "اطبع(حرف_إلى_رمز(س[3]))",
+        ),
+        &["5", "صحيح", "صحيح", "1", "126464"],
+    );
+}
+
+/// Totality, and the row the B6 blocker did not mention at all: both
+/// interpreters raised «الفهرس ٩ خارج حدود المصفوفة ذات الطول ٥» here while
+/// native printed an empty line and exited 0.
+///
+/// Asserted through `طول` rather than by expecting `""`: `Output::lines()`
+/// trims, so a blank line is discarded and an empty expectation would pass
+/// either way. The `قص_حروف` example section measures its own out-of-range rows
+/// the same way, and for the same reason.
+#[test]
+fn test_string_index_out_of_range_answers_the_empty_string() {
+    assert_prints(
+        "فهرسة_خارج_المدى",
+        concat!(
+            "متغير س = \"مرحبا\"\n",
+            "اطبع(طول(س[9]))\n",
+            "اطبع(طول(س[0 - 1]))\n",
+            "اطبع(طول(\"\"[0]))\n",
+            "اطبع(س[9] == \"\")",
+        ),
+        &["0", "0", "0", "صحيح"],
+    );
+}
+
+/// `س[ي]` and `قص_حروف(س، ي، 1)` are one operation: the index lowers to
+/// `trq_string_char_at`, which *is* `trq_string_substr_chars` at length one.
+/// Asserting the equivalence rather than restating each contract separately is
+/// what keeps the two from drifting — the shape
+/// `test_substr_chars_matches_the_slicer_it_names` established.
+#[test]
+fn test_string_index_matches_substr_chars_it_shares_a_kernel_with() {
+    assert_prints(
+        "فهرسة_تطابق_القص",
+        concat!(
+            "متغير س = \"A﷽م𞸀ب\"\n",
+            "لكل (متغير ي = 0؛ ي < طول(س)؛ ي++) {\n",
+            "    اطبع(س[ي] == قص_حروف(س، ي، 1))\n",
+            "}\n",
+            "اطبع(س[9] == قص_حروف(س، 9، 1))\n",
+            "اطبع(س[0 - 1] == قص_حروف(س، 0 - 1، 1))",
+        ),
+        &["صحيح", "صحيح", "صحيح", "صحيح", "صحيح", "صحيح", "صحيح"],
+    );
+}
+
+/// Iteration reassembles the original, which no single-character assertion
+/// proves: it pins the trip count, the per-character value and concatenation
+/// together. Reversing it exercises the 4-byte character in a non-final
+/// position on the way back.
+#[test]
+fn test_string_iteration_reassembles_the_original() {
+    assert_prints(
+        "تكرار_يعيد_الأصل",
+        concat!(
+            "متغير س = \"A﷽م𞸀ب\"\n",
+            "متغير ن = \"\"\n",
+            "متغير معكوس = \"\"\n",
+            "لكل ح في س {\n",
+            "    ن = ن + ح\n",
+            "    معكوس = ح + معكوس\n",
+            "}\n",
+            "اطبع(ن == س)\n",
+            "اطبع(طول(ن))\n",
+            "اطبع(معكوس == \"ب𞸀م﷽A\")",
+        ),
+        &["صحيح", "5", "صحيح"],
+    );
+}
+
+/// A parameter registers its type by a different route than a local does
+/// (`begin_function` inserts it directly, with no `Load`), so covering only the
+/// local would leave that path untested — the reason
+/// `test_string_len_counts_characters_through_a_parameter` exists above.
+///
+/// The composition happens *inside* the loop on purpose. Returning the character
+/// and composing at the call site would prove nothing: a declared `-> نص` types
+/// the call result regardless of what the binding carries, so that shape passed
+/// against the defect.
+#[test]
+fn test_bound_character_from_a_string_parameter_composes() {
+    assert_prints(
+        "حرف_من_معامل",
+        concat!(
+            "دالة افحص(ن: نص) {\n",
+            "    لكل ح في ن {\n",
+            "        اطبع(نوع(ح))\n",
+            "        اطبع(\"X\" + ح)\n",
+            "        اطبع(ح == \"م\")\n",
+            "        اطبع(طول(ح))\n",
+            "        أوقف\n",
+            "    }\n",
+            "}\n",
+            "افحص(\"مرحبا\")",
+        ),
+        &["نص", "Xم", "صحيح", "1"],
+    );
+}
+
+/// Arrays must not regress: the same three sites serve both, and an array of
+/// strings is the case where a string arm placed carelessly would capture the
+/// wrong type.
+#[test]
+fn test_array_indexing_and_iteration_still_carry_element_types() {
+    assert_prints(
+        "مصفوفة_لم_تتغير",
+        concat!(
+            "متغير أرقام = [10، 20، 30]\n",
+            "اطبع(نوع(أرقام[1]))\n",
+            "اطبع(أرقام[1] + 5)\n",
+            "متغير أسماء = [\"أحمد\"، \"سارة\"]\n",
+            "اطبع(نوع(أسماء[0]))\n",
+            "اطبع(\"X\" + أسماء[0])\n",
+            "متغير مجموع = 0\n",
+            "لكل ر في أرقام {\n",
+            "    مجموع = مجموع + ر\n",
+            "}\n",
+            "اطبع(مجموع)",
+        ),
+        &["عدد", "25", "نص", "Xأحمد", "60"],
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Float display — native must match the interpreter (#185)
 // ---------------------------------------------------------------------------
 
