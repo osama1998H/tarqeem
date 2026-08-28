@@ -201,9 +201,16 @@ Legend for **status**: `unchanged` · `renamed` · `narrowed` · `new`.
 > document had not seen before: it was a **repair of a registered name**, not a new registration, so
 > the alternative to shipping was not "leave it in stdlib" but "leave it half-wired".
 >
-> **The `س[i]` half did *not* expire, and that matters more than the criterion.** **B6** is still
-> open, so the two things the claim rested on have come apart: the operation became expressible while
+> **The `س[i]` half did *not* expire, and that matters more than the criterion.** **B6** was still
+> open, so the two things the claim rested on had come apart: the operation became expressible while
 > the *idiomatic* route to it stayed broken. Do not read one as the other.
+>
+> **That half expired at #392**, and it is the fifth row in this section to do so after `بتات_نفي`
+> (#312), `بتات_إزاحة_يمين_منطقية` (#322), `ثنائي_إلى_نص` (#333) and `قص_حروف`'s own first half
+> (#336). Note *how* it expired, because it is the reverse of the usual shape: the four before it
+> expired because something new made the operation writable, and this one because the blocker that
+> made the idiomatic route unusable was lifted. The name stays a primitive either way — `س[ي]` is a
+> call into it, not a replacement for it.
 >
 > **Deviation recorded (#336): `قص_نص` was removed outright, not deprecated.** §1.3's "deliberate
 > cut" says both `طول_نص` and `قص_نص` "survive as call-compatible stdlib functions", and §1.1 rule 3
@@ -1243,16 +1250,25 @@ registry entry for the first time — they are implemented and lowered today but
 
 ### 6.6 Increment F — `نص`
 
-Requires B **and blocker B6** (the character-binding inference defect). 34 names. Two behaviour
-changes to document: `موضع` / `موضع_اخير` / `عدد_مرات` return **codepoint** indices instead of byte
-offsets (blast radius ≈ 0 — all three are native-only today and sentinel-broken in composition), and
-`قارن_نص` normalizes to `-1/0/1`.
+Requires B. **Blocker B6 is closed (#392)**, and closing it is what makes this increment writable
+rather than merely permitted — see the authoring rules below, three of which it retires. 34 names.
+Two behaviour changes to document: `موضع` / `موضع_اخير` / `عدد_مرات` return **codepoint** indices
+instead of byte offsets (blast radius ≈ 0 — all three are native-only today and sentinel-broken in
+composition), and `قارن_نص` normalizes to `-1/0/1`.
 
-**Hard authoring rules for this increment:** index by codepoint via `قص_حروف` only; use an *indexed*
-`لكل` loop, never `لكل ح في س`; annotate every character binding `: نص`; keep `كبير`/`صغير`/`عنوان`
-ASCII-only, the whitespace set ASCII-only, and `رقمي` ASCII-digits-only — matching current behaviour
-is the mandate. Avoid `ك` and `و` as loop identifiers; they are contextual keywords and produce
-misleading parse errors.
+**Hard authoring rules for this increment:** keep `كبير`/`صغير`/`عنوان` ASCII-only, the whitespace
+set ASCII-only, and `رقمي` ASCII-digits-only — matching current behaviour is the mandate. Avoid `ك`
+and `و` as loop identifiers; they are contextual keywords and produce misleading parse errors.
+
+> **Three rules retired at #392, and one of them was never followable.** They read: *"index by
+> codepoint via `قص_حروف` only; use an *indexed* `لكل` loop, never `لكل ح في س`; annotate every
+> character binding `: نص`."* All three were workarounds for B6, and all three are now unnecessary
+> — `س[ي]` is `قص_حروف` at length one and carries `نص`, and `لكل ح في س` binds a typed character.
+> The third was **impossible** as written: `StmtKind::ForIn` has no annotation slot, so
+> `لكل ح: نص في س` is a parse error, and the rule could only ever have meant a rebinding var-decl
+> inside the loop body. Worth keeping as a lesson about this document rather than deleting silently:
+> a rule written to route around a defect can encode a syntax the language does not have, and
+> nothing checks a rule the way a test checks a claim.
 
 ### 6.7 Increment G — `ملفات` + `طرفية`
 
@@ -2385,7 +2401,7 @@ the same disease as the nine `#298` date constructors.
 | **B3** | **`stdlib/أخطاء/فهرس.ترقيم:21` fails to parse** — `صدّر صنف خطأ {`, and `خطأ` is the boolean-false keyword. Transitively breaks `اختبار`. | Phase 1 | Increment H |
 | **B4** | **`stdlib/طرفية` duplicate-export collision (`و٠١٠١`).** One rename. | Phase 1 | Increment G |
 | **B5** | **The seven flat stubs and three name collisions** (§2.1). | file listing; `نص/اساسي.ترقيم:170`, `وقت/تاريخ.ترقيم:220`, `شبكة/فهرس.ترقيم` | Every module flip |
-| **B6** | **Character-binding type inference defect — the highest-severity item here.** Both `لكل ح في نص` and `س[i]` yield an untyped `Ptr(Void)`. Un-annotated: `ح == "م"` **never matches natively while working interpreted and JIT'd**, and `ج + ح` prints raw pointer integers natively while the other two backends at least error loudly. Writing `: نص` repairs it. | `ح_مساواة`, `ح_دمج`, `فهرس_حلقة` vs `فهرس_حلقة2`, `دمج_معنون`, `p7` | Increment F (`نص`) |
+| ~~**B6**~~ | **Closed (#392).** The three IR-builder sites that compute an element type now answer `IrType::String` for a string, so `لكل ح في س` and `س[ي]` bind a typed character. **Four of this row's claims were wrong.** *`ح == "م"` was not merely native:* it held for the loop binding, but a **directly consumed** `س[ي]` already compared correctly natively, because `ArrayGet` re-types its own dest (`codegen.rs:1846-1856`) and only the loop's `Store`/`Load` round trip discarded that. *Interpreter and JIT were one witness, not two* — `jit/executor.rs:232-250` delegates to the interpreter and no compiled code runs. *«Writing `: نص` repairs it» is impossible for `لكل`*: `StmtKind::ForIn` carries no annotation slot and `لكل ح: نص في س` is a parse error, so the escape hatch existed only for a rebinding var-decl. *And the row missed two symptoms* — `نوع(ح)` answered `مؤشر` in **all three** backends, since it folds at build time (the one row a cross-backend diff structurally cannot see), and `طول(ح)` answered **2**, the byte count, because an untyped operand routes `ArrayLen` to `trq_array_len`. It also missed a second, independent divergence in the same operation: out-of-range indexing raised in both interpreters while native answered `""` — repaired by sharing `قص_حروف`'s slicer, since `trq_string_char_at` *is* `trq_string_substr_chars` at length one. The five probes this row cited were never landed as tests; the contract is now pinned across all four backends and in the CI example. | `تركيب_الحرف`, `تركيب_الفهرسة`, `فهرسة_خارج_المدى`, `فهرسة_تطابق_القص` | ~~Increment F (`نص`)~~ |
 | ~~**B7**~~ | **Closed (#336).** `قص_حروف` is core tier with an `IrType::String` return type and arms in both interpreters. Measured before the fix, natively: `نوع` → `مؤشر`, `"X" + …` → `X4341079168`, `== "رح"` → `خطأ`, and `طول` → **6 instead of 3** — the sentinel routes it to `trq_array_len`, which reads `TrqString.len`, the byte count. `حرف_في` still has the defect and is still native-only. | `p8`; `"X" + حرف_في(س،١)` → `X4377631856` | ~~Increment B, and everything downstream~~ |
 | **B8** | **No bitwise capability exists** in any spelling — no lexer token, no Arabic name, nothing to reuse. | `ثنائي_عامل` probe: `أ & ب` → `ب٠٠٠٢` at the `&` | Increments E, I, J and the RNG |
 | ~~**B9**~~ | **Closed (#333).** char↔code (#324, #326), string→bytes (#330) and bytes→string (#333) all land, so the bridge is total in both directions. One caveat inherited from the contract above: the bytes→string direction **validates**, so it carries text, not arbitrary octets. | grep over all 235 names and all 42 `string.rs` exports, as of the original census | ~~Increments E, F, I~~ |

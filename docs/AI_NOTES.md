@@ -5575,3 +5575,105 @@ already listed, and every one of the 44 was re-checked for a dispatch *mention*.
 existing test), both measured. Clippy diagnostics identical to `develop` as a multiset, 88 = 88.
 **§1.3's registry is now complete and honest**; the remaining work is Increment C onward, plus
 `نوع`'s dynamic-report and `توقف`'s stderr divergence, both open riders on `unchanged` rows.
+
+## #392 — B6: the bound character carries `نص`, and a blocker row that was wrong four ways
+
+The first blocker cleared rather than a primitive registered. `لكل ح في س` and `س[ي]` recorded the
+builder's unknown sentinel for the bound character; three `IrType::String` arms fix it, plus a
+totality repair in both interpreters. Increment F is unblocked, and three of its authoring rules are
+retired.
+
+### The semantic layer was right; the type had no route to the builder
+
+`stmt_analyzer.rs:908` already answered `Type::String => Type::String` for the loop element, and
+`expr_analyzer.rs:359-364` already had an `Index` arm for `Type::String`. Neither reaches IR:
+`semantic_to_ir_type` is `#[allow(dead_code)]` with zero callers, and the builder re-derives every
+type from AST annotations or `infer_expr_type`. **The fix is not to thread the semantic map in** —
+that is an architectural change, and the AST carries no `NodeId → Type` side table — but to make the
+builder's own three computations agree with codegen's.
+
+Generalisable, and it is the reason this took reading rather than guessing: *a defect can be
+correctly diagnosed in one layer and be unfixable there.* Two layers already had the right answer.
+Only the third was asked.
+
+### Codegen was already type-directed, and that is why the two shapes diverged differently
+
+`ArrayLen` picks `trq_string_len_chars` and `ArrayGet` picks `trq_string_char_at` from
+`is_string_operand` on the operand's recorded type, and `ArrayGet` re-types its own dest. So a
+**directly consumed** `س[ي]` already compared correctly natively — codegen recovered locally — while
+the loop binding did not, because `build_for_in` inserts `Alloca`/`Store`/`Load` and `Load` trusts
+the instruction's `ty`. The B6 row generalised the loop's symptom to both shapes and was wrong to.
+
+Measured with the arms removed, on `لكل ح في "مرحبا"`: `نوع(ح)` → `مؤشر`, `"X" + ح` →
+`X94339517137664` natively and a type error interpreted, `ح == "م"` → `خطأ`, `"م" == ح` → `صحيح`,
+`طول(ح)` → `2`.
+
+Four symptoms, four different mechanisms, and only one of them is a codegen dispatch:
+
+| symptom | decided in | why |
+|---|---|---|
+| `نوع(ح)` → `مؤشر` | builder, at build time | `نوع` is folded from the IR type; **all three backends agreed on the wrong answer**, which `compare-backends` structurally cannot see |
+| `"X" + ح` → a pointer | builder | `convert_to_string`'s `_ => "trq_int_to_string"` sent a `TrqString*` to the integer formatter |
+| `ح == "م"` → `خطأ` | codegen dispatch | the sentinel took the reference path, `icmp eq ptr` |
+| `طول(ح)` → `2` | codegen dispatch | `trq_array_len` reads `TrqArray.len`, where a `TrqString` keeps its byte count |
+
+The first two are why widening `is_string_operand` would not have been a fix.
+
+### No new opcode, deliberately
+
+`ArrayGet`/`ArrayLen` already have arms in codegen, both interpreters and all four `src/ir/opt/`
+passes. A `StringCharAt` opcode would have needed all of those plus both JIT tiers — which is #385's
+shape exactly, where `ArrayPush` landed missing from three optimizer tables and two tiers. The
+cheapest correct change was to fix the recorded type and let the existing dispatch work.
+
+The three sites share `is_string_ir_type`, written to be the *same test* as codegen's
+`is_string_operand` rather than a bare `IrType::String` match. A narrowed `نص?` is the same
+`TrqString*` once compiled, and two layers disagreeing about what counts as a string is how this
+class of defect starts.
+
+### A second divergence the row did not mention, and the JIT is not a witness
+
+Out-of-range string indexing already diverged: native answered `""` and both interpreters raised
+`index_out_of_bounds`. Repaired toward native, because `trq_string_char_at` *is*
+`trq_string_substr_chars(s, i, 1)` — a string index is `قص_حروف` at length one and inherits its
+documented totality. Both interpreter arms now call `substring_by_chars`, the slicer `قص_حروف`
+already shared, rather than keeping their own bounds test: these two files are hand-copied (#223),
+and sharing the kernel is what stops the contract from drifting. `element_zero` under `احذف_آخر`
+(#382) is the precedent. **The array arm is untouched** — it still raises, and should.
+
+`ارمِ` is refused natively (**B13**), so an error path was never available to agree on instead. The
+totality was the only reachable contract, not merely the chosen one.
+
+And `run --jit` is not a second witness: `jit/executor.rs:232-250` records a profile entry and calls
+`self.interpreter.run()`. No compiled code executes. The B6 row's "working interpreted and JIT'd"
+counted one backend twice — worth knowing before any future row cites the pair as agreement.
+
+### What the tests had to be, and one thing they could not be
+
+`اطبع(ح)` was correct with the sentinel — `Print` routes a pointer through the same arm as a string
+— so both pre-existing tests passed against the defect: one printed the element, the other never
+read its binding. Every new row composes. Both comparison orders are asserted, because the `==`
+dispatch tests only the left operand (#394) and the two answered differently on the same values.
+
+The IR-shape tests assert `ArrayGet` **element types**, not "some `Alloca` is a `String`": the latter
+passes against the defect, since `متغير س = "مرحبا"` already owns a String slot. First draft made
+exactly that mistake and passed on the reverted tree.
+
+Two of the eight cross-backend rows pass either way and are labelled in place as contract tests, so
+nobody later reads all eight as pinning B6. Worth the label: an unlabelled always-green test in a
+regression suite is how `b2d7f0b`'s clock test came to be pinning a defect.
+
+### Process note
+
+`git checkout HEAD -- src/` destroyed three uncommitted tests mid-verification. Commit tests before
+reverting sources to check that they fail; `git stash` where a revert experiment is unavoidable.
+
+### Filed, not folded
+
+`حرف_في` is broken differently and is **not** fixed by this (#393): no registered return type and no
+arm in either interpreter. `convert_to_string`'s integer default is #331's mechanism stated generally
+— commented there rather than re-filed, along with a correction to that issue's claim that `+` is
+unaffected. The `==` asymmetry is #394. `ArrayGet`/`ArrayLen` missing from both JIT tiers is #395.
+
+Untouched and worth knowing: a `نص` reaching `س[ي]` through `أي` lowers to `Struct("أي")`, misses
+both string tests, and still aborts. Closing B6 does not cover it — that is #383/#387 territory.
