@@ -80,10 +80,14 @@ pub(crate) fn substring_by_chars(text: &str, start: i64, len: i64) -> String {
         return String::new();
     }
 
-    text.chars()
-        .skip(start as usize)
-        .take(len as usize)
-        .collect()
+    // Saturating rather than `as usize`, as `fill_from` below does for the same
+    // reason: `عدد` is 64-bit but `usize` is 32 on wasm32, where `as` would
+    // truncate `٢**٣٢` to `٠` and answer the first character for an index far
+    // past the end — where native's i64 walk answers `""`.
+    let start = usize::try_from(start).unwrap_or(usize::MAX);
+    let len = usize::try_from(len).unwrap_or(usize::MAX);
+
+    text.chars().skip(start).take(len).collect()
 }
 
 /// `قص_حروف`'s whole dispatch, shared so the two interpreters cannot answer

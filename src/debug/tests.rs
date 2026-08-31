@@ -647,3 +647,59 @@ fn test_debug_interpreter_array_pop() {
         other => panic!("Expected Completed, got {:?}", other),
     }
 }
+
+/// The debug interpreter is the fourth backend and no cross-backend test reaches
+/// it, so B6 is pinned here through real source rather than a hand-built module:
+/// the defect is a *type-inference* one, and only the full
+/// parse → analyze → link → build pipeline reproduces it.
+///
+/// Composition, never printing: `اطبع(ح)` was correct with the sentinel too,
+/// because `Print` routes a pointer through the same arm as a string. Measured
+/// before the fix in this backend, `نوع(ح)` answered `مؤشر` and `"X" + ح` failed
+/// with «متوقع عدد، وُجد string» — the builder had already chosen integer
+/// addition. The last row is the totality half: `س[9]` used to raise here.
+#[test]
+fn test_debug_interpreter_bound_character_composes_as_a_string() {
+    use crate::ir::IrBuilder;
+    use crate::parser::Parser;
+    use crate::semantic::Analyzer;
+
+    let source = "بسم_الله
+دالة رئيسية() {
+    متغير س = \"مرحبا\"
+    لكل ح في س {
+        اطبع(نوع(ح))
+        اطبع(\"X\" + ح)
+        اطبع(ح == \"م\")
+        اطبع(طول(ح))
+        أوقف
+    }
+    اطبع(طول(س[9]))
+}
+الحمد_لله";
+
+    let ast = Parser::new(source).parse().expect("يجب أن يُحلَّل البرنامج");
+
+    let mut analyzer = Analyzer::new();
+    analyzer
+        .analyze(&ast)
+        .unwrap_or_else(|d| panic!("فشل التحليل الدلالي: {:?}", d));
+
+    let mut warnings = Vec::new();
+    let linked = analyzer
+        .linked_ast(&ast, &mut warnings)
+        .expect("يجب أن يُدمَج التمهيد");
+
+    let module = IrBuilder::new("تنقيح".to_string())
+        .build(&linked)
+        .expect("يجب أن يُبنى التمثيل الوسيط");
+
+    let mut debugger = DebugInterpreter::new(module, DebugContext::new());
+    debugger.run().expect("يجب أن يكتمل التنفيذ");
+
+    assert_eq!(
+        debugger.context().output(),
+        ["نص", "Xم", "صحيح", "1", "0"],
+        "مفسّر التنقيح لا يوافق بقية الخلفيات على الحرف المستخرج من نص"
+    );
+}

@@ -2798,8 +2798,7 @@ impl LlvmCodegen {
     /// once compiled — so a narrowed optional string must take the string path
     /// too, or `طول` counts its bytes again (#185).
     fn is_string_operand(ty: Option<&IrType>) -> bool {
-        matches!(ty, Some(IrType::String))
-            || matches!(ty, Some(IrType::Ptr(inner)) if matches!(**inner, IrType::String))
+        ty.is_some_and(IrType::is_string_like)
     }
 
     /// The declared type of `field` on `class`.

@@ -1795,6 +1795,88 @@ mod tests {
         );
     }
 
+    /// Every `ArrayGet` element type in the module, in order.
+    ///
+    /// Asserting on *these* rather than on "some `Alloca` is a `String`" is the
+    /// point: `متغير س = "مرحبا"` already owns a `String` slot, so a
+    /// module-wide `any` over allocas passes against the defect it is meant to
+    /// catch. The element type is the value the three repaired sites compute.
+    fn array_get_elem_types(module: &crate::ir::Module) -> Vec<&IrType> {
+        module
+            .functions
+            .iter()
+            .flat_map(|f| &f.blocks)
+            .flat_map(|b| &b.instructions)
+            .filter_map(|i| match i {
+                Instruction::ArrayGet { elem_ty, .. } => Some(elem_ty),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The loop binding is where the sentinel did real damage, because it is the
+    /// one shape that stores the character and loads it back: `Load` trusts the
+    /// recorded type, so codegen's own `ArrayGet` recovery is discarded and
+    /// `ح == "م"` answered خطأ natively while both interpreters answered صحيح.
+    #[test]
+    fn test_string_for_in_binds_a_string_typed_element() {
+        let source = r#"
+            دالة رئيسية() {
+                متغير س = "مرحبا"
+                لكل ح في س {
+                    اطبع(ح)
+                }
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+        assert_eq!(
+            array_get_elem_types(&module),
+            vec![&IrType::String],
+            "iterating a string must type its element String, not the unknown sentinel"
+        );
+    }
+
+    /// The index form. `infer_expr_type` and `build_index` compute this
+    /// separately, so repairing one is not repairing the other — the
+    /// declaration exercises the first and the `ArrayGet` the second.
+    #[test]
+    fn test_string_index_types_its_element_as_string() {
+        let source = r#"
+            دالة رئيسية() {
+                متغير س = "مرحبا"
+                متغير ح = س[0]
+                اطبع(ح)
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+        assert_eq!(
+            array_get_elem_types(&module),
+            vec![&IrType::String],
+            "indexing a string must type its element String"
+        );
+    }
+
+    /// Arrays must not regress: the same site serves both, and an element type
+    /// that is itself a reference is where a carelessly placed string arm would
+    /// capture the wrong case.
+    #[test]
+    fn test_array_index_still_types_its_element_from_the_array() {
+        let source = r#"
+            دالة رئيسية() {
+                متغير أرقام = [1، 2]
+                متغير أسماء = ["أ"، "ب"]
+                اطبع(أرقام[0])
+                اطبع(أسماء[0])
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+        assert_eq!(
+            array_get_elem_types(&module),
+            vec![&IrType::Int, &IrType::String],
+            "an array element keeps the array's own element type"
+        );
+    }
+
     #[test]
     fn test_exported_function_signature_reaches_return_types() {
         // `function_return_types` isn't observable after `build` consumes the

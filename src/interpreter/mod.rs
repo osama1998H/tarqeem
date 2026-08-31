@@ -43,6 +43,10 @@ pub(crate) use executor::builtins::call_substring_by_chars;
 /// map, the byte-range rejection and the empty-versus-failed answers are all
 /// contract, and all live in the one dispatch.
 pub(crate) use executor::builtins::call_write_stream;
+/// The slicer under both `قص_حروف` and `س[ي]`, shared so a string index is total
+/// in the same way in both interpreters and in `trq_string_char_at`, which is
+/// this operation at length one.
+pub(crate) use executor::builtins::substring_by_chars;
 
 /// Shared with the debug interpreter for the same reason, and its sibling:
 /// the read half of the byte-level stream pair.

@@ -109,6 +109,19 @@ pub enum IrType {
     Enum(EnumId),
 }
 
+impl IrType {
+    /// Whether a value of this type is a `نص` at run time, including one behind
+    /// a single `Ptr` — a narrowed `نص?` is the same `TrqString*` once compiled.
+    ///
+    /// Lives here, not in either layer that asks, because the IR builder decides
+    /// an element type from it and codegen lowers `ArrayGet` from it: two copies
+    /// would let the builder record a type codegen contradicts.
+    pub fn is_string_like(&self) -> bool {
+        matches!(self, IrType::String)
+            || matches!(self, IrType::Ptr(inner) if **inner == IrType::String)
+    }
+}
+
 impl fmt::Display for IrType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

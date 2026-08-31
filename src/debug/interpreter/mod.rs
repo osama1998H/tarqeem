@@ -10,7 +10,9 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use crate::interpreter::{element_zero, ErrorKind, RuntimeError, RuntimeResult, Value};
+use crate::interpreter::{
+    element_zero, substring_by_chars, ErrorKind, RuntimeError, RuntimeResult, Value,
+};
 use crate::ir::{
     BasicBlock, BlockId, Constant, FuncId, Function, Instruction, MethodId, Module, VarId,
 };
@@ -1297,6 +1299,8 @@ impl DebugInterpreter {
                         let len = s.chars().count() as i64;
                         self.set_local(*dest, Value::Int(len));
                     }
+                    // The executor's arm — see the reason there.
+                    Value::Null => self.set_local(*dest, Value::Int(0)),
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 }
                 Ok(InstructionResult::Continue)
@@ -1319,13 +1323,9 @@ impl DebugInterpreter {
                         }
                         arr_ref[idx as usize].clone()
                     }
-                    Value::String(s) => {
-                        let chars: Vec<char> = s.chars().collect();
-                        if idx < 0 || (idx as usize) >= chars.len() {
-                            return Err(RuntimeError::index_out_of_bounds(idx, chars.len()));
-                        }
-                        Value::string(chars[idx as usize].to_string())
-                    }
+                    // The executor's arm, sharing its slicer rather than mirroring it.
+                    Value::String(s) => Value::string(substring_by_chars(&s, idx, 1)),
+                    Value::Null => Value::string(""),
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 };
 

@@ -665,6 +665,11 @@ impl Interpreter {
                         let len = s.chars().count() as i64;
                         self.set_local(*dest, Value::Int(len));
                     }
+                    // `trq_string_len_chars` and `trq_array_len` both answer `0`
+                    // for a null, so `لكل ح في س` runs zero trips natively where
+                    // raising here halted it — the same divergence the index arm
+                    // below closes, on the operation that counts its iterations.
+                    Value::Null => self.set_local(*dest, Value::Int(0)),
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 }
                 Ok(InstructionResult::Continue)
@@ -688,13 +693,11 @@ impl Interpreter {
                         }
                         arr_ref[idx as usize].clone()
                     }
-                    Value::String(s) => {
-                        let chars: Vec<char> = s.chars().collect();
-                        if idx < 0 || (idx as usize) >= chars.len() {
-                            return Err(RuntimeError::index_out_of_bounds(idx, chars.len()));
-                        }
-                        Value::string(chars[idx as usize].to_string())
-                    }
+                    // A string index is `قص_حروف` at length one, so it inherits that
+                    // name's totality — including its `Null` answer, which native
+                    // reaches by guarding a null `TrqString*`.
+                    Value::String(s) => Value::string(builtins::substring_by_chars(&s, idx, 1)),
+                    Value::Null => Value::string(""),
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 };
 

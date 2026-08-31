@@ -863,7 +863,7 @@ impl IrBuilder {
     /// The element type of an array-shaped `IrType`, through one level of
     /// `Ptr`. `None` for anything else — each caller keeps its own fallback,
     /// because they deliberately differ (refuse, pushed value's type, `Int`).
-    fn array_elem_ty(ty: &IrType) -> Option<IrType> {
+    pub(super) fn array_elem_ty(ty: &IrType) -> Option<IrType> {
         match ty {
             IrType::Array(elem, _) => Some((**elem).clone()),
             IrType::Ptr(inner) => match inner.as_ref() {
@@ -1527,11 +1527,9 @@ impl IrBuilder {
         let idx_var = self.build_expr(index)?;
         let dest = self.new_var();
 
-        let elem_ty = if let IrType::Array(elem, _) = &obj_type {
-            (**elem).clone()
-        } else {
-            IrType::Ptr(Box::new(IrType::Void))
-        };
+        // The sentinel this avoids never reaches codegen's own `ArrayGet`
+        // recovery, so `convert_to_string` and `نوع` decide from it first.
+        let elem_ty = Self::index_elem_ty(&obj_type);
 
         self.emit(Instruction::ArrayGet {
             dest,
