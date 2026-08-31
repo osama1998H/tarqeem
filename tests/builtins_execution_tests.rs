@@ -3062,6 +3062,75 @@ fn test_bound_character_from_a_string_parameter_composes() {
     );
 }
 
+/// The indexed *object* composed, not just the index. Every other fixture here
+/// indexes a bare local, a parameter or a literal — exactly the shapes
+/// `infer_expr_type` already covered — so all of them passed while three others
+/// still took the sentinel: a parenthesised object had no `Grouping` arm, and a
+/// field read matched a bare `Struct` where a receiver is `Ptr(Struct)`.
+///
+/// Measured before the repair, `"X" + حم.ن[1]` printed `X93954150200192`
+/// natively and exited 0 while the interpreter raised «متوقع عدد، وُجد string»
+/// and exited 1 — B6's own symptom, in the shape Increment F's `نص` functions
+/// are written in.
+#[test]
+fn test_composed_index_object_carries_a_string() {
+    assert_prints(
+        "كائن_مركب",
+        concat!(
+            "صنف حامل {\n",
+            "    عام ن: نص\n",
+            "    منشئ(ن: نص) { هذا.ن = ن }\n",
+            "}\n",
+            "دالة رئيسية() {\n",
+            "    متغير س = \"مرحبا\"\n",
+            "    متغير حم = جديد حامل(\"مرحبا\")\n",
+            "    اطبع(نوع((س)[1]))\n",
+            "    اطبع(\"X\" + (س)[1])\n",
+            "    اطبع(نوع(حم.ن[1]))\n",
+            "    اطبع(\"X\" + حم.ن[1])\n",
+            "    اطبع(نوع((س + \"ذ\")[5]))\n",
+            "    اطبع(\"X\" + (س + \"ذ\")[5])\n",
+            "}",
+        ),
+        &["نص", "Xر", "نص", "Xر", "نص", "Xذ"],
+    );
+}
+
+/// A null reaching the index, which `Type::compat` allows: an un-narrowed `نص?`
+/// passes into a `نص` parameter. The shared slicer has answered `""` for it
+/// since `قص_حروف` landed, but the new index arms did not carry that guard, so
+/// `ن[0]` raised interpreted and answered `0` natively — a divergence inside the
+/// one operation the repair claims cannot drift from `قص_حروف`.
+///
+/// The iteration rows are here for the same reason and are not redundant: the
+/// trip count comes from `ArrayLen`, a different arm, and both
+/// `trq_string_len_chars` and `trq_array_len` answer `0` for a null. Repairing
+/// only the index would have left this PR's two constructs disagreeing with each
+/// other on the same value.
+#[test]
+fn test_null_string_index_and_iteration_are_total() {
+    assert_prints(
+        "فهرسة_معدومة",
+        concat!(
+            "دالة افحص(ن: نص) {\n",
+            "    اطبع(طول(قص_حروف(ن، 0، 1)))\n",
+            "    اطبع(طول(ن[0]))\n",
+            "    اطبع(ن[0] == \"\")\n",
+            "    اطبع(طول(ن))\n",
+            "    متغير عد = 0\n",
+            "    لكل ح في ن { عد = عد + 1 }\n",
+            "    اطبع(عد)\n",
+            "    اطبع(\"انتهى\")\n",
+            "}\n",
+            "دالة رئيسية() {\n",
+            "    متغير غائب: نص? = لا_شيء\n",
+            "    افحص(غائب)\n",
+            "}",
+        ),
+        &["0", "0", "صحيح", "0", "0", "انتهى"],
+    );
+}
+
 /// Arrays must not regress: the same three sites serve both, and an array of
 /// strings is the case where a string arm placed carelessly would capture the
 /// wrong type.

@@ -59,18 +59,15 @@ impl IrBuilder {
         }
     }
 
-    /// Whether an operand is a `نص` at run time.
+    /// The type an index or iteration binding carries: an array's element, a
+    /// string's one-character string, else the unknown sentinel.
     ///
-    /// Deliberately the same test as codegen's `is_string_operand`, which uses it
-    /// to lower `ArrayGet` to `trq_string_char_at` — a narrowed `نص?` is the same
-    /// `TrqString*` once compiled, so the two layers must agree or the builder
-    /// records a type codegen then contradicts. Recording the `Ptr(Void)`
-    /// sentinel instead leaves a character binding's `Load` pointer-typed, and
-    /// `ح == "م"`, `"X" + ح`, `نوع(ح)` and `طول(ح)` are then all decided wrongly
-    /// (B6).
-    pub(crate) fn is_string_ir_type(ty: &IrType) -> bool {
-        matches!(ty, IrType::String)
-            || matches!(ty, IrType::Ptr(inner) if **inner == IrType::String)
+    /// One function because the three sites that need it must agree — the
+    /// sentinel decides `نوع`, `+` and `طول` wrongly (B6).
+    pub(crate) fn index_elem_ty(ty: &IrType) -> IrType {
+        Self::array_elem_ty(ty)
+            .or_else(|| ty.is_string_like().then_some(IrType::String))
+            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)))
     }
 
     /// Convert a semantic type to an IR type.
@@ -262,18 +259,7 @@ impl IrBuilder {
                     IrType::Ptr(Box::new(IrType::Void))
                 }
             }
-            ExprKind::Index { object, .. } => {
-                let obj_ty = self.infer_expr_type(object);
-                if let IrType::Array(elem, _) = &obj_ty {
-                    (**elem).clone()
-                } else if Self::is_string_ir_type(&obj_ty) {
-                    // Mirrors `build_index`, so `متغير ح = س[٠]` declares its slot
-                    // at the right type instead of taking the unknown sentinel.
-                    IrType::String
-                } else {
-                    IrType::Ptr(Box::new(IrType::Void))
-                }
-            }
+            ExprKind::Index { object, .. } => Self::index_elem_ty(&self.infer_expr_type(object)),
             ExprKind::Member { object, property } => {
                 if let Some(class) = self.class_name_receiver(object) {
                     if let Some((_, ty)) = self.resolve_static_field(&class, property) {
@@ -285,15 +271,18 @@ impl IrBuilder {
                     return IrType::Ptr(Box::new(IrType::Void));
                 }
                 let obj_ty = self.infer_expr_type(object);
-                if let IrType::Struct(class_id) = obj_ty {
+                // Through one level of pointer, as the sibling `Call`/`Member`
+                // arm below already resolves it: an instance receiver is
+                // `Ptr(Struct)`, so matching a bare `Struct` left every field
+                // read on an external receiver at the `Ptr(Void)` sentinel.
+                if let Some(class) = self.struct_class_of(&obj_ty) {
                     // A property is read through its accessor, and its backing
                     // field is named `_{prop}` — so the field lookup below
                     // cannot see it under the name the source used.
-                    if let Some((_, _, ty)) = self.resolve_instance_property(&class_id.0, property)
-                    {
+                    if let Some((_, _, ty)) = self.resolve_instance_property(&class, property) {
                         return ty;
                     }
-                    self.get_field_type(&class_id.0, property)
+                    self.get_field_type(&class, property)
                 } else {
                     IrType::Ptr(Box::new(IrType::Void))
                 }
@@ -377,6 +366,11 @@ impl IrBuilder {
                     IrType::Ptr(Box::new(IrType::Void))
                 }
             }
+            // Parentheses are transparent to `build_expr` (expr_builder.rs:99),
+            // so they must be transparent here too — otherwise `(س)[١]` reaches
+            // the sentinel below and one pair of parentheses changes an
+            // expression's type.
+            ExprKind::Grouping(inner) => self.infer_expr_type(inner),
             _ => IrType::Ptr(Box::new(IrType::Void)),
         }
     }

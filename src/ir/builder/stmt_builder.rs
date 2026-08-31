@@ -968,25 +968,14 @@ impl IrBuilder {
             ty: IrType::Int,
         });
 
-        // Iterating a string binds a one-character string. This is the shape
-        // where the sentinel does real damage: the binding goes through the
-        // `Alloca`/`Store`/`Load` below, and `Load` trusts the recorded type, so
-        // codegen's own `ArrayGet` recovery is discarded. Measured with this arm
-        // missing: `ح == "م"` answered خطأ natively where both interpreters
-        // answered صحيح.
-        let elem_ty = if let Some(array_ty) = self.var_types.get(&array_var.0) {
-            match array_ty {
-                IrType::Array(inner, _) => (**inner).clone(),
-                _ if Self::is_string_ir_type(array_ty) => IrType::String,
-                IrType::Ptr(inner) => match &**inner {
-                    IrType::Array(elem, _) => (**elem).clone(),
-                    _ => IrType::Ptr(Box::new(IrType::Void)),
-                },
-                _ => IrType::Ptr(Box::new(IrType::Void)),
-            }
-        } else {
-            IrType::Ptr(Box::new(IrType::Void))
-        };
+        // The shape where the sentinel does real damage: the binding goes
+        // through the `Alloca`/`Store`/`Load` below, and `Load` trusts the
+        // recorded type, discarding codegen's own `ArrayGet` recovery.
+        let elem_ty = self
+            .var_types
+            .get(&array_var.0)
+            .map(Self::index_elem_ty)
+            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
 
         let elem = self.new_var();
         self.emit(Instruction::ArrayGet {

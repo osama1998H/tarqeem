@@ -1299,6 +1299,8 @@ impl DebugInterpreter {
                         let len = s.chars().count() as i64;
                         self.set_local(*dest, Value::Int(len));
                     }
+                    // The executor's arm — see the reason there.
+                    Value::Null => self.set_local(*dest, Value::Int(0)),
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 }
                 Ok(InstructionResult::Continue)
@@ -1321,10 +1323,9 @@ impl DebugInterpreter {
                         }
                         arr_ref[idx as usize].clone()
                     }
-                    // The executor's arm, sharing its slicer rather than mirroring
-                    // it — these two files are hand-copied (#223), and the shared
-                    // helper is what keeps the totality contract from drifting.
+                    // The executor's arm, sharing its slicer rather than mirroring it.
                     Value::String(s) => Value::string(substring_by_chars(&s, idx, 1)),
+                    Value::Null => Value::string(""),
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 };
 
