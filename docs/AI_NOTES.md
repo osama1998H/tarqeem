@@ -5675,5 +5675,69 @@ arm in either interpreter. `convert_to_string`'s integer default is #331's mecha
 — commented there rather than re-filed, along with a correction to that issue's claim that `+` is
 unaffected. The `==` asymmetry is #394. `ArrayGet`/`ArrayLen` missing from both JIT tiers is #395.
 
-Untouched and worth knowing: a `نص` reaching `س[ي]` through `أي` lowers to `Struct("أي")`, misses
-both string tests, and still aborts. Closing B6 does not cover it — that is #383/#387 territory.
+Untouched and worth knowing: a `نص` reaching `س[ي]` through `أي` cannot be indexed at all.
+`infer_index_expr` has no `Any` case, so every route — an `أي` parameter, `متغير ق: أي`, a
+`مصفوفة<أي>` element — is refused at analysis with «لا يمكن الفهرسة في أي» and never reaches IR.
+That is #383/#387 territory. (An earlier draft of this note said it "lowers to `Struct("أي")` and
+still aborts"; it does not, and the real limitation is the flat refusal.)
+
+### Follow-up: the first pass did not close B6, and the reason generalises
+
+An adversarial review pass found three index-object shapes still carrying the
+sentinel after the change above, each with B6's full symptom set: `(س)[ي]`,
+`كائن.حقل[ي]`, and any composed object (which needs parentheses, so it inherited
+the first). A null string diverged as well, in both the index and the trip count.
+
+**The mechanism is one step behind where I looked.** `build_index` derives its
+element type from `self.infer_expr_type(object)` — a *re-derivation from the AST*,
+weaker than the type the builder records for the operand it builds on the next
+line. So the repair was only ever as complete as `infer_expr_type`'s arm coverage,
+and that function has no `Grouping` arm and matched a bare `IrType::Struct` where
+every instance receiver is `Ptr(Struct(..))`. `build_for_in` reads
+`var_types[array_var]` instead and was correct on the same expressions — the two
+sites disagreeing is what proves which source is authoritative.
+
+Recorded because the failure was not carelessness about coverage; it was trusting
+a helper without reading its arms. **A fix keyed off a partial type re-derivation
+is only as complete as that re-derivation.** The general repair — reading
+`var_types` after `build_expr` — is the better altitude and is left for a
+follow-up, because it changes the type source for every element type at once.
+
+**And the tests could not have caught it.** All eleven fixtures indexed a bare
+local, a parameter or a literal — precisely the covered set. The rule that
+follows is sharper than "test more shapes": when a fix is keyed off the *object's*
+type, the fixtures have to compose the object, not just the index.
+
+The `ArrayLen` half of the null repair is not optional and nearly shipped missing:
+`لكل ح في س` takes its trip count from `ArrayLen`, so guarding only `ArrayGet`
+would have shipped this PR's two constructs disagreeing with each other on the
+same value. Both `trq_string_len_chars` and `trq_array_len` answer `0` for a null,
+so the interpreters were the deviants there exactly as with out-of-range.
+
+Consolidated in the same pass, because the duplication is what let the three
+shapes drift: one `index_elem_ty` over the existing `array_elem_ty` replaces three
+open-coded copies of the element-type rule, and `IrType::is_string_like` replaces a
+builder-side predicate that was a hand-synced copy of codegen's
+`is_string_operand`. Two layers now share one definition rather than agreeing by
+comment — which is what the comment had been asserting.
+
+### Still open, and none of it this change's regression
+
+The review surfaced three native crashes reachable from `check`-clean source, all
+pre-existing and all outside this diff — but the first two are newly *discoverable*
+because §6.8 now documents `نص[٠]`:
+
+- `س[٠] = "ب"` — `ArraySet` has no string guard; native segfaults.
+- `ألحق(س، "ب")` on a string — same gap in `ArrayPush`.
+- `م[٩]` on an array — native prints its diagnostic and *then* segfaults, because
+  `trq_array_get` answers a null and codegen loads through it unguarded. The
+  §6.8 note added here originally called this "خطأٌ يُنهي البرنامج"; that was
+  describing a contract the backends do not share, and has been narrowed.
+
+Also measured and left alone: string iteration is O(N²) in every backend (each
+step re-walks from character 0), and natively ~4× slower than interpreted —
+against ARCHITECTURE.md §12's "within 2× of C". This change makes the interpreter
+half ~15× cheaper but does not change the shape. The retired authoring rule was
+equally quadratic, so retiring it costs nothing; what is new is that §6.8 and §7.7
+now teach the idiom without a complexity note. A cursor fix belongs in its own
+change.
