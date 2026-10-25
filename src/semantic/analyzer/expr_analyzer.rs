@@ -260,7 +260,7 @@ impl Analyzer {
                 for (i, (arg, param_type)) in args.iter().zip(params.iter()).enumerate() {
                     let arg_type =
                         self.with_expected(Some(param_type.clone()), |a| a.infer_type(arg));
-                    if !self.is_assignable(&arg_type, param_type) {
+                    if !self.is_call_arg_assignable(&arg_type, param_type) {
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
@@ -760,7 +760,7 @@ impl Analyzer {
                     args.iter().zip(expected_params.iter()).enumerate()
                 {
                     let arg_type = self.infer_type(arg);
-                    if !self.is_assignable(&arg_type, param_type) {
+                    if !self.is_call_arg_assignable(&arg_type, param_type) {
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
@@ -907,7 +907,7 @@ impl Analyzer {
                     for (i, (arg_ty, expected_ty)) in
                         arg_types.iter().zip(&variant.fields).enumerate()
                     {
-                        if !self.is_assignable(arg_ty, expected_ty) {
+                        if !self.is_call_arg_assignable(arg_ty, expected_ty) {
                             self.type_mismatch_error(
                                 expected_ty,
                                 arg_ty,

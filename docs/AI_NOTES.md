@@ -2,6 +2,40 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-10-25 — Narrowed optional call arguments (#327)
+
+Native call arguments now follow the callee's parameter types: boxed optional
+scalars are loaded per use for concrete scalar parameters, then widened from
+integer to float when required. Direct, typed indirect, and source-emitted method
+calls share this conversion. Optional destinations retain boxing and pointer
+arguments retain their representation; unboxing does not rewrite operand metadata.
+
+Runtime declarations with scalar parameters now emit their LLVM signature and
+record parameter types together. This replaces the three string-conversion
+exceptions and covers every argument position. The symbol guard checks generated
+declarations as well as literal call sites. Existing ABI signatures are preserved,
+with the HTTP boolean declaration aligned to the existing `zeroext` call convention.
+
+Semantic call checks reject an un-narrowed optional for an integer, float, or
+boolean parameter with `ن٠٠٠١`, including constructors and enum payloads. General
+`Type::compat` remains unchanged so optional/Any destinations and documented
+nullable-string contracts continue to work. Imported-body analysis remains #229;
+this is not a general optional-type soundness change.
+
+The unchanged develop compiler printed pointers for the issue reproduction at
+O0–O2 while O3 and interpreter controls passed. Focused execution tests compare
+exact output across O0–O3, `run`, and `run --jit` (currently interpreter fallback).
+Richer fixtures exposed a separate O3 repeated-call failure, reproduced without
+optionals and tracked as #404. Imported `قاسم_مشترك` return typing also retains the
+pre-existing #185 failure; neither is hidden by weakening output assertions.
+
+Validation on macOS arm64: formatting, workspace check/build, strict root-package
+Clippy with all targets/features, and workspace tests passed (2,328 passed,
+17 ignored). The focused suite covers 24 native O0–O3 executions and 40 native
+compilation refusals, plus interpreter controls. All 12 existing examples pass
+checks and match committed output under `run`, `run --jit`, and native execution.
+Three agents cross-reviewed implementation and tests with no remaining findings.
+
 ## 2026-10-25 — Reject string mutation through array operations (#398)
 
 String indexing remains a character read. Indexed assignment (including compound
