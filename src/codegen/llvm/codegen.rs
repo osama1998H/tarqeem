@@ -1914,6 +1914,7 @@ impl LlvmCodegen {
                 array,
                 elem_ty,
             } => {
+                self.require_array_mutation_receiver(*array)?;
                 let dest_name = self.get_or_create_var(*dest);
                 let array_name = self.get_var(*array)?;
                 let llvm_ty = self.type_mapper.map_type(elem_ty);

@@ -664,12 +664,7 @@ impl IrBuilder {
             }
 
             "احذف_آخر" => {
-                // The array is the only place the element type can come from —
-                // `ألحق` can fall back on the pushed value's type, and there is
-                // no value here. Guessing `عدد` would read a `double` slot as a
-                // raw bit pattern, silently, so a non-array is refused instead.
-                let elem_ty = Self::array_elem_ty(&arg_ty)
-                    .ok_or_else(|| Self::not_an_array(&arg_ty, "احذف_آخر"))?;
+                let elem_ty = Self::array_pop_elem_ty(&arg_ty)?;
                 let dest = self.new_var();
                 self.emit(Instruction::ArrayPop {
                     dest,
@@ -861,9 +856,7 @@ impl IrBuilder {
         ))
     }
 
-    /// The element type of an array-shaped `IrType`, through one level of
-    /// `Ptr`. `None` for anything else — each caller keeps its own fallback,
-    /// because they deliberately differ (refuse, pushed value's type, `Int`).
+    /// Extracts an array's element type through at most one pointer level.
     pub(super) fn array_elem_ty(ty: &IrType) -> Option<IrType> {
         match ty {
             IrType::Array(elem, _) => Some((**elem).clone()),
@@ -873,6 +866,15 @@ impl IrBuilder {
             },
             _ => None,
         }
+    }
+
+    fn array_pop_elem_ty(ty: &IrType) -> Result<IrType> {
+        Self::array_elem_ty(ty).ok_or_else(|| {
+            IrError::new(
+                "احذف_آخر تتطلب مصفوفة ذات نوع عنصر معلوم / \
+                 احذف_آخر requires an array with a known element type",
+            )
+        })
     }
 
     fn not_an_array(ty: &IrType, name: &str) -> IrError {
@@ -1282,11 +1284,7 @@ impl IrBuilder {
                         }
                     }
                     "احذف_آخر" => {
-                        // `is_array` admits `Ptr(Void)`, an array whose element
-                        // type was lost upstream, so this needs the fallback the
-                        // global arm refuses on — there it means "not an array",
-                        // here it means "an array we know less about".
-                        let elem_ty = Self::array_elem_ty(&obj_type).unwrap_or(IrType::Int);
+                        let elem_ty = Self::array_pop_elem_ty(&obj_type)?;
                         let dest = self.new_var();
                         self.emit(Instruction::ArrayPop {
                             dest,
