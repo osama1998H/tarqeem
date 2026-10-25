@@ -10,7 +10,9 @@ pub use debug::{debug, DebugArgs};
 use super::{Cli, Commands, PkgCommands};
 use crate::doc::{DocExtractor, HtmlGenerator, JsonGenerator, MarkdownGenerator, OutputFormat};
 use crate::error::Language;
-use crate::interpreter::{ErrorKind, Interpreter, RuntimeError};
+use crate::interpreter::{
+    flush_program_files, set_program_args, ErrorKind, Interpreter, RuntimeError,
+};
 use crate::ir::IrBuilder;
 use crate::jit::{JitConfig, JitExecutor};
 use crate::lexer::Lexer;
@@ -341,7 +343,12 @@ pub fn run(cli: Cli) -> Result<(), String> {
             compile(args, lang)
         }
 
-        Commands::Run { file, jit, profile } => run_command(file, jit, profile, cli.verbose, lang),
+        Commands::Run {
+            file,
+            jit,
+            profile,
+            args,
+        } => run_command(file, jit, profile, args, cli.verbose, lang),
 
         Commands::Debug {
             file,
@@ -406,11 +413,13 @@ pub fn run(cli: Cli) -> Result<(), String> {
 /// where the native binary prints nothing — a divergence the backend-diff job
 /// cannot see, since it compares stdout only.
 ///
-/// Stdout is flushed for the reason `trq_exit` flushes it: `process::exit` runs
-/// no destructors, so a buffered `print!` with no trailing newline would be
+/// Stdout and every writer `افتح_ملف` opened are flushed for the reason
+/// `trq_exit` flushes them: `process::exit` runs no destructors, so a buffered
+/// `print!` with no trailing newline, or a file handle's payload, would be
 /// dropped.
 fn exit_if_program_asked(err: &RuntimeError) {
     if let ErrorKind::ProgramExit(status) = err.kind {
+        flush_program_files();
         let _ = io::stdout().flush();
         let _ = io::stderr().flush();
         std::process::exit(status);
@@ -421,10 +430,21 @@ fn run_command(
     file: PathBuf,
     jit: bool,
     profile: bool,
+    args: Vec<std::ffi::OsString>,
     verbose: bool,
     lang: Language,
 ) -> Result<(), String> {
     warn_invalid_extension(&file);
+
+    // Before anything executes, so `معاملات_البرنامج` answers the same list no
+    // matter where in the program it is called. Decoded lossily to match what a
+    // natively compiled binary does with the same bytes; the program name is not
+    // in `args` at all, since clap has already taken the file argument.
+    set_program_args(
+        args.iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect(),
+    );
 
     // Arabic-only: ترقيم لغة برمجة عربية
     let source = fs::read_to_string(&file).map_err(|e| format!("لا يمكن قراءة الملف: {}", e))?;
@@ -540,6 +560,13 @@ fn run_command(
             }
         }
     }
+
+    // The mirror of `trq_runtime_cleanup`, and only on the paths where the native
+    // binary flushes too: a normal end here and `أنهِ_البرنامج` above. A run that
+    // died on `توقف` or an uncaught exception deliberately does **not** flush,
+    // because `trq_panic` does not either — flushing here would make the
+    // interpreter keep bytes the compiled program loses.
+    flush_program_files();
 
     Ok(())
 }
@@ -775,6 +802,14 @@ fn repl_command(verbose: bool, lang: Language) -> Result<(), String> {
             }
         }
     }
+
+    // The session *is* the process the program ran in, so leaving it is a program
+    // end like `run_command`'s: every `break` above converges here, so one call
+    // covers `خروج`, EOF and an I/O error alike. Not flushed per evaluation —
+    // buffering is observable contract, and a REPL that flushed each line would
+    // disagree with a compiled program about a handle read back before its
+    // writer landed.
+    flush_program_files();
 
     Ok(())
 }

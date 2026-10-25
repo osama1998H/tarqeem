@@ -571,3 +571,135 @@ fn test_user_request_pause_reason() {
     assert!(reason.description().contains("user") || reason.description().contains("User"));
     assert!(reason.description_ar().contains("المستخدم"));
 }
+
+/// The debug interpreter's `ArrayPop` arm is hand-mirrored from the executor's
+/// and no cross-backend test reaches this backend, so it is pinned here: the
+/// popped element, the shortened array, and the element zero for an empty one.
+#[test]
+fn test_debug_interpreter_array_pop() {
+    let mut module = Module::new("test".to_string());
+
+    let mut main_func = Function::new(
+        FuncId("main".to_string()),
+        "main".to_string(),
+        vec![],
+        IrType::Int,
+    );
+
+    let mut entry = BasicBlock::new(BlockId(0));
+
+    entry.instructions.push(Instruction::Const {
+        dest: VarId(0),
+        value: Constant::Int(4),
+        ty: IrType::Int,
+    });
+    entry.instructions.push(Instruction::NewArray {
+        dest: VarId(1),
+        elem_ty: IrType::Int,
+        elements: vec![VarId(0)],
+    });
+
+    entry.instructions.push(Instruction::ArrayPop {
+        dest: VarId(2),
+        array: VarId(1),
+        elem_ty: IrType::Int,
+    });
+    // The array is empty now, so this second pop takes the zero path.
+    entry.instructions.push(Instruction::ArrayPop {
+        dest: VarId(3),
+        array: VarId(1),
+        elem_ty: IrType::Int,
+    });
+    entry.instructions.push(Instruction::ArrayLen {
+        dest: VarId(4),
+        array: VarId(1),
+    });
+
+    // 4 + 0 + 0 — the element, the zero, and the length left behind.
+    entry.instructions.push(Instruction::Binary {
+        dest: VarId(5),
+        op: crate::ir::BinaryOp::Add,
+        left: VarId(2),
+        right: VarId(3),
+        ty: IrType::Int,
+    });
+    entry.instructions.push(Instruction::Binary {
+        dest: VarId(6),
+        op: crate::ir::BinaryOp::Add,
+        left: VarId(5),
+        right: VarId(4),
+        ty: IrType::Int,
+    });
+    entry.instructions.push(Instruction::Return {
+        value: Some(VarId(6)),
+    });
+
+    main_func.blocks.push(entry);
+    module.functions.push(main_func);
+
+    let mut interpreter = DebugInterpreter::new(module, DebugContext::new());
+    interpreter.start().unwrap();
+
+    match interpreter.run().unwrap() {
+        StepResult::Completed(value) => {
+            assert_eq!(value, crate::interpreter::Value::Int(4));
+        }
+        other => panic!("Expected Completed, got {:?}", other),
+    }
+}
+
+/// The debug interpreter is the fourth backend and no cross-backend test reaches
+/// it, so B6 is pinned here through real source rather than a hand-built module:
+/// the defect is a *type-inference* one, and only the full
+/// parse → analyze → link → build pipeline reproduces it.
+///
+/// Composition, never printing: `اطبع(ح)` was correct with the sentinel too,
+/// because `Print` routes a pointer through the same arm as a string. Measured
+/// before the fix in this backend, `نوع(ح)` answered `مؤشر` and `"X" + ح` failed
+/// with «متوقع عدد، وُجد string» — the builder had already chosen integer
+/// addition. The last row is the totality half: `س[9]` used to raise here.
+#[test]
+fn test_debug_interpreter_bound_character_composes_as_a_string() {
+    use crate::ir::IrBuilder;
+    use crate::parser::Parser;
+    use crate::semantic::Analyzer;
+
+    let source = "بسم_الله
+دالة رئيسية() {
+    متغير س = \"مرحبا\"
+    لكل ح في س {
+        اطبع(نوع(ح))
+        اطبع(\"X\" + ح)
+        اطبع(ح == \"م\")
+        اطبع(طول(ح))
+        أوقف
+    }
+    اطبع(طول(س[9]))
+}
+الحمد_لله";
+
+    let ast = Parser::new(source).parse().expect("يجب أن يُحلَّل البرنامج");
+
+    let mut analyzer = Analyzer::new();
+    analyzer
+        .analyze(&ast)
+        .unwrap_or_else(|d| panic!("فشل التحليل الدلالي: {:?}", d));
+
+    let mut warnings = Vec::new();
+    let linked = analyzer
+        .linked_ast(&ast, &mut warnings)
+        .expect("يجب أن يُدمَج التمهيد");
+
+    let module = IrBuilder::new("تنقيح".to_string())
+        .build(&linked)
+        .expect("يجب أن يُبنى التمثيل الوسيط");
+
+    let mut debugger = DebugInterpreter::new(module, DebugContext::new());
+    debugger.run().expect("يجب أن يكتمل التنفيذ");
+
+    assert_eq!(
+        debugger.context().output(),
+        ["نص", "Xم", "صحيح", "1", "0"],
+        "مفسّر التنقيح لا يوافق بقية الخلفيات على الحرف المستخرج من نص"
+    );
+}

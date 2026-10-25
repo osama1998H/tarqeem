@@ -74,7 +74,7 @@ impl Analyzer {
                 self.resolve_member_type(&object_type, property, expr.span, receiver_is_class)
             }
 
-            ExprKind::Index { object, index } => self.infer_index_expr(object, index, expr.span),
+            ExprKind::Index { object, index } => self.infer_index_expr(object, index, false),
 
             ExprKind::Assignment { target, value } => {
                 self.infer_assignment_expr(target, value, expr.span)
@@ -85,9 +85,12 @@ impl Analyzer {
                 op: _,
                 value,
             } => {
-                self.infer_type(target);
+                let target_type = match &target.kind {
+                    ExprKind::Index { object, index } => self.infer_index_expr(object, index, true),
+                    _ => self.infer_type(target),
+                };
                 self.infer_type(value);
-                self.infer_type(target)
+                target_type
             }
 
             ExprKind::Array(elements) => self.infer_array_expr(elements),
@@ -253,10 +256,11 @@ impl Analyzer {
                     );
                 }
 
+                let mut first_arg_type = None;
                 for (i, (arg, param_type)) in args.iter().zip(params.iter()).enumerate() {
                     let arg_type =
                         self.with_expected(Some(param_type.clone()), |a| a.infer_type(arg));
-                    if !self.is_assignable(&arg_type, param_type) {
+                    if !self.is_call_arg_assignable(&arg_type, param_type) {
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
@@ -265,9 +269,20 @@ impl Analyzer {
                             &ERR_TYPE_MISMATCH.to_string(),
                         );
                     }
+                    if i == 0 {
+                        first_arg_type = Some(arg_type);
+                    }
                 }
 
-                *return_type
+                let callee_is_builtin = matches!(&callee.kind,
+                    ExprKind::Identifier(name) if self.scope.resolves_to_builtin(name));
+                Self::element_typed_return(
+                    callee,
+                    &params,
+                    *return_type,
+                    first_arg_type,
+                    callee_is_builtin,
+                )
             }
             Type::Any => {
                 for arg in args {
@@ -285,9 +300,42 @@ impl Analyzer {
         }
     }
 
+    /// `احذف_آخر` alone answers its argument's element type, which the builtin
+    /// table cannot express — its return column is a constant. So it is derived
+    /// here, the way `infer_index_expr` derives the type of `س[ي]`; without it
+    /// every use of a popped value composes at `أي`.
+    ///
+    /// The shadowing gate is the binding tier, not the signature: a user
+    /// binding of the exact shape `(أي) -> أي` — a `م: أي` function, or an
+    /// unannotated lambda — would satisfy a signature test, so the scope is
+    /// asked whether the name still resolves to the builtin registration.
+    fn element_typed_return(
+        callee: &Expr,
+        params: &[Type],
+        return_type: Type,
+        first_arg_type: Option<Type>,
+        callee_is_builtin: bool,
+    ) -> Type {
+        let is_the_builtin = callee_is_builtin
+            && matches!(&callee.kind, ExprKind::Identifier(name) if name == "احذف_آخر")
+            && return_type == Type::Any
+            && params == [Type::Any];
+
+        if is_the_builtin {
+            if let Some(Type::Array(elem)) = first_arg_type {
+                return *elem;
+            }
+        }
+
+        return_type
+    }
+
     /// Infer index expression type.
-    fn infer_index_expr(&mut self, object: &Expr, index: &Expr, _span: Span) -> Type {
+    fn infer_index_expr(&mut self, object: &Expr, index: &Expr, writable: bool) -> Type {
         let object_type = self.infer_type(object);
+        if writable {
+            self.check_index_write_receiver(&object_type, object.span);
+        }
         let index_type = self.infer_type(index);
 
         match object_type {
@@ -322,6 +370,20 @@ impl Analyzer {
                 );
                 Type::Error
             }
+        }
+    }
+
+    fn check_index_write_receiver(&mut self, object_type: &Type, span: Span) {
+        let mut receiver_type = object_type;
+        while let Type::Optional(inner) = receiver_type {
+            receiver_type = inner;
+        }
+        if matches!(receiver_type, Type::String) {
+            self.error_with_code(
+                "لا يمكن تعديل نص عبر الفهرسة؛ النصوص غير قابلة للتغيير / Cannot assign through a string index: strings are immutable",
+                span,
+                &ERR_TYPE_MISMATCH.to_string(),
+            );
         }
     }
 
@@ -369,7 +431,8 @@ impl Analyzer {
                 }
             }
             ExprKind::Index { object, .. } => {
-                self.infer_type(object);
+                let object_type = self.infer_type(object);
+                self.check_index_write_receiver(&object_type, object.span);
             }
             _ => {
                 self.error("هدف تعيين غير صالح", target.span);
@@ -697,7 +760,7 @@ impl Analyzer {
                     args.iter().zip(expected_params.iter()).enumerate()
                 {
                     let arg_type = self.infer_type(arg);
-                    if !self.is_assignable(&arg_type, param_type) {
+                    if !self.is_call_arg_assignable(&arg_type, param_type) {
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,
@@ -844,7 +907,7 @@ impl Analyzer {
                     for (i, (arg_ty, expected_ty)) in
                         arg_types.iter().zip(&variant.fields).enumerate()
                     {
-                        if !self.is_assignable(arg_ty, expected_ty) {
+                        if !self.is_call_arg_assignable(arg_ty, expected_ty) {
                             self.type_mismatch_error(
                                 expected_ty,
                                 arg_ty,

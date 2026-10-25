@@ -968,18 +968,14 @@ impl IrBuilder {
             ty: IrType::Int,
         });
 
-        let elem_ty = if let Some(array_ty) = self.var_types.get(&array_var.0) {
-            match array_ty {
-                IrType::Array(inner, _) => (**inner).clone(),
-                IrType::Ptr(inner) => match &**inner {
-                    IrType::Array(elem, _) => (**elem).clone(),
-                    _ => IrType::Ptr(Box::new(IrType::Void)),
-                },
-                _ => IrType::Ptr(Box::new(IrType::Void)),
-            }
-        } else {
-            IrType::Ptr(Box::new(IrType::Void))
-        };
+        // The shape where the sentinel does real damage: the binding goes
+        // through the `Alloca`/`Store`/`Load` below, and `Load` trusts the
+        // recorded type, discarding codegen's own `ArrayGet` recovery.
+        let elem_ty = self
+            .var_types
+            .get(&array_var.0)
+            .map(Self::index_elem_ty)
+            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
 
         let elem = self.new_var();
         self.emit(Instruction::ArrayGet {

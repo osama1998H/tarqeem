@@ -43,18 +43,66 @@ pub(crate) use executor::builtins::call_substring_by_chars;
 /// map, the byte-range rejection and the empty-versus-failed answers are all
 /// contract, and all live in the one dispatch.
 pub(crate) use executor::builtins::call_write_stream;
+/// The slicer under both `قص_حروف` and `س[ي]`, shared so a string index is total
+/// in the same way in both interpreters and in `trq_string_char_at`, which is
+/// this operation at length one.
+pub(crate) use executor::builtins::substring_by_chars;
 
 /// Shared with the debug interpreter for the same reason, and its sibling:
 /// the read half of the byte-level stream pair.
 pub(crate) use executor::builtins::call_read_stream;
 
+/// Shared with the debug interpreter so a handle carries the same number and the
+/// same refusals in both — the table it files into is module state in that file,
+/// so a second dispatch would be a second table.
+pub(crate) use executor::builtins::call_file_open;
+
+/// Shared for its sibling's reason: it *removes* from that same table, so a
+/// second dispatch would release a handle in one interpreter and leave it open in
+/// the other.
+pub(crate) use executor::builtins::call_file_close;
+
+/// Shared with the debug interpreter so `mkdir(2)`'s refusals — a missing
+/// parent, an existing entry of any kind — answer identically in both.
+pub(crate) use executor::builtins::call_dir_create;
+/// Shared with the debug interpreter so `getcwd(2)`'s answer — the directory
+/// verbatim, lossily decoded, `""` for a cwd the OS cannot report — is one
+/// answer in both.
+pub(crate) use executor::builtins::call_dir_current;
+/// Shared with the debug interpreter so `readdir(3)`'s answer — bare names,
+/// sorted by code point, lossily decoded, the empty array for every refusal —
+/// is one answer in both.
+pub(crate) use executor::builtins::call_dir_list;
+pub(crate) use executor::builtins::call_path_delete;
+/// Shared with the debug interpreter so `rename(2)`'s destination rule — a
+/// regular file is replaced, any other occupied destination refuses — answers
+/// identically in both.
+pub(crate) use executor::builtins::call_path_move;
 /// Shared for a reason the others do not have: the kind/size mapping is already
 /// duplicated once, in `trq_path_status`, because the compiler crate does not
 /// depend on `tarqeem-runtime`. A third copy in the debug interpreter would give
 /// it two ways to drift instead of one.
 pub(crate) use executor::builtins::call_path_status;
+/// Shared with the debug interpreter so an unset argument list answers the same
+/// empty array in both. Unlike its neighbours this has no `runtime-rs` twin: the
+/// runtime reads its own `main`'s argv while this reads what the CLI was handed,
+/// so the two sides have nothing to share and nothing to drift.
+pub(crate) use executor::builtins::call_program_args;
+/// Flushes every writer `افتح_ملف` opened. Called by the CLI where a program
+/// ends, mirroring `trq_runtime_cleanup` and `trq_exit`.
+pub use executor::builtins::flush_program_files;
+/// Recorded by the CLI before a program runs; read by `معاملات_البرنامج`.
+pub use executor::builtins::set_program_args;
 pub use executor::Interpreter;
 pub use value::Value;
 
-/// Shared with the debug interpreter so both time builtins agree (#241).
+/// Shared with the debug interpreter so `وقت_الآن` agrees between them (#241).
 pub(crate) use executor::builtins::epoch_millis;
+
+/// The same, for `وقت_أداء` — a *different* clock since #389, when sharing one
+/// with `وقت_الآن` turned out to be the defect rather than the safeguard.
+pub(crate) use executor::builtins::monotonic_millis;
+
+/// Shared with the debug interpreter so `احذف_آخر`'s empty-array answer cannot
+/// drift between the two.
+pub(crate) use executor::element_zero;

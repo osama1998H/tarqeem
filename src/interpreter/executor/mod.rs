@@ -665,6 +665,11 @@ impl Interpreter {
                         let len = s.chars().count() as i64;
                         self.set_local(*dest, Value::Int(len));
                     }
+                    // `trq_string_len_chars` and `trq_array_len` both answer `0`
+                    // for a null, so `لكل ح في س` runs zero trips natively where
+                    // raising here halted it — the same divergence the index arm
+                    // below closes, on the operation that counts its iterations.
+                    Value::Null => self.set_local(*dest, Value::Int(0)),
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 }
                 Ok(InstructionResult::Continue)
@@ -688,13 +693,11 @@ impl Interpreter {
                         }
                         arr_ref[idx as usize].clone()
                     }
-                    Value::String(s) => {
-                        let chars: Vec<char> = s.chars().collect();
-                        if idx < 0 || (idx as usize) >= chars.len() {
-                            return Err(RuntimeError::index_out_of_bounds(idx, chars.len()));
-                        }
-                        Value::string(chars[idx as usize].to_string())
-                    }
+                    // A string index is `قص_حروف` at length one, so it inherits that
+                    // name's totality — including its `Null` answer, which native
+                    // reaches by guarding a null `TrqString*`.
+                    Value::String(s) => Value::string(builtins::substring_by_chars(&s, idx, 1)),
+                    Value::Null => Value::string(""),
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 };
 
@@ -738,6 +741,30 @@ impl Interpreter {
                     }
                     _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
                 }
+                Ok(InstructionResult::Continue)
+            }
+
+            Instruction::ArrayPop {
+                dest,
+                array,
+                elem_ty,
+            } => {
+                let arr_val = self.get_local(*array)?;
+
+                // An empty array and `لا_شيء` both answer the element type's
+                // zero, matching `trq_array_pop`'s zero buffer. Failing on
+                // either here while codegen answers a value would put the
+                // backends at odds in a documented row of the contract.
+                let result = match arr_val {
+                    Value::Array(arr) => arr
+                        .borrow_mut()
+                        .pop()
+                        .unwrap_or_else(|| element_zero(elem_ty)),
+                    Value::Null => element_zero(elem_ty),
+                    _ => return Err(RuntimeError::type_error("array", arr_val.type_name())),
+                };
+
+                self.set_local(*dest, result);
                 Ok(InstructionResult::Continue)
             }
 
@@ -1058,6 +1085,21 @@ impl Interpreter {
         self.call_stack
             .last_mut()
             .and_then(|frame| frame.try_stack.pop())
+    }
+}
+
+/// What `احذف_آخر` answers when there is nothing to remove — mirroring the
+/// eight zero bytes `trq_array_pop` hands codegen; a reference element type
+/// answers `لا_شيء`, the one contract row left unpinned (#359). Shared with
+/// the debug interpreter so the two zeros cannot drift (the `epoch_millis`
+/// pattern).
+pub(crate) fn element_zero(elem_ty: &IrType) -> Value {
+    match elem_ty {
+        IrType::Int => Value::Int(0),
+        IrType::Float => Value::Float(0.0),
+        IrType::Bool => Value::Bool(false),
+        IrType::String => Value::string(String::new()),
+        _ => Value::Null,
     }
 }
 

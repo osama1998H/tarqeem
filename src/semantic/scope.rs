@@ -178,9 +178,24 @@ impl Scope {
             ("تأكد_رسالة", vec![Type::Bool, Type::String], Type::Void),
             ("توقف", vec![Type::String], Type::Void),
             ("نم", vec![Type::Int], Type::Void),
+            // Monotonic clock - الساعة التي لا تتراجع
+            // A distinct OS service from the wall clock `وقت_الآن` reads:
+            // milliseconds since an arbitrary origin inside *this* process, so
+            // only differences mean anything. Core tier since #389, promoted out
+            // of `وقت` on the #336/#373 pattern because §3.1 forbids a stdlib
+            // wrapper over a live builtin of the same name.
+            ("وقت_أداء", vec![], Type::Int),
             // Arrays - دوال المصفوفات
             ("طول_مصفوفة", vec![Type::Any], Type::Int),
-            ("الحق", vec![Type::Any, Type::Any], Type::Void),
+            (
+                "ألحق",
+                vec![Type::Array(Box::new(Type::Any)), Type::Any],
+                Type::Void,
+            ),
+            // The `أي` return is a placeholder: the real answer is the array's
+            // element type, derived at the call site in `infer_call_expr` —
+            // the only core entry whose return depends on an argument.
+            ("احذف_آخر", vec![Type::Any], Type::Any),
             // Strings - دوال النصوص
             // The codepoint slicer, and core tier rather than the `نص` module
             // because §5.2 keeps a no-import name a builtin: it indexes by
@@ -203,7 +218,7 @@ impl Scope {
             ("رمز_إلى_حرف", vec![Type::Int], Type::String),
             // The byte bridge. `مصفوفة<عدد>` rather than `أي` — the only core
             // entry with a concrete array type, and it is what types the
-            // element for `س[ي]`; `طول_مصفوفة`/`الحق` take `أي` and cannot.
+            // element for `س[ي]`; `طول_مصفوفة` takes `أي` and cannot.
             (
                 "نص_إلى_ثنائي",
                 vec![Type::String],
@@ -271,6 +286,31 @@ impl Scope {
                 vec![Type::Int, Type::Int],
                 Type::Array(Box::new(Type::Int)),
             ),
+            // File opening - فتح الملف
+            // `open(2)`, folding the three path-only openers in `runtime-rs`
+            // behind one mode: `٠` قراءة، `١` كتابة، `٢` إلحاق. The answer is a
+            // descriptor the stream pair can name — always `٣` or more, so it
+            // never collides with a console stream.
+            //
+            // `-١` on failure, not `٠`: `٠` is stdin in `اقرأ_مجرى`, so a failed
+            // open answering it would read the keyboard instead of erroring. Any
+            // other mode is refused before the path is touched, so a bad mode
+            // creates nothing — and that includes `٣`, which
+            // `stdlib/ملفات/ملف.ترقيم` calls `وضع_قراءة_كتابة` and no handle
+            // kind here can serve.
+            ("افتح_ملف", vec![Type::String, Type::Int], Type::Int),
+            // File closing - إغلاق الملف
+            // `close(2)`, and the name that makes written bytes land *sooner*
+            // than program end: `اكتب_مجرى`'s handle path does not flush, so
+            // without this a program cannot read back what it just wrote.
+            //
+            // The answer folds the flush, so `صحيح` means "released, and a
+            // writer's bytes are away". `خطأ` covers a handle already released,
+            // one never opened, a negative one, the console streams `٠`/`١`/`٢`
+            // — which are never in the table, since handles start at `٣` — and a
+            // flush that failed, all indistinguishably: `منطقي` has no third
+            // value to separate them with.
+            ("اغلق_ملف", vec![Type::Int], Type::Bool),
             // Path status - حالة المسار
             // `stat(2)`, one field per call so the answer stays an `عدد` and no
             // struct crosses the FFI. `حقل ٠` is the kind — `٠` معدوم، `١` ملف،
@@ -284,6 +324,87 @@ impl Scope {
             // exists and is not a file, so those first two disagree about it and
             // three values could not carry both.
             ("حالة_مسار", vec![Type::String, Type::Int], Type::Int),
+            // Path deletion - حذف المسار
+            // `unlink(2)` for a file, `rmdir(2)` for an empty directory, chosen
+            // by **lstat**: a symlink is unlinked, never rmdir'd, so this acts on
+            // the name where `حالة_مسار` answers about the target. Not recursive
+            // — a non-empty directory answers `خطأ`, which keeps `احذف_مجلد`'s
+            // contract when it becomes a wrapper. Total: absent, empty and
+            // `لا_شيء` all answer `خطأ`.
+            ("احذف_مسار", vec![Type::String], Type::Bool),
+            // Directory creation - إنشاء المجلد
+            // `mkdir(2)`, the create half `احذف_مسار` removes: no composition of
+            // open/read/write/close/stat makes a directory exist. **Not
+            // recursive** — a missing parent answers `خطأ`, and the stdlib loop
+            // is where recursion lives, so `احذف_مسار`'s one-level contract has
+            // a one-level inverse. Total: an existing directory, an existing
+            // file, an existing symlink — dangling included, since the *entry*
+            // is what blocks the name — an empty name and `لا_شيء` all answer
+            // `خطأ`, indistinguishably; `صحيح` means this call created it.
+            ("انشئ_مجلد", vec![Type::String], Type::Bool),
+            // Path move - نقل المسار
+            // `rename(2)`, **atomic** — copy-then-delete is not, and the
+            // difference is observable. Acts on the *name* at both ends: a
+            // symlink moves as itself, dangling included, its target never
+            // consulted — the scope `مسار` names, so the #352 rename
+            // (`حالة_ملف` → `حالة_مسار`) applies to the mover too (#368,
+            // renamed from `انقل_ملف`). An existing destination is replaced
+            // only when it is a regular file, which keeps the atomic
+            // write-temp-then-rename idiom; any other existing destination —
+            // directory, symlink, device — answers `خطأ` on every platform
+            // alike. Total: absent source, a missing destination parent, a
+            // cross-device move, empty names and `لا_شيء` in either argument
+            // all answer `خطأ`, indistinguishably.
+            ("انقل_مسار", vec![Type::String, Type::String], Type::Bool),
+            // Directory listing - قائمة المجلد
+            // `readdir(3)`, the enumerating quarter of the path family:
+            // `حالة_مسار` asks, `احذف_مسار` removes, `انشئ_مجلد` creates, and
+            // this lists — entries are not readable through a byte stream, so
+            // no composition of the others reaches them. Entries are **bare
+            // names, sorted by code point** (raw readdir order is
+            // filesystem-dependent, so it cannot sit in a contract row), with
+            // `.`/`..` excluded and a non-UTF-8 name decoded lossily rather
+            // than dropped, on `معاملات_البرنامج`'s argv rule. Total: absent,
+            // a file, unreadable, empty and `لا_شيء` all answer the empty
+            // array, indistinguishable from an empty directory — an array has
+            // no spare value for a refusal, the conflation `اقرأ_مجرى` already
+            // carries — and the path *follows* a symlink the way `حالة_مسار`
+            // does.
+            (
+                "قائمة_مجلد",
+                vec![Type::String],
+                Type::Array(Box::new(Type::String)),
+            ),
+            // Current directory - المجلد الحالي
+            // `getcwd(2)`, the place the path family's relative paths resolve
+            // against: process state, not environment — `$PWD` is
+            // shell-maintained and stale after any chdir, so `متغير_بيئة`
+            // cannot serve it (#373, promoted out of `ملفات` on the
+            // #336/#366/#370 pattern). The answer is the directory as the OS
+            // reports it, verbatim; a non-UTF-8 path is decoded lossily on
+            // `معاملات_البرنامج`'s argv rule. Total: zero arguments, and a cwd
+            // the OS cannot report answers `""` — collision-free, unlike
+            // `متغير_بيئة`'s conflated `""`, because no legitimate working
+            // directory is the empty string.
+            ("مجلد_حالي", vec![], Type::String),
+            // Program arguments - معاملات البرنامج
+            // The vector the OS hands over at `execve`, which nothing in the
+            // language can otherwise reach: `متغير_بيئة` reads a different
+            // vector, and no path primitive opens `/proc/self/cmdline`.
+            //
+            // `argv[0]` is excluded, and that is what keeps the backends
+            // agreeing: natively it is the compiled binary's path, interpreted
+            // it would be the `.ترقيم` source path. Excluding it makes the
+            // no-argument case an empty array identically everywhere.
+            //
+            // Total: no failure mode. No arguments answers an empty array — a
+            // value, not a sentinel — and an argument that is not valid UTF-8
+            // is decoded lossily rather than dropped.
+            (
+                "معاملات_البرنامج",
+                vec![],
+                Type::Array(Box::new(Type::String)),
+            ),
             // Termination - إنهاء البرنامج
             // `exit(2)`, which `توقف` cannot serve: that one is always status 1
             // and always prints. Total — the status is `حالة & ٢٥٥`, so every
@@ -654,22 +775,19 @@ impl Scope {
                     vec![Type::String, Type::String],
                     Type::Bool,
                 )),
-                "انقل_ملف" => Some(builtin(
-                    "انقل_ملف",
-                    vec![Type::String, Type::String],
-                    Type::Bool,
-                )),
+                // `انقل_ملف` used to sit here and is now the core-tier
+                // `انقل_مسار` (#368), so it needs no import — the #352 rename
+                // (`حالة_ملف` → `حالة_مسار`) applied to the mover, carried by
+                // the same promotion `انشئ_مجلد` made at #366.
                 "حجم_ملف" => Some(builtin("حجم_ملف", vec![Type::String], Type::Int)),
 
-                // Directory operations
-                "انشئ_مجلد" => Some(builtin("انشئ_مجلد", vec![Type::String], Type::Bool)),
-                "قائمة_مجلد" => Some(builtin(
-                    "قائمة_مجلد",
-                    vec![Type::String],
-                    Type::Array(Box::new(Type::String)),
-                )),
+                // Directory operations. `انشئ_مجلد` used to sit here and is now
+                // core tier (#366), so it needs no import — the same promotion
+                // `قص_حروف` made out of `نص` at #336 — and `قائمة_مجلد`
+                // followed it out at #370, spelling unchanged, closing
+                // Category 7. `مجلد_حالي` made the same move at #373, the last
+                // `مدمج`-verdict name this module held.
                 "احذف_مجلد" => Some(builtin("احذف_مجلد", vec![Type::String], Type::Bool)),
-                "مجلد_حالي" => Some(builtin("مجلد_حالي", vec![], Type::String)),
                 "مجلد_مستخدم" => Some(builtin("مجلد_مستخدم", vec![], Type::String)),
                 "مجلد_مؤقت" => Some(builtin("مجلد_مؤقت", vec![], Type::String)),
 
@@ -693,8 +811,10 @@ impl Scope {
             // وقت (Time) - Time functions
             // =======================================================================
             "وقت" => match name {
+                // `وقت_أداء` moved to the core tier at #389 — still callable, now
+                // with no import — as `قص_حروف` did out of `نص` at #336.
+                // `وقت_الآن` is the last name here, and `مدمج`-verdict too.
                 "وقت_الآن" => Some(builtin("وقت_الآن", vec![], Type::Int)),
-                "وقت_أداء" => Some(builtin("وقت_أداء", vec![], Type::Int)),
                 _ => None,
             },
 
@@ -991,12 +1111,8 @@ impl Scope {
                 "الحق_ملف",
                 "احذف_ملف",
                 "انسخ_ملف",
-                "انقل_ملف",
                 "حجم_ملف",
-                "انشئ_مجلد",
-                "قائمة_مجلد",
                 "احذف_مجلد",
-                "مجلد_حالي",
                 "مجلد_مستخدم",
                 "مجلد_مؤقت",
                 "ادمج_مسار",
@@ -1005,7 +1121,7 @@ impl Scope {
                 "امتداد_ملف",
                 "فاصل_مسار",
             ],
-            "وقت" => vec!["وقت_الآن", "وقت_أداء"],
+            "وقت" => vec!["وقت_الآن"],
             "تشفير" => vec![
                 "احسب_بصمة",
                 "بصمة_ملف",
@@ -1112,6 +1228,21 @@ impl Scope {
             parent.lookup(name)
         } else {
             None
+        }
+    }
+
+    /// Whether `name` resolves to a builtin registration rather than a user
+    /// binding. Mirrors `lookup`'s traversal: the first scope whose symbols
+    /// hold the name decides, and `define` evicts a displaced builtin from
+    /// `builtin_names` (#262), so a user declaration in any scope answers false.
+    pub fn resolves_to_builtin(&self, name: &str) -> bool {
+        let normalized = normalize_name(name);
+        if self.symbols.contains_key(&normalized) {
+            self.builtin_names.contains(&normalized)
+        } else if let Some(parent) = &self.parent {
+            parent.resolves_to_builtin(name)
+        } else {
+            false
         }
     }
 

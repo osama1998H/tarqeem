@@ -9,13 +9,15 @@
 //!
 //! No execution test can catch this class, because a symbol only reaches the
 //! linker if some program happens to call it, and no `examples/*.ترقيم` calls
-//! the date, time or base64 builtins. So this checks the two source trees
-//! directly. It builds nothing and runs nothing, which is why it is not named
-//! `*_execution_tests.rs`.
+//! the date, time or base64 builtins. This checks generated declarations and
+//! literal call sites against runtime source without linking a native program.
 
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
+
+use tarqeem::codegen::{llvm::LlvmCodegen, Target};
+use tarqeem::ir::Module;
 
 fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -45,14 +47,16 @@ const KNOWN_UNDEFINED: &[(&str, &str)] = &[
     ("trq_datetime_parse", "#298"),
 ];
 
-/// Every `@trq_*` name codegen can emit a `declare` or a `call` for.
-///
-/// Codegen never assembles these names dynamically — every occurrence is a
-/// literal — so scanning the source text has no blind spot.
+/// Generated declarations plus literal runtime call sites in codegen.
 fn declared_symbols() -> BTreeSet<String> {
     let path = project_root().join("src/codegen/llvm/codegen.rs");
-    let source = fs::read_to_string(&path)
+    let mut source = fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e));
+    let module = Module::new("runtime_symbols".to_string());
+    let declarations = LlvmCodegen::new(Target::native())
+        .generate(&module)
+        .expect("runtime declarations must generate");
+    source.push_str(&declarations);
 
     let mut symbols = BTreeSet::new();
     for (index, _) in source.match_indices("@trq_") {

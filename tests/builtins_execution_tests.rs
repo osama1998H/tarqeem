@@ -3,8 +3,9 @@
 //! Six of the core builtins type-checked and ran under the interpreter while
 //! failing to compile natively, because `get_runtime_function_name` never knew
 //! their names and codegen fell through to mangling the Arabic identifier — a
-//! call to a symbol nothing defines. Two more (`طول_مصفوفة`, `الحق`) had the
-//! mirror problem: a native mapping with no interpreter implementation.
+//! call to a symbol nothing defines. Two more (`طول_مصفوفة`, `ألحق` — spelled
+//! `الحق` until #375) had the mirror problem: a native mapping with no
+//! interpreter implementation.
 //!
 //! Nothing caught that, because no test ran a core builtin in more than one
 //! backend. So every fixture here asserts *stdout*, under all three backends,
@@ -241,6 +242,21 @@ fn execute_with_stdin(backend: Backend, main: &Path, tag: &str, stdin: &[u8]) ->
     execute_with_env_and_stdin(backend, main, tag, &[], Some(stdin))
 }
 
+/// `execute` with arguments for the **program**, not for `tarqeem`.
+///
+/// `معاملات_البرنامج` is the third builtin whose answer comes from outside the
+/// source, after the environment (#338) and stdin (#350), and it needs the same
+/// treatment for the same reason: a test cannot set its own process's argv any
+/// more than it can `set_var`. The arguments go on the child.
+///
+/// The split the other two make applies here too, and is easy to get backwards:
+/// on the native leg they belong to the **executed binary**, never to `compile`.
+/// The interpreter and JIT legs take them after the file name, where clap's
+/// `trailing_var_arg` collects them.
+fn execute_with_args(backend: Backend, main: &Path, tag: &str, args: &[&str]) -> Output {
+    execute_all(backend, main, tag, &[], None, args)
+}
+
 fn execute_with_env_and_stdin(
     backend: Backend,
     main: &Path,
@@ -248,12 +264,38 @@ fn execute_with_env_and_stdin(
     env: &[(&str, &str)],
     stdin: Option<&[u8]>,
 ) -> Output {
+    execute_all(backend, main, tag, env, stdin, &[])
+}
+
+fn execute_all(
+    backend: Backend,
+    main: &Path,
+    tag: &str,
+    env: &[(&str, &str)],
+    stdin: Option<&[u8]>,
+    prog_args: &[&str],
+) -> Output {
     let cwd = main.parent().expect("للبرنامج مجلد");
     let arg = main.to_str().expect("مسار غير صالح");
 
+    // The program's arguments follow the file name, where clap's
+    // `trailing_var_arg` collects them.
+    fn cli_line<'a>(head: &[&'a str], prog_args: &[&'a str]) -> Vec<&'a str> {
+        let mut all = head.to_vec();
+        all.extend_from_slice(prog_args);
+        all
+    }
+
     match backend {
-        Backend::Interpreter => tarqeem_with_env_and_stdin(&["run", arg], cwd, env, stdin),
-        Backend::Jit => tarqeem_with_env_and_stdin(&["run", "--jit", arg], cwd, env, stdin),
+        Backend::Interpreter => {
+            tarqeem_with_env_and_stdin(&cli_line(&["run", arg], prog_args), cwd, env, stdin)
+        }
+        Backend::Jit => tarqeem_with_env_and_stdin(
+            &cli_line(&["run", "--jit", arg], prog_args),
+            cwd,
+            env,
+            stdin,
+        ),
         Backend::Native => {
             // The only backend that links, so the only one needing libtrq.a.
             ensure_runtime_library();
@@ -267,6 +309,7 @@ fn execute_with_env_and_stdin(
 
             let mut runner = Command::new(&exe);
             runner.envs(env.iter().copied());
+            runner.args(prog_args);
             let run = match stdin {
                 None => runner
                     .output()
@@ -311,12 +354,53 @@ fn assert_prints_with_stdin(name: &str, body: &str, stdin: &[u8], expected: &[&s
     }
 }
 
-/// `assert_prints` with fixture files on disk, whose **absolute** paths are
+/// What `assert_prints_with_tree` puts on disk for one fixture name.
+///
+/// `Symlink`'s target is another name in the same directory and **need not
+/// exist** — a dangling link is a contract row for `احذف_مسار`, not a mistake.
+/// A fixture that is the target of a later `Symlink` must come before it.
+#[derive(Clone, Copy)]
+enum Fixture<'a> {
+    File(&'a str),
+    EmptyDir,
+    #[cfg(unix)]
+    Symlink {
+        to: &'a str,
+    },
+}
+
+/// Builds the fixture tree from scratch, removing whatever the previous backend
+/// leg left behind.
+///
+/// `remove_file` comes first because it is what unlinks a **symlink**;
+/// `remove_dir_all` refuses one rather than following it.
+fn materialize(dir: &Path, fixtures: &[(&str, Fixture)]) {
+    for (fixture_name, _) in fixtures {
+        let path = dir.join(fixture_name);
+        if fs::remove_file(&path).is_err() {
+            let _ = fs::remove_dir_all(&path);
+        }
+    }
+
+    for (fixture_name, fixture) in fixtures {
+        let path = dir.join(fixture_name);
+        match fixture {
+            Fixture::File(contents) => fs::write(&path, contents).expect("تعذّر كتابة ملف التجربة"),
+            Fixture::EmptyDir => fs::create_dir(&path).expect("تعذّر إنشاء مجلد التجربة"),
+            #[cfg(unix)]
+            Fixture::Symlink { to } => {
+                std::os::unix::fs::symlink(dir.join(to), &path).expect("تعذّر إنشاء وصلة التجربة")
+            }
+        }
+    }
+}
+
+/// `assert_prints` with a fixture tree on disk, whose **absolute** paths are
 /// substituted into `body`.
 ///
-/// Each `(name, contents)` pair is written into the same `TempDir` the program
-/// lives in, and every `{مسار}` in `body` becomes the absolute path of the
-/// first pair, `{مسار٢}` the second, and so on.
+/// Each fixture is created inside the same `TempDir` the program lives in, and
+/// every `{مسار}` in `body` becomes the absolute path of the first fixture,
+/// `{مسار2}` the second, and so on.
 ///
 /// Absolute, not relative: the native leg runs the compiled binary directly and
 /// inherits no working directory from the source's location, so a relative
@@ -329,15 +413,49 @@ fn assert_prints_with_stdin(name: &str, body: &str, stdin: &[u8], expected: &[&s
 /// Tarqeem programs in this file use Latin digits throughout — the Arabic-Indic
 /// ones here are all prose. `examples/` is where the other convention lives.
 ///
-/// Additive, like both of those: `assert_prints` is untouched, and a test only
-/// pays for a fixture if it names one.
-fn assert_prints_with_files(name: &str, files: &[(&str, &str)], body: &str, expected: &[&str]) {
+/// **The tree is rebuilt inside the backend loop, once per leg.** It used to be
+/// built once, before the loop, which is invisible for a primitive that only
+/// *reads* — and wrong for one that deletes: the interpreter leg would consume
+/// the fixture and the JIT and native legs would then run against an absent
+/// path, failing however correct the implementation was.
+///
+/// Additive, like `_with_env` and `_with_stdin`: `assert_prints_with_files` is
+/// one line over this, so its existing callers are untouched — rewriting the
+/// same file contents per leg is idempotent.
+fn assert_prints_with_tree(
+    name: &str,
+    fixtures: &[(&str, Fixture)],
+    body: &str,
+    expected: &[&str],
+) {
+    assert_prints_with_tree_and_contents(name, fixtures, body, expected, &[])
+}
+
+/// `assert_prints_with_tree`, plus what the tree must **contain** once the
+/// program has ended.
+///
+/// The sixth helper a primitive's contract has forced — env on the child (#338),
+/// stdin on the child (#350), fixture files (#352), a tree restored per leg
+/// (#355), arguments on the child (#360), and a file read back here.
+///
+/// `افتح_ملف` needs it because its durability row is invisible from inside the
+/// program: bytes written to a handle sit in a `BufWriter` until program end, so
+/// nothing the program can print distinguishes "flushed at exit" from "lost". The
+/// check runs **inside** the backend loop, after the tree the leg rebuilt, so a
+/// backend that drops the bytes fails on its own leg rather than on the next
+/// one's fixture.
+fn assert_prints_with_tree_and_contents(
+    name: &str,
+    fixtures: &[(&str, Fixture)],
+    body: &str,
+    expected: &[&str],
+    after: &[(&str, &str)],
+) {
     let temp = TempDir::new().unwrap();
 
     let mut resolved = body.to_string();
-    for (index, (file_name, contents)) in files.iter().enumerate() {
-        let path = temp.path().join(file_name);
-        fs::write(&path, contents).expect("تعذّر كتابة ملف التجربة");
+    for (index, (fixture_name, _)) in fixtures.iter().enumerate() {
+        let path = temp.path().join(fixture_name);
         let placeholder = match index {
             0 => "{مسار}".to_string(),
             other => format!("{{مسار{}}}", other + 1),
@@ -353,13 +471,60 @@ fn assert_prints_with_files(name: &str, files: &[(&str, &str)], body: &str, expe
         !resolved.contains("{مسار"),
         "بقي موضع مسار بلا استبدال في {name} / an unsubstituted path placeholder remains — \
          the fixture list has {} entries, so the placeholders are {{مسار}} then {{مسار2}}, …",
-        files.len()
+        fixtures.len()
     );
 
     let main = write_program(temp.path(), name, &resolved);
 
     for backend in Backend::ALL {
+        materialize(temp.path(), fixtures);
+
         let output = execute(backend, &main, &format!("{name}_{backend:?}"));
+
+        assert!(
+            output.succeeded(),
+            "فشل التنفيذ [{backend:?}] لـ {name}\nالمتوقع/expected: {expected:?}\n{}",
+            output.report()
+        );
+        assert_eq!(
+            output.lines(),
+            expected,
+            "خرج غير متطابق [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+
+        for (fixture_name, contents) in after {
+            let path = temp.path().join(fixture_name);
+            let found = fs::read(&path).unwrap_or_else(|error| {
+                panic!("تعذّر قراءة {fixture_name} بعد التنفيذ [{backend:?}] لـ {name}: {error}")
+            });
+            assert_eq!(
+                String::from_utf8_lossy(&found),
+                *contents,
+                "محتوى {fixture_name} بعد التنفيذ [{backend:?}] لـ {name}\n{}",
+                output.report()
+            );
+        }
+    }
+}
+
+/// `assert_prints_with_tree` where every fixture is a plain file.
+fn assert_prints_with_files(name: &str, files: &[(&str, &str)], body: &str, expected: &[&str]) {
+    let fixtures: Vec<(&str, Fixture)> = files
+        .iter()
+        .map(|(file_name, contents)| (*file_name, Fixture::File(contents)))
+        .collect();
+
+    assert_prints_with_tree(name, &fixtures, body, expected)
+}
+
+/// `assert_prints` with extra variables in each backend's environment.
+fn assert_prints_with_env(name: &str, body: &str, env: &[(&str, &str)], expected: &[&str]) {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), name, body);
+
+    for backend in Backend::ALL {
+        let output = execute_with_env(backend, &main, &format!("{name}_{backend:?}"), env);
 
         assert!(
             output.succeeded(),
@@ -375,13 +540,58 @@ fn assert_prints_with_files(name: &str, files: &[(&str, &str)], body: &str, expe
     }
 }
 
-/// `assert_prints` with extra variables in each backend's environment.
-fn assert_prints_with_env(name: &str, body: &str, env: &[(&str, &str)], expected: &[&str]) {
+/// Asserts `body` prints exactly `expected` when compiled natively at `-O 2`.
+///
+/// Only the native leg constructs an `Optimizer` — `run` and `run --jit` never
+/// do, and plain `compile` defaults to `-O 0` — so this is the one place the
+/// dce/loop_opt rows a mutating-and-yielding instruction needs are exercised
+/// end to end rather than by the passes' unit tests alone.
+fn assert_prints_native_o2(name: &str, body: &str, expected: &[&str]) {
+    ensure_runtime_library();
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), name, body);
+    let cwd = main.parent().expect("للبرنامج مجلد");
+    let arg = main.to_str().expect("مسار غير صالح");
+
+    let exe = cwd.join(format!("مخرج_{name}_o2"));
+    let exe_arg = exe.to_str().expect("مسار غير صالح").to_string();
+    let compiled = tarqeem(&["compile", arg, "-O", "2", "-o", &exe_arg], cwd);
+    assert!(
+        compiled.succeeded(),
+        "فشلت الترجمة الأصلية -O2 لـ {name}\n{}",
+        compiled.report()
+    );
+
+    let run = Command::new(&exe)
+        .output()
+        .unwrap_or_else(|e| panic!("تعذّر تشغيل {}: {}", exe.display(), e));
+    let output = Output {
+        status: run.status.code(),
+        stdout: String::from_utf8_lossy(&run.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&run.stderr).into_owned(),
+        compile_failed: false,
+    };
+    assert!(
+        output.succeeded(),
+        "فشل التنفيذ الأصلي -O2 لـ {name}\nالمتوقع/expected: {expected:?}\n{}",
+        output.report()
+    );
+    assert_eq!(
+        output.lines(),
+        expected,
+        "خرج غير متطابق [أصلي -O2] لـ {name}\n{}",
+        output.report()
+    );
+}
+
+/// Asserts `body` prints exactly `expected` under all three backends, with
+/// `args` handed to the **program** rather than to `tarqeem`.
+fn assert_prints_with_args(name: &str, body: &str, args: &[&str], expected: &[&str]) {
     let temp = TempDir::new().unwrap();
     let main = write_program(temp.path(), name, body);
 
     for backend in Backend::ALL {
-        let output = execute_with_env(backend, &main, &format!("{name}_{backend:?}"), env);
+        let output = execute_with_args(backend, &main, &format!("{name}_{backend:?}"), args);
 
         assert!(
             output.succeeded(),
@@ -474,6 +684,50 @@ fn assert_exits_with(name: &str, body: &str, status: i32, expected: &[&str]) {
             "توقّعنا ألا يُطبع شيء على stderr [{backend:?}] لـ {name}\n{}",
             output.report()
         );
+    }
+}
+
+/// Asserts `body` is refused as an undefined identifier (`د٠٠٠١`) *before
+/// anything runs*, under all three backends — the shape of a name removed from
+/// the registry outright.
+///
+/// The helper prepends the sentinel `اطبع` line itself: a runtime failure
+/// would print it first, so an empty stdout is the compile-time/run-time
+/// discriminator. `assert_fails` cannot express this — it demands the failure
+/// happen at run time — and `compile_failed` is only ever set on the native
+/// leg, so the other two legs rely on the sentinel alone. stderr must carry
+/// `د٠٠٠١` so the test pins *why* the program was refused: without it, a
+/// fixture broken for any unrelated reason satisfies every assertion and the
+/// test stops proving the removal.
+fn assert_refused_as_undefined(name: &str, body: &str) {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), name, &format!("اطبع(\"قبل\")\n{body}"));
+
+    for backend in Backend::ALL {
+        let output = execute(backend, &main, &format!("{name}_{backend:?}"));
+
+        assert!(
+            !output.succeeded(),
+            "توقّعنا رفض الاسم [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        assert!(
+            output.lines().is_empty(),
+            "رفضٌ وقت الترجمة لا وقت التنفيذ [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        assert!(
+            output.stderr.contains("د٠٠٠١"),
+            "توقّعنا رفضاً بـ«معرّف غير معروف» [{backend:?}] لـ {name}\n{}",
+            output.report()
+        );
+        if matches!(backend, Backend::Native) {
+            assert!(
+                output.compile_failed,
+                "توقّعنا فشل الترجمة الأصلية لـ {name}\n{}",
+                output.report()
+            );
+        }
     }
 }
 
@@ -578,8 +832,8 @@ fn test_append_uses_the_array_element_type_not_the_value_type() {
     // `elem_ty` taken from the pushed value stored an i64 bit pattern into a
     // float array, which the reader decoded as a denormal double.
     assert_prints(
-        "الحق_عشري",
-        "متغير م = [1.5]\nالحق(م، 2)\nاطبع(م[1] + 0.5)",
+        "ألحق_عشري",
+        "متغير م = [1.5]\nألحق(م، 2)\nاطبع(م[1] + 0.5)",
         &["2.5"],
     );
 }
@@ -598,7 +852,7 @@ fn test_invalid_float_string_fails_rather_than_yielding_zero() {
 }
 
 // ---------------------------------------------------------------------------
-// طول_مصفوفة / الحق — the mirror image: mapped natively, absent from the interpreter
+// طول_مصفوفة / ألحق (née الحق، #375) — the mirror image: mapped natively, absent from the interpreter
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -2033,7 +2287,7 @@ fn test_appending_to_an_empty_byte_array_grows_it_in_every_backend() {
         "ثنائي_إلحاق",
         concat!(
             "متغير ب = نص_إلى_ثنائي(\"\")\n",
-            "الحق(ب، 5)\n",
+            "ألحق(ب، 5)\n",
             "اطبع(طول(ب))\n",
             "اطبع(ب[0])",
         ),
@@ -2367,7 +2621,7 @@ fn test_substr_chars_accepts_a_null_holder() {
 ///
 /// The accumulator is seeded with `نص_إلى_ثنائي("")` rather than a `[]` literal:
 /// the literal route is refused by codegen for a typed array, and the empty
-/// array's zero capacity is the shape that used to hang `الحق` natively.
+/// array's zero capacity is the shape that used to hang `ألحق` natively.
 #[test]
 fn test_substr_chars_matches_the_slicer_it_names() {
     assert_prints(
@@ -2394,7 +2648,7 @@ fn test_substr_chars_matches_the_slicer_it_names() {
             "        إذا (رقم_الحرف >= بداية && رقم_الحرف < بداية + عدد_أحرف) {\n",
             "            متغير خطوة = 0\n",
             "            طالما (خطوة < عرض) {\n",
-            "                الحق(ناتج، بايتات[موضع + خطوة])\n",
+            "                ألحق(ناتج، بايتات[موضع + خطوة])\n",
             "                خطوة = خطوة + 1\n",
             "            }\n",
             "        }\n",
@@ -2620,6 +2874,284 @@ fn test_string_iteration_visits_characters_not_bytes() {
         "تكرار_نص",
         "متغير ع = 0\nلكل ح في \"مرحبا\" {\n    ع = ع + 1\n}\nاطبع(ع)",
         &["5"],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The bound character carries نص — composition, not printing (B6)
+// ---------------------------------------------------------------------------
+//
+// The two tests above pass against the defect, and that is the point: one
+// prints the element and the other never reads its binding. `اطبع(ح)` is
+// correct with the sentinel too, because `Print` routes `Ptr(_)` to
+// `trq_print` in the same arm as `String`. Everything that *composes* the
+// character was wrong, so these fixtures compose it.
+
+/// The loop binding, measured with the three `IrType::String` arms removed:
+/// `نوع(ح)` → `مؤشر` in **all three** backends (`نوع` folds at build time from
+/// the IR type, so no cross-backend diff could ever see it); `"X" + ح` →
+/// `X94339517137664` natively and a type error in both interpreters, because the
+/// builder sent a `TrqString*` through `trq_int_to_string`; `ح == "م"` → `خطأ`
+/// natively; `طول(ح)` → `2`, the byte count, because an untyped operand routes
+/// `ArrayLen` to `trq_array_len`, which reads `TrqArray.len` where a
+/// `TrqString` keeps its byte length.
+///
+/// Both comparison orders are asserted deliberately. Codegen tests only the
+/// *left* operand for `IrType::String`, so `"م" == ح` answered `صحيح` while
+/// `ح == "م"` answered `خطأ` — on the same values, in the same binary. Pinning
+/// one order would leave half the dispatch uncovered.
+#[test]
+fn test_bound_character_composes_as_a_string() {
+    assert_prints(
+        "تركيب_الحرف",
+        concat!(
+            "متغير س = \"مرحبا\"\n",
+            "لكل ح في س {\n",
+            "    اطبع(نوع(ح))\n",
+            "    اطبع(\"X\" + ح)\n",
+            "    اطبع(ح == \"م\")\n",
+            "    اطبع(\"م\" == ح)\n",
+            "    اطبع(طول(ح))\n",
+            "    أوقف\n",
+            "}",
+        ),
+        &["نص", "Xم", "صحيح", "صحيح", "1"],
+    );
+}
+
+/// The index form. It diverged less than the loop binding and for an instructive
+/// reason: `ArrayGet` re-types its own dest in codegen, so a *directly consumed*
+/// `س[ي]` already compared correctly. The loop binding goes through
+/// Alloca/Store/Load and `Load` trusts the recorded type, which discarded that
+/// recovery. `نوع` and `+` were wrong in both shapes, since the builder decides
+/// those before codegen runs.
+#[test]
+fn test_string_index_composes_as_a_string() {
+    assert_prints(
+        "تركيب_الفهرسة",
+        concat!(
+            "متغير س = \"مرحبا\"\n",
+            "اطبع(نوع(س[1]))\n",
+            "اطبع(\"X\" + س[1])\n",
+            "اطبع(س[1] == \"ر\")\n",
+            "اطبع(طول(س[1]))",
+        ),
+        &["نص", "Xر", "صحيح", "1"],
+    );
+}
+
+/// All four UTF-8 widths in one string, so a byte-indexed implementation cannot
+/// pass by accident: `A` is one byte, `﷽` three, `م` two, `𞸀` four. The
+/// codepoint of `𞸀` is asserted through `حرف_إلى_رمز` rather than by eye,
+/// because a 4-byte character is exactly where a lead-byte walk goes wrong.
+///
+/// This one passes against the defect and is kept as a *contract* test, not a
+/// regression test: every row consumes the index directly, and codegen re-types
+/// its own `ArrayGet` dest, so the widths were already walked correctly. What
+/// was broken is what survives a store — see the two tests above.
+#[test]
+fn test_string_index_walks_codepoints_not_bytes() {
+    assert_prints(
+        "فهرسة_بالحروف",
+        concat!(
+            "متغير س = \"A﷽م𞸀ب\"\n",
+            "اطبع(طول(س))\n",
+            "اطبع(س[1] == \"﷽\")\n",
+            "اطبع(س[3] == \"𞸀\")\n",
+            "اطبع(طول(س[3]))\n",
+            "اطبع(حرف_إلى_رمز(س[3]))",
+        ),
+        &["5", "صحيح", "صحيح", "1", "126464"],
+    );
+}
+
+/// Totality, and the row the B6 blocker did not mention at all: both
+/// interpreters raised «الفهرس ٩ خارج حدود المصفوفة ذات الطول ٥» here while
+/// native printed an empty line and exited 0.
+///
+/// Asserted through `طول` rather than by expecting `""`: `Output::lines()`
+/// trims, so a blank line is discarded and an empty expectation would pass
+/// either way. The `قص_حروف` example section measures its own out-of-range rows
+/// the same way, and for the same reason.
+#[test]
+fn test_string_index_out_of_range_answers_the_empty_string() {
+    assert_prints(
+        "فهرسة_خارج_المدى",
+        concat!(
+            "متغير س = \"مرحبا\"\n",
+            "اطبع(طول(س[9]))\n",
+            "اطبع(طول(س[0 - 1]))\n",
+            "اطبع(طول(\"\"[0]))\n",
+            "اطبع(س[9] == \"\")",
+        ),
+        &["0", "0", "0", "صحيح"],
+    );
+}
+
+/// `س[ي]` and `قص_حروف(س، ي، 1)` are one operation: the index lowers to
+/// `trq_string_char_at`, which *is* `trq_string_substr_chars` at length one.
+/// Asserting the equivalence rather than restating each contract separately is
+/// what keeps the two from drifting — the shape
+/// `test_substr_chars_matches_the_slicer_it_names` established.
+#[test]
+fn test_string_index_matches_substr_chars_it_shares_a_kernel_with() {
+    assert_prints(
+        "فهرسة_تطابق_القص",
+        concat!(
+            "متغير س = \"A﷽م𞸀ب\"\n",
+            "لكل (متغير ي = 0؛ ي < طول(س)؛ ي++) {\n",
+            "    اطبع(س[ي] == قص_حروف(س، ي، 1))\n",
+            "}\n",
+            "اطبع(س[9] == قص_حروف(س، 9، 1))\n",
+            "اطبع(س[0 - 1] == قص_حروف(س، 0 - 1، 1))",
+        ),
+        &["صحيح", "صحيح", "صحيح", "صحيح", "صحيح", "صحيح", "صحيح"],
+    );
+}
+
+/// Iteration reassembles the original, which no single-character assertion
+/// proves: it pins the trip count, the per-character value and concatenation
+/// together. Reversing it exercises the 4-byte character in a non-final
+/// position on the way back.
+#[test]
+fn test_string_iteration_reassembles_the_original() {
+    assert_prints(
+        "تكرار_يعيد_الأصل",
+        concat!(
+            "متغير س = \"A﷽م𞸀ب\"\n",
+            "متغير ن = \"\"\n",
+            "متغير معكوس = \"\"\n",
+            "لكل ح في س {\n",
+            "    ن = ن + ح\n",
+            "    معكوس = ح + معكوس\n",
+            "}\n",
+            "اطبع(ن == س)\n",
+            "اطبع(طول(ن))\n",
+            "اطبع(معكوس == \"ب𞸀م﷽A\")",
+        ),
+        &["صحيح", "5", "صحيح"],
+    );
+}
+
+/// A parameter registers its type by a different route than a local does
+/// (`begin_function` inserts it directly, with no `Load`), so covering only the
+/// local would leave that path untested — the reason
+/// `test_string_len_counts_characters_through_a_parameter` exists above.
+///
+/// The composition happens *inside* the loop on purpose. Returning the character
+/// and composing at the call site would prove nothing: a declared `-> نص` types
+/// the call result regardless of what the binding carries, so that shape passed
+/// against the defect.
+#[test]
+fn test_bound_character_from_a_string_parameter_composes() {
+    assert_prints(
+        "حرف_من_معامل",
+        concat!(
+            "دالة افحص(ن: نص) {\n",
+            "    لكل ح في ن {\n",
+            "        اطبع(نوع(ح))\n",
+            "        اطبع(\"X\" + ح)\n",
+            "        اطبع(ح == \"م\")\n",
+            "        اطبع(طول(ح))\n",
+            "        أوقف\n",
+            "    }\n",
+            "}\n",
+            "افحص(\"مرحبا\")",
+        ),
+        &["نص", "Xم", "صحيح", "1"],
+    );
+}
+
+/// The indexed *object* composed, not just the index. Every other fixture here
+/// indexes a bare local, a parameter or a literal — exactly the shapes
+/// `infer_expr_type` already covered — so all of them passed while three others
+/// still took the sentinel: a parenthesised object had no `Grouping` arm, and a
+/// field read matched a bare `Struct` where a receiver is `Ptr(Struct)`.
+///
+/// Measured before the repair, `"X" + حم.ن[1]` printed `X93954150200192`
+/// natively and exited 0 while the interpreter raised «متوقع عدد، وُجد string»
+/// and exited 1 — B6's own symptom, in the shape Increment F's `نص` functions
+/// are written in.
+#[test]
+fn test_composed_index_object_carries_a_string() {
+    assert_prints(
+        "كائن_مركب",
+        concat!(
+            "صنف حامل {\n",
+            "    عام ن: نص\n",
+            "    منشئ(ن: نص) { هذا.ن = ن }\n",
+            "}\n",
+            "دالة رئيسية() {\n",
+            "    متغير س = \"مرحبا\"\n",
+            "    متغير حم = جديد حامل(\"مرحبا\")\n",
+            "    اطبع(نوع((س)[1]))\n",
+            "    اطبع(\"X\" + (س)[1])\n",
+            "    اطبع(نوع(حم.ن[1]))\n",
+            "    اطبع(\"X\" + حم.ن[1])\n",
+            "    اطبع(نوع((س + \"ذ\")[5]))\n",
+            "    اطبع(\"X\" + (س + \"ذ\")[5])\n",
+            "}",
+        ),
+        &["نص", "Xر", "نص", "Xر", "نص", "Xذ"],
+    );
+}
+
+/// A null reaching the index, which `Type::compat` allows: an un-narrowed `نص?`
+/// passes into a `نص` parameter. The shared slicer has answered `""` for it
+/// since `قص_حروف` landed, but the new index arms did not carry that guard, so
+/// `ن[0]` raised interpreted and answered `0` natively — a divergence inside the
+/// one operation the repair claims cannot drift from `قص_حروف`.
+///
+/// The iteration rows are here for the same reason and are not redundant: the
+/// trip count comes from `ArrayLen`, a different arm, and both
+/// `trq_string_len_chars` and `trq_array_len` answer `0` for a null. Repairing
+/// only the index would have left this PR's two constructs disagreeing with each
+/// other on the same value.
+#[test]
+fn test_null_string_index_and_iteration_are_total() {
+    assert_prints(
+        "فهرسة_معدومة",
+        concat!(
+            "دالة افحص(ن: نص) {\n",
+            "    اطبع(طول(قص_حروف(ن، 0، 1)))\n",
+            "    اطبع(طول(ن[0]))\n",
+            "    اطبع(ن[0] == \"\")\n",
+            "    اطبع(طول(ن))\n",
+            "    متغير عد = 0\n",
+            "    لكل ح في ن { عد = عد + 1 }\n",
+            "    اطبع(عد)\n",
+            "    اطبع(\"انتهى\")\n",
+            "}\n",
+            "دالة رئيسية() {\n",
+            "    متغير غائب: نص? = لا_شيء\n",
+            "    افحص(غائب)\n",
+            "}",
+        ),
+        &["0", "0", "صحيح", "0", "0", "انتهى"],
+    );
+}
+
+/// Arrays must not regress: the same three sites serve both, and an array of
+/// strings is the case where a string arm placed carelessly would capture the
+/// wrong type.
+#[test]
+fn test_array_indexing_and_iteration_still_carry_element_types() {
+    assert_prints(
+        "مصفوفة_لم_تتغير",
+        concat!(
+            "متغير أرقام = [10، 20، 30]\n",
+            "اطبع(نوع(أرقام[1]))\n",
+            "اطبع(أرقام[1] + 5)\n",
+            "متغير أسماء = [\"أحمد\"، \"سارة\"]\n",
+            "اطبع(نوع(أسماء[0]))\n",
+            "اطبع(\"X\" + أسماء[0])\n",
+            "متغير مجموع = 0\n",
+            "لكل ر في أرقام {\n",
+            "    مجموع = مجموع + ر\n",
+            "}\n",
+            "اطبع(مجموع)",
+        ),
+        &["عدد", "25", "نص", "Xأحمد", "60"],
     );
 }
 
@@ -2872,13 +3404,27 @@ fn test_float_reads_the_same_printed_and_concatenated() {
     );
 }
 
+/// The member form `م.ألحق(س)` and the global form `ألحق(م، س)` lower to the
+/// same `Instruction::ArrayPush`; the member form had no coverage at all before
+/// #375. Int-only on purpose: the member path skips the عدد → عدد_عشري
+/// widening the global path applies, so a float row would pin that divergence
+/// instead of the agreement.
 #[test]
-fn test_array_push_builtin_works_in_every_backend() {
+fn test_member_and_global_push_agree_in_every_backend() {
     assert_prints(
-        "الحق_مباشر",
-        "متغير م = [1]\nالحق(م، 2)\nاطبع(طول_مصفوفة(م))",
-        &["2"],
+        "ألحق_عضوي",
+        "متغير م = [1]\nم.ألحق(2)\nألحق(م، 3)\nاطبع(طول_مصفوفة(م))\nاطبع(م[1] + م[2])",
+        &["3", "5"],
     );
+}
+
+/// `الحق` left the registry outright at #375 — `ألحق` is the one spelling — so
+/// a program calling the old name is refused as `د٠٠٠١` before anything runs.
+/// The edit-distance hint is deliberately not asserted: the suggester's offer
+/// is not part of the contract, the error code is.
+#[test]
+fn test_the_old_push_spelling_is_refused_in_every_backend() {
+    assert_refused_as_undefined("الحق_محذوف", "متغير م = [1]\nالحق(م، 2)");
 }
 
 // ---------------------------------------------------------------------------
@@ -3119,9 +3665,14 @@ fn test_every_core_builtin_agrees_across_backends() {
         ("نم", "نم(0)\nاطبع(\"تم\")", &["تم"]),
         ("طول_مصفوفة", "اطبع(طول_مصفوفة([1، 2]))", &["2"]),
         (
-            "الحق",
-            "متغير م = [1]\nالحق(م، 2)\nاطبع(طول_مصفوفة(م))",
+            "ألحق",
+            "متغير م = [1]\nألحق(م، 2)\nاطبع(طول_مصفوفة(م))",
             &["2"],
+        ),
+        (
+            "احذف_آخر",
+            "متغير م = [1، 2]\nاطبع(احذف_آخر(م))\nاطبع(طول_مصفوفة(م))",
+            &["2", "1"],
         ),
         ("بتات_و", "اطبع(بتات_و(12، 10))", &["8"]),
         ("بتات_أو", "اطبع(بتات_أو(12، 10))", &["14"]),
@@ -3189,6 +3740,62 @@ fn test_every_core_builtin_agrees_across_backends() {
         // legs do not share. A *file* row would, which is why it lives in the
         // fixture-backed tests below.
         ("حالة_مسار", "اطبع(حالة_مسار(\".\"، 0))", &["2"]),
+        (
+            "احذف_مسار",
+            "اطبع(احذف_مسار(\"لا_يوجد_هذا_المسار\"))",
+            &["خطأ"],
+        ),
+        // The sweep gives the child no arguments, so the empty array is the only
+        // row reachable here — and it is the one row all three legs agree on
+        // without the harness supplying anything, since `argv[0]` is excluded.
+        // Printing the array is safe *because* it is empty: a non-empty
+        // `مصفوفة<نص>` prints its elements' addresses natively (#359).
+        ("معاملات_البرنامج", "اطبع(طول(معاملات_البرنامج()))", &["0"]),
+        // A refusal, so the sweep needs no fixture and creates nothing: the mode
+        // is settled before the path, so an unknown one never reaches the
+        // filesystem. The success rows are in the section below, where a tree
+        // helper can supply a file.
+        ("افتح_ملف", "اطبع(افتح_ملف(\".\", 9))", &["-1"]),
+        // A refusal too, and this program has opened nothing, so `3` names no
+        // handle. The success rows are in the section below, where a tree helper
+        // can supply a file to write and read back.
+        ("اغلق_ملف", "اطبع(اغلق_ملف(3))", &["خطأ"]),
+        // A refusal for `حالة_مسار`'s reason inverted: `"."` exists wherever the
+        // program runs, so `mkdir` refuses it identically on all three legs and
+        // the sweep creates nothing. The success rows are in the section below,
+        // where a tree helper supplies a parent to create into.
+        ("انشئ_مجلد", "اطبع(انشئ_مجلد(\".\"))", &["خطأ"]),
+        // A refusal: the empty name names nothing at either end, so the sweep
+        // moves nothing wherever it runs. The success rows are in the section
+        // below, where a tree helper supplies both ends.
+        ("انقل_مسار", "اطبع(انقل_مسار(\"\"، \"\"))", &["خطأ"]),
+        // A refusal: the absent path holds nothing to list, so the sweep reads
+        // nothing wherever it runs — and `طول` keeps the answer out of `اطبع`,
+        // since printing a populated `مصفوفة<نص>` is wrong natively (#359).
+        // The success rows are in the section below, where a tree helper
+        // supplies a directory and its entries.
+        (
+            "قائمة_مجلد",
+            "اطبع(طول(قائمة_مجلد(\"لا_يوجد_هذا_المسار\")))",
+            &["0"],
+        ),
+        // The working directory exists wherever each leg runs — and the three
+        // legs deliberately do not share one (the interpreter and JIT legs run
+        // in the fixture directory, the native binary in the harness's own),
+        // which is why this probe asserts the answer's shape through
+        // `حالة_مسار`, never its value. A stub answering a fixed value would
+        // pass here; the unit pins in `runtime-rs` and the debug interpreter
+        // compare against `std`'s answer instead.
+        ("مجلد_حالي", "اطبع(حالة_مسار(مجلد_حالي()، 0))", &["2"]),
+        // The value depends on when in the process the clock is first read, so
+        // this probe asserts the one thing that cannot vary: it never goes
+        // backwards. Magnitude and advance are pinned by the dedicated test
+        // below, whose sleep would be wasted repeating here.
+        (
+            "وقت_أداء",
+            "متغير أ = وقت_أداء()\nاطبع(وقت_أداء() >= أ)",
+            &["صحيح"],
+        ),
     ];
 
     let covered: Vec<&str> = probes.iter().map(|(name, _, _)| *name).collect();
@@ -3368,66 +3975,114 @@ fn test_halt_builtin_aborts_in_every_backend() {
     assert_fails("توقف_مباشر", "توقف(\"انتهى\")\nاطبع(\"لا ينبغي طباعته\")");
 }
 
-/// The two `وقت` builtins read a clock, so their value cannot be pinned the way
-/// `assert_prints` requires. Assert the shape instead: one line holding a
-/// positive integer of epoch-millisecond magnitude.
-///
-/// Both were declared by codegen with nothing defining them, so every program
-/// importing either failed to link (#241). The range below is what makes this a
-/// real assertion — it rejects the `0` a stubbed call yields and the huge value
-/// a pointer printed as an integer would give, which is how the missing IR
-/// return type would have surfaced.
+/// Runs a clock program on the interpreter and native, returning every printed
+/// line parsed as an integer. A clock's value cannot be pinned the way
+/// `assert_prints` requires, so the two tests below assert on ranges instead.
 ///
 /// Two backends, not four, and neither omission is an oversight:
 /// - **JIT** stubs every call to the constant `0` (#262), so it would assert
 ///   nothing here.
 /// - **`tarqeem debug`** has no leg in this harness; it launches a DAP server
-///   rather than running to completion. The debug interpreter's own copy of
-///   these builtins is covered by a unit test beside it.
-#[test]
-fn test_time_builtins_read_a_real_clock_in_interpreter_and_native() {
-    // Wide enough never to expire in practice (through the year 5138), tight
-    // enough that a pointer, a zero, or a byte count all fall outside.
-    const PLAUSIBLE_MILLIS: std::ops::Range<i64> = 1_000_000_000_000..100_000_000_000_000;
+///   rather than running to completion. The debug interpreter's own copies of
+///   these builtins are covered by unit tests beside them.
+fn clock_readings(name: &str, source: &str) -> Vec<(Backend, Vec<i64>)> {
+    let temp = TempDir::new().unwrap();
+    let main = write_program(temp.path(), "ساعة", source);
 
-    for name in ["وقت_الآن", "وقت_أداء"] {
-        let temp = TempDir::new().unwrap();
-        let main = write_program(
-            temp.path(),
-            "ساعة",
-            &format!("استورد {{ {name} }} من \"وقت\"\nاطبع({name}())"),
-        );
-
-        for backend in [Backend::Interpreter, Backend::Native] {
+    [Backend::Interpreter, Backend::Native]
+        .into_iter()
+        .map(|backend| {
             let output = execute(backend, &main, &format!("ساعة_{backend:?}"));
-
             assert!(
                 output.succeeded(),
                 "فشل تنفيذ {name} [{backend:?}]\n{}",
                 output.report()
             );
 
-            let lines = output.lines();
-            assert_eq!(
-                lines.len(),
-                1,
-                "توقّعنا سطراً واحداً من {name} [{backend:?}]\n{}",
-                output.report()
-            );
+            let readings = output
+                .lines()
+                .iter()
+                .map(|line| {
+                    line.parse::<i64>().unwrap_or_else(|_| {
+                        panic!(
+                            "لم يُرجع {name} عدداً [{backend:?}]: {line:?}\n{}",
+                            output.report()
+                        )
+                    })
+                })
+                .collect();
+            (backend, readings)
+        })
+        .collect()
+}
 
-            let millis: i64 = lines[0].parse().unwrap_or_else(|_| {
-                panic!(
-                    "لم يُرجع {name} عدداً [{backend:?}]: {:?}\n{}",
-                    lines[0],
-                    output.report()
-                )
-            });
+/// `وقت_الآن` is the wall clock — `clock_gettime(CLOCK_REALTIME)`, epoch
+/// milliseconds.
+///
+/// It was declared by codegen with nothing defining it, so every program
+/// importing it failed to link (#241). The range is what makes this a real
+/// assertion: it rejects the `0` a stubbed call yields and the huge value a
+/// pointer printed as an integer would give, which is how the missing IR return
+/// type would have surfaced.
+#[test]
+fn test_wall_clock_builtin_reads_epoch_millis_in_interpreter_and_native() {
+    // Wide enough never to expire in practice (through the year 5138), tight
+    // enough that a pointer, a zero, or a byte count all fall outside.
+    const PLAUSIBLE_MILLIS: std::ops::Range<i64> = 1_000_000_000_000..100_000_000_000_000;
+
+    for (backend, readings) in
+        clock_readings("وقت_الآن", "استورد { وقت_الآن } من \"وقت\"\nاطبع(وقت_الآن())")
+    {
+        assert_eq!(
+            readings.len(),
+            1,
+            "توقّعنا سطراً واحداً من وقت_الآن [{backend:?}]"
+        );
+        assert!(
+            PLAUSIBLE_MILLIS.contains(&readings[0]),
+            "وقت_الآن أرجع {} [{backend:?}]، وهو ليس توقيتاً بالميلي ثانية",
+            readings[0]
+        );
+    }
+}
+
+/// `وقت_أداء` is the *monotonic* clock, and its two assertions are deliberately
+/// opposite in kind to its sibling's.
+///
+/// The range is **inverted**: this clock counts from an origin inside the
+/// process, so a small value is correct and an epoch-magnitude one is the defect
+/// #389 fixed — `trq_performance_now` served the monotonic promise from
+/// `SystemTime`, and both interpreters carried the same arm, so all three
+/// backends agreed on the wrong answer and no backend-diff could see it. A range
+/// widened to admit both would pass either way and prove nothing.
+///
+/// The sleep is what proves the clock *runs*, since a body hardcoded to `0`
+/// satisfies the range on its own. `نم` guarantees a lower bound, so 10ms of the
+/// 50 is slack for millisecond truncation on both reads.
+#[test]
+fn test_monotonic_clock_builtin_counts_from_a_process_origin_and_advances() {
+    // Ten minutes: unreachable for a test process counting from its own first
+    // call, and three orders of magnitude below any epoch millisecond value.
+    const WITHIN_PROCESS_MILLIS: std::ops::Range<i64> = 0..600_000;
+
+    // No import — core tier since #389.
+    for (backend, readings) in
+        clock_readings("وقت_أداء", "اطبع(وقت_أداء())\nنم(50)\nاطبع(وقت_أداء())")
+    {
+        assert_eq!(readings.len(), 2, "توقّعنا سطرين من وقت_أداء [{backend:?}]");
+
+        for reading in &readings {
             assert!(
-                PLAUSIBLE_MILLIS.contains(&millis),
-                "{name} أرجع {millis} [{backend:?}]، وهو ليس توقيتاً بالميلي ثانية\n{}",
-                output.report()
+                WITHIN_PROCESS_MILLIS.contains(reading),
+                "وقت_أداء أرجع {reading} [{backend:?}] — هذا توقيت الحائط لا أصلٌ داخل العملية"
             );
         }
+
+        let elapsed = readings[1] - readings[0];
+        assert!(
+            elapsed >= 40,
+            "وقت_أداء تقدّم {elapsed} ميلي ثانية عبر نم(50) [{backend:?}]، والساعة لا تجري"
+        );
     }
 }
 
@@ -3549,10 +4204,12 @@ fn test_write_stream_sends_descriptor_two_to_stderr_in_every_backend() {
 /// Every descriptor that names nowhere to write, answering `-١`.
 ///
 /// `٠` is stdin, so writing to it is an error rather than an alias for stdout.
-/// `٣` upward names a file handle, and nothing in the language opens one yet, so
-/// the table is provably empty — both interpreters and the runtime agree on
-/// `-١` here for the same reason, not by coincidence. A negative descriptor
-/// folds into the same clause instead of getting its own.
+/// `٣` upward names a file handle, and this program opens none, so the table is
+/// empty — both interpreters and the runtime agree on `-١` here for the same
+/// reason, not by coincidence. Since #362 that is a property of *this program*
+/// rather than of the language: `افتح_ملف` can put a live handle at `٣`, and the
+/// section for it asserts what happens then. A negative descriptor folds into the
+/// same clause instead of getting its own.
 #[test]
 fn test_write_stream_refuses_a_descriptor_it_cannot_write_to() {
     assert_prints(
@@ -3914,7 +4571,8 @@ fn test_read_stream_reads_bytes_that_are_not_text() {
 }
 
 /// The refusal rows. `١` and `٢` carry bytes the other way, `٣` upward names a
-/// handle nothing can have opened yet, and a negative descriptor names nothing.
+/// handle *this program* has not opened (#362 made that reachable, so it is no
+/// longer a property of the language), and a negative descriptor names nothing.
 ///
 /// All four answer the same empty array EOF does — an array return has no value
 /// to spare for a sentinel, the way `اكتب_مجرى` has `-١`. The stdin bytes are
@@ -4194,4 +4852,1978 @@ fn test_user_function_shadows_path_status() {
         ),
         &["99"],
     );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// احذف_مسار — `unlink(2)` for a file, `rmdir(2)` for an empty directory (#355)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Pinned cross-backend for `حالة_مسار`'s reason and one more of its own. The
+// lstat-then-choose mapping exists **twice** — in `trq_path_delete` and in
+// `call_path_delete` — for the reason that block records. And this primitive has
+// an *effect*, so a test that only reads the return value cannot tell a working
+// implementation from one that answers `صحيح` and deletes nothing: every row that
+// should remove something asks `حالة_مسار` afterwards.
+
+/// The effect gate. A `منطقي` return composes weakly on its own, so the sibling
+/// primitive supplies the proof that the file is actually gone — in all three
+/// backends, not just in the one that happens to run first.
+#[test]
+fn test_path_delete_removes_a_file_and_the_sibling_sees_it_go() {
+    assert_prints_with_files(
+        "حذف_ملف",
+        &[("بيانات.نص", "مرحبا")],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))",
+        ),
+        &["1", "صحيح", "0"],
+    );
+}
+
+/// An empty directory goes the same way, through `rmdir` rather than `unlink`.
+#[test]
+fn test_path_delete_removes_an_empty_directory() {
+    assert_prints_with_tree(
+        "حذف_مجلد",
+        &[("فارغ", Fixture::EmptyDir)],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))",
+        ),
+        &["2", "صحيح", "0"],
+    );
+}
+
+/// **The contract decision, executed.** `حالة_مسار` follows the link and answers
+/// `٢`, so a `stat`-based selector would call `rmdir` on it and fail. This unlinks
+/// the link and leaves the directory it named — the row that would silently drift
+/// if either copy of the kernel switched to `metadata`.
+#[test]
+#[cfg(unix)]
+fn test_path_delete_unlinks_a_symlink_to_a_directory_and_spares_its_target() {
+    assert_prints_with_tree(
+        "حذف_وصلة",
+        &[
+            ("هدف", Fixture::EmptyDir),
+            ("وصلة", Fixture::Symlink { to: "هدف" }),
+        ],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار2}\"، 0))\n",
+            "اطبع(احذف_مسار(\"{مسار2}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار2}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))",
+        ),
+        &["2", "صحيح", "0", "2"],
+    );
+}
+
+/// A broken link is removable, and this is the row a `stat`-based selector could
+/// never reach at all: `حالة_مسار` reads it as **absent**, so a selector that
+/// asked would find nothing to delete and strand the link permanently.
+#[test]
+#[cfg(unix)]
+fn test_path_delete_unlinks_a_broken_symlink() {
+    assert_prints_with_tree(
+        "حذف_وصلة_مقطوعة",
+        &[(
+            "معلقة",
+            Fixture::Symlink {
+                to: "لا_يوجد_هدف"
+            },
+        )],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))",
+        ),
+        &["0", "صحيح", "خطأ"],
+    );
+}
+
+/// `rmdir`, not `rm -r`. `"."` is a non-empty directory wherever a program runs,
+/// and POSIX refuses `rmdir(".")` regardless — so the row needs no fixture and
+/// cannot delete anything.
+#[test]
+fn test_path_delete_refuses_a_non_empty_directory() {
+    assert_prints(
+        "حذف_مجلد_عامر",
+        concat!("اطبع(احذف_مسار(\".\"))\n", "اطبع(حالة_مسار(\".\"، 0))",),
+        &["خطأ", "2"],
+    );
+}
+
+/// An absent path and an empty name are one answer, as they are for `حالة_مسار`.
+#[test]
+fn test_path_delete_removes_nothing_that_is_not_there() {
+    assert_prints(
+        "حذف_معدوم",
+        concat!(
+            "اطبع(احذف_مسار(\"لا_يوجد_هذا_المسار\"))\n",
+            "اطبع(احذف_مسار(\"\"))",
+        ),
+        &["خطأ", "خطأ"],
+    );
+}
+
+/// `لا_شيء` answers `خطأ` rather than raising. Both spellings of a null reach the
+/// arm: an un-narrowed `نص?` through `Type::compat`, and an `أي` holder (#333).
+#[test]
+fn test_path_delete_reads_a_null_path_as_nothing() {
+    assert_prints(
+        "حذف_لا_شيء",
+        concat!(
+            "متغير غائب: نص? = لا_شيء\n",
+            "متغير مجهول: أي = لا_شيء\n",
+            "اطبع(احذف_مسار(غائب))\n",
+            "اطبع(احذف_مسار(مجهول))",
+        ),
+        &["خطأ", "خطأ"],
+    );
+}
+
+/// The two names this folds, written as the stdlib wrappers they become.
+///
+/// Both carry a **documented delta** at one edge: the only kind they can ask for
+/// comes from `حالة_مسار`, which follows symlinks, so a symlink-to-directory is
+/// refused by `احذف_ملف` where `remove_file` succeeds today, and accepted by
+/// `احذف_مجلد` where `remove_dir` fails. One edge, two faces. Blast radius is
+/// nil: neither name has an interpreter arm today, so neither ever worked outside
+/// native compilation.
+#[test]
+fn test_path_delete_folds_the_two_delete_names() {
+    assert_prints_with_tree(
+        "حذف_أغلفة",
+        &[("و.نص", Fixture::File("x")), ("د", Fixture::EmptyDir)],
+        concat!(
+            "دالة احذف_ملف(م: نص) -> منطقي {\n",
+            "    إذا (حالة_مسار(م، 0) == 2) { أرجع خطأ }\n",
+            "    أرجع احذف_مسار(م)\n",
+            "}\n",
+            "دالة احذف_مجلد(م: نص) -> منطقي {\n",
+            "    إذا (حالة_مسار(م، 0) != 2) { أرجع خطأ }\n",
+            "    أرجع احذف_مسار(م)\n",
+            "}\n",
+            "اطبع(احذف_مجلد(\"{مسار}\"))\n",
+            "اطبع(احذف_ملف(\"{مسار2}\"))\n",
+            "اطبع(احذف_ملف(\"{مسار}\"))\n",
+            "اطبع(احذف_مجلد(\"{مسار2}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار2}\"، 0))",
+        ),
+        &["خطأ", "خطأ", "صحيح", "صحيح", "0", "0"],
+    );
+}
+
+/// The load-bearing test for the `register_builtin_return_types` entry. Printing
+/// alone passes without it — natively it prints nothing at all, which `اطبع` has
+/// done for every scalar since #347 — so the assertions that matter are `نوع` and
+/// the comparison, which fails native compilation outright with ت٠١٠١.
+#[test]
+fn test_path_delete_result_composes_as_a_boolean() {
+    assert_prints(
+        "حذف_تركيب",
+        concat!(
+            "اطبع(نوع(احذف_مسار(\"لا_يوجد_هذا_المسار\")))\n",
+            "اطبع(احذف_مسار(\"لا_يوجد_هذا_المسار\") == خطأ)\n",
+            "إذا (ليس احذف_مسار(\"لا_يوجد_هذا_المسار\")) { اطبع(\"لم يُحذف\") }",
+        ),
+        &["منطقي", "صحيح", "لم يُحذف"],
+    );
+}
+
+/// A user function named `احذف_مسار` shadows the builtin, like every other core
+/// name (LANGUAGE_SPEC §4.9).
+#[test]
+fn test_user_function_shadows_path_delete() {
+    assert_prints(
+        "حذف_تظليل",
+        concat!(
+            "دالة احذف_مسار(م: نص) -> منطقي {\n",
+            "    أرجع صحيح\n",
+            "}\n",
+            "اطبع(احذف_مسار(\"لا_يوجد_هذا_المسار\"))",
+        ),
+        &["صحيح"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// معاملات_البرنامج — the program's own command-line arguments (#360)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// The first builtin whose two implementations read genuinely **different
+// sources**: `trq_program_args` reads the argv its own `main` was handed, while
+// `call_program_args` reads what the CLI recorded. There is no shared kernel to
+// keep in step — and no way to tell the two apart except by running both, which
+// is what every test here does.
+//
+// One shape is deliberately absent: `اطبع` of the whole array. Printing a
+// non-empty `مصفوفة<نص>` is wrong natively (#359) — `trq_print_array` reads every
+// element as an `i64` — with or without this name. The empty array is unaffected,
+// since the element loop is skipped, so the CI example may print it and these
+// tests index instead.
+
+/// No arguments answers an empty array — a **value**, not a sentinel, and the
+/// only row the CI example can cover, since `examples.yml` runs every example
+/// with no arguments.
+#[test]
+fn test_program_args_is_empty_when_none_were_given() {
+    assert_prints(
+        "معاملات_فارغة",
+        concat!("متغير م = معاملات_البرنامج()\n", "اطبع(طول(م))\n", "اطبع(م)",),
+        &["0", "[]"],
+    );
+}
+
+/// Arguments arrive in order, and `argv[0]` is **not** among them.
+///
+/// The exclusion is what makes this test possible at all: natively `argv[0]` is
+/// the compiled binary's path and interpreted it would be the `.ترقيم` source
+/// path, so a run including it could never assert the same list on both.
+#[test]
+fn test_program_args_preserves_order_and_drops_the_program_name() {
+    assert_prints_with_args(
+        "معاملات_ترتيب",
+        concat!(
+            "متغير م = معاملات_البرنامج()\n",
+            "اطبع(طول(م))\n",
+            "اطبع(م[0])\n",
+            "اطبع(م[2])",
+        ),
+        &["أول", "ثان", "ثالث"],
+        &["3", "أول", "ثالث"],
+    );
+}
+
+/// An argument the shell already split stays one element, spaces and all, and an
+/// empty argument keeps its position rather than vanishing.
+#[test]
+fn test_program_args_keeps_spaces_and_empty_arguments() {
+    assert_prints_with_args(
+        "معاملات_فراغات",
+        concat!(
+            "متغير م = معاملات_البرنامج()\n",
+            "اطبع(طول(م))\n",
+            "اطبع(م[0])\n",
+            "اطبع(طول(م[1]))",
+        ),
+        &["ثان ثالث", ""],
+        &["2", "ثان ثالث", "0"],
+    );
+}
+
+/// An Arabic argument survives the round trip through both argv paths.
+///
+/// `طول` on the element is the assertion that matters: it counts **characters**,
+/// so a byte-level mangling on either side shows up here where printing alone
+/// might not.
+#[test]
+fn test_program_args_carries_arabic_unchanged() {
+    assert_prints_with_args(
+        "معاملات_عربية",
+        concat!(
+            "متغير م = معاملات_البرنامج()\n",
+            "اطبع(م[0])\n",
+            "اطبع(طول(م[0]))\n",
+            "اطبع(م[0] == \"مرحبا\")",
+        ),
+        &["مرحبا"],
+        &["مرحبا", "5", "صحيح"],
+    );
+}
+
+/// An argument that looks like a flag belongs to the program, not to `tarqeem`.
+///
+/// This is what `allow_hyphen_values` buys on the interpreter and JIT legs; the
+/// native leg gets it for free, since the binary's argv is not parsed by clap at
+/// all. Without it the two legs would disagree — `tarqeem` would reject `-س` as
+/// an unknown flag while the compiled program accepted it.
+#[test]
+fn test_program_args_accepts_an_argument_that_looks_like_a_flag() {
+    assert_prints_with_args(
+        "معاملات_شرطة",
+        concat!(
+            "متغير م = معاملات_البرنامج()\n",
+            "اطبع(طول(م))\n",
+            "اطبع(م[0])\n",
+            "اطبع(م[1])",
+        ),
+        &["-س", "--jit"],
+        &["2", "-س", "--jit"],
+    );
+}
+
+/// A `--` that is not the **first** program argument is carried verbatim, like
+/// any other token.
+///
+/// The leading position is the one exception in this whole contract, and it is
+/// not fixable: `tarqeem run` reaches the program through clap, which consumes a
+/// leading bare `--` as its own escape marker, while a compiled binary has no
+/// parser in front of it. So `tarqeem run ب.ترقيم -- أ` answers `["أ"]` where
+/// `./مخرج -- أ` answers `["--"، "أ"]`. It is bounded and escapable — doubling it
+/// (`-- -- أ`) reproduces the native answer exactly — and it is the convention
+/// `cargo run --` already sets, so it is documented in LANGUAGE_SPEC rather than
+/// worked around. This test pins the part that *does* agree, which is every other
+/// position.
+#[test]
+fn test_program_args_carries_a_later_double_dash_verbatim() {
+    assert_prints_with_args(
+        "معاملات_شرطتان",
+        concat!(
+            "متغير م = معاملات_البرنامج()\n",
+            "اطبع(طول(م))\n",
+            "اطبع(م[1])",
+        ),
+        &["أ", "--", "ب"],
+        &["3", "--"],
+    );
+}
+
+/// The array is iterable and its elements concatenate, which is what a program
+/// actually does with them.
+#[test]
+fn test_program_args_iterates_and_concatenates() {
+    assert_prints_with_args(
+        "معاملات_حلقة",
+        concat!(
+            "لكل س في معاملات_البرنامج() {\n",
+            "    اطبع(\"معامل: \" + س)\n",
+            "}",
+        ),
+        &["أ", "ب"],
+        &["معامل: أ", "معامل: ب"],
+    );
+}
+
+/// Calling it twice answers the same list — it is process state read, not
+/// consumed, unlike `اقرأ_مجرى`, whose stream is drained by reading it.
+#[test]
+fn test_program_args_answers_the_same_list_every_time() {
+    assert_prints_with_args(
+        "معاملات_تكرار",
+        concat!(
+            "اطبع(طول(معاملات_البرنامج()))\n",
+            "اطبع(طول(معاملات_البرنامج()))\n",
+            "اطبع(معاملات_البرنامج()[0] == معاملات_البرنامج()[0])",
+        ),
+        &["أ", "ب"],
+        &["2", "2", "صحيح"],
+    );
+}
+
+/// **The load-bearing test for the `register_builtin_return_types` entry**, and
+/// the measurement behind it is a third distinct mode for an array return.
+///
+/// #330 measured one caught assertion for `Array(Int)` and #350 measured three
+/// modes at once for another; neither transfers. Measured here with the entry
+/// deleted, on `مصفوفة<نص>`:
+///
+/// | use | interpreters | native |
+/// |---|---|---|
+/// | `طول(م)` | correct | correct — `ArrayLen` routes to `trq_array_len` regardless |
+/// | `اطبع(م[0])` | correct | correct — the element survives being printed alone |
+/// | `نوع(م)` | `مؤشر` — caught | `مؤشر` — caught |
+/// | `م[0] + "!"` | **run-time type error**, exit 1 | **`4376042720!`**, exit 0 |
+/// | `م[0] == "أول"` | *unreached* | **`خطأ`**, exit 0 |
+///
+/// So the two backends fail the *same* use site in opposite manners — the
+/// interpreter loudly, native silently — which no previous name in this family
+/// has done. Indexing and printing the element pass either way, so the
+/// assertions that carry the test are `نوع`, `+` and `==`.
+#[test]
+fn test_program_args_result_composes_as_strings() {
+    assert_prints_with_args(
+        "معاملات_تركيب",
+        concat!(
+            "متغير م = معاملات_البرنامج()\n",
+            "اطبع(نوع(م))\n",
+            "اطبع(م[0] + \"!\")\n",
+            "اطبع(م[0] == \"أول\")",
+        ),
+        &["أول"],
+        &["مصفوفة", "أول!", "صحيح"],
+    );
+}
+
+/// A user function of the same name shadows the builtin, per LANGUAGE_SPEC §4.9.
+#[test]
+fn test_user_function_shadows_program_args() {
+    assert_prints_with_args(
+        "معاملات_تظليل",
+        concat!(
+            "دالة معاملات_البرنامج() -> مصفوفة<نص> {\n",
+            "    أرجع [\"دالتي\"]\n",
+            "}\n",
+            "اطبع(معاملات_البرنامج()[0])",
+        ),
+        &["أول"],
+        &["دالتي"],
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// افتح_ملف — open(2), and the first name that puts a live handle on a stream
+// ═══════════════════════════════════════════════════════════════════════
+
+/// A handle is always past the console streams, so it goes straight into
+/// `اكتب_مجرى`/`اقرأ_مجرى` without colliding with one.
+///
+/// Asserted as `>= 3` rather than `== 3` on purpose: the number is observable, so
+/// pinning it would be a promise about allocation order rather than about the
+/// reserved range. Both backends do start at 3, which is what keeps the
+/// comparison meaningful at all.
+#[test]
+fn test_file_open_answers_a_handle_past_the_console_streams() {
+    assert_prints_with_tree(
+        "فتح_معرّف",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير م = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(م >= 3)\n",
+            "اطبع(م != 0)"
+        ),
+        &["صحيح", "صحيح"],
+    );
+}
+
+/// The round trip the opener exists for: a file's bytes reach a program through
+/// the stream pair, which before this could only read stdin.
+///
+/// Arabic content deliberately — «مرحبا» is five characters and ten bytes, so a
+/// read that counted characters would answer 5 here and pass on an ASCII fixture.
+#[test]
+fn test_file_open_round_trips_a_file_through_the_stream_pair() {
+    assert_prints_with_tree(
+        "فتح_دورة",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير م = افتح_ملف(\"{مسار}\", 0)\n",
+            "متغير بايتات = اقرأ_مجرى(م, 64)\n",
+            "اطبع(طول(بايتات))\n",
+            "اطبع(ثنائي_إلى_نص(بايتات))\n",
+            "اطبع(طول(ثنائي_إلى_نص(بايتات)))"
+        ),
+        &["10", "مرحبا", "5"],
+    );
+}
+
+/// Write mode creates the file, and that is visible with no flush and no close —
+/// `File::create` reaches the filesystem before any byte does. Append mode creates
+/// it too.
+///
+/// The program deletes the fixture first, so the row being tested is genuinely
+/// *creation* rather than truncation of something the harness put there.
+#[test]
+fn test_file_open_in_write_and_append_modes_create_the_file() {
+    assert_prints_with_tree(
+        "فتح_إنشاء",
+        &[("مكتوب.نص", Fixture::File("قديم"))],
+        concat!(
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\", 0))\n",
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 1)\n",
+            "اطبع(كاتب >= 3)\n",
+            "اطبع(حالة_مسار(\"{مسار}\", 0))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "متغير ملحق = افتح_ملف(\"{مسار}\", 2)\n",
+            "اطبع(ملحق >= 3)\n",
+            "اطبع(حالة_مسار(\"{مسار}\", 0))"
+        ),
+        &["صحيح", "0", "صحيح", "1", "صحيح", "صحيح", "1"],
+    );
+}
+
+/// The durability row, and the reason the flush at program end exists.
+///
+/// It cannot be asserted from inside the program: the bytes sit in a `BufWriter`
+/// until the end, so nothing the program prints tells "flushed at exit" from
+/// "lost". Hence the file is read back **after** the run, once per backend leg.
+///
+/// Without that flush the two backends part company invisibly — the interpreter is
+/// an ordinary Rust binary whose thread-local destructors run, while native's
+/// `main` is `extern "C"` and skips them, so the compiled program would write
+/// nothing and still exit 0. The CI backend diff compares stdout, so it could not
+/// see it.
+#[test]
+fn test_file_open_lands_written_bytes_by_the_end_of_the_program() {
+    assert_prints_with_tree_and_contents(
+        "فتح_ثبات",
+        &[("مكتوب.نص", Fixture::File(""))],
+        concat!(
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 1)\n",
+            "اطبع(اكتب_مجرى(كاتب, نص_إلى_ثنائي(\"مرحبا\")))"
+        ),
+        &["10"],
+        &[("مكتوب.نص", "مرحبا")],
+    );
+}
+
+/// Append keeps what is there where write truncates it — the one thing the two
+/// modes differ in, so one test covers both. The content check is what sees it.
+#[test]
+fn test_file_open_appends_where_write_truncates() {
+    assert_prints_with_tree_and_contents(
+        "فتح_إلحاق",
+        &[("مكتوب.نص", Fixture::File("أ"))],
+        concat!(
+            "متغير ملحق = افتح_ملف(\"{مسار}\", 2)\n",
+            "اطبع(اكتب_مجرى(ملحق, نص_إلى_ثنائي(\"ب\")))"
+        ),
+        &["2"],
+        &[("مكتوب.نص", "أب")],
+    );
+}
+
+#[test]
+fn test_file_open_in_write_mode_truncates_what_was_there() {
+    assert_prints_with_tree_and_contents(
+        "فتح_اقتطاع",
+        &[("مكتوب.نص", Fixture::File("قديم جداً"))],
+        concat!(
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 1)\n",
+            "اطبع(اكتب_مجرى(كاتب, نص_إلى_ثنائي(\"ج\")))"
+        ),
+        &["2"],
+        &[("مكتوب.نص", "ج")],
+    );
+}
+
+/// Bytes written to a handle a program **does not close** are not guaranteed
+/// visible until it ends, because the write path never flushes.
+///
+/// Pinning current behaviour, not the rule: a payload larger than the
+/// `BufWriter`'s capacity would flush mid-write and *would* be visible. Both
+/// backends share the same buffer type, so they agree either way — which is the
+/// property worth having. The contrast is
+/// `test_file_close_lands_written_bytes_before_the_program_ends` below: the same
+/// program with one `اغلق_ملف` reads its own bytes back.
+#[test]
+fn test_file_open_does_not_promise_bytes_before_the_program_ends() {
+    assert_prints_with_tree(
+        "فتح_قبل_الإفراغ",
+        &[("مكتوب.نص", Fixture::File(""))],
+        concat!(
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 1)\n",
+            "اطبع(اكتب_مجرى(كاتب, نص_إلى_ثنائي(\"مرحبا\")))\n",
+            "متغير قارئ = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(طول(اقرأ_مجرى(قارئ, 64)))\n",
+            "اطبع(حالة_مسار(\"{مسار}\", 0))"
+        ),
+        &["10", "0", "1"],
+    );
+}
+
+/// A mode this primitive does not know is refused **before** the path, so a bad
+/// mode creates nothing.
+///
+/// `3` is the row that makes this more than a range check: it is
+/// `وضع_قراءة_كتابة` in `stdlib/ملفات/ملف.ترقيم`, and no handle direction here can
+/// serve it, so it is refused with the rest rather than served by one half.
+#[test]
+fn test_file_open_refuses_an_unknown_mode_without_touching_the_path() {
+    assert_prints_with_tree(
+        "فتح_وضع",
+        &[("مكتوب.نص", Fixture::File("قديم"))],
+        concat!(
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "اطبع(افتح_ملف(\"{مسار}\", 3))\n",
+            "اطبع(افتح_ملف(\"{مسار}\", 9))\n",
+            "اطبع(افتح_ملف(\"{مسار}\", 0 - 1))\n",
+            "اطبع(حالة_مسار(\"{مسار}\", 0))"
+        ),
+        &["صحيح", "-1", "-1", "-1", "0"],
+    );
+}
+
+/// `-1`, and never `0`: `0` names stdin in the stream pair, so a failed open
+/// answering it would send a later `اقرأ_مجرى` to the keyboard and succeed.
+///
+/// An absent path, an empty name and `لا_شيء` are one answer. The `لا_شيء` row is
+/// the **path**, which is a pointer, so an un-narrowed `نص?` reaches the runtime's
+/// null guard; the mode is an `عدد` and has no such row (#327).
+#[test]
+fn test_file_open_answers_minus_one_for_nothing_to_open() {
+    assert_prints_with_tree(
+        "فتح_معدوم",
+        &[("مجلد", Fixture::EmptyDir)],
+        concat!(
+            "متغير غائب_فتح: نص? = لا_شيء\n",
+            "اطبع(افتح_ملف(\"{مسار}/لا_يوجد/ملف.نص\", 0))\n",
+            "اطبع(افتح_ملف(\"\", 0))\n",
+            "اطبع(افتح_ملف(غائب_فتح, 0))"
+        ),
+        &["-1", "-1", "-1"],
+    );
+}
+
+/// Two opens are two handles, or a program holding both would write through the
+/// one it meant to read.
+#[test]
+fn test_file_open_hands_out_distinct_handles() {
+    assert_prints_with_tree(
+        "فتح_تعدد",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير أول = افتح_ملف(\"{مسار}\", 0)\n",
+            "متغير ثان = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(أول >= 3)\n",
+            "اطبع(ثان >= 3)\n",
+            "اطبع(أول != ثان)"
+        ),
+        &["صحيح", "صحيح", "صحيح"],
+    );
+}
+
+/// A handle carries a direction and the stream pair honours it: writing to a
+/// reader fails, reading a writer answers nothing.
+///
+/// Both refusals existed for a handle that was never opened; this is the first
+/// time a **live** handle can be the wrong kind, and the first time the two
+/// backends have to agree about a handle rather than about its absence.
+#[test]
+fn test_file_open_handles_carry_their_direction() {
+    assert_prints_with_tree(
+        "فتح_اتجاه",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير قارئ = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(اكتب_مجرى(قارئ, نص_إلى_ثنائي(\"س\")))\n",
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 2)\n",
+            "اطبع(طول(اقرأ_مجرى(كاتب, 4)))"
+        ),
+        &["-1", "0"],
+    );
+}
+
+/// A directory is refused in **every** mode, and that is a deliberate deviation
+/// from `open(2)` rather than a faithful reading of it.
+///
+/// Found by running the CI example — the line `افتح_ملف(".", 0)` was written
+/// expecting `-1` and answered a handle, because `File::open` succeeds on a
+/// directory under POSIX. Left that way it would have been a **platform** split in
+/// a contract row: Windows refuses the same open, since `CreateFile` needs a flag
+/// `std` does not pass, and `cargo test` never runs there — the Windows CI job
+/// only builds. So this test would have encoded a Unix-only answer with nothing
+/// able to catch it, which is #355's review lesson inverted.
+///
+/// Refused on both sides instead, checked through the opened handle so there is no
+/// window between the test and the open. One documented behaviour, one
+/// implementation — the shape #355 chose over a `cfg(windows)` arm.
+#[test]
+fn test_file_open_refuses_a_directory_in_every_mode() {
+    assert_prints_with_tree(
+        "فتح_مجلد",
+        &[("مجلد", Fixture::EmptyDir)],
+        concat!(
+            "اطبع(افتح_ملف(\"{مسار}\", 0))\n",
+            "اطبع(افتح_ملف(\"{مسار}\", 1))\n",
+            "اطبع(افتح_ملف(\"{مسار}\", 2))"
+        ),
+        &["-1", "-1", "-1"],
+    );
+}
+
+/// The composition gate, per standing rule 5: printing a sentinel-typed result
+/// passes while composing it is silently wrong.
+///
+/// A scalar return's missing-`register_builtin_return_types` mode is predictable
+/// across names (#347, confirmed at #352 and #355), and these are the three rows
+/// it shows up in: `نوع` answers `مؤشر`, and `+`/`==` fail native compilation with
+/// ت٠١٠١ because an `add`/`icmp` on a `ptr` is not valid IR. `اطبع` alone would
+/// print nothing natively and pass here either way, so it is not the gate.
+#[test]
+fn test_file_open_result_composes_as_an_integer() {
+    assert_prints_with_tree(
+        "فتح_تركيب",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير م = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(نوع(م))\n",
+            "اطبع(م - م)\n",
+            "اطبع(م >= 3)\n",
+            "متغير مرفوض = افتح_ملف(\"{مسار}\", 9)\n",
+            "اطبع(مرفوض + 1)\n",
+            "اطبع(مرفوض == 0 - 1)"
+        ),
+        &["عدد", "0", "صحيح", "0", "صحيح"],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// اغلق_ملف — close(2), and the name that makes written bytes land early
+// ---------------------------------------------------------------------------
+
+/// The row the name exists for, and the capability `افتح_ملف` could not deliver:
+/// a program writes a file and reads it back **within its own run**.
+///
+/// Its contrast is `test_file_open_does_not_promise_bytes_before_the_program_ends`
+/// above — the identical program without the close reads `0` bytes. Arabic
+/// content deliberately: five characters and ten bytes, so a wrong unit anywhere
+/// on the path cannot pass.
+#[test]
+fn test_file_close_lands_written_bytes_before_the_program_ends() {
+    assert_prints_with_tree(
+        "إغلاق_يُنزل_البايتات",
+        &[("مكتوب.نص", Fixture::File(""))],
+        concat!(
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 1)\n",
+            "اطبع(اكتب_مجرى(كاتب, نص_إلى_ثنائي(\"مرحبا\")))\n",
+            "اطبع(اغلق_ملف(كاتب))\n",
+            "متغير قارئ = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(ثنائي_إلى_نص(اقرأ_مجرى(قارئ, 64)))"
+        ),
+        &["10", "صحيح", "مرحبا"],
+    );
+}
+
+/// And the bytes are on disk when the run is over, not merely readable inside it.
+///
+/// Invisible from within the program, which is what `_and_contents` is for: it
+/// reads the fixture back after each backend's leg.
+#[test]
+fn test_file_close_leaves_the_bytes_on_disk() {
+    assert_prints_with_tree_and_contents(
+        "إغلاق_يُثبت_البايتات",
+        &[("مكتوب.نص", Fixture::File(""))],
+        concat!(
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 1)\n",
+            "اطبع(اكتب_مجرى(كاتب, نص_إلى_ثنائي(\"ج\")))\n",
+            "اطبع(اغلق_ملف(كاتب))"
+        ),
+        &["2", "صحيح"],
+        &[("مكتوب.نص", "ج")],
+    );
+}
+
+/// A reader closes too, and answers the same `صحيح` — there is simply nothing to
+/// flush.
+#[test]
+fn test_file_close_releases_a_reader() {
+    assert_prints_with_tree(
+        "إغلاق_قارئ",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير قارئ = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(ثنائي_إلى_نص(اقرأ_مجرى(قارئ, 64)))\n",
+            "اطبع(اغلق_ملف(قارئ))"
+        ),
+        &["مرحبا", "صحيح"],
+    );
+}
+
+/// The handle leaves the table, so the second close is a miss like any other.
+#[test]
+fn test_file_close_refuses_a_handle_it_already_released() {
+    assert_prints_with_tree(
+        "إغلاق_مرتين",
+        &[("مقروء.نص", Fixture::File("م"))],
+        concat!(
+            "متغير قارئ = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(اغلق_ملف(قارئ))\n",
+            "اطبع(اغلق_ملف(قارئ))"
+        ),
+        &["صحيح", "خطأ"],
+    );
+}
+
+/// **The console streams are not closable**, deviating from `close(2)`, which
+/// does close descriptor 1.
+///
+/// They need no special arm: handles start at `٣`, so `٠`/`١`/`٢` were never in
+/// the table and a refusal falls out of the lookup. One documented behaviour and
+/// one implementation, the shape #362 chose for its directory refusal — and here
+/// it also keeps a program from closing the stream the harness reads its output
+/// from.
+#[test]
+fn test_file_close_refuses_the_console_streams() {
+    assert_prints(
+        "إغلاق_المجاري_القياسية",
+        concat!(
+            "اطبع(اغلق_ملف(0))\n",
+            "اطبع(اغلق_ملف(1))\n",
+            "اطبع(اغلق_ملف(2))"
+        ),
+        &["خطأ", "خطأ", "خطأ"],
+    );
+}
+
+/// A handle never opened, and a negative one. Total: no range check is needed
+/// before the call, and nothing throws.
+#[test]
+fn test_file_close_refuses_a_handle_never_opened() {
+    assert_prints(
+        "إغلاق_معرِّف_مجهول",
+        concat!(
+            "اطبع(اغلق_ملف(3))\n",
+            "اطبع(اغلق_ملف(99))\n",
+            "اطبع(اغلق_ملف(0 - 1))"
+        ),
+        &["خطأ", "خطأ", "خطأ"],
+    );
+}
+
+/// Closing frees the entry, never the number.
+///
+/// Both backends count up from 3 and neither recycles, so a program that prints a
+/// handle prints the same sequence everywhere — which is the only reason the
+/// numbers are comparable at all.
+#[test]
+fn test_file_close_does_not_recycle_the_number() {
+    assert_prints_with_tree(
+        "إغلاق_لا_يُعيد_الرقم",
+        &[("مقروء.نص", Fixture::File("م"))],
+        concat!(
+            "متغير أول = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(أول)\n",
+            "اطبع(اغلق_ملف(أول))\n",
+            "متغير ثان = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(ثان)\n",
+            "اطبع(ثان > أول)"
+        ),
+        &["3", "صحيح", "4", "صحيح"],
+    );
+}
+
+/// The stream pair inherits the release with no arm of its own: a closed number
+/// is absent from the table, which both halves already refuse.
+///
+/// The two answers differ because the two return types do — `اكتب_مجرى` has `-١`
+/// to spare and an array return has nothing, so a closed handle reads exactly
+/// like EOF.
+#[test]
+fn test_the_stream_pair_refuses_a_closed_handle() {
+    assert_prints_with_tree(
+        "إغلاق_ثم_المجاري",
+        &[("مقروء.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "متغير قارئ = افتح_ملف(\"{مسار}\", 0)\n",
+            "اطبع(اغلق_ملف(قارئ))\n",
+            "اطبع(طول(اقرأ_مجرى(قارئ, 64)))\n",
+            "متغير كاتب = افتح_ملف(\"{مسار}\", 2)\n",
+            "اطبع(اغلق_ملف(كاتب))\n",
+            "اطبع(اكتب_مجرى(كاتب, نص_إلى_ثنائي(\"x\")))"
+        ),
+        &["صحيح", "0", "صحيح", "-1"],
+    );
+}
+
+/// The composition gate — the three things a `منطقي` result must be able to do.
+///
+/// No arithmetic row: `منطقي + عدد` is refused by the **semantic** layer, which
+/// never consults the IR return type, so the `+ ١` row every measurement since
+/// #347 used is unwritable here. `ليس` is the substitute. Measured with the
+/// `register_builtin_return_types` entry deleted, `نوع` answers `مؤشر` and
+/// `== خطأ` fails native compilation with ت٠١٠١.
+#[test]
+fn test_file_close_result_composes_as_a_boolean() {
+    assert_prints(
+        "تركيب_الإغلاق",
+        concat!(
+            "اطبع(نوع(اغلق_ملف(3)))\n",
+            "اطبع(اغلق_ملف(3) == خطأ)\n",
+            "إذا (ليس اغلق_ملف(3)) { اطبع(\"لم يُغلق\") }"
+        ),
+        &["منطقي", "صحيح", "لم يُغلق"],
+    );
+}
+
+/// A user function named `اغلق_ملف` shadows the builtin, like every other core
+/// name: builtins are the last resort in name resolution, not reserved words.
+#[test]
+fn test_file_close_can_be_shadowed_by_a_user_function() {
+    assert_prints(
+        "تظليل_الإغلاق",
+        concat!(
+            "دالة اغلق_ملف(معرف: عدد) -> منطقي {\n",
+            "    أرجع صحيح\n",
+            "}\n",
+            "اطبع(اغلق_ملف(3))"
+        ),
+        &["صحيح"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// انشئ_مجلد — `mkdir(2)`, the create half of the path pair (#366)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Pinned cross-backend for `احذف_مسار`'s reason: the `create_dir` kernel exists
+// twice — in `trq_dir_create` and in `call_dir_create` — and nothing but these
+// rows keeps the two equal. And like its remove half this primitive has an
+// *effect*, so every row that should create something asks `حالة_مسار`
+// afterwards rather than trusting the `منطقي` that came back.
+
+/// The effect gate. The parent is a tree fixture, re-materialized per backend
+/// leg, so each leg starts with the child absent, watches it appear, and then
+/// hits `EEXIST` on the second attempt — `صحيح` means *this call created it*.
+#[test]
+fn test_dir_create_creates_a_directory_and_the_sibling_sees_it() {
+    assert_prints_with_tree(
+        "إنشاء_مجلد",
+        &[("أب", Fixture::EmptyDir)],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}/جديد\"، 0))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}/جديد\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}/جديد\"، 0))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}/جديد\"))",
+        ),
+        &["0", "صحيح", "2", "خطأ"],
+    );
+}
+
+/// `mkdir(2)`, not `mkdir -p`: a grandchild under an absent child is refused and
+/// nothing appears anywhere along the path. Then the same target is reached
+/// level by level — the stdlib recursion written out, which is why no second
+/// primitive is needed.
+#[test]
+fn test_dir_create_refuses_a_missing_parent_and_composes_level_by_level() {
+    assert_prints_with_tree(
+        "إنشاء_متداخل",
+        &[("جذر", Fixture::EmptyDir)],
+        concat!(
+            "اطبع(انشئ_مجلد(\"{مسار}/أ/ب\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}/أ\"، 0))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}/أ\"))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}/أ/ب\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}/أ/ب\"، 0))",
+        ),
+        &["خطأ", "0", "صحيح", "صحيح", "2"],
+    );
+}
+
+/// A file blocks the name and keeps its bytes: refusal is a read-only answer,
+/// never a replacement. The kind row proves the file is still a file.
+#[test]
+fn test_dir_create_refuses_an_existing_file_and_leaves_it() {
+    assert_prints_with_tree(
+        "إنشاء_فوق_ملف",
+        &[("قائم.نص", Fixture::File("مرحبا"))],
+        concat!(
+            "اطبع(انشئ_مجلد(\"{مسار}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 1))",
+        ),
+        &["خطأ", "1", "10"],
+    );
+}
+
+/// An empty name and both spellings of a null are one answer, as they are for
+/// `احذف_مسار`: an un-narrowed `نص?` through `Type::compat`, and an `أي` holder.
+#[test]
+fn test_dir_create_creates_nothing_that_has_no_name() {
+    assert_prints(
+        "إنشاء_بلا_اسم",
+        concat!(
+            "متغير غائب: نص? = لا_شيء\n",
+            "متغير مجهول: أي = لا_شيء\n",
+            "اطبع(انشئ_مجلد(\"\"))\n",
+            "اطبع(انشئ_مجلد(غائب))\n",
+            "اطبع(انشئ_مجلد(مجهول))",
+        ),
+        &["خطأ", "خطأ", "خطأ"],
+    );
+}
+
+/// The *entry* is what blocks the name. A dangling symlink reads as absent
+/// through `حالة_مسار` — which follows — yet `mkdir` refuses it, because the
+/// directory entry exists whether or not its target does. The refusal-despite-
+/// absent pair is the observable half; the link's own survival is pinned in
+/// `runtime-rs`, where `symlink_metadata` can see what no builtin can.
+#[test]
+#[cfg(unix)]
+fn test_dir_create_refuses_a_dangling_symlink_by_its_entry() {
+    assert_prints_with_tree(
+        "إنشاء_فوق_وصلة",
+        &[(
+            "معلقة",
+            Fixture::Symlink {
+                to: "لا_يوجد_هدف"
+            },
+        )],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}\"))",
+        ),
+        &["0", "خطأ"],
+    );
+}
+
+/// The load-bearing test for the `register_builtin_return_types` entry. Printing
+/// alone passes without it — natively it prints nothing at all — so the
+/// assertions that matter are `نوع` and the two that fail native compilation
+/// outright when the entry is missing: `== خطأ` at `icmp eq ptr` and `ليس` at
+/// `xor i1`. No arithmetic row: `منطقي + عدد` is refused by the semantic layer,
+/// which never consults the IR return type.
+#[test]
+fn test_dir_create_result_composes_as_a_boolean() {
+    assert_prints(
+        "تركيب_الإنشاء",
+        concat!(
+            "اطبع(نوع(انشئ_مجلد(\".\")))\n",
+            "اطبع(انشئ_مجلد(\".\") == خطأ)\n",
+            "إذا (ليس انشئ_مجلد(\".\")) { اطبع(\"لم يُنشأ\") }"
+        ),
+        &["منطقي", "صحيح", "لم يُنشأ"],
+    );
+}
+
+/// A user function named `انشئ_مجلد` shadows the builtin, like every other core
+/// name: builtins are the last resort in name resolution, not reserved words.
+#[test]
+fn test_dir_create_can_be_shadowed_by_a_user_function() {
+    assert_prints(
+        "تظليل_الإنشاء",
+        concat!(
+            "دالة انشئ_مجلد(مسار: نص) -> منطقي {\n",
+            "    أرجع صحيح\n",
+            "}\n",
+            "اطبع(انشئ_مجلد(\"\"))"
+        ),
+        &["صحيح"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// انقل_مسار — `rename(2)`, the move half of the path family (#368)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Pinned cross-backend for `احذف_مسار`'s reason: the rename kernel exists twice
+// — in `trq_file_move` and in `call_path_move` — and nothing but these rows
+// keeps the two equal. The destination rule is the row that earns the pinning:
+// an occupied destination is replaced only when it is a regular file, and the
+// dir-over-empty-dir case below is exactly where POSIX `rename` would have
+// answered `صحيح` — the guard, not the syscall, is what these legs agree on.
+
+/// The effect gate. Both ends are asked through `حالة_مسار` rather than
+/// trusting the `منطقي` that came back, and the bytes are read back after the
+/// run — a move that lost the payload would answer every printed row correctly.
+#[test]
+fn test_path_move_moves_a_file_and_the_siblings_see_it() {
+    assert_prints_with_tree_and_contents(
+        "نقل_ملف",
+        &[
+            ("مصدر.نص", Fixture::File("محتوى")),
+            ("وجهة_أب", Fixture::EmptyDir),
+        ],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار2}/وجهة.نص\"، 0))\n",
+            "اطبع(انقل_مسار(\"{مسار}\"، \"{مسار2}/وجهة.نص\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار2}/وجهة.نص\"، 0))",
+        ),
+        &["0", "صحيح", "0", "1"],
+        &[("وجهة_أب/وجهة.نص", "محتوى")],
+    );
+}
+
+/// The mover is `مسار`, not `ملف`: a directory moves whole, atomically, which
+/// no composition of the other primitives can do — copy-then-delete needs a
+/// lister the registry does not have, and would not be atomic if it did.
+#[test]
+fn test_path_move_moves_a_directory_whole() {
+    assert_prints_with_tree(
+        "نقل_مجلد",
+        &[
+            ("مجلد_مصدر", Fixture::EmptyDir),
+            ("وجهة_أب", Fixture::EmptyDir),
+        ],
+        concat!(
+            "اطبع(انقل_مسار(\"{مسار}\"، \"{مسار2}/مجلد_جديد\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار2}/مجلد_جديد\"، 0))",
+        ),
+        &["صحيح", "0", "2"],
+    );
+}
+
+/// The one occupied destination that is replaced: a regular file. This is the
+/// atomic write-temp-then-rename idiom — the primitive's point — and the bytes
+/// prove which file won.
+#[test]
+fn test_path_move_replaces_a_regular_file_destination() {
+    assert_prints_with_tree_and_contents(
+        "نقل_استبدال",
+        &[
+            ("جديد.نص", Fixture::File("جديد")),
+            ("قديم.نص", Fixture::File("قديم")),
+        ],
+        concat!(
+            "اطبع(انقل_مسار(\"{مسار}\"، \"{مسار2}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))",
+        ),
+        &["صحيح", "0"],
+        &[("قديم.نص", "جديد")],
+    );
+}
+
+/// A directory destination refuses **even empty — where POSIX `rename` would
+/// succeed** — because Windows refuses the same call and one documented
+/// behaviour gets one implementation (the #355/#362 rule). Both ends survive:
+/// a refusal is a read-only answer.
+#[test]
+fn test_path_move_refuses_a_directory_destination_and_both_stay() {
+    assert_prints_with_tree(
+        "نقل_وجهة_مجلد",
+        &[
+            ("مصدر_مجلد", Fixture::EmptyDir),
+            ("وجهة_مجلد", Fixture::EmptyDir),
+        ],
+        concat!(
+            "اطبع(انقل_مسار(\"{مسار}\"، \"{مسار2}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(حالة_مسار(\"{مسار2}\"، 0))",
+        ),
+        &["خطأ", "2", "2"],
+    );
+}
+
+/// Absent source, empty names and `لا_شيء` in **either** position are one
+/// answer. Both parameters are pointers, so the `Null` arms are the designed
+/// answer on each (#330's rule), and the un-narrowed `نص?` route is the one
+/// that reaches them.
+#[test]
+fn test_path_move_refuses_what_has_no_name() {
+    assert_prints(
+        "نقل_بلا_اسم",
+        concat!(
+            "اطبع(انقل_مسار(\"لا_يوجد_هذا_المسار\"، \"وجهة_لا_تهم\"))\n",
+            "اطبع(انقل_مسار(\"\"، \"\"))\n",
+            "متغير غائب_مصدر: نص? = لا_شيء\n",
+            "اطبع(انقل_مسار(غائب_مصدر، \"وجهة\"))\n",
+            "متغير غائب_وجهة: نص? = لا_شيء\n",
+            "اطبع(انقل_مسار(\"مصدر\"، غائب_وجهة))",
+        ),
+        &["خطأ", "خطأ", "خطأ", "خطأ"],
+    );
+}
+
+/// A dangling symlink source moves **as itself**: `rename(2)` acts on the name,
+/// so the follower (`حالة_مسار`) reads it as absent at both ends while the
+/// name-acting sibling (`احذف_مسار`) finds nothing at the old name and the link
+/// itself at the new one.
+#[test]
+#[cfg(unix)]
+fn test_path_move_moves_a_dangling_symlink_as_itself() {
+    assert_prints_with_tree(
+        "نقل_وصلة",
+        &[
+            (
+                "وصلة_مقطوعة",
+                Fixture::Symlink {
+                    to: "هدف_لا_يوجد"
+                },
+            ),
+            ("وجهة_أب", Fixture::EmptyDir),
+        ],
+        concat!(
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(انقل_مسار(\"{مسار}\"، \"{مسار2}/وصلة_منقولة\"))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))\n",
+            "اطبع(احذف_مسار(\"{مسار2}/وصلة_منقولة\"))",
+        ),
+        &["0", "صحيح", "خطأ", "صحيح"],
+    );
+}
+
+/// A symlink **destination** is occupied-and-not-a-regular-file, so it refuses
+/// where POSIX `rename` would have replaced the link — checked on the name, so
+/// what it points at never matters. The final `احذف_مسار` proves the link
+/// survived its own refusal.
+#[test]
+#[cfg(unix)]
+fn test_path_move_refuses_a_symlink_destination() {
+    assert_prints_with_tree(
+        "نقل_وجهة_وصلة",
+        &[
+            ("مصدر.نص", Fixture::File("محتوى")),
+            (
+                "وصلة_وجهة",
+                Fixture::Symlink {
+                    to: "هدف_غائب"
+                },
+            ),
+        ],
+        concat!(
+            "اطبع(انقل_مسار(\"{مسار}\"، \"{مسار2}\"))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))\n",
+            "اطبع(احذف_مسار(\"{مسار2}\"))",
+        ),
+        &["خطأ", "1", "صحيح"],
+    );
+}
+
+/// The load-bearing test for the `register_builtin_return_types` entry: the
+/// three `منطقي` catchers (#364). Measured with the entry deleted, `نوع`
+/// answers `مؤشر` on all three backends and the other two rows fail native
+/// compilation with ت٠١٠١; printing alone would have passed.
+#[test]
+fn test_path_move_result_composes_as_a_boolean() {
+    assert_prints(
+        "تركيب_النقل",
+        concat!(
+            "اطبع(نوع(انقل_مسار(\"\"، \"\")))\n",
+            "اطبع(انقل_مسار(\"\"، \"\") == خطأ)\n",
+            "إذا (ليس انقل_مسار(\"\"، \"\")) { اطبع(\"لم يُنقل\") }"
+        ),
+        &["منطقي", "صحيح", "لم يُنقل"],
+    );
+}
+
+/// A user function named `انقل_مسار` shadows the builtin, like every other core
+/// name: builtins are the last resort in name resolution, not reserved words.
+#[test]
+fn test_path_move_can_be_shadowed_by_a_user_function() {
+    assert_prints(
+        "تظليل_النقل",
+        concat!(
+            "دالة انقل_مسار(مصدر: نص، وجهة: نص) -> منطقي {\n",
+            "    أرجع صحيح\n",
+            "}\n",
+            "اطبع(انقل_مسار(\"\"، \"\"))"
+        ),
+        &["صحيح"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// قائمة_مجلد — `readdir(3)`, the enumerating quarter of the path family (#370)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Pinned cross-backend for `احذف_مسار`'s reason: the listing kernel exists
+// twice — in `trq_dir_list` and in `call_dir_list` — and nothing but these rows
+// keeps the two equal. The sort is the row that earns the pinning: raw readdir
+// order is filesystem-dependent, so an unsorted answer would differ between
+// machines and between runs, which is a flake `compare-backends` reads as a
+// divergence. Nothing here prints a populated array — that is wrong natively
+// with or without this name (#359) — so every assertion indexes, measures or
+// iterates instead.
+
+/// The effect gate and the sort in one: the entries are created in the order
+/// that readdir would happily return and the sort must not — the file first,
+/// the directory second — and the answer indexes back sorted (`أ` = D8 A3
+/// sorts before `ب` = D8 A8 bytewise). Bare names, not joined paths: the
+/// elements compare equal to the names alone, though the entries live under
+/// the fixture's absolute path.
+#[test]
+fn test_dir_list_answers_sorted_bare_names() {
+    assert_prints_with_tree(
+        "قائمة_مرتبة",
+        &[("عينة", Fixture::EmptyDir)],
+        concat!(
+            "اغلق_ملف(افتح_ملف(\"{مسار}/ب.نص\"، 1))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}/أ\"))\n",
+            "متغير م = قائمة_مجلد(\"{مسار}\")\n",
+            "اطبع(طول(م))\n",
+            "اطبع(م[0])\n",
+            "اطبع(م[1])\n",
+            "اطبع(م[0] == \"أ\")",
+        ),
+        &["صحيح", "2", "أ", "ب.نص", "صحيح"],
+    );
+}
+
+/// An empty directory answers the empty array as a value, and the empty array
+/// is the one shape `اطبع` may carry (#359 skips the element loop entirely).
+#[test]
+fn test_dir_list_answers_the_empty_array_for_an_empty_directory() {
+    assert_prints_with_tree(
+        "قائمة_فارغة",
+        &[("فارغ", Fixture::EmptyDir)],
+        concat!(
+            "اطبع(طول(قائمة_مجلد(\"{مسار}\")))\n",
+            "اطبع(قائمة_مجلد(\"{مسار}\"))",
+        ),
+        &["0", "[]"],
+    );
+}
+
+/// Every refusal is the same empty array: an absent path, the empty name and
+/// `لا_شيء` — indistinguishable from an empty directory by design, since an
+/// array return has no spare value for a refusal (`اقرأ_مجرى`'s conflation).
+/// The unreadable-directory row is contract-only and deliberately untested:
+/// a chmod-000 fixture is unix-gated *and* answers differently under root,
+/// which CI runners often are.
+#[test]
+fn test_dir_list_refuses_what_cannot_be_listed() {
+    assert_prints(
+        "قائمة_رفض",
+        concat!(
+            "اطبع(طول(قائمة_مجلد(\"لا_يوجد_هذا_المسار\")))\n",
+            "اطبع(طول(قائمة_مجلد(\"\")))\n",
+            "متغير غائب: نص? = لا_شيء\n",
+            "اطبع(طول(قائمة_مجلد(غائب)))",
+        ),
+        &["0", "0", "0"],
+    );
+}
+
+/// A file is not a directory, so listing it refuses — the same empty array —
+/// and the file itself is untouched, asked through `حالة_مسار`.
+#[test]
+fn test_dir_list_answers_empty_for_a_file_path() {
+    assert_prints_with_tree(
+        "قائمة_ملف",
+        &[("وثيقة.نص", Fixture::File("محتوى"))],
+        concat!(
+            "اطبع(طول(قائمة_مجلد(\"{مسار}\")))\n",
+            "اطبع(حالة_مسار(\"{مسار}\"، 0))",
+        ),
+        &["0", "1"],
+    );
+}
+
+/// The path argument *follows* a symlink, the way `حالة_مسار` does: listing
+/// through the link lists the target. Its sibling `احذف_مسار` acts on the
+/// name; this one asks about what the name reaches.
+#[cfg(unix)]
+#[test]
+fn test_dir_list_follows_a_symlink_to_a_directory() {
+    assert_prints_with_tree(
+        "قائمة_وصلة",
+        &[
+            ("هدف", Fixture::EmptyDir),
+            ("وصلة", Fixture::Symlink { to: "هدف" }),
+        ],
+        concat!(
+            "اطبع(انشئ_مجلد(\"{مسار}/فرعي\"))\n",
+            "متغير م = قائمة_مجلد(\"{مسار2}\")\n",
+            "اطبع(طول(م))\n",
+            "اطبع(م[0])",
+        ),
+        &["صحيح", "1", "فرعي"],
+    );
+}
+
+/// Following is also why a dangling link lists as absent: the name reaches
+/// nothing, so the answer is the refusal's empty array — even though the link
+/// itself exists, which `احذف_مسار` (acting on the name) can still see.
+#[cfg(unix)]
+#[test]
+fn test_dir_list_reads_a_dangling_symlink_as_absent() {
+    assert_prints_with_tree(
+        "قائمة_مقطوعة",
+        &[(
+            "وصلة_معلقة",
+            Fixture::Symlink {
+                to: "هدف_غائب"
+            },
+        )],
+        concat!(
+            "اطبع(طول(قائمة_مجلد(\"{مسار}\")))\n",
+            "اطبع(احذف_مسار(\"{مسار}\"))",
+        ),
+        &["0", "صحيح"],
+    );
+}
+
+/// The elements drive an ordinary `لكل` loop and concatenate as strings —
+/// the #359-safe way to see every entry.
+#[test]
+fn test_dir_list_iterates_and_concatenates() {
+    assert_prints_with_tree(
+        "قائمة_حلقة",
+        &[("أب", Fixture::EmptyDir)],
+        concat!(
+            "اطبع(انشئ_مجلد(\"{مسار}/ثاني\"))\n",
+            "اطبع(انشئ_مجلد(\"{مسار}/اول\"))\n",
+            "لكل اسم في قائمة_مجلد(\"{مسار}\") {\n",
+            "    اطبع(\"عنصر: \" + اسم)\n",
+            "}",
+        ),
+        &["صحيح", "صحيح", "عنصر: اول", "عنصر: ثاني"],
+    );
+}
+
+/// The load-bearing test for the `register_builtin_return_types` entry: the
+/// `Array(String)` catchers (#360's profile, re-measured here with the entry
+/// deleted). `نوع` answers `مؤشر` on all three backends; `م[0] + "!"` is a
+/// run-time type error interpreted and a printed pointer (exit 0) natively;
+/// `م[0] == "…"` answers `خطأ` natively. `طول` and printing an element alone
+/// pass either way, so they carry nothing.
+#[test]
+fn test_dir_list_result_composes_as_strings() {
+    assert_prints_with_tree(
+        "تركيب_القائمة",
+        &[("محتو", Fixture::EmptyDir)],
+        concat!(
+            "اغلق_ملف(افتح_ملف(\"{مسار}/أول.نص\"، 1))\n",
+            "متغير م = قائمة_مجلد(\"{مسار}\")\n",
+            "اطبع(نوع(م))\n",
+            "اطبع(م[0] + \"!\")\n",
+            "اطبع(م[0] == \"أول.نص\")",
+        ),
+        &["مصفوفة", "أول.نص!", "صحيح"],
+    );
+}
+
+/// A user function named `قائمة_مجلد` shadows the builtin, like every other
+/// core name: builtins are the last resort in name resolution, not reserved
+/// words.
+#[test]
+fn test_dir_list_can_be_shadowed_by_a_user_function() {
+    assert_prints(
+        "تظليل_القائمة",
+        concat!(
+            "دالة قائمة_مجلد(مسار: نص) -> عدد {\n",
+            "    أرجع 42\n",
+            "}\n",
+            "اطبع(قائمة_مجلد(\"\"))"
+        ),
+        &["42"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// مجلد_حالي — `getcwd(2)`, the place relative paths resolve against (#373)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Pinned cross-backend for `قائمة_مجلد`'s reason: the kernel exists twice — in
+// `trq_dir_current` and in `call_dir_current` — and nothing but these rows and
+// the unit pins keeps the two equal. Every row here is value-independent,
+// because the three legs deliberately hold three *different* working
+// directories: the interpreter and JIT legs run in the fixture directory
+// (`execute_all` sets `current_dir`), while the native binary inherits the
+// harness's own. The value itself is pinned in-process instead — the
+// `runtime-rs` unit test and the debug-interpreter test each compare their
+// kernel against `std`'s answer, and since both kernels are the same two-line
+// composition over `std`, cross-backend value equality follows for any cwd.
+//
+// The failure row (a cwd the OS cannot report answers `""`) and the non-UTF-8
+// row (decoded lossily) are contract-only and deliberately untested: the
+// program cannot chdir, the harness cannot delete a directory out from under a
+// running child deterministically, and `set_current_dir` in-process would race
+// every other test in the binary. Both rows become testable in-language the
+// day a chdir primitive lands.
+
+/// The wiring rows: the answer names a real, existing directory on every
+/// backend — `حالة_مسار` reads it as a directory, it is never empty, and
+/// `قائمة_مجلد` can enumerate it (the interpreter legs' cwd holds the program
+/// file, the native leg's holds the repo checkout, so both are non-empty).
+#[test]
+fn test_dir_current_answers_an_existing_directory() {
+    assert_prints(
+        "مجلد_حالي_موجود",
+        concat!(
+            "اطبع(حالة_مسار(مجلد_حالي()، 0))\n",
+            "اطبع(طول(مجلد_حالي()) > 0)\n",
+            "اطبع(طول(قائمة_مجلد(مجلد_حالي())) > 0)",
+        ),
+        &["2", "صحيح", "صحيح"],
+    );
+}
+
+/// The `register_builtin_return_types` catchers, measured with the entry
+/// deleted (table in `src/ir/builder/mod.rs`): `نوع` answers `مؤشر` on every
+/// backend; two separately-allocated returns compare `==` as pointers natively
+/// (`خطأ`); and concatenation splits — a run-time type error (exit 1)
+/// interpreted, a printed pointer (exit 0) natively — so comparing two concats
+/// catches it on both sides. All three rows stay value-independent.
+#[test]
+fn test_dir_current_result_composes_as_a_string() {
+    assert_prints(
+        "تركيب_المجلد_الحالي",
+        concat!(
+            "اطبع(نوع(مجلد_حالي()))\n",
+            "اطبع(مجلد_حالي() == مجلد_حالي())\n",
+            "اطبع(\"موقع: \" + مجلد_حالي() == \"موقع: \" + مجلد_حالي())",
+        ),
+        &["نص", "صحيح", "صحيح"],
+    );
+}
+
+/// A user function named `مجلد_حالي` shadows the builtin, like every other
+/// core name: builtins are the last resort in name resolution, not reserved
+/// words.
+#[test]
+fn test_dir_current_can_be_shadowed_by_a_user_function() {
+    assert_prints(
+        "تظليل_المجلد_الحالي",
+        concat!(
+            "دالة مجلد_حالي() -> عدد {\n",
+            "    أرجع 42\n",
+            "}\n",
+            "اطبع(مجلد_حالي())"
+        ),
+        &["42"],
+    );
+}
+
+// ────────────────────────────────────────────────────────────
+// احذف_آخر — إزالة آخر عنصر والإجابة به
+// ────────────────────────────────────────────────────────────
+
+/// The effect and the answer at once: the element leaves, the length drops, and
+/// the change is visible through the array itself — which is what makes this
+/// inexpressible in Tarqeem, since a function can only build a new array.
+#[test]
+fn test_pop_removes_the_last_element_and_answers_it() {
+    assert_prints(
+        "احذف_آخر_أساسي",
+        "متغير م = [1، 2، 3]\nمتغير آخر = احذف_آخر(م)\nاطبع(آخر)\nاطبع(طول(م))\nاطبع(م[1])",
+        &["3", "2", "2"],
+    );
+}
+
+/// Composition, not printing: a result carrying `أي` prints correctly and then
+/// fails or misreads under `+`, so this is what separates the element-type
+/// derivation in `infer_call_expr` from an `أي` leak.
+#[test]
+fn test_pop_composes_at_the_element_type() {
+    assert_prints(
+        "احذف_آخر_تركيب",
+        concat!(
+            "متغير م = [10، 20]\n",
+            "اطبع(احذف_آخر(م) + 5)\n",
+            "متغير كسور = [1.5، 2.5]\n",
+            "اطبع(احذف_آخر(كسور) + 0.5)",
+        ),
+        &["25", "3.0"],
+    );
+}
+
+/// An empty array answers the element type's zero rather than failing:
+/// `trq_array_pop` hands back a zero buffer and both interpreters answer the
+/// same value. Indistinguishable from removing a genuine zero, by design.
+#[test]
+fn test_pop_from_an_empty_array_answers_the_element_zero() {
+    assert_prints(
+        "احذف_آخر_فارغة",
+        concat!(
+            "متغير م = [7]\n",
+            "اطبع(احذف_آخر(م))\n",
+            "اطبع(احذف_آخر(م))\n",
+            "اطبع(طول(م))\n",
+            "متغير كسور = [1.5]\n",
+            "احذف_آخر(كسور)\n",
+            "اطبع(احذف_آخر(كسور) + 0.5)\n",
+            "متغير منطقيات = [صحيح]\n",
+            "احذف_آخر(منطقيات)\n",
+            "اطبع(احذف_آخر(منطقيات))",
+        ),
+        &["7", "0", "0", "0.5", "خطأ"],
+    );
+}
+
+/// A string element: natively the load yields a null pointer where the
+/// interpreters yield `""`, and the two agree on everything observable —
+/// `trq_string_len_chars` answers 0 for null and `trq_string_concat` guards it.
+#[test]
+fn test_pop_from_an_empty_string_array_answers_the_empty_string() {
+    assert_prints(
+        "احذف_آخر_نص",
+        "متغير م: مصفوفة<نص> = []\nمتغير س = احذف_آخر(م)\nاطبع(طول(س))\nاطبع(س + \"ب\")",
+        &["0", "ب"],
+    );
+}
+
+/// The member and global forms lower to the same `ArrayPop`. The member one
+/// replaced `احذف`, which resolved in the type checker and then died at run
+/// time because nothing lowered it.
+#[test]
+fn test_member_and_global_pop_agree_in_every_backend() {
+    assert_prints(
+        "احذف_آخر_عضوي",
+        "متغير م = [1، 2، 3]\nاطبع(م.احذف_آخر())\nاطبع(احذف_آخر(م))\nاطبع(طول(م))",
+        &["3", "2", "1"],
+    );
+}
+
+/// In statement position the result is never read, and the array shortens all
+/// the same. Dead-code elimination deletes exactly this shape unless the
+/// instruction is also marked as having an effect — hence the extra `-O 2`
+/// native leg, the only path that runs the real optimizer.
+#[test]
+fn test_pop_in_statement_position_still_shortens_the_array() {
+    let body = "متغير م = [1، 2، 3]\nاحذف_آخر(م)\nاطبع(طول(م))";
+    assert_prints("احذف_آخر_جملة", body, &["2"]);
+    assert_prints_native_o2("احذف_آخر_جملة", body, &["2"]);
+}
+
+/// And inside a loop: its one operand is defined outside, so loop-invariant
+/// code motion would hoist it into the preheader and run it once, leaving 2 —
+/// hence the extra `-O 2` native leg, the only path that runs the real
+/// optimizer.
+#[test]
+fn test_pop_inside_a_loop_runs_every_iteration() {
+    let body = concat!(
+        "متغير م = [1، 2، 3]\n",
+        "لكل (متغير ي = 0؛ ي < 3؛ ي++) {\n",
+        "    احذف_آخر(م)\n",
+        "}\n",
+        "اطبع(طول(م))",
+    );
+    assert_prints("احذف_آخر_حلقة", body, &["0"]);
+    assert_prints_native_o2("احذف_آخر_حلقة", body, &["0"]);
+}
+
+/// Builtins are the last tier in name resolution, so a user function of the
+/// same name wins and the array is left alone. The parameter is typed
+/// concretely on purpose: an `أي` parameter is refused by native codegen
+/// (ت٠٣٠١), so an `أي` signature here would test the refusal, not the shadow.
+#[test]
+fn test_pop_can_be_shadowed_by_a_user_function() {
+    assert_prints(
+        "احذف_آخر_تظليل",
+        concat!(
+            "دالة احذف_آخر(م: مصفوفة<عدد>) -> عدد {\n",
+            "    أرجع 99\n",
+            "}\n",
+            "متغير م = [1، 2]\n",
+            "اطبع(احذف_آخر(م))\n",
+            "اطبع(طول(م))",
+        ),
+        &["99", "2"],
+    );
+}
+
+/// Mutation regressions can expose a native crash or hang. Keep these children
+/// bounded, and capture to files so neither output pipe can fill while waiting.
+fn mutation_command(program: &Path, args: &[&str], cwd: &Path) -> Output {
+    use std::time::{Duration, Instant};
+
+    let capture = TempDir::new().expect("تعذّر إنشاء مجلد المخرجات");
+    let stdout_path = capture.path().join("stdout");
+    let stderr_path = capture.path().join("stderr");
+    let mut child = Command::new(program)
+        .args(args)
+        .current_dir(cwd)
+        .env_remove("TARQEEM_HOME")
+        .stdin(Stdio::null())
+        .stdout(fs::File::create(&stdout_path).expect("تعذّر إنشاء المخرجات"))
+        .stderr(fs::File::create(&stderr_path).expect("تعذّر إنشاء التشخيصات"))
+        .spawn()
+        .unwrap_or_else(|e| panic!("تعذّر تشغيل {} {args:?}: {e}", program.display()));
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("تعذّر انتظار العملية") {
+            break status;
+        }
+        if started.elapsed() > Duration::from_secs(30) {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("انتهت مهلة {} {args:?}", program.display());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    Output {
+        status: status.code(),
+        stdout: fs::read_to_string(stdout_path).expect("تعذّر قراءة المخرجات"),
+        stderr: fs::read_to_string(stderr_path).expect("تعذّر قراءة التشخيصات"),
+        compile_failed: false,
+    }
+}
+
+fn assert_mutation_diagnostic(output: &Output, expected: &str) {
+    assert_eq!(output.status, Some(1), "{}", output.report());
+    assert!(output.stderr.contains(expected), "{}", output.report());
+    assert!(!output.stderr.contains("فشل clang"), "{}", output.report());
+}
+
+fn assert_mutation_compile_rejected(main: &Path, expected: &str) {
+    let cwd = main.parent().unwrap();
+    for opt in ["0", "1", "2", "3"] {
+        let executable = cwd.join(format!("مرفوض_{opt}"));
+        let output = mutation_command(
+            Path::new(TARQEEM),
+            &[
+                "compile",
+                main.to_str().unwrap(),
+                "-O",
+                opt,
+                "-o",
+                executable.to_str().unwrap(),
+            ],
+            cwd,
+        );
+        // Never execute a mistakenly accepted negative fixture: the pre-fix
+        // compiler can emit a crashing or non-terminating executable here.
+        assert_mutation_diagnostic(&output, expected);
+        assert!(!executable.exists(), "رفض الترجمة يجب ألا ينتج ملفاً تنفيذياً");
+    }
+}
+
+fn assert_mutation_prints(main: &Path, expected: &[&str]) {
+    let cwd = main.parent().unwrap();
+    for extra in [None, Some("--jit")] {
+        let mut args = vec!["run", main.to_str().unwrap()];
+        if let Some(extra) = extra {
+            args.push(extra);
+        }
+        let output = mutation_command(Path::new(TARQEEM), &args, cwd);
+        assert!(output.succeeded(), "{}", output.report());
+        assert_eq!(output.lines(), expected, "{}", output.report());
+    }
+    ensure_runtime_library();
+    for opt in ["0", "2"] {
+        let executable = cwd.join(format!("صالح_{opt}"));
+        let output = mutation_command(
+            Path::new(TARQEEM),
+            &[
+                "compile",
+                main.to_str().unwrap(),
+                "-O",
+                opt,
+                "-o",
+                executable.to_str().unwrap(),
+            ],
+            cwd,
+        );
+        assert!(output.succeeded(), "{}", output.report());
+        let output = mutation_command(&executable, &[], cwd);
+        assert!(output.succeeded(), "{}", output.report());
+        assert_eq!(output.lines(), expected, "{}", output.report());
+    }
+}
+
+/// #398: strings support index reads, but no array write operation. Exercise
+/// receiver shapes that must keep their known string type through analysis.
+#[test]
+fn test_string_mutation_is_rejected_before_execution() {
+    for body in [
+        "متغير س = \"أ\"\nس[٠] = \"ب\"",
+        "متغير س = \"أ\"\nس[٠] += \"ب\"",
+        "متغير س = \"أ\"\n(س)[٠] = \"ب\"",
+        "متغير س = \"أ\"\nألحق(س، \"ب\")",
+        "دالة بدل(س: نص) { س[٠] = \"ب\" }\nبدل(\"أ\")",
+        "دالة خذ() -> نص { أرجع \"أ\" }\nخذ()[٠] = \"ب\"",
+        "صنف حامل { عام س: نص\nمنشئ() { هذا.س = \"أ\" } }\nمتغير ح = جديد حامل()\nح.س[٠] = \"ب\"",
+        "متغير س: نص? = \"أ\"\nإذا (س != لا_شيء) { س[٠] = \"ب\" }",
+    ] {
+        let dir = TempDir::new().unwrap();
+        let main = write_program(dir.path(), "تعديل_نص", body);
+        for args in [
+            vec!["check", main.to_str().unwrap()],
+            vec!["run", main.to_str().unwrap()],
+            vec!["run", main.to_str().unwrap(), "--jit"],
+        ] {
+            let output = mutation_command(Path::new(TARQEEM), &args, dir.path());
+            assert_mutation_diagnostic(&output, "ن٠٠٠١");
+        }
+        assert_mutation_compile_rejected(&main, "ن٠٠٠١");
+    }
+}
+
+/// Any locals intentionally remain dynamic in the interpreter. The native
+/// backend has no array representation proof and must refuse before clang.
+#[test]
+fn test_string_mutation_through_any_is_refused_natively() {
+    for mutation in ["س[٠] = \"ب\"", "ألحق(س، \"ب\")"] {
+        let dir = TempDir::new().unwrap();
+        let main = write_program(
+            dir.path(),
+            "تعديل_أي",
+            &format!("دالة رئيسية() {{\nمتغير س: أي = \"أ\"\n{mutation}\n}}"),
+        );
+        let check = mutation_command(
+            Path::new(TARQEEM),
+            &["check", main.to_str().unwrap()],
+            dir.path(),
+        );
+        assert!(check.succeeded(), "{}", check.report());
+        for args in [
+            vec!["run", main.to_str().unwrap()],
+            vec!["run", main.to_str().unwrap(), "--jit"],
+        ] {
+            let output = mutation_command(Path::new(TARQEEM), &args, dir.path());
+            assert_mutation_diagnostic(&output, "خطأ في النوع");
+        }
+        assert_mutation_compile_rejected(&main, "ت٠٣٠١");
+    }
+}
+
+#[test]
+fn test_array_mutation_through_any_remains_interpretable() {
+    let dir = TempDir::new().unwrap();
+    let main = write_program(
+        dir.path(),
+        "مصفوفة_أي",
+        r#"
+دالة رئيسية() {
+    متغير م: أي = [١]
+    م[٠] = ٧
+    ألحق(م، ٨)
+    اطبع(طول(م))
+    اطبع(م)
+}
+"#,
+    );
+    for args in [
+        vec!["run", main.to_str().unwrap()],
+        vec!["run", main.to_str().unwrap(), "--jit"],
+    ] {
+        let output = mutation_command(Path::new(TARQEEM), &args, dir.path());
+        assert!(output.succeeded(), "{}", output.report());
+        assert_eq!(output.lines(), ["2", "[7، 8]"], "{}", output.report());
+    }
+    assert_mutation_compile_rejected(&main, "ت٠٣٠١");
+}
+
+/// #229 currently leaves imported function bodies unchecked. The IR guard
+/// must still stop their known string receivers before either backend runs.
+#[test]
+fn test_imported_string_mutation_is_rejected_during_lowering() {
+    for mutation in ["س[٠] = \"ب\"", "س[٠] += \"ب\"", "ألحق(س، \"ب\")"] {
+        let dir = TempDir::new().unwrap();
+        write_program(
+            dir.path(),
+            "مساعد",
+            &format!("صدّر دالة بدل(س: نص) {{ {mutation} }}"),
+        );
+        let main = write_program(
+            dir.path(),
+            "الرئيسي",
+            "استورد { بدل } من \"./مساعد\"\nبدل(\"أ\")",
+        );
+        let check = mutation_command(
+            Path::new(TARQEEM),
+            &["check", main.to_str().unwrap()],
+            dir.path(),
+        );
+        assert!(check.succeeded(), "{}", check.report());
+        for args in [
+            vec!["run", main.to_str().unwrap()],
+            vec!["run", main.to_str().unwrap(), "--jit"],
+        ] {
+            let output = mutation_command(Path::new(TARQEEM), &args, dir.path());
+            assert_mutation_diagnostic(&output, "مصفوفة");
+            assert!(
+                !output.stderr.contains("Runtime error"),
+                "{}",
+                output.report()
+            );
+        }
+        assert_mutation_compile_rejected(&main, "مصفوفة");
+    }
+}
+
+/// Typed arrays retain their mutation behavior, element coercion, and aliases.
+/// String reads and iteration remain available beside the rejected writes.
+#[test]
+fn test_array_mutation_preserves_typed_receivers() {
+    let dir = TempDir::new().unwrap();
+    let main = write_program(
+        dir.path(),
+        "مصفوفات_صالحة",
+        r#"
+صنف حامل {
+    عام م: مصفوفة<عدد>
+    منشئ() { هذا.م = [١] }
+}
+دالة زد(م: مصفوفة<عدد>) {
+    م[٠] = ٩
+    ألحق(م، ٨)
+}
+دالة خذ(م: مصفوفة<عدد>) -> مصفوفة<عدد> { أرجع م }
+متغير أرقام = [١]
+متغير اسم = أرقام
+(اسم)[٠] = ٧
+اطبع(أرقام[٠])
+اسم[٠] += ١
+اطبع(أرقام[٠])
+خذ(أرقام)[٠] = ٦
+اطبع(أرقام[٠])
+زد(أرقام)
+اطبع(أرقام[٠])
+اطبع(أرقام[١])
+متغير ح = جديد حامل()
+ح.م[٠] = ٣
+ألحق(ح.م، ٤)
+اطبع(ح.م[٠])
+اطبع(ح.م[١])
+متغير كسور = [١.٥]
+كسور[٠] = ٢.٥
+ألحق(كسور، ٣)
+كسور.ألحق(٤.٥)
+اطبع(كسور[٠])
+اطبع(كسور[١] + ٠.٥)
+اطبع(كسور[٢])
+متغير أسماء: مصفوفة<نص> = []
+ألحق(أسماء، "أ")
+أسماء[٠] = "ب"
+أسماء.ألحق("ج")
+اطبع(أسماء[٠])
+اطبع(أسماء[١])
+متغير شروط = [صحيح]
+شروط[٠] = خطأ
+شروط.ألحق(صحيح)
+اطبع(شروط[٠])
+اطبع(شروط[١])
+متغير س = "أب"
+اطبع(س[١])
+متغير عدد_حروف = ٠
+لكل حرف في س { عدد_حروف = عدد_حروف + ١ }
+اطبع(عدد_حروف)
+"#,
+    );
+    assert_mutation_prints(
+        &main,
+        &[
+            "7", "8", "6", "9", "8", "3", "4", "2.5", "3.5", "4.5", "ب", "ج", "خطأ", "صحيح", "ب",
+            "2",
+        ],
+    );
+}
+
+#[test]
+fn test_array_mutation_evaluates_receiver_and_index_once() {
+    let dir = TempDir::new().unwrap();
+    let main = write_program(
+        dir.path(),
+        "تقييم_التعديل",
+        r#"
+متغير وصول = ٠
+متغير فهارس = ٠
+متغير م = [١]
+دالة خذ() -> مصفوفة<عدد> {
+    وصول = وصول + ١
+    أرجع م
+}
+دالة فهرس() -> عدد {
+    فهارس = فهارس + ١
+    أرجع ٠
+}
+خذ()[فهرس()] = ٧
+اطبع(وصول)
+اطبع(فهارس)
+اطبع(م[٠])
+خذ()[فهرس()] += ٢
+اطبع(وصول)
+اطبع(فهارس)
+اطبع(م[٠])
+ألحق(خذ()، ٨)
+خذ().ألحق(٩)
+اطبع(وصول)
+اطبع(طول(م))
+"#,
+    );
+    assert_mutation_prints(&main, &["1", "1", "7", "2", "2", "9", "4", "3"]);
+}
+
+#[test]
+fn test_array_mutation_checks_preserve_user_append_shadows() {
+    for body in [
+        "دالة ألحق(أ: نص، ب: نص) -> نص { أرجع أ + ب }\nاطبع(ألحق(\"أ\"، \"ب\"))",
+        "ثابت ألحق = (أ: نص، ب: نص) => أ + ب\nاطبع(ألحق(\"أ\"، \"ب\"))",
+        "دالة رئيسية() {\nثابت ألحق = (أ: نص، ب: نص) => أ + ب\nاطبع(ألحق(\"أ\"، \"ب\"))\n}",
+    ] {
+        let dir = TempDir::new().unwrap();
+        let main = write_program(dir.path(), "ألحق_مظلل", body);
+        assert_mutation_prints(&main, &["أب"]);
+    }
+
+    let dir = TempDir::new().unwrap();
+    write_program(
+        dir.path(),
+        "مساعد",
+        "صدّر دالة ألحق(أ: نص، ب: نص) -> نص { أرجع أ + ب }",
+    );
+    let main = write_program(
+        dir.path(),
+        "ألحق_مستورد",
+        "استورد { ألحق } من \"./مساعد\"\nاطبع(ألحق(\"أ\"، \"ب\"))",
+    );
+    assert_mutation_prints(&main, &["أب"]);
 }

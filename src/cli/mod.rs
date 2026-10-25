@@ -97,6 +97,17 @@ pub enum Commands {
         /// Output profiling data as JSON (for IDE integration)
         #[arg(long, aliases = ["تنميط"])]
         profile: bool,
+
+        /// Arguments passed through to the Tarqeem program, read by
+        /// `معاملات_البرنامج`. Everything after the file name belongs to the
+        /// program, not to `tarqeem`.
+        ///
+        /// `OsString`, not `String`: an argument that is not valid UTF-8 must
+        /// reach the same lossy decode the native binary gives it, rather than
+        /// making clap refuse to start — that would be a divergence between the
+        /// interpreter and a compiled program run with the same arguments.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<std::ffi::OsString>,
     },
 
     #[command(aliases = ["صحح", "dbg"])]

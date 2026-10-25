@@ -389,6 +389,11 @@ impl LoopInvariantCodeMotion {
             Instruction::Store { .. }
             | Instruction::SetField { .. }
             | Instruction::ArraySet { .. }
+            // Its one operand is the array, which is defined outside a loop in
+            // the common case, so without this row a pop would look invariant
+            // and be hoisted into the preheader — running once instead of once
+            // per iteration.
+            | Instruction::ArrayPop { .. }
             | Instruction::Print { .. }
             | Instruction::Call { .. }
             | Instruction::CallMethod { .. }
@@ -784,6 +789,7 @@ fn instruction_dest(inst: &Instruction) -> Option<VarId> {
         | Instruction::GetField { dest, .. }
         | Instruction::ArrayLen { dest, .. }
         | Instruction::ArrayGet { dest, .. }
+        | Instruction::ArrayPop { dest, .. }
         | Instruction::StringConcat { dest, .. }
         | Instruction::GetException { dest, .. }
         | Instruction::Phi { dest, .. }
@@ -834,6 +840,8 @@ fn instruction_operands(inst: &Instruction) -> Vec<VarId> {
         } => vec![*array, *index, *value],
 
         Instruction::ArrayLen { array, .. } => vec![*array],
+
+        Instruction::ArrayPop { array, .. } => vec![*array],
 
         Instruction::StringConcat { left, right, .. } => vec![*left, *right],
 

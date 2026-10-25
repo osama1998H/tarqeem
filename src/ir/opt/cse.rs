@@ -325,6 +325,16 @@ impl CommonSubexprElim {
                 elem_ty: elem_ty.clone(),
             },
 
+            Instruction::ArrayPop {
+                dest,
+                array,
+                elem_ty,
+            } => Instruction::ArrayPop {
+                dest: *dest,
+                array: replace(array),
+                elem_ty: elem_ty.clone(),
+            },
+
             Instruction::ArraySet {
                 array,
                 index,

@@ -357,7 +357,22 @@ pub extern "C" fn trq_file_copy(src: *const TrqString, dst: *const TrqString) ->
     std::fs::copy(&src_str, &dst_str).is_ok()
 }
 
-/// Move/rename a file.
+/// Move a path — `انقل_مسار` (#368; the name was `انقل_ملف` before the #352
+/// rename precedent reached the mover).
+///
+/// One `rename(2)`: atomic, never a copy, so a cross-device move answers
+/// `false` instead of degrading into one. Acts on the *name* at both ends — a
+/// symlink source moves as itself, dangling included, its target never
+/// consulted. An existing destination is replaced only when it is a **regular
+/// file** (checked on the name, `symlink_metadata`), which keeps the atomic
+/// write-temp-then-rename idiom and refuses every other occupied destination
+/// — directory, symlink, device — on every platform alike: POSIX `rename`
+/// would replace an empty directory or a symlink where Windows refuses, and
+/// one documented behaviour gets one implementation. Total: an absent source,
+/// empty names and null in either position all answer `false`.
+///
+/// Duplicated in the interpreters' `call_path_move` for `call_path_status`'s
+/// reason; the cross-backend tests are what hold the two copies together.
 #[no_mangle]
 pub extern "C" fn trq_file_move(src: *const TrqString, dst: *const TrqString) -> bool {
     let src_str = match trq_string_to_path(src) {
@@ -368,6 +383,12 @@ pub extern "C" fn trq_file_move(src: *const TrqString, dst: *const TrqString) ->
         Some(p) => p,
         None => return false,
     };
+
+    if let Ok(meta) = std::fs::symlink_metadata(&dst_str) {
+        if !meta.is_file() {
+            return false;
+        }
+    }
 
     std::fs::rename(&src_str, &dst_str).is_ok()
 }
@@ -481,6 +502,64 @@ pub extern "C" fn trq_path_status(path: *const TrqString, field: i64) -> i64 {
 }
 
 // ============================================================================
+// Path Deletion
+// ============================================================================
+
+/// Backs the core builtin `احذف_مسار`: `unlink(2)` for a file, `rmdir(2)` for an
+/// empty directory, chosen by `lstat`.
+///
+/// **`lstat`, not `stat`** — [`symlink_metadata`](std::fs::symlink_metadata). The
+/// registry row specified `stat`, and the two names this folds show why that is
+/// wrong: [`trq_file_delete`] is `remove_file`, which unlinks a symlink whatever
+/// it points at, while [`trq_dir_delete`] is `remove_dir`, which refuses one. And
+/// [`trq_path_status`] reads a **broken** symlink as absent, so a `stat`-based
+/// selector could never delete one at all.
+///
+/// So this acts on the **name** while [`trq_path_status`] answers about the
+/// **target**. The two disagree about symlinks on purpose.
+///
+/// **Not recursive.** A non-empty directory answers `false`, keeping
+/// [`trq_dir_delete`]'s `rmdir` contract.
+///
+/// **Absent, unreadable, empty and null are one answer**, as in
+/// [`trq_path_status`]. The path is read as given, with no trimming.
+///
+/// # Returns
+///
+/// `true` only if something was removed. Total — every path is a valid call, and
+/// none can panic.
+///
+/// # Safety
+///
+/// - `path` must be a valid pointer to a `TrqString` or null.
+///
+/// # C Equivalent
+/// ```c
+/// bool trq_path_delete(const TrqString* path);
+/// ```
+#[no_mangle]
+pub extern "C" fn trq_path_delete(path: *const TrqString) -> bool {
+    let path = match trq_string_to_path(path) {
+        Some(p) => p,
+        None => return false,
+    };
+
+    match std::fs::symlink_metadata(&path) {
+        Ok(meta) if meta.is_dir() => std::fs::remove_dir(&path).is_ok(),
+        // `lstat` reports a symlink as a non-directory whatever it targets, and on
+        // Unix `unlink` removes it. On Windows a *directory* symlink or junction is
+        // a directory reparse point: `DeleteFileW` refuses it and only
+        // `RemoveDirectoryW` unlinks it. The `||` is that fallback, and it is a
+        // provable no-op elsewhere — it runs only when `remove_file` already
+        // failed, and `remove_dir` on anything `lstat` called a non-directory
+        // fails too. Portable rather than a `cfg(windows)` branch so the one
+        // documented behaviour has one implementation.
+        Ok(_) => std::fs::remove_file(&path).is_ok() || std::fs::remove_dir(&path).is_ok(),
+        Err(_) => false,
+    }
+}
+
+// ============================================================================
 // File Handle/Stream Operations
 // ============================================================================
 
@@ -582,20 +661,144 @@ pub extern "C" fn trq_file_open_append(path: *const TrqString) -> i64 {
     }
 }
 
-/// Close a file handle.
-/// Returns true on success, false on error (invalid handle).
+/// The three ways `افتح_ملف` can open a path.
+///
+/// Chosen to match the `ثابت`s `stdlib/ملفات/ملف.ترقيم` already declares. That
+/// file also declares `وضع_قراءة_كتابة = 3`, which has no path here: a
+/// read-write handle is neither a [`FileHandle::Reader`] nor a
+/// [`FileHandle::Writer`], and a third variant would touch all eight functions
+/// that read `FILE_HANDLES`. So `3` is refused rather than served silently by
+/// one of its halves.
+const OPEN_READ: i64 = 0;
+const OPEN_WRITE: i64 = 1;
+const OPEN_APPEND: i64 = 2;
+
+/// `افتح_ملف`'s failure answer, and deliberately **not** the `0` the three
+/// openers above return.
+///
+/// `0` names stdin in the stream pair, so a failed open answering `0` would send
+/// `اقرأ_مجرى(٠، ن)` to the keyboard — succeeding, and reading the wrong thing.
+/// `-1` is already refused by both stream primitives, and is what `اكتب_مجرى`
+/// answers when it fails.
+const OPEN_FAILED: i64 = -1;
+
+/// Backs the core builtin `افتح_ملف`: opens `path` in `mode` and answers a
+/// handle the stream pair can name.
+///
+/// The mode is settled before the path, the order [`trq_write_stream`] settles
+/// its descriptor in and [`trq_path_status`] its field: an unknown mode is not a
+/// request the filesystem should be troubled with, so `افتح_ملف(".", ٩)` creates
+/// nothing.
+///
+/// Every handle is `>= 3`, since `NEXT_FILE_HANDLE` starts there, so the answer
+/// goes straight to `اكتب_مجرى`/`اقرأ_مجرى` without colliding with a console
+/// stream.
+///
+/// **Bytes written to a handle the program does not close are not guaranteed to
+/// reach the file until it ends**, because [`trq_write_stream`]'s handle path does
+/// not flush. [`trq_file_close`] is what makes them land sooner, and
+/// [`flush_open_writers`] is what catches whatever is still open at the end.
+///
+/// **A directory is refused in every mode**, so the answer does not depend on the
+/// platform — see the note in the body.
+///
+/// # Returns
+/// * The handle, or `-1` for an unknown mode, a directory, an absent path *in read
+///   mode*, a path that cannot be opened or created, an empty name, or a null
+///   pointer. Write and append modes create an absent path rather than refusing
+///   it.
+///
+/// # Safety
+///
+/// - `path` must be a valid pointer to a `TrqString` or null.
+///
+/// # C Equivalent
+/// ```c
+/// int64_t trq_file_open(const TrqString* path, int64_t mode);
+/// ```
+#[no_mangle]
+pub extern "C" fn trq_file_open(path: *const TrqString, mode: i64) -> i64 {
+    let handle = match mode {
+        OPEN_READ => trq_file_open_read(path),
+        OPEN_WRITE => trq_file_open_write(path),
+        OPEN_APPEND => trq_file_open_append(path),
+        _ => return OPEN_FAILED,
+    };
+
+    if handle == 0 {
+        return OPEN_FAILED;
+    }
+
+    // A directory is refused, and this is what makes the answer the same on every
+    // platform. `File::open` succeeds on one under POSIX and fails on Windows,
+    // where opening a directory handle needs `FILE_FLAG_BACKUP_SEMANTICS` that
+    // `std` does not pass — so honouring `open(2)` literally would make one
+    // program answer a handle on Linux and `-1` on Windows, in a contract row.
+    // The handle would be useless either way: `اقرأ_مجرى` reads nothing from it
+    // and `قائمة_مجلد` is how a directory is listed.
+    //
+    // Checked through the open handle rather than the path, so there is no window
+    // between the test and the open. Provably a no-op on Windows, where the open
+    // already failed — the shape #355 chose over a `cfg(windows)` arm, because one
+    // documented behaviour should have one implementation. Devices and FIFOs are
+    // **not** refused: `/dev/null` opens usefully and portably enough.
+    if handle_is_directory(handle) {
+        trq_file_close(handle);
+        return OPEN_FAILED;
+    }
+
+    handle
+}
+
+/// Whether an open handle names a directory, answering `false` if it cannot tell.
+fn handle_is_directory(handle: i64) -> bool {
+    FILE_HANDLES.with(|handles| {
+        let handles = handles.borrow();
+        match handles.get(&handle) {
+            Some(FileHandle::Reader(reader)) => reader
+                .get_ref()
+                .metadata()
+                .map(|data| data.is_dir())
+                .unwrap_or(false),
+            _ => false,
+        }
+    })
+}
+
+/// Backs the core builtin `اغلق_ملف`: releases `handle` and, for a writer, sends
+/// its buffer on its way.
+///
+/// The handle leaves the table whatever happens next, and the number is never
+/// handed out again — `get_next_file_handle` only counts up. So a second close,
+/// a console stream and a handle that was never opened all answer the same, which
+/// is the conflation a `bool` return has no spare value to avoid.
+///
+/// The answer **folds the flush**, so it means "released, and a writer's bytes are
+/// away" rather than merely "the table held it". `close(2)` reports `EIO` and
+/// `اغلق_ملف` exists to make bytes land, so answering `true` over a failed flush
+/// would be a name lying about the one thing it is for. That is a deliberate
+/// deviation from the row in `docs/builtins-vs-stdlib.md` §1.3, which called this
+/// implementation "reused unchanged".
+///
+/// # Returns
+/// * `true` if the table held the handle and a writer's flush succeeded, `false`
+///   for `٠`/`١`/`٢`, a negative handle, one already released, one never opened,
+///   or a flush that failed.
+///
+/// # C Equivalent
+/// ```c
+/// bool trq_file_close(int64_t handle);
+/// ```
 #[no_mangle]
 pub extern "C" fn trq_file_close(handle: i64) -> bool {
     FILE_HANDLES.with(|handles| {
         let mut handles = handles.borrow_mut();
-        if let Some(file_handle) = handles.remove(&handle) {
-            // Flush writer before dropping
-            if let FileHandle::Writer(mut writer) = file_handle {
-                let _ = writer.flush();
-            }
-            true
-        } else {
-            false
+        match handles.remove(&handle) {
+            // Flushed before the `BufWriter` drops, which would flush anyway and
+            // discard the result.
+            Some(FileHandle::Writer(mut writer)) => writer.flush().is_ok(),
+            Some(FileHandle::Reader(_)) => true,
+            None => false,
         }
     })
 }
@@ -687,6 +890,25 @@ pub extern "C" fn trq_file_flush(handle: i64) -> bool {
             false
         }
     })
+}
+
+/// Flush every open writer, closing nothing.
+///
+/// Called at program end, for the handles a program did **not** close itself:
+/// `اغلق_ملف` flushes those, and [`trq_write_stream`]'s handle path never does —
+/// so without this a
+/// `BufWriter`'s contents are **lost** natively, where `main` is `extern "C"`
+/// and no thread-local destructor runs, while the interpreter still wrote them.
+/// That is the divergence [`crate::trq_exit`]'s stdout flush already exists to
+/// prevent, one layer down.
+pub(crate) fn flush_open_writers() {
+    FILE_HANDLES.with(|handles| {
+        for handle in handles.borrow_mut().values_mut() {
+            if let FileHandle::Writer(writer) = handle {
+                let _ = writer.flush();
+            }
+        }
+    });
 }
 
 // ============================================================================
@@ -976,7 +1198,37 @@ fn byte_array_from(payload: &[u8]) -> *mut TrqArray {
 // Directory Operations
 // ============================================================================
 
-/// Create a directory.
+/// Backs the core builtin `انشئ_مجلد`: `mkdir(2)`, the create half of the path
+/// pair whose remove half is [`trq_path_delete`].
+///
+/// **Not recursive** — [`create_dir`](std::fs::create_dir), never
+/// `create_dir_all`, so a missing parent answers `false` and the recursive form
+/// stays a stdlib loop over this, mirroring [`trq_path_delete`]'s one-level
+/// contract.
+///
+/// **An existing entry of any kind blocks the name** — directory, file, or
+/// symlink, dangling included. The OS refuses on the directory *entry*
+/// (`EEXIST` / `ERROR_ALREADY_EXISTS`), so whether a link's target exists is
+/// never consulted; that is the same act-on-the-name choice
+/// [`trq_path_delete`] makes, reached here with no `lstat` at all.
+///
+/// **Missing parent, existing entry, unwritable parent, empty and null are one
+/// answer**, as in [`trq_path_status`]. The path is read as given, with no
+/// trimming.
+///
+/// # Returns
+///
+/// `true` only if the directory now exists because this call created it. Total —
+/// every path is a valid call, and none can panic.
+///
+/// # Safety
+///
+/// - `path` must be a valid pointer to a `TrqString` or null.
+///
+/// # C Equivalent
+/// ```c
+/// bool trq_dir_create(const TrqString* path);
+/// ```
 #[no_mangle]
 pub extern "C" fn trq_dir_create(path: *const TrqString) -> bool {
     match trq_string_to_path(path) {
@@ -1003,13 +1255,55 @@ pub extern "C" fn trq_dir_delete(path: *const TrqString) -> bool {
     }
 }
 
-/// List directory entries.
-/// Returns an array of TrqString pointers.
+/// Backs the core builtin `قائمة_مجلد`: `readdir(3)`, the enumerating quarter
+/// of the path family — [`trq_path_status`] asks, [`trq_path_delete`] removes,
+/// [`trq_dir_create`] creates, and this lists.
+///
+/// **Entries are bare names, sorted ascending by Unicode code point.** Raw
+/// `readdir` order is filesystem-dependent, so it can never sit in a contract
+/// row: the sort is what makes the answer identical across platforms,
+/// filesystems and backends. `.` and `..` never appear — that exclusion is
+/// [`read_dir`](std::fs::read_dir)'s, not this function's.
+///
+/// **A non-UTF-8 entry name is decoded lossily (U+FFFD), never dropped** — the
+/// argv rule from `trq_program_args`; skipping it would make the length lie
+/// about the directory. Deliberate consequence, recorded rather than
+/// rediscovered later: a lossy name does not round-trip through
+/// [`trq_path_status`], and two distinct non-UTF-8 names may decode to the same
+/// string. The lossy decode happens *before* the sort, so the interpreter
+/// kernel sorts the very same strings.
+///
+/// **Absent, a file, unreadable, empty and null are one answer** — the empty
+/// array, indistinguishable from a genuinely empty directory: an array return
+/// has no spare value for a refusal, the conflation [`trq_read_stream`] already
+/// carries. A caller that must tell them apart asks [`trq_path_status`]. The
+/// path is read as given, with no trimming, and it *follows* a symlink the way
+/// [`trq_path_status`] does, so a dangling link lists as absent; entries that
+/// are symlinks are listed by name, and nothing follows them. A mid-iteration
+/// read error drops that entry and keeps the rest — the interpreter kernel
+/// swallows the same way, so the two copies cannot disagree on a row no test
+/// can build.
+///
+/// # Returns
+///
+/// A `TrqArray` of `TrqString*`, laid out as `trq_program_args`'s is. Total —
+/// every path is a valid call, and none can panic. Null only on allocation
+/// failure.
+///
+/// # Safety
+///
+/// - `path` must be a valid pointer to a `TrqString` or null.
+///
+/// # C Equivalent
+/// ```c
+/// TrqArray* trq_dir_list(const TrqString* path);
+/// ```
 #[no_mangle]
 pub extern "C" fn trq_dir_list(path: *const TrqString) -> *mut TrqArray {
-    use crate::array::trq_array_new;
+    use crate::array::{trq_array_new, trq_array_push};
 
-    let result = trq_array_new(0, std::mem::size_of::<*mut TrqString>() as i64);
+    let elem_size = std::mem::size_of::<*mut TrqString>() as i64;
+    let result = trq_array_new(0, elem_size);
     if result.is_null() {
         return result;
     }
@@ -1019,17 +1313,19 @@ pub extern "C" fn trq_dir_list(path: *const TrqString) -> *mut TrqArray {
         None => return result,
     };
 
-    if let Ok(entries) = std::fs::read_dir(&path_str) {
-        for entry in entries.flatten() {
-            if let Some(name) = entry.file_name().to_str() {
-                let name_str = trq_string_new(name.as_ptr(), name.len() as i64);
-                crate::array::trq_array_push(
-                    result,
-                    &name_str as *const _ as *const u8,
-                    std::mem::size_of::<*mut TrqString>() as i64,
-                );
-            }
-        }
+    let mut names: Vec<String> = match std::fs::read_dir(&path_str) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect(),
+        Err(_) => return result,
+    };
+    names.sort();
+
+    for name in &names {
+        let bytes = name.as_bytes();
+        let entry = trq_string_new(bytes.as_ptr(), bytes.len() as i64);
+        trq_array_push(result, &entry as *const _ as *const u8, elem_size);
     }
 
     result
@@ -1349,14 +1645,25 @@ mod tests {
         }
     }
 
+    /// Pins the *value* against `std`'s own composition, not just its shape —
+    /// the cross-backend rows must stay value-independent (the three test legs
+    /// deliberately run in three different directories), so this is where the
+    /// answer itself is proven. Race-free because nothing in the repository
+    /// calls `set_current_dir`; the day a chdir primitive lands, this sentence
+    /// is the tripwire.
     #[test]
     fn test_dir_current() {
         let cwd = trq_dir_current();
         assert!(!cwd.is_null());
+        let expected = std::env::current_dir()
+            .expect("للاختبار مجلد حالٍ")
+            .to_string_lossy()
+            .into_owned();
         unsafe {
-            assert!((*cwd).len > 0);
-            crate::memory::trq_release(cwd as *mut u8);
+            let bytes = std::slice::from_raw_parts((*cwd).data, (*cwd).len as usize);
+            assert_eq!(std::str::from_utf8(bytes).expect("مسار صالح"), expected);
         }
+        crate::memory::trq_release(cwd as *mut u8);
     }
 
     #[test]
@@ -1654,10 +1961,9 @@ mod tests {
     /// The `٣`-and-up half of `اكتب_مجرى`'s descriptor map: bytes reach a handle
     /// opened by `trq_file_open_write`.
     ///
-    /// Driven from Rust because no Arabic name opens a handle yet — `افتح_ملف` is
-    /// still ahead in Increment G — so this path is unreachable from Tarqeem
-    /// source. It is implemented rather than stubbed, and covered here so the
-    /// contract cannot shift under it when the opener lands.
+    /// Driven from Rust because it predates `افتح_ملف` (#362), which is what made
+    /// this path reachable from Tarqeem source. Kept here as the unit-level pin:
+    /// the cross-backend tests exercise the same path through the opener.
     #[test]
     fn test_write_stream_writes_to_a_file_handle() {
         let test_path = "/tmp/tarqeem_test_write_stream_handle.txt";
@@ -1774,10 +2080,9 @@ mod tests {
 
     /// `اقرأ_مجرى` over a handle from `trq_file_open_read`.
     ///
-    /// Driven from Rust for the reason the write test is: no Arabic name opens a
-    /// handle yet, so this path is unreachable from Tarqeem source. Implemented
-    /// rather than stubbed, and covered here so the contract cannot shift under
-    /// it when `افتح_ملف` lands.
+    /// Driven from Rust for the reason the write test is: it predates `افتح_ملف`
+    /// (#362). Kept as the unit-level pin for a path the cross-backend tests now
+    /// reach through the opener.
     #[test]
     fn test_read_stream_reads_a_file_handle() {
         let test_path = "/tmp/tarqeem_test_read_stream_handle.txt";
@@ -2075,6 +2380,116 @@ mod tests {
         }
     }
 
+    // ────────────────────────────────────────────────────────────────────
+    // trq_path_delete — احذف_مسار
+    // ────────────────────────────────────────────────────────────────────
+
+    /// Frees a path built by [`path_string`].
+    ///
+    /// Deliberately without the `unsafe` block that the neighbouring tests wrap
+    /// this call in: `trq_release` is a safe function, so the block is a lint
+    /// (#310 tracks the 55 others) and new code should not add to the sweep.
+    fn release_path(path: *mut TrqString) {
+        crate::memory::trq_release(path as *mut u8);
+    }
+
+    #[test]
+    fn test_path_delete_removes_a_regular_file() {
+        let target = "/tmp/tarqeem_test_path_delete_file.txt";
+        std::fs::write(target, "مرحبا").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        assert!(trq_path_delete(path));
+        assert!(!std::path::Path::new(target).exists());
+
+        release_path(path);
+    }
+
+    #[test]
+    fn test_path_delete_removes_an_empty_directory() {
+        let target = "/tmp/tarqeem_test_path_delete_empty_dir";
+        std::fs::remove_dir_all(target).ok();
+        std::fs::create_dir(target).expect("تعذّر إنشاء المجلد / could not create the directory");
+
+        let path = path_string(target);
+        assert!(trq_path_delete(path));
+        assert!(!std::path::Path::new(target).exists());
+
+        release_path(path);
+    }
+
+    /// `rmdir`, not `rm -r`: a directory with anything in it survives, which is
+    /// what keeps `احذف_مجلد`'s contract when it becomes a wrapper.
+    #[test]
+    fn test_path_delete_refuses_a_non_empty_directory() {
+        let dir = "/tmp/tarqeem_test_path_delete_full_dir";
+        std::fs::remove_dir_all(dir).ok();
+        std::fs::create_dir(dir).expect("تعذّر إنشاء المجلد / could not create the directory");
+        std::fs::write(format!("{dir}/ساكن.نص"), "x").expect("تعذّر إنشاء الملف");
+
+        let path = path_string(dir);
+        assert!(!trq_path_delete(path));
+        assert!(std::path::Path::new(dir).exists());
+
+        release_path(path);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// An absent path, an empty name and a null pointer are one answer.
+    #[test]
+    fn test_path_delete_removes_nothing_that_is_not_there() {
+        for name in ["/tmp/tarqeem_test_path_delete_absent_xyz", ""] {
+            let path = path_string(name);
+            assert!(!trq_path_delete(path), "حذف ما ليس موجوداً: {name:?}");
+            release_path(path);
+        }
+
+        assert!(!trq_path_delete(std::ptr::null()));
+    }
+
+    /// The lstat decision, and the row that makes it load-bearing. Following the
+    /// link would call `remove_dir` on it and fail; the link is unlinked instead,
+    /// and the directory it named survives.
+    #[test]
+    #[cfg(unix)]
+    fn test_path_delete_unlinks_a_symlink_to_a_directory_and_spares_its_target() {
+        let target = "/tmp/tarqeem_test_path_delete_link_target_dir";
+        let link = "/tmp/tarqeem_test_path_delete_link_to_dir";
+        std::fs::remove_file(link).ok();
+        std::fs::remove_dir_all(target).ok();
+        std::fs::create_dir(target).expect("تعذّر إنشاء المجلد / could not create the directory");
+        std::os::unix::fs::symlink(target, link).expect("تعذّر إنشاء الوصلة / could not link");
+
+        // What a `stat`-based selector would have seen, and why it is wrong here.
+        assert!(std::fs::metadata(link).expect("الوصلة تُتبَع").is_dir());
+
+        let path = path_string(link);
+        assert!(trq_path_delete(path));
+        assert!(std::fs::symlink_metadata(link).is_err(), "الوصلة باقية");
+        assert!(std::path::Path::new(target).is_dir(), "الهدف حُذف");
+
+        release_path(path);
+        std::fs::remove_dir_all(target).ok();
+    }
+
+    /// A broken link is removable — the row a `stat`-based selector could never
+    /// reach, since [`trq_path_status`] reads it as absent.
+    #[test]
+    #[cfg(unix)]
+    fn test_path_delete_unlinks_a_broken_symlink() {
+        let link = "/tmp/tarqeem_test_path_delete_broken_link";
+        std::fs::remove_file(link).ok();
+        std::os::unix::fs::symlink("/tmp/tarqeem_test_path_delete_never_existed", link)
+            .expect("تعذّر إنشاء الوصلة / could not link");
+
+        let path = path_string(link);
+        assert_eq!(trq_path_status(path, STAT_FIELD_KIND), PATH_KIND_ABSENT);
+        assert!(trq_path_delete(path));
+        assert!(std::fs::symlink_metadata(link).is_err(), "الوصلة باقية");
+
+        release_path(path);
+    }
+
     /// Builds the `مصفوفة<عدد>` the compiler would hand this primitive: one raw
     /// `i64` slot per element, `elem_size` 8.
     fn byte_array(bytes: &[u8]) -> *const TrqArray {
@@ -2093,5 +2508,801 @@ mod tests {
             }
         }
         arr
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // trq_dir_create — انشئ_مجلد
+    // ────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_dir_create_creates_a_fresh_directory() {
+        let target = "/tmp/tarqeem_test_dir_create_fresh";
+        std::fs::remove_dir_all(target).ok();
+
+        let path = path_string(target);
+        assert!(trq_dir_create(path));
+        assert!(std::path::Path::new(target).is_dir());
+        // The sibling agrees about what now sits there.
+        assert_eq!(trq_path_status(path, STAT_FIELD_KIND), PATH_KIND_DIR);
+
+        release_path(path);
+        std::fs::remove_dir_all(target).ok();
+    }
+
+    /// `صحيح` means *this call created it*, so the second call over the same
+    /// name answers `خطأ` and the directory survives.
+    #[test]
+    fn test_dir_create_refuses_an_existing_directory() {
+        let target = "/tmp/tarqeem_test_dir_create_existing_dir";
+        std::fs::remove_dir_all(target).ok();
+        std::fs::create_dir(target).expect("تعذّر إنشاء المجلد / could not create the directory");
+
+        let path = path_string(target);
+        assert!(!trq_dir_create(path));
+        assert!(std::path::Path::new(target).is_dir(), "المجلد زال");
+
+        release_path(path);
+        std::fs::remove_dir_all(target).ok();
+    }
+
+    /// A file blocks the name too, and keeps its bytes: refusal is a read-only
+    /// answer, never a replacement.
+    #[test]
+    fn test_dir_create_refuses_an_existing_file_and_leaves_it() {
+        let target = "/tmp/tarqeem_test_dir_create_existing_file.txt";
+        std::fs::write(target, "مرحبا").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        assert!(!trq_dir_create(path));
+        assert_eq!(
+            std::fs::read(target).expect("الملف زال"),
+            "مرحبا".as_bytes()
+        );
+
+        release_path(path);
+        std::fs::remove_file(target).ok();
+    }
+
+    /// `mkdir(2)`, not `mkdir -p`: a missing parent is a refusal, and nothing is
+    /// created anywhere along the path. The recursive form is a stdlib loop.
+    #[test]
+    fn test_dir_create_refuses_a_missing_parent() {
+        let parent = "/tmp/tarqeem_test_dir_create_no_parent";
+        std::fs::remove_dir_all(parent).ok();
+
+        let path = path_string("/tmp/tarqeem_test_dir_create_no_parent/فرعي");
+        assert!(!trq_dir_create(path));
+        assert!(
+            !std::path::Path::new(parent).exists(),
+            "أُنشئ الأب من حيث لا يُطلب"
+        );
+
+        release_path(path);
+    }
+
+    /// An empty name and a null pointer are one answer, as in
+    /// [`trq_path_delete`].
+    #[test]
+    fn test_dir_create_creates_nothing_that_has_no_name() {
+        let path = path_string("");
+        assert!(!trq_dir_create(path));
+        release_path(path);
+
+        assert!(!trq_dir_create(std::ptr::null()));
+    }
+
+    /// The *entry* is what blocks the name: a dangling symlink reads as absent
+    /// through [`trq_path_status`] — which follows — yet `mkdir` refuses it,
+    /// because the directory entry exists whether or not its target does. The
+    /// mirror of [`trq_path_delete`] acting on the name, reached with no `lstat`
+    /// in the implementation at all.
+    #[test]
+    #[cfg(unix)]
+    fn test_dir_create_refuses_a_dangling_symlink_by_its_entry() {
+        let link = "/tmp/tarqeem_test_dir_create_dangling_link";
+        std::fs::remove_file(link).ok();
+        std::os::unix::fs::symlink("/tmp/tarqeem_test_dir_create_never_existed", link)
+            .expect("تعذّر إنشاء الوصلة / could not link");
+
+        let path = path_string(link);
+        assert_eq!(trq_path_status(path, STAT_FIELD_KIND), PATH_KIND_ABSENT);
+        assert!(!trq_dir_create(path));
+        assert!(
+            std::fs::symlink_metadata(link).is_ok(),
+            "الوصلة زالت بالرفض"
+        );
+
+        release_path(path);
+        std::fs::remove_file(link).ok();
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // trq_file_move — انقل_مسار
+    // ────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_file_move_moves_a_file_and_its_bytes() {
+        let src = "/tmp/tarqeem_test_file_move_src.txt";
+        let dst = "/tmp/tarqeem_test_file_move_dst.txt";
+        std::fs::remove_file(dst).ok();
+        std::fs::write(src, "محتوى").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let src_p = path_string(src);
+        let dst_p = path_string(dst);
+        assert!(trq_file_move(src_p, dst_p));
+        // The sibling agrees about both ends: the source is gone, the bytes moved.
+        assert_eq!(trq_path_status(src_p, STAT_FIELD_KIND), PATH_KIND_ABSENT);
+        assert_eq!(trq_path_status(dst_p, STAT_FIELD_KIND), PATH_KIND_FILE);
+        assert_eq!(std::fs::read(dst).expect("الوجهة زالت"), "محتوى".as_bytes());
+
+        release_path(src_p);
+        release_path(dst_p);
+        std::fs::remove_file(dst).ok();
+    }
+
+    /// The mover is `مسار`, not `ملف`: `rename(2)` moves a directory whole, and
+    /// refusing that would make an atomic directory move inexpressible.
+    #[test]
+    fn test_file_move_moves_a_directory() {
+        let src = "/tmp/tarqeem_test_file_move_dir_src";
+        let dst = "/tmp/tarqeem_test_file_move_dir_dst";
+        std::fs::remove_dir_all(src).ok();
+        std::fs::remove_dir_all(dst).ok();
+        std::fs::create_dir(src).expect("تعذّر إنشاء المجلد / could not create the directory");
+
+        let src_p = path_string(src);
+        let dst_p = path_string(dst);
+        assert!(trq_file_move(src_p, dst_p));
+        assert_eq!(trq_path_status(src_p, STAT_FIELD_KIND), PATH_KIND_ABSENT);
+        assert_eq!(trq_path_status(dst_p, STAT_FIELD_KIND), PATH_KIND_DIR);
+
+        release_path(src_p);
+        release_path(dst_p);
+        std::fs::remove_dir_all(dst).ok();
+    }
+
+    /// The one occupied destination that is replaced: a regular file. That is
+    /// the atomic write-temp-then-rename idiom, and it is the primitive's point.
+    #[test]
+    fn test_file_move_replaces_a_regular_file_destination() {
+        let src = "/tmp/tarqeem_test_file_move_replace_src.txt";
+        let dst = "/tmp/tarqeem_test_file_move_replace_dst.txt";
+        std::fs::write(src, "جديد").expect("تعذّر إنشاء الملف / could not create the file");
+        std::fs::write(dst, "قديم").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let src_p = path_string(src);
+        let dst_p = path_string(dst);
+        assert!(trq_file_move(src_p, dst_p));
+        assert_eq!(trq_path_status(src_p, STAT_FIELD_KIND), PATH_KIND_ABSENT);
+        assert_eq!(std::fs::read(dst).expect("الوجهة زالت"), "جديد".as_bytes());
+
+        release_path(src_p);
+        release_path(dst_p);
+        std::fs::remove_file(dst).ok();
+    }
+
+    /// A directory destination refuses **even where POSIX `rename` would
+    /// succeed** — an empty directory replaced by a directory — because Windows
+    /// refuses the same call, and one documented behaviour gets one
+    /// implementation (the #355/#362 rule). Both ends survive the refusal.
+    #[test]
+    fn test_file_move_refuses_a_directory_destination_and_both_stay() {
+        let src = "/tmp/tarqeem_test_file_move_dirdst_src";
+        let dst = "/tmp/tarqeem_test_file_move_dirdst_dst";
+        std::fs::remove_dir_all(src).ok();
+        std::fs::remove_dir_all(dst).ok();
+        std::fs::create_dir(src).expect("تعذّر إنشاء المجلد / could not create the directory");
+        std::fs::create_dir(dst).expect("تعذّر إنشاء المجلد / could not create the directory");
+
+        let src_p = path_string(src);
+        let dst_p = path_string(dst);
+        assert!(!trq_file_move(src_p, dst_p));
+        assert_eq!(trq_path_status(src_p, STAT_FIELD_KIND), PATH_KIND_DIR);
+        assert_eq!(trq_path_status(dst_p, STAT_FIELD_KIND), PATH_KIND_DIR);
+
+        release_path(src_p);
+        release_path(dst_p);
+        std::fs::remove_dir_all(src).ok();
+        std::fs::remove_dir_all(dst).ok();
+    }
+
+    /// A symlink destination is occupied-and-not-a-regular-file, so it refuses —
+    /// POSIX `rename` would replace the link. Checked on the *name*
+    /// (`symlink_metadata`), so what the link points at never matters.
+    #[test]
+    #[cfg(unix)]
+    fn test_file_move_refuses_a_symlink_destination() {
+        let src = "/tmp/tarqeem_test_file_move_linkdst_src.txt";
+        let dst = "/tmp/tarqeem_test_file_move_linkdst_link";
+        std::fs::write(src, "محتوى").expect("تعذّر إنشاء الملف / could not create the file");
+        std::fs::remove_file(dst).ok();
+        std::os::unix::fs::symlink("/tmp/tarqeem_test_file_move_never_existed", dst)
+            .expect("تعذّر إنشاء الوصلة / could not link");
+
+        let src_p = path_string(src);
+        let dst_p = path_string(dst);
+        assert!(!trq_file_move(src_p, dst_p));
+        assert!(std::fs::symlink_metadata(dst).is_ok(), "الوصلة زالت بالرفض");
+        assert_eq!(std::fs::read(src).expect("المصدر زال"), "محتوى".as_bytes());
+
+        release_path(src_p);
+        release_path(dst_p);
+        std::fs::remove_file(src).ok();
+        std::fs::remove_file(dst).ok();
+    }
+
+    /// A dangling symlink **source** moves as itself: `rename(2)` acts on the
+    /// name, so the link travels and its absent target is never consulted —
+    /// the same name-not-target rule as [`trq_path_delete`].
+    #[test]
+    #[cfg(unix)]
+    fn test_file_move_moves_a_dangling_symlink_as_itself() {
+        let src = "/tmp/tarqeem_test_file_move_dangling_src";
+        let dst = "/tmp/tarqeem_test_file_move_dangling_dst";
+        std::fs::remove_file(src).ok();
+        std::fs::remove_file(dst).ok();
+        std::os::unix::fs::symlink("/tmp/tarqeem_test_file_move_never_existed", src)
+            .expect("تعذّر إنشاء الوصلة / could not link");
+
+        let src_p = path_string(src);
+        let dst_p = path_string(dst);
+        assert!(trq_file_move(src_p, dst_p));
+        assert!(std::fs::symlink_metadata(src).is_err(), "المصدر باقٍ");
+        assert!(std::fs::symlink_metadata(dst).is_ok(), "الوصلة لم تصل");
+        assert!(
+            std::fs::symlink_metadata("/tmp/tarqeem_test_file_move_never_existed").is_err(),
+            "ظهر الهدف من حيث لا يُطلب"
+        );
+
+        release_path(src_p);
+        release_path(dst_p);
+        std::fs::remove_file(dst).ok();
+    }
+
+    /// File-onto-itself is `صحيح` — the destination is a regular file, and
+    /// `rename(2)` over the same entry succeeds doing nothing. The corollary of
+    /// the destination rule, pinned so it is a decision and not an accident.
+    #[test]
+    fn test_file_move_answers_true_for_a_file_onto_itself() {
+        let target = "/tmp/tarqeem_test_file_move_self.txt";
+        std::fs::write(target, "محتوى").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        assert!(trq_file_move(path, path));
+        assert_eq!(
+            std::fs::read(target).expect("الملف زال"),
+            "محتوى".as_bytes()
+        );
+
+        release_path(path);
+        std::fs::remove_file(target).ok();
+    }
+
+    /// Absent source, empty names and null in either position are one answer,
+    /// as in [`trq_path_delete`], and a refusal moves nothing.
+    #[test]
+    fn test_file_move_moves_nothing_that_has_no_name() {
+        let absent = path_string("/tmp/tarqeem_test_file_move_absent");
+        let dst = path_string("/tmp/tarqeem_test_file_move_absent_dst");
+        assert!(!trq_file_move(absent, dst));
+
+        let src = "/tmp/tarqeem_test_file_move_stays.txt";
+        std::fs::write(src, "محتوى").expect("تعذّر إنشاء الملف / could not create the file");
+        let src_p = path_string(src);
+        let empty = path_string("");
+        assert!(!trq_file_move(empty, dst));
+        assert!(!trq_file_move(src_p, empty));
+        assert!(!trq_file_move(src_p, std::ptr::null()));
+        assert!(!trq_file_move(std::ptr::null(), dst));
+        assert_eq!(std::fs::read(src).expect("المصدر زال"), "محتوى".as_bytes());
+
+        release_path(absent);
+        release_path(dst);
+        release_path(src_p);
+        release_path(empty);
+        std::fs::remove_file(src).ok();
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // trq_file_open — افتح_ملف
+    // ────────────────────────────────────────────────────────────────────
+
+    /// Every handle is past the console streams, so a program may hand the
+    /// answer straight to `اكتب_مجرى`/`اقرأ_مجرى`. Asserted as `>= 3` and never
+    /// `== 3`: `NEXT_FILE_HANDLE` is process-global, so the value depends on how
+    /// many handles other tests in this binary have taken.
+    #[test]
+    fn test_file_open_answers_a_handle_past_the_console_streams() {
+        let target = "/tmp/tarqeem_test_file_open_read.txt";
+        std::fs::write(target, "مرحبا").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        let handle = trq_file_open(path, OPEN_READ);
+        assert!(
+            handle >= 3,
+            "المعرِّف {handle} يزاحم مجرى قياسياً / handle collides with a standard stream"
+        );
+
+        assert!(trq_file_close(handle));
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// Write mode creates the file, and that is observable with no flush and no
+    /// close — `File::create` reaches the filesystem before any byte does. It is
+    /// what lets `حالة_مسار` see a file the program just opened.
+    #[test]
+    fn test_file_open_in_write_mode_creates_the_file() {
+        let target = "/tmp/tarqeem_test_file_open_creates.txt";
+        std::fs::remove_file(target).ok();
+
+        let path = path_string(target);
+        let handle = trq_file_open(path, OPEN_WRITE);
+        assert!(handle >= 3);
+        assert_eq!(trq_path_status(path, STAT_FIELD_KIND), PATH_KIND_FILE);
+
+        assert!(trq_file_close(handle));
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// Append keeps what was there; write truncates it. The two modes differ in
+    /// exactly this, so one test covers both.
+    #[test]
+    fn test_file_open_appends_where_write_truncates() {
+        let target = "/tmp/tarqeem_test_file_open_append.txt";
+        std::fs::write(target, "أ").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        let appender = trq_file_open(path, OPEN_APPEND);
+        assert!(appender >= 3);
+        assert_eq!(trq_write_stream(appender, byte_array(b"B")), 1);
+        assert!(trq_file_close(appender));
+        assert_eq!(std::fs::read(target).unwrap(), "أB".as_bytes());
+
+        let truncater = trq_file_open(path, OPEN_WRITE);
+        assert!(truncater >= 3);
+        assert!(trq_file_close(truncater));
+        assert!(std::fs::read(target).unwrap().is_empty());
+
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// A mode this function does not know is refused **before** the path, so a
+    /// bad mode creates nothing. `3` is `وضع_قراءة_كتابة` in
+    /// `stdlib/ملفات/ملف.ترقيم`, which has no handle kind here — the row that
+    /// makes this test more than a range check.
+    #[test]
+    fn test_file_open_refuses_an_unknown_mode_without_touching_the_path() {
+        let target = "/tmp/tarqeem_test_file_open_bad_mode.txt";
+        std::fs::remove_file(target).ok();
+
+        let path = path_string(target);
+        for mode in [3, 9, -1, i64::MIN, i64::MAX] {
+            assert_eq!(trq_file_open(path, mode), OPEN_FAILED, "الوضع {mode}");
+            assert!(
+                !std::path::Path::new(target).exists(),
+                "الوضع {mode} أنشأ ملفاً / mode created a file"
+            );
+        }
+
+        release_path(path);
+    }
+
+    /// `-1`, never `0`: `0` names stdin, so a failed open answering it would send
+    /// a later `اقرأ_مجرى` to the keyboard. An absent path, an empty name and a
+    /// null pointer are one answer.
+    #[test]
+    fn test_file_open_answers_minus_one_for_nothing_to_open() {
+        let absent = path_string("/tmp/tarqeem_test_file_open_absent_dir/nothing.txt");
+        assert_eq!(trq_file_open(absent, OPEN_READ), OPEN_FAILED);
+        release_path(absent);
+
+        let empty = path_string("");
+        assert_eq!(trq_file_open(empty, OPEN_READ), OPEN_FAILED);
+        release_path(empty);
+
+        assert_eq!(trq_file_open(std::ptr::null(), OPEN_READ), OPEN_FAILED);
+    }
+
+    /// A directory is refused in every mode, which is a deliberate deviation from
+    /// `open(2)`: POSIX opens a directory read-only and Windows does not, so a
+    /// literal reading would answer a handle on one platform and `-1` on the other
+    /// in a contract row. The handle is useless either way.
+    ///
+    /// Also asserts the handle is not leaked — the refusal closes what it opened,
+    /// so a following open answers the *next* id rather than skipping two.
+    #[test]
+    fn test_file_open_refuses_a_directory_in_every_mode() {
+        let target = "/tmp/tarqeem_test_file_open_dir";
+        std::fs::remove_dir_all(target).ok();
+        std::fs::create_dir(target).expect("تعذّر إنشاء المجلد / could not create the directory");
+
+        let path = path_string(target);
+        for mode in [OPEN_READ, OPEN_WRITE, OPEN_APPEND] {
+            assert_eq!(trq_file_open(path, mode), OPEN_FAILED, "الوضع {mode}");
+        }
+        assert!(
+            std::path::Path::new(target).is_dir(),
+            "المجلد تغيّر / the directory was disturbed"
+        );
+
+        std::fs::remove_dir_all(target).ok();
+        release_path(path);
+    }
+
+    /// Two opens are two handles. They must differ, or a program holding both
+    /// would write through the one it meant to read.
+    #[test]
+    fn test_file_open_hands_out_distinct_handles() {
+        let target = "/tmp/tarqeem_test_file_open_distinct.txt";
+        std::fs::write(target, "مرحبا").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        let first = trq_file_open(path, OPEN_READ);
+        let second = trq_file_open(path, OPEN_READ);
+        assert!(first >= 3 && second >= 3);
+        assert_ne!(first, second);
+
+        assert!(trq_file_close(first));
+        assert!(trq_file_close(second));
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// A handle carries a direction, and the stream pair honours it: writing to a
+    /// reader fails and reading a writer answers nothing. Both refusals already
+    /// existed for a handle that was never opened; this is the first time a
+    /// *live* handle can be the wrong kind.
+    #[test]
+    fn test_file_open_handles_carry_their_direction() {
+        let target = "/tmp/tarqeem_test_file_open_direction.txt";
+        std::fs::write(target, "مرحبا").expect("تعذّر إنشاء الملف / could not create the file");
+
+        let path = path_string(target);
+        let reader = trq_file_open(path, OPEN_READ);
+        assert_eq!(trq_write_stream(reader, byte_array(b"x")), WRITE_FAILED);
+
+        let writer = trq_file_open(path, OPEN_APPEND);
+        let nothing = trq_read_stream(writer, 4);
+        assert!(slots_of(nothing).is_empty());
+
+        assert!(trq_file_close(reader));
+        assert!(trq_file_close(writer));
+        std::fs::remove_file(target).ok();
+        release_path(path);
+        crate::memory::trq_release(nothing as *mut u8);
+    }
+
+    /// The round trip the opener exists for: open, write bytes through
+    /// `اكتب_مجرى`, open again, read them back through `اقرأ_مجرى`. Arabic
+    /// content on purpose — two bytes per character, so a byte count and a
+    /// character count cannot be confused for one another.
+    #[test]
+    fn test_file_open_round_trips_bytes_through_the_stream_pair() {
+        let target = "/tmp/tarqeem_test_file_open_round_trip.txt";
+        std::fs::remove_file(target).ok();
+
+        let path = path_string(target);
+        let writer = trq_file_open(path, OPEN_WRITE);
+        assert_eq!(trq_write_stream(writer, byte_array("مرحبا".as_bytes())), 10);
+        assert!(trq_file_close(writer));
+
+        let reader = trq_file_open(path, OPEN_READ);
+        let answer = trq_read_stream(reader, 64);
+        let expected: Vec<i64> = "مرحبا".as_bytes().iter().map(|b| *b as i64).collect();
+        assert_eq!(slots_of(answer), expected);
+
+        assert!(trq_file_close(reader));
+        std::fs::remove_file(target).ok();
+        release_path(path);
+        crate::memory::trq_release(answer as *mut u8);
+    }
+
+    /// The durability row, and the reason [`flush_open_writers`] exists.
+    ///
+    /// `trq_write_stream`'s handle path does not flush and this program closes
+    /// nothing, so without this call the bytes sit in a `BufWriter` that no
+    /// destructor runs — `main` is `extern "C"`. The empty read before it is what
+    /// proves the flush is doing the work rather than the write having already
+    /// landed. `اغلق_ملف` reaches the same bytes earlier; this is the path for
+    /// handles a program never closes.
+    #[test]
+    fn test_flush_open_writers_lands_bytes_with_no_close() {
+        let target = "/tmp/tarqeem_test_file_open_flush.txt";
+        std::fs::remove_file(target).ok();
+
+        let path = path_string(target);
+        let writer = trq_file_open(path, OPEN_WRITE);
+        assert_eq!(trq_write_stream(writer, byte_array(b"hi")), 2);
+        assert!(
+            std::fs::read(target).unwrap().is_empty(),
+            "الكتابة بلغت الملف قبل الإفراغ"
+        );
+
+        flush_open_writers();
+        assert_eq!(std::fs::read(target).unwrap(), b"hi");
+
+        assert!(trq_file_close(writer));
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+    // -----------------------------------------------------------------------
+    // trq_file_close — اغلق_ملف
+    // -----------------------------------------------------------------------
+
+    /// The row the name exists for: the bytes land on close, not at program end.
+    ///
+    /// The empty read before it is what makes the assertion about `اغلق_ملف`
+    /// rather than about the write, exactly as
+    /// `test_flush_open_writers_lands_bytes_with_no_close` does for the other
+    /// flusher. Arabic content, so a byte count and a character count differ and
+    /// a wrong unit cannot pass.
+    #[test]
+    fn test_file_close_lands_written_bytes_before_the_program_ends() {
+        let target = "/tmp/tarqeem_test_file_close_lands.txt";
+        std::fs::remove_file(target).ok();
+
+        let path = path_string(target);
+        let writer = trq_file_open(path, OPEN_WRITE);
+        assert_eq!(trq_write_stream(writer, byte_array("مرحبا".as_bytes())), 10);
+        assert!(
+            std::fs::read(target).unwrap().is_empty(),
+            "الكتابة بلغت الملف قبل الإغلاق"
+        );
+
+        assert!(trq_file_close(writer));
+        assert_eq!(std::fs::read(target).unwrap(), "مرحبا".as_bytes());
+
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// A reader has nothing to flush, so the answer is about the release alone.
+    #[test]
+    fn test_file_close_releases_a_reader() {
+        let target = "/tmp/tarqeem_test_file_close_reader.txt";
+        std::fs::write(target, "مرحبا").unwrap();
+
+        let path = path_string(target);
+        let reader = trq_file_open(path, OPEN_READ);
+        assert!(trq_file_close(reader));
+
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// The handle leaves the table, so a second close is a miss like any other.
+    #[test]
+    fn test_file_close_refuses_a_handle_it_already_released() {
+        let target = "/tmp/tarqeem_test_file_close_twice.txt";
+        std::fs::remove_file(target).ok();
+
+        let path = path_string(target);
+        let writer = trq_file_open(path, OPEN_WRITE);
+        assert!(trq_file_close(writer));
+        assert!(!trq_file_close(writer), "الإغلاق الثاني نجح");
+
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// The console streams are not closable, and they need no arm of their own:
+    /// `NEXT_FILE_HANDLE` starts at 3, so `٠`/`١`/`٢` were never in the table.
+    /// This deviates from `close(2)`, which does close descriptor 1 — one
+    /// documented behaviour rather than a platform-shaped one, the shape #362
+    /// chose for the directory refusal.
+    #[test]
+    fn test_file_close_refuses_the_console_streams() {
+        assert!(!trq_file_close(STREAM_STDIN));
+        assert!(!trq_file_close(STREAM_STDOUT));
+        assert!(!trq_file_close(STREAM_STDERR));
+    }
+
+    /// A negative handle names nothing. `99999` is pinned above, with the rest of
+    /// the pre-`افتح_ملف` handle tests.
+    ///
+    /// Neither value is one any test could have opened, and that is deliberate
+    /// rather than a bug being fixed: `FILE_HANDLES` is a `thread_local!` that
+    /// every test in this binary shares under `--test-threads=1`, so a hardcoded
+    /// plausible number like `٣` would answer `true` for any *future* test that
+    /// leaves a handle stored. No test leaks one today — measured, every open that
+    /// goes unclosed here is one that failed — so `٣` passes; it is simply not
+    /// worth depending on test order for. Same reasoning as the debug
+    /// interpreter's dispatch test, and the `٣` row is pinned per-process anyway,
+    /// in the cross-backend suite.
+    #[test]
+    fn test_file_close_refuses_a_handle_never_opened() {
+        assert!(!trq_file_close(-1));
+        assert!(!trq_file_close(i64::MAX));
+    }
+
+    /// Closing frees the entry, never the number: the counter only ever counts
+    /// up, so a program that prints a handle sees the same sequence on every
+    /// backend.
+    #[test]
+    fn test_file_close_does_not_recycle_the_number() {
+        let target = "/tmp/tarqeem_test_file_close_no_reuse.txt";
+        std::fs::write(target, "م").unwrap();
+
+        let path = path_string(target);
+        let first = trq_file_open(path, OPEN_READ);
+        assert!(trq_file_close(first));
+        let second = trq_file_open(path, OPEN_READ);
+        assert!(
+            second > first,
+            "أُعيد المعرِّف بعد انصرافه: {first} ثم {second}"
+        );
+        assert!(trq_file_close(second));
+
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// The stream pair inherits the release with no arm of its own: a closed
+    /// number is absent from the table, which both halves already refuse.
+    #[test]
+    fn test_the_stream_pair_refuses_a_closed_handle() {
+        let target = "/tmp/tarqeem_test_file_close_then_stream.txt";
+        std::fs::write(target, "مرحبا").unwrap();
+
+        let path = path_string(target);
+        let reader = trq_file_open(path, OPEN_READ);
+        assert!(trq_file_close(reader));
+
+        let answer = trq_read_stream(reader, 8);
+        assert_eq!(unsafe { (*answer).len }, 0, "قُرئ من معرِّف مُغلق");
+        crate::memory::trq_release(answer as *mut u8);
+
+        let writer = trq_file_open(path, OPEN_APPEND);
+        assert!(trq_file_close(writer));
+        assert_eq!(trq_write_stream(writer, byte_array(b"x")), -1);
+
+        std::fs::remove_file(target).ok();
+        release_path(path);
+    }
+
+    /// Reads a listing into owned Rust strings and releases every allocation,
+    /// so each `trq_dir_list` row asserts on values instead of repeating the
+    /// raw-pointer walk. These are the symbol's first unit tests: before #370
+    /// its only exercise anywhere was a `>= 1` length assertion.
+    fn listed_names(entries: *mut crate::types::TrqArray) -> Vec<String> {
+        assert!(
+            !entries.is_null(),
+            "قائمة_مجلد تُرجع null عند فشل التخصيص فقط"
+        );
+        let len = crate::array::trq_array_len(entries);
+        let mut names = Vec::new();
+        for i in 0..len {
+            let elem = crate::array::trq_array_get(entries, i);
+            unsafe {
+                let str_ptr = *(elem as *const *mut TrqString);
+                let slice = std::slice::from_raw_parts((*str_ptr).data, (*str_ptr).len as usize);
+                names.push(String::from_utf8_lossy(slice).into_owned());
+                crate::memory::trq_release(str_ptr as *mut u8);
+            }
+        }
+        crate::memory::trq_release(entries as *mut u8);
+        names
+    }
+
+    /// Bare names, sorted by code point whatever order the entries were made
+    /// in: the file lands first and the directory second, and the answer comes
+    /// back the other way round (`أ` = D8 A3 sorts before `ب` = D8 A8
+    /// bytewise). Raw readdir order is filesystem-dependent, which is exactly
+    /// why it cannot be the contract.
+    #[test]
+    fn test_dir_list_answers_sorted_bare_names() {
+        let dir = std::env::temp_dir().join("tarqeem_test_dir_list_sorted");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir(&dir).expect("تعذّر إنشاء المجلد / could not create the directory");
+        std::fs::write(dir.join("ب.نص"), "").expect("تعذّر إنشاء الملف");
+        std::fs::create_dir(dir.join("أ")).expect("تعذّر إنشاء المجلد الفرعي");
+
+        let path = path_string(dir.to_str().expect("مسار مؤقت صالح"));
+        let names = listed_names(trq_dir_list(path));
+        assert_eq!(names, vec!["أ".to_string(), "ب.نص".to_string()]);
+
+        release_path(path);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The empty directory answers the empty array as a value — and so does
+    /// every refusal: absent, a regular file, the empty name and null are
+    /// indistinguishable from it by design, since an array return has no spare
+    /// value for a refusal. A caller that must tell them apart asks
+    /// `trq_path_status`.
+    #[test]
+    fn test_dir_list_answers_empty_for_every_refusal_and_for_empty() {
+        let dir = std::env::temp_dir().join("tarqeem_test_dir_list_empty");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir(&dir).expect("تعذّر إنشاء المجلد / could not create the directory");
+        let empty_dir = path_string(dir.to_str().expect("مسار مؤقت صالح"));
+        assert!(listed_names(trq_dir_list(empty_dir)).is_empty());
+        release_path(empty_dir);
+        std::fs::remove_dir_all(&dir).ok();
+
+        let file = std::env::temp_dir().join("tarqeem_test_dir_list_file.txt");
+        std::fs::write(&file, "محتوى").expect("تعذّر إنشاء الملف");
+        let file_path = path_string(file.to_str().expect("مسار مؤقت صالح"));
+        assert!(listed_names(trq_dir_list(file_path)).is_empty());
+        release_path(file_path);
+        std::fs::remove_file(&file).ok();
+
+        let absent = path_string("/tmp/tarqeem_test_dir_list_absent");
+        assert!(listed_names(trq_dir_list(absent)).is_empty());
+        release_path(absent);
+
+        let empty_name = path_string("");
+        assert!(listed_names(trq_dir_list(empty_name)).is_empty());
+        release_path(empty_name);
+
+        assert!(listed_names(trq_dir_list(std::ptr::null())).is_empty());
+    }
+
+    /// The path argument follows a symlink the way `trq_path_status` does —
+    /// listing through the link lists the target — and a dangling link
+    /// therefore lists as absent even though the entry itself exists, which
+    /// `trq_path_delete` (acting on the name) can still see.
+    #[cfg(unix)]
+    #[test]
+    fn test_dir_list_follows_a_symlink_and_reads_a_dangling_one_as_absent() {
+        let root = std::env::temp_dir().join("tarqeem_test_dir_list_symlink");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir(&root).expect("تعذّر إنشاء المجلد / could not create the directory");
+        std::fs::create_dir(root.join("هدف")).expect("تعذّر إنشاء الهدف");
+        std::fs::write(root.join("هدف").join("داخل.نص"), "").expect("تعذّر إنشاء الملف");
+        std::os::unix::fs::symlink(root.join("هدف"), root.join("وصلة")).expect("تعذّر إنشاء الوصلة");
+        std::os::unix::fs::symlink(root.join("غائب"), root.join("معلقة"))
+            .expect("تعذّر إنشاء الوصلة المعلقة");
+
+        let through = path_string(root.join("وصلة").to_str().expect("مسار مؤقت صالح"));
+        assert_eq!(
+            listed_names(trq_dir_list(through)),
+            vec!["داخل.نص".to_string()]
+        );
+        release_path(through);
+
+        let dangling = path_string(root.join("معلقة").to_str().expect("مسار مؤقت صالح"));
+        assert!(listed_names(trq_dir_list(dangling)).is_empty());
+        release_path(dangling);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A non-UTF-8 entry name is decoded lossily and **kept** — dropping it
+    /// would make the length lie about the directory — on `trq_program_args`'s
+    /// argv rule. Only one lossy name is asserted, never uniqueness: two
+    /// distinct byte sequences may decode to the same string, deliberately.
+    /// The filesystem itself may refuse such a name (APFS does), in which case
+    /// there is nothing to list and the row is vacuously skipped — the
+    /// meaningful run is Linux, where ext4 accepts arbitrary bytes.
+    #[cfg(unix)]
+    #[test]
+    fn test_dir_list_decodes_a_non_utf8_name_lossily_instead_of_dropping_it() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = std::env::temp_dir().join("tarqeem_test_dir_list_lossy");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir(&dir).expect("تعذّر إنشاء المجلد / could not create the directory");
+
+        let raw = std::ffi::OsStr::from_bytes(b"\xff\xfe.txt");
+        if std::fs::write(dir.join(raw), "").is_err() {
+            std::fs::remove_dir_all(&dir).ok();
+            return;
+        }
+
+        let path = path_string(dir.to_str().expect("مسار مؤقت صالح"));
+        let names = listed_names(trq_dir_list(path));
+        assert_eq!(names.len(), 1, "الاسم غير الصالح أُسقط بدل أن يُقرأ متساهلاً");
+        assert!(
+            names[0].contains('\u{FFFD}'),
+            "الاسم {:?} لم يُقرأ قراءةً متساهلة",
+            names[0]
+        );
+
+        release_path(path);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -1018,6 +1018,17 @@ mod tests {
         // parser has to accept the name *inside* `تطابق`, where the token is
         // actually reserved, and that is pinned in
         // `tests/builtins_execution_tests.rs` instead, since it needs a parse.
+        //
+        // The twelfth is the first whose embedded keyword is a **modifier**.
+        // «عام» sits inside «معاملات» with a letter on each side — the «حروف»
+        // shape — but the token it could be mistaken for is `TokenKind::Public`,
+        // which introduces a *member declaration*. So a scan that resumed after a
+        // keyword match would emit `Identifier("م")`, `Public`, `Identifier("لات_البرنامج")`,
+        // and inside a class body the middle token is exactly what a member
+        // expects to see. Like «متغير» and «حالة» before it, the failure would be
+        // a plausible construct rather than a token error; unlike them, the
+        // keyword is not in opening position, so it would corrupt a name the
+        // parser had already begun reading.
         let cases = [
             ("بتات_و(12، 10)", "بتات_و"),
             ("بتات_أو(12، 10)", "بتات_أو"),
@@ -1030,6 +1041,7 @@ mod tests {
             ("متغير_بيئة(\"PATH\")", "متغير_بيئة"),
             ("اكتب_مجرى(1، [65])", "اكتب_مجرى"),
             ("حالة_مسار(\".\"، 0)", "حالة_مسار"),
+            ("معاملات_البرنامج()", "معاملات_البرنامج"),
         ];
 
         for (source, name) in cases {

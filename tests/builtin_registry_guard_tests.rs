@@ -5,7 +5,7 @@
 //! name lists — and until now nothing compared them. They happen to agree today;
 //! that agreement was coincidence, not enforcement.
 //!
-//! These are **ratchet** tests. They pin the registry as it stands (36 core + 163
+//! These are **ratchet** tests. They pin the registry as it stands (44 core + 159
 //! stdlib) while the builtin/stdlib boundary described in `docs/builtins-vs-stdlib.md`
 //! is migrated. A name may only enter or leave the registry by editing the expected
 //! list here, which is exactly the deliberate step the plan requires — a migration
@@ -44,7 +44,10 @@ const CORE_BUILTINS: &[&str] = &[
     "اطبع",
     "اطبع_خطأ",
     "اطبع_سطر",
-    "الحق",
+    // #375: renamed from الحق; the misspelling left outright on the #336 precedent.
+    "ألحق",
+    // #382: its inverse, and the last unimplemented row in the §1.3 registry.
+    "احذف_آخر",
     "بتات_أو",
     "بتات_أو_حصري",
     "بتات_إزاحة_يسار",
@@ -64,7 +67,15 @@ const CORE_BUILTINS: &[&str] = &[
     "متغير_بيئة",
     "اكتب_مجرى",
     "اقرأ_مجرى",
+    "افتح_ملف",
+    "اغلق_ملف",
     "حالة_مسار",
+    "احذف_مسار",
+    "انشئ_مجلد",
+    "انقل_مسار",
+    "قائمة_مجلد",
+    "مجلد_حالي",
+    "معاملات_البرنامج",
     "عدد",
     "عدد_عشري",
     "منطقي",
@@ -73,6 +84,7 @@ const CORE_BUILTINS: &[&str] = &[
     "ثنائي_إلى_نص",
     "نم",
     "نوع",
+    "وقت_أداء",
 ];
 
 /// Names per stdlib module, as a ratchet on the size of each import surface.
@@ -83,8 +95,25 @@ const STDLIB_MODULE_SIZES: &[(&str, usize)] = &[
     // `قص_نص` was removed outright — the primitive string surface is uniformly
     // codepoint-indexed, and byte work goes through `نص_إلى_ثنائي`/`ثنائي_إلى_نص`.
     ("نص", 39),
-    ("ملفات", 21),
-    ("وقت", 2),
+    // 21 until #366, which promoted `انشئ_مجلد` to the core tier — still
+    // callable, now with no import — the same move `قص_حروف` made out of `نص`.
+    // 20 until #368, which took `انقل_ملف` out the same way with one difference:
+    // the core-tier name is `انقل_مسار` — the #352 rename (`حالة_ملف` →
+    // `حالة_مسار`) applied to the mover, since `rename(2)` acts on the name and
+    // moves directories and symlinks too. The old spelling is gone outright, on
+    // the #336 `قص_نص` precedent.
+    // 19 until #370, which promoted `قائمة_مجلد` the same way, spelling
+    // unchanged — the last Category-7 repair. (Its comment here claimed the
+    // module then held only `مكتبة`-verdict names; that overclaimed by one.)
+    // 18 until #373, which promoted `مجلد_حالي` — the actual last
+    // `مدمج`-verdict name this module held, a Category-8 row.
+    ("ملفات", 17),
+    // 2 until #389, which promoted `وقت_أداء` to the core tier — the sixth
+    // size-neutral move after #336, #366, #368, #370 and #373. It rode along with
+    // that name's monotonic repair because the CI builtins example is import-free
+    // by design, so nothing could have exercised the fixed clock otherwise.
+    // `وقت_الآن` is the only name left here, and `مدمج`-verdict too.
+    ("وقت", 1),
     ("تشفير", 8),
     ("ضغط", 6),
     ("شبكة", 23),
@@ -223,12 +252,49 @@ fn stdlib_registry_size_is_locked() {
     // 198 with #350 (`اقرأ_مجرى`), the read half of the same pair — one name, one
     // capability, gap unchanged.
     //
-    // 199 with #352 (`حالة_مسار`), one name for one capability. It *folds* four
-    // stdlib names but removes none of them — they are `مكتبة`, not `يُحذف`, and
-    // B16 makes the `ملفات` flip all-or-nothing — so no module size moves either.
+    // 200 with #355 (`احذف_مسار`), one name for one capability. Same shape as
+    // #352 above: it folds `احذف_ملف` and `احذف_مجلد` and removes neither, so no
+    // module size moves.
+    //
+    // 201 with #360 (`معاملات_البرنامج`), one name for one capability. This one
+    // folds nothing at all — no argv name existed in any tier — so again no
+    // module size moves, and the gap between this count and the 40-primitive
+    // budget is still the one `أنهِ_البرنامج` spelling.
+    // 202 with #362 (`افتح_ملف`), one name for one capability. It folds the three
+    // path-only `trq_file_open_*` openers behind one mode and removes none of
+    // them — they are runtime symbols, not registry names — so no module size
+    // moves.
+    //
+    // 203 with #364 (`اغلق_ملف`), its release half. One name for one capability
+    // again, and this one folds nothing at all: `trq_file_flush`, `read_line`,
+    // `write_line` and `eof` stay nameless orphans. So the `ملفات` size is
+    // unchanged for the fifth increment running, and the gap between this count
+    // and the 40-primitive budget is still the one `أنهِ_البرنامج` spelling.
+    //
+    // Still 203 with #366 (`انشئ_مجلد`) — the first move since #336 that is a
+    // promotion rather than an addition: the name left `ملفات` (21 → 20) and
+    // joined `CORE_BUILTINS` (40 → 41), so the total is size-neutral by
+    // construction, exactly as `قص_حروف`'s move out of `نص` was.
+    //
+    // Still 203 with #368 (`انقل_مسار`) — a promotion again, this time carrying
+    // the #352 rename: `انقل_ملف` left `ملفات` (20 → 19) and the core tier
+    // gained `انقل_مسار` (41 → 42). One name for one capability, size-neutral
+    // by construction.
+    //
+    // Still 203 with #370 (`قائمة_مجلد`) — the third promotion in a row and the
+    // simplest: spelling unchanged, `ملفات` 19 → 18, core 42 → 43. Category 7's
+    // repairs are complete.
+    //
+    // Still 203 with #373 (`مجلد_حالي`) — the fourth promotion, first from
+    // Category 8: spelling unchanged, `ملفات` 18 → 17, core 43 → 44.
+    //
+    // 204 with #382 (`احذف_آخر`) — the first move since #338 that is a plain
+    // addition rather than a promotion. It folds nothing and leaves no module,
+    // so `STDLIB_MODULE_SIZES` is untouched and the core tier goes 44 → 45. It
+    // closes Category 4, and with it the last unimplemented row in §1.3.
     assert_eq!(
         total + CORE_BUILTINS.len(),
-        199,
+        204,
         "total registry size changed; docs/builtins-vs-stdlib.md targets 40 primitives — reached \
          by migrating ~150 names out and adding 21 new ones, so this number moves in both \
          directions, but only ever deliberately"

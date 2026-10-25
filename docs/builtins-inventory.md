@@ -14,15 +14,15 @@ backed by a mechanical count that agrees with the hand enumeration.
 
 | | |
 |---|---|
-| Names declared in `Scope` | **199** — 36 `core_builtins()` + 163 `get_stdlib_builtin()` across 7 modules. Recounted from source at #352, both halves separately. `أنهِ_البرنامج` ships with its kasra-less spelling, so this number and the 40-primitive budget differ by one on purpose; #347, #350 and #352 each added one name for one capability, so the gap of one is unchanged. #352 folds four `ملفات` names but removes none — they are `مكتبة`, not `يُحذف` — so the stdlib half is untouched |
-| Names reachable on *some* backend | **247** — the surplus over the declared count exists in a backend but in no registry, so no program can call them. The census stated that surplus as 51 while the two totals differ by 48; the discrepancy predates #350 and is still left for a full recount rather than patched here — #352 moved this by the one name it added and nothing else |
-| `runtime-rs` exports | **224** `#[no_mangle] pub extern "C" fn`, recounted from source at #352 (unique names across every `runtime-rs/src/*.rs`). The count was two low before #350 recounted it, so recount rather than increment |
+| Names declared in `Scope` | **204** — 44 `core_builtins()` + 159 `get_stdlib_builtin()` across 7 modules; the split moved again at #368, which promoted the mover out of `ملفات` **under the #352 rename** — the core name is `انقل_مسار` where the module name was `انقل_ملف` — the third size-neutral move after #336 (`قص_حروف` out of `نص`) and #366 (`انشئ_مجلد` out of `ملفات`), and the first where the promoted name changed spelling on the way, so the old spelling left the registry outright on the #336 `قص_نص` precedent. #370 then made it the fourth move, promoting `قائمة_مجلد` out of `ملفات` with its spelling unchanged — and with it Category 7's repairs are complete. #373 made it the fifth, promoting `مجلد_حالي` out of `ملفات` spelling unchanged — the last `مدمج`-verdict name that module held, and the first promotion from Category 8 — so the split is now **44 + 159**. Recounted at #355 from the two ratchet lists in `tests/builtin_registry_guard_tests.rs`, which are mechanically checked against `Scope` by a passing test — a hand-written regex over `scope.rs` undercounts, because rustfmt wraps the longer entries onto several lines. `أنهِ_البرنامج` ships with its kasra-less spelling, so this number and the 40-primitive budget differ by one on purpose; #347, #350, #352, #355 and #360 each added one name for one capability, so the gap of one is unchanged. #360 folds nothing at all — no argv name existed in any tier — so the stdlib half is untouched for the third increment running, and #362 makes it the fourth: `افتح_ملف` folds three *runtime symbols*, which are not registry names, so no module size moves, and #364 makes it the fifth: `اغلق_ملف` folds nothing at all, so the stdlib half was untouched again — a streak #366 then ended, not by a fold but by the promotion itself: the name left the stdlib half for the core half, which is the move the opening of this row records. #375 renamed the core-tier `الحق` to `ألحق` — the misspelling left outright on the #336 `قص_نص` precedent — a pure spelling change inside one tier, so the split stays **44 + 159** and no module size moves. #382 then made the total **204**: `احذف_آخر` is a plain **addition**, the first since #338 — it folds nothing and leaves no module — so the core half alone moves, **45 + 159**. With it §1.3 has no unimplemented row left, and #389 was the first increment to work on a *defect* instead: it promoted `وقت_أداء` out of `وقت` as the **sixth** size-neutral move, so the split is **46 + 158** and the total stays 204. Both figures were read from the guard's two ratchet lists, which a passing test checks against `Scope` — never incremented, because the `core` table below was found one row low at this recount, having been incremented past an earlier increment |
+| Names reachable on *some* backend | **249** — the surplus over the declared count exists in a backend but in no registry, so no program can call them. The census stated that surplus as 51 while the two totals differ by 48; the discrepancy predates #350 and is still left for a full recount rather than patched here — #352, #355 and #360 each moved this by the one name they added and nothing else |
+| `runtime-rs` exports | **227** `trq_*` symbols, unique names across every `runtime-rs/src/*.rs`. The count was two low before #350 recounted it, so recount rather than increment. **The definition is `trq_*`-only, and #355 pinned it because leaving it implicit cost a review pass a false positive** — counting every `#[no_mangle] pub extern "C" fn` gives 228, the extra being the C entry point `main` in `runtime.rs`, which is neither a language-surface export nor classifiable under any of the three breakdown rows below. Verified against `develop`, where the row read 226 and the `trq_*` count was exactly 226; `trq_file_open` (#362) is the 227th. **Unchanged by #364**, which named an existing symbol rather than adding one. Recount with a command whose output you read: `grep -rhoE 'pub (unsafe )?extern "C" fn [a-zA-Z0-9_]+' runtime-rs/src/*.rs \| awk '{print $NF}' \| grep '^trq_' \| sort -u \| wc -l` |
 | … of which ABI-internal (compiler-emitted plumbing) | **22** — excluded from the language surface |
-| … of which orphans (no caller anywhere) | **27** — `trq_env_get` left the set in #338 |
-| … reachable from a declared name | **160** — `trq_path_status` joined the set at #352. Note it is the one symbol so far that four *other* declared names also reduce to; the folding is a stdlib change still ahead, so nothing left the set |
+| … of which orphans (no caller anywhere) | **22** — `trq_env_get` left the set in #338, and `trq_file_open_read`/`_write`/`_append` left it at #362, which gave all three their first non-test caller in the `trq_file_open` wrapper that folds them. `trq_file_close` left it at #364, which gave it an Arabic name — though it already had one production caller inside `trq_file_open`'s directory refusal, so the row this replaces was wrong when written. The total drops by one and not by zero: #362 set it to 24 while still counting `trq_file_close`, and the `trq_*` export total is unchanged at 227, so nothing joined the set to replace it. `trq_array_pop` left at #382, which gave it its first caller — the `ArrayPop` lowering — and, reading it before wiring it (the #364 move), found the body **dishonest** for that caller: it answered `null` on an empty array where codegen `load`s the result unconditionally. It is the third orphan-adjacent body read this way, after `trq_env_get` (honest) and `trq_performance_now` (lying until #389 repaired it, which is the one increment in this sequence whose whole subject was a body rather than a name), and the second to need a fix |
+| … reachable from a declared name | **168** — `trq_array_pop` joined at #382, reached by `احذف_آخر` through the `ArrayPop` lowering rather than through `get_runtime_function_name`, which an intercepted name never consults; it folds nothing, so the row moves by one. `trq_file_close` joined at #364, and it is the whole delta: the name folds nothing, so no other declared name reduces to it. `trq_file_open` joined the set at #362 and brought the three openers it folds with it, so this row moves by four where the export row moves by one. `trq_program_args` joined at #360, as `trq_path_delete` did at #355 and `trq_path_status` at #352. Unlike those two it folds nothing, so no other declared name reduces to it. Unchanged by #370: `trq_dir_list` was already reachable through the module-tier name, so the promotion moved which tier reaches it, not whether one does — and unchanged by #373 for the same reason, `trq_dir_current` having been reachable through the `ملفات` tier since the census |
 | Self-hosted `.ترقيم` exports under `stdlib/` | **385** `صدّر` declarations across 44 files |
 | … actually loadable today | **one module** (`مجموعات`); 201 exports are dead by short-circuit |
-| Places to edit to add **one** builtin | **9** for a symbol-mapped name needing a new runtime symbol (#324, confirmed again at #347 and #350 — the last two were *forecast* from §6.7's discriminator before the work, not matched afterwards), **8** when the symbol already exists (#338), **6** to repair a half-wired one (#336), **2** for an IR-intercepted one, and **11** for one returning `فراغ` (#342: the nine, minus the return-type entry, plus `ErrorKind` and three CLI sites) — all five measured (see §1). #352 is the **third** consecutive nine forecast before the work from §6.7's discriminator, and the third hit |
+| Places to edit to add **one** builtin | **9** for a symbol-mapped name needing a new runtime symbol (#324, confirmed again at #347, #350, #352 and #355 — all four *forecast* from §6.7's discriminator before the work, not matched afterwards), **8** when the symbol already exists (#338), **6** to repair a half-wired one (#336), **2** for an IR-intercepted one, **11** for one returning `فراغ` (#342: the nine, minus the return-type entry, plus `ErrorKind` and three CLI sites), **13** for one whose effect had no plumbing at all (#360: the nine, plus a `runtime-rs` argv capture, a set-once global, a clap field and its dispatch), **10** for one whose symbol *and* its re-export both already exist (#364: the nine, minus those two, plus the interpreter's own shared dispatch and its re-export, plus a one-line contract change to the symbol — `9 - 2 + 3`), and **17** for one that hands out a resource (#362: the nine, plus an interpreter handle table, the two stream helpers' `≥٣` arms, and a flush at five program-end sites — `trq_runtime_cleanup`, `trq_exit`, the CLI's normal completion, its `ProgramExit` path, and the REPL's exit; the fifth was found in review, so **enumerate the program *ends*, not the exits you happened to write**) — all eight measured (see §1). #364 is the first increment since #342 where the caveat was forecast **not** to fire and did not: the effect had somewhere to arrive on both sides, because #362 had just built it. #355 was the fourth consecutive nine forecast from §6.7's discriminator and the fourth hit; #360 and #362 are the two increments since #342 where the discriminator's own caveat fired, and both were **forecast to fire** from the same question — *does the effect have anywhere to arrive?* #366 (`انشئ_مجلد`) is the first increment to *re-measure* an existing shape rather than add one: forecast six (the #336 promotion-repair — `Scope` with the module arm and export deleted in the same file, the return type, the interpreter arm and its re-export, the debug arm, the guard ratchets), cost six, and the caveat was forecast quiet — the effect arrives at `std::fs::create_dir` on both sides — and stayed quiet, the second correct quiet forecast after #364. #368 (`انقل_مسار`) re-hit the promotion shape with three deltas — forecast **10–11** counted from #338's eight-site base, cost **nine** counted from #366's six: the six, plus the `get_runtime_function_name` rename, a one-line contract change to `trq_file_move` (#364's move), and the `stdlib/ملفات/ملف.ترقيم` callee fix (#336's move). The first overforecast in the sequence, and the miss is the *base*, not the deltas: a rename-promotion is #366's shape plus deltas, not #338's — pick the nearer measured shape before adding. The caveat was forecast quiet (`fs::rename` is in-process on both sides) and stayed quiet, the third correct quiet forecast. #370 (`قائمة_مجلد`) scored the base-picking rule it taught: forecast **seven** from #366's six-site promotion-repair plus one #364-shape contract change to `trq_dir_list` (sort + lossy decode), cost **seven** — the first exact hit on a re-measured shape — and the caveat was forecast quiet (`read_dir` is in-process on both sides) and stayed quiet, the fourth. #373 (`مجلد_حالي`) re-hit the bare promotion base: forecast **six** from #366's shape with **zero** deltas — spelling unchanged, and reading `trq_dir_current` found it already honest (lossy decode, `""` on failure), so no #364-shape contract change — cost **six**, the second exact hit, and the caveat was forecast quiet (`getcwd` is in-process on both sides) and stayed quiet, the fifth. #375 (`ألحق`) measured a ninth shape: **4** for renaming an IR-intercepted name — `Scope`, the interception key, the codegen mapping key, and the one live stdlib caller (#336's forced-callee move) — the first increment touching no dispatch arm and no runtime symbol on either side; the caveat was forecast quiet (`ArrayPush` arms pre-exist in every backend) and stayed quiet, the sixth. #382 (`احذف_آخر`) measured a tenth shape and the largest yet: **25** across 13 files for a name needing a **new IR instruction that both mutates and yields a value** — forecast 25 before the work, cost 25, the third exact hit. The discriminator answered "both halves exist" (`trq_array_pop` defined, re-exported and already `declare`d) and was **not** the cost: ten of the twenty-five are `src/ir/opt/` tables, which read *has a dest* and *mutates* as alternatives and had no shape for an instruction that is both. So add to the discriminator: *does the name need a new `Instruction` variant, and does that variant fit the shapes the passes already assume?* Only six of the twenty-five are compile errors; two of the silent nineteen are miscompiles (`dce::has_side_effects`, `loop_opt::is_loop_invariant`). The caveat was forecast quiet — the effect arrives in the array on both sides — and stayed quiet, the seventh. #389 (`وقت_أداء`) is the first increment whose subject is a **body** rather than a name, and it re-measured two shapes at once: **6** — the monotonic repair's four (the runtime symbol, both interpreter arms, and the `interpreter/mod.rs` re-export that shares them) plus the promotion's two (`Scope`, the guard ratchets). Forecast six, cost six, the fourth exact hit. The promotion half is #373's bare six **minus four**, because a long-registered name already has the IR return type, the codegen mapping and both interpreter arms that a promotion normally pays for — so add to the discriminator: *for a promotion, count what the name already reaches, not what a new name would need.* The caveat was forecast quiet (`Instant` is in-process on both sides) and stayed quiet, the eighth |
 
 **Two planes, counted separately.** `runtime-rs` mixes the language's builtin surface with the
 ABI the compiler emits for ordinary operators and allocation (`trq_alloc`, `trq_retain`,
@@ -39,10 +39,10 @@ nothing enforces that it is present on all of them.
 
 | Surface | File | Mechanism |
 |---|---|---|
-| Semantic | `src/semantic/scope.rs` | `core_builtins()` — a `Vec` of 36 `(name, params, ret)` tuples registered into the global scope. `get_stdlib_builtin(module, name)` — a two-level `match` with 163 arms, manufactured on demand at import. `get_stdlib_module_exports()` — a **second, hand-maintained copy** of the same 163 names. No longer untested: `every_stdlib_signature_arm_is_exported` proves every `match` arm appears in the export list, and `stdlib_registry_size_is_locked` pins each module's export count — containment plus equal size is what makes the two lists provably the same set, so *neither test alone* would do it. Recounted from source at #352 alongside the summary row above; these three figures were once the stale 28/165/165 that row was corrected away from. |
+| Semantic | `src/semantic/scope.rs` | `core_builtins()` — a `Vec` of 46 `(name, params, ret)` tuples registered into the global scope. `get_stdlib_builtin(module, name)` — a two-level `match` with 158 arms, manufactured on demand at import. `get_stdlib_module_exports()` — a **second, hand-maintained copy** of the same 158 names. **Recounted at #389 from the guard's two ratchet lists, which a passing test checks against `Scope`; the three figures had stood at 36/163/163 since #352 and had drifted through nine increments** — the row below already warns against incrementing rather than recounting, and these are the numbers that prove it applies here too. No longer untested: `every_stdlib_signature_arm_is_exported` proves every `match` arm appears in the export list, and `stdlib_registry_size_is_locked` pins each module's export count — containment plus equal size is what makes the two lists provably the same set, so *neither test alone* would do it. Recounted from source at #352 alongside the summary row above; these three figures were once the stale 28/165/165 that row was corrected away from. |
 | Interpreter | `src/interpreter/executor/builtins.rs` | `is_builtin` string membership + a dispatch `match`. Two edits per name, same file. |
-| Debug interpreter | `src/debug/interpreter/builtins.rs` | A private duplicate of the above, used by DAP. Knows **36** names — 29 Arabic plus 7 `trq_*` symbols, and `is_builtin` and the dispatch `match` list the same 36. Recounted from source at #352, and again at #350 with comment lines stripped and each half counted separately, and the two sets compared for equality rather than only their sizes — **not** incremented, which is the move this row exists to forbid. Recounted the same way at #347. Recounted from source at #342, which added two (`أنهِ_البرنامج` and its variant); recounted again at #338, which added one; the **29** before that was already one low, so the row has been wrong at four separate counts (18, 29, 29+1, 31+2) — recount it rather than incrementing it. The original census recorded 18; that figure was already stale when written, since the #185/#222/#241 repairs had added runtime-symbol arms. **Count it excluding comments:** the comment lines inside `is_builtin` quote Arabic diagnostics («دالة غير معرّفة») and call syntax (`عدد("٥")`), so a regex over the block that does not strip `//` lines over-counts — that is how a wrong 29 reached this row once already. |
-| Native | `src/ir/builder/expr_builder.rs` + `src/codegen/llvm/codegen.rs` | Either intercepted in the IR builder (**20** names) or looked up in `get_runtime_function_name` (**222** names) and emitted as a `trq_*` call. Both recounted from source at #350, and both were stale independently of it: the census's 15 predates Increment A, whose seven bitwise names are all intercepted, and the 216 was four low before `اقرأ_مجرى` added the 221st. Count **names**, not arms — `"أنهِ_البرنامج" | "أنه_البرنامج" => Some("trq_exit")` is one arm and two names, so an arm count reads low. |
+| Debug interpreter | `src/debug/interpreter/builtins.rs` | A private duplicate of the above, used by DAP. Knows **44** names — 37 Arabic plus 7 `trq_*` symbols. Recounted from source at #373 (where the row still said 40 — it had been incremented-not-recounted past #366/#368/#370) and before that at #364, #362, #360 and #355 with comment lines stripped and each half counted separately, and this time every `is_builtin` name was checked for a dispatch *mention* rather than the two sizes being compared — a size match can hide two offsetting errors. None is missing. Recounted the same way at #352 and at #350, and in each case **not** incremented, which is the move this row exists to forbid. Recounted the same way at #347. Recounted from source at #342, which added two (`أنهِ_البرنامج` and its variant); recounted again at #338, which added one; the **29** before that was already one low, so the row has been wrong at four separate counts (18, 29, 29+1, 31+2) — recount it rather than incrementing it. The original census recorded 18; that figure was already stale when written, since the #185/#222/#241 repairs had added runtime-symbol arms. **Count it excluding comments:** the comment lines inside `is_builtin` quote Arabic diagnostics («دالة غير معرّفة») and call syntax (`عدد("٥")`), so a regex over the block that does not strip `//` lines over-counts — that is how a wrong 29 reached this row once already. |
+| Native | `src/ir/builder/expr_builder.rs` + `src/codegen/llvm/codegen.rs` | Either intercepted in the IR builder (**21** names — 20 unchanged since Increment A, plus `احذف_آخر` at #382, the first interception added since) or looked up in `get_runtime_function_name` (**226** names) and emitted as a `trq_*` call. Both recounted from source at #350, and both were stale independently of it: the census's 15 predates Increment A, whose seven bitwise names are all intercepted, and the 216 was four low before `اقرأ_مجرى` added the 221st. Count **names**, not arms — `"أنهِ_البرنامج" | "أنه_البرنامج" => Some("trq_exit")` is one arm and two names, so an arm count reads low. |
 | JIT | `src/jit/{baseline,optimizing}/compiler.rs` | **Compiles zero builtins.** `run_with_profiling` always returns `interpreter.run()`; `get_function_ptr` has no callers. The JIT column agrees with the interpreter by delegation, not by compiling. |
 | Editor | `src/lsp/handlers/{completion,semantic_tokens,inlay_hints}.rs` | Three hardcoded lists (10 / 14 / 18 names) that derive from nothing and agree with neither the registry nor each other. |
 
@@ -79,6 +79,12 @@ the refactor; fixing them is scoped in the plan document, not here.
 > *are* kept current. Known drift since: #336 moved `قص_حروف` to core tier and removed `قص_نص`, so
 > §2.2's «32 of 41 نص» and §2.10's stdlib-registry figures are each one or two low. #338 then added
 > `متغير_بيئة`, taking the core tier to 31 and the declared total to 194, and retiring one orphan.
+> #375 renamed the core-tier `الحق` to `ألحق`, so §2.9's editor row reads under the old spelling.
+> §2.1's four-name interpreter-hole list also still names `الحق`, but that entry is retired, not
+> respelled: the hole itself has since closed — both push forms lower to the name-free `ArrayPush`,
+> which every backend executes (§4's row is ✓✓✓✓ مُنفَّذ) — so do not chase it as open Category work.
+> And with `الحق`'s `يُحذف` row gone from §4, §3's «counts 48» reconciliation reads high: 46 `يُحذف`
+> rows enumerate today, and one unit of that gap predates #375.
 
 ### 2.1 The default backend is the weakest one
 
@@ -125,7 +131,13 @@ orphans — the former has zero call sites in the entire repository.
 28 exports have no caller. Among them a complete, tested, unreachable streaming file API
 (`trq_file_open_read/write/append`, `read_line`, `write_line`, `eof`, `flush`, `close` —
 `io.rs:427-592`, ~165 lines) with no Arabic name. That is precisely the category-7 primitive set
-the plan needs, already written. Five more symbols are *declare-only*: codegen emits an LLVM
+the plan needs, already written.
+
+> **No longer wholly true (#362, #364).** `افتح_ملف` folds the three openers behind one mode, so they
+> have a caller and the *reading and writing* half of that API is reachable from Tarqeem source
+> through `اقرأ_مجرى`/`اكتب_مجرى`; `اغلق_ملف` (#364) then claimed `close`. `read_line`, `write_line`,
+> `eof` and `flush` are still nameless. The paragraph's wider point stands — the primitive set was
+> already written — and these are the second and third names to confirm it after `متغير_بيئة` (#338). Five more symbols are *declare-only*: codegen emits an LLVM
 `declare` into every module and never a call (`trq_nroot`, `trq_dir_create_all`, `trq_path_stem`,
 `trq_path_absolute`, `trq_path_is_absolute`).
 
@@ -225,7 +237,7 @@ different universes.
 
 ## 4. The inventory
 
-#### `core` — 39
+#### `core` — 48
 
 Rows marked **مُنفَّذ** landed after this census; the backend columns are re-verified,
 not carried over from the original pass.
@@ -233,14 +245,14 @@ not carried over from the original pass.
 | الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
 |---|:-:|:-:|:-:|:-:|---|---|---|
 | `أضف` | ✗ | ✗ | ✗ | ✓ | `-` | مكتبة |  |
-| `ألحق` | ✗ | ✗ | ✗ | ✓ | `trq_array_push` | مدمج | primitive |
+| `ألحق` | ✓ | ✓ | ✓ | ✓ | `trq_array_push` | مدمج | primitive، **مُنفَّذ** (#375) — وُحِّد الرسم على `ألحق` (أمرُ أَلْحَقَ) في الصيغتين العامة والعضوية، وأزيل `الحق` من غير مرحلة تحذير على سنّة #336 و#368؛ والصيغتان تنزلان إلى `ArrayPush` نفسها فلا ذراع تفريق في أي خلفية |
+| `احذف_آخر` | ✓ | ✓ | ✓ | ✓ | `trq_array_pop` | مدمج | primitive، **مُنفَّذ** (#382) — تعليمة وسيطة جديدة `ArrayPop` لا اسمٌ في جدول الرموز، فلا تمرّ بـ`get_runtime_function_name`؛ والصيغتان العامة والعضوية تنزلان إليها، وحلّت العضوية محلّ `احذف` المُزال. وأُلزمت `trq_array_pop` بالكليّة قبل وصلها |
 | `ادخل` | ✓ | ✓ | ✓ | ~ | `trq_input` | يُحذف | alias/dead |
 | `ادخل_رسالة` | ✓ | ✓ | ✗ | ~ | `trq_input_prompt` | مكتبة |  |
 | `اطبع` | ✓ | ✓ | ✓ | ~ | `trq_print, trq_print_optional…` | مدمج | primitive |
 | `اطبع_خطأ` | ✓ | ✓ | ✗ | ~ | `trq_print_error` | مدمج | primitive |
 | `اطبع_سطر` | ✓ | ✓ | ✗ | ~ | `trq_print` | يُحذف | alias/dead |
 | `اقرأ_سطر` | ✗ | ✓ | ✗ | ✗ | `-` | مكتبة |  |
-| `الحق` | ✓ | ✗ | ✗ | ~ | `trq_array_push` | يُحذف | alias/dead |
 | `بتات_أو` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#306) |
 | `بتات_أو_حصري` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#309) |
 | `بتات_إزاحة_يسار` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive، **مُنفَّذ** (#317) |
@@ -254,6 +266,14 @@ not carried over from the original pass.
 | `اكتب_مجرى` | ✓ | ✓ | ✓ | ✓ | `trq_write_stream` | مدمج | primitive، **مُنفَّذ** (#347) — أول عمليات الإدخال/الإخراج |
 | `اقرأ_مجرى` | ✓ | ✓ | ✓ | ✓ | `trq_read_stream` | مدمج | primitive، **مُنفَّذ** (#350) — النصف القارئ من زوج المجرى |
 | `حالة_مسار` | ✓ | ✓ | ✓ | ✓ | `trq_path_status` | مدمج | primitive، **مُنفَّذ** (#352) — أول ما يسأل نظام الملفات، وتُجمَع فيها أربعة أسماء من `ملفات` بلا حذف أحدها |
+| `احذف_مسار` | ✓ | ✓ | ✓ | ✓ | `trq_path_delete` | مدمج | primitive، **مُنفَّذ** (#355) — أول ما يُغيّر نظام الملفات، و`lstat` لا `stat`: تعمل على الاسم حيث تسأل أختها عن الهدف |
+| `معاملات_البرنامج` | ✓ | ✓ | ✓ | ✓ | `trq_program_args` | مدمج | primitive، **مُنفَّذ** (#360) — أول ما يقرأ ما سُئل عنه البرنامج، وبها تكتمل أداة سطر الأوامر مع `أنهِ_البرنامج` |
+| `افتح_ملف` | ✓ | ✓ | ✓ | ✓ | `trq_file_open` | مدمج | primitive، **مُنفَّذ** (#362) — أول ما يُنشئ معرِّفاً يبقى بعده، وبها بلغ زوج المجاري ما ليس طرفية |
+| `اغلق_ملف` | ✓ | ✓ | ✓ | ✓ | `trq_file_close` | مدمج | primitive، **مُنفَّذ** (#364) — نصفها الآخر، وبها يبلغ المكتوبُ الملفَ قبل نهاية البرنامج لا عندها |
+| `انشئ_مجلد` | ✓ | ✓ | ✓ | ✓ | `trq_dir_create` | مدمج | primitive، **مُنفَّذ** (#366) — نُقلت من `ملفات` على سنّة `قص_حروف` (#336)، وبها يكتمل ثالوث المسار: `حالة_مسار` تسأل و`احذف_مسار` تُزيل وهذه تُنشئ، غيرَ متعدية |
+| `انقل_مسار` | ✓ | ✓ | ✓ | ✓ | `trq_file_move` | مدمج | primitive، **مُنفَّذ** (#368) — نُقلت من `ملفات` وسُمّيت `انقل_مسار` على سنّة `حالة_مسار` (#352)، إذ `rename(2)` على الاسم في الطرفين وتنقل المجلد والوصلة أيضاً؛ والوجهة القائمة لا تُستبدل إلا ملفاً اعتيادياً، فتبقى الكتابة الذرّية ويتفق الجواب بين المنصات |
+| `قائمة_مجلد` | ✓ | ✓ | ✓ | ✓ | `trq_dir_list` | مدمج | primitive، **مُنفَّذ** (#370) — نُقلت من `ملفات` بالاسم نفسه، فاكتملت بها إصلاحات المرتبة السابعة؛ والجواب أسماء مجردة مرتّبةً بترتيب الرموز — ترتيب readdir الخام يختلف بين أنظمة الملفات فلا يصلح في عقد — والاسم الفاسد يُقرأ متساهلاً ولا يُسقَط، والمصفوفة الفارغة جواب كل رفض، لا يتميّز من المجلد الفارغ قصداً |
+| `مجلد_حالي` | ✓ | ✓ | ✓ | ✓ | `trq_dir_current` | مدمج | primitive، **مُنفَّذ** (#373) — نُقلت من `ملفات` بالاسم نفسه: آخر اسم حكمُه `مدمج` بقي في تلك الوحدة، وأول نقلٍ من المرتبة الثامنة. حالُ العملية لا بيئتُها — «PWD» لا تبلغه `متغير_بيئة` — والجواب حرفيٌّ كما يُبلّغ به النظام، متساهل القراءة، و`""` رفضُها الذي لا شريك له في المعنى |
 | `أنهِ_البرنامج` | ✓ | ✓ | ✓ | ✓ | `trq_exit` | مدمج | primitive، **مُنفَّذ** (#342) — الوحيدة بلا نوع إرجاع مسجَّل، قصداً |
 | `أنه_البرنامج` | ✓ | ✓ | ✓ | ✓ | `trq_exit` | مدمج | هجاء ثانٍ للسابقة، لا عملية ثانية |
 | `تأكد` | ✓ | ✓ | ✗ | ✓ | `trq_assert` | مكتبة |  |
@@ -271,6 +291,7 @@ not carried over from the original pass.
 | `نص` | ✓ | ✓ | ✓ | ✓ | `trq_int_to_string` | مدمج | primitive |
 | `نم` | ✓ | ✓ | ✗ | ~ | `trq_sleep` | مدمج | primitive |
 | `نوع` | ✓ | ✓ | ✓ | ✓ | `-` | مدمج | primitive |
+| `وقت_أداء` | ✓ | ✓ | ✓ | ✓ | `trq_performance_now` | مدمج | primitive، **مُنفَّذ** (#389) — أول زيادة موضوعها **جسمٌ** لا اسم: كانت تقرأ ساعة الحائط، فتتراجع عند ضبط الوقت، والخلفيات الثلاث متفقةٌ على الجواب الخاطئ — وذاك ما لا يراه فحص التباين. وأصلها اليوم نقطةٌ داخل العملية تُضبَط عند أول نداء، لأن مكتبة وقت التشغيل وحدها لها خطّاف تهيئة. ونُقلت من `وقت` لأن مثال المدمجات بلا استيراد، فلم يكن للساعة المُصلَحة موضعٌ تُختبَر فيه |
 
 #### `رياضيات` — 70
 
@@ -391,12 +412,12 @@ not carried over from the original pass.
 | `يحتوي` | ✓ | ✗ | ✗ | ~ | `trq_string_contains` | مكتبة |  |
 | `ينتهي_بـ` | ✓ | ✗ | ✗ | ~ | `trq_string_ends_with` | مكتبة |  |
 
-#### `ملفات` — 21
+#### `ملفات` — 17
 
 | الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
 |---|:-:|:-:|:-:|:-:|---|---|---|
-| `احذف_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_dir_delete` | مكتبة |  |
-| `احذف_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_delete` | مكتبة |  |
+| `احذف_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_dir_delete` | مكتبة | غلافٌ على `احذف_مسار` (#355)، بفرقٍ موثَّق عند الوصلة |
+| `احذف_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_delete` | مكتبة | غلافٌ على `احذف_مسار` (#355)، بفرقٍ موثَّق عند الوصلة |
 | `ادمج_مسار` | ✓ | ✗ | ✗ | ~ | `trq_path_join` | مكتبة |  |
 | `اسم_ملف` | ✓ | ✗ | ✗ | ~ | `trq_path_filename` | مكتبة |  |
 | `اقرأ_ملف` | ✓ | ✓ | ✗ | ✓ | `trq_file_read` | مكتبة |  |
@@ -404,12 +425,8 @@ not carried over from the original pass.
 | `الحق_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_append` | مكتبة |  |
 | `امتداد_ملف` | ✓ | ✗ | ✗ | ~ | `trq_path_extension` | مكتبة |  |
 | `انسخ_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_copy` | مكتبة |  |
-| `انشئ_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_dir_create` | مدمج | primitive |
-| `انقل_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_move` | مدمج | primitive |
 | `حجم_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_size` | مكتبة | حقلٌ من `حالة_مسار` (#352) |
 | `فاصل_مسار` | ✓ | ✗ | ✗ | ~ | `trq_path_separator` | مكتبة |  |
-| `قائمة_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_dir_list` | مدمج | primitive |
-| `مجلد_حالي` | ✓ | ✗ | ✗ | ~ | `trq_dir_current` | مدمج | primitive |
 | `مجلد_مؤقت` | ✓ | ✗ | ✗ | ~ | `trq_dir_temp` | مكتبة |  |
 | `مجلد_مستخدم` | ✓ | ✗ | ✗ | ~ | `trq_dir_home` | مكتبة |  |
 | `مسار_اب` | ✓ | ✗ | ✗ | ~ | `trq_path_parent` | مكتبة |  |
@@ -417,7 +434,7 @@ not carried over from the original pass.
 | `هل_مجلد` | ✓ | ✗ | ✗ | ~ | `trq_file_is_dir` | مكتبة | حقلٌ من `حالة_مسار` (#352) |
 | `هل_ملف` | ✓ | ✗ | ✗ | ~ | `trq_file_is_file` | مكتبة | حقلٌ من `حالة_مسار` (#352) |
 
-#### `وقت` — 18
+#### `وقت` — 17
 
 | الاسم | ن | مف | تن | أص | رمز وقت التشغيل | الحكم | ملاحظة |
 |---|:-:|:-:|:-:|:-:|---|---|---|
@@ -435,8 +452,7 @@ not carried over from the original pass.
 | `نسّق_تاريخ` | ✗ | ✗ | ✗ | ✓ | `trq_date_format` | مكتبة |  |
 | `نسّق_تاريخ_ووقت` | ✗ | ✗ | ✗ | ✓ | `trq_datetime_format` | مكتبة |  |
 | `نسّق_وقت` | ✗ | ✗ | ✗ | ✓ | `trq_time_format` | مكتبة |  |
-| `وقت_أداء` | ✓ | ✓ | ✓ | ✓ | `trq_performance_now` | مدمج | primitive |
-| `وقت_الآن` | ✓ | ✓ | ✓ | ✓ | `trq_time_now` | مدمج | primitive |
+| `وقت_الآن` | ✓ | ✓ | ✓ | ✓ | `trq_time_now` | مدمج | primitive — آخر اسم `مدمج` بقي في هذه الوحدة، بعد نقل `وقت_أداء` إلى المرتبة الأساسية في #389 |
 | `يوم_الأسبوع` | ✗ | ✗ | ✗ | ✓ | `trq_day_of_week` | مكتبة |  |
 | `يوم_السنة` | ✗ | ✗ | ✗ | ✓ | `trq_day_of_year` | مكتبة |  |
 

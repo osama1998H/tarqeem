@@ -412,6 +412,98 @@ impl IrBuilder {
         // modes above, and printing alone would pass either way.
         self.function_return_types
             .insert("حالة_مسار".to_string(), IrType::Int);
+
+        // `افتح_ملف` answers an `عدد` descriptor, so #347's scalar prediction
+        // applies for the third time: `اطبع` prints nothing natively, `نوع`
+        // answers `مؤشر`, and `+`/`==` fail native compilation with ت٠١٠١. The
+        // composition test asserts exactly those.
+        self.function_return_types
+            .insert("افتح_ملف".to_string(), IrType::Int);
+
+        // `اغلق_ملف` answers a `منطقي`, so `احذف_مسار`'s profile below applies
+        // rather than the scalar one above: `نوع` answers `مؤشر` and `== خطأ`
+        // fails native compilation with ت٠١٠١, while the `+ ١` row every
+        // measurement since #347 used is unwritable — the *semantic* layer
+        // refuses `منطقي + عدد` before the IR return type is consulted at all.
+        // `ليس` is the substitute. Measured with this entry deleted; the results
+        // are in `docs/AI_NOTES.md`.
+        self.function_return_types
+            .insert("اغلق_ملف".to_string(), IrType::Bool);
+
+        // `احذف_مسار` answers a `منطقي`, and #347's scalar prediction is what
+        // applies — confirmed again here, and it transfers across names where
+        // #330's array measurement did not (#350). Measured with this entry
+        // deleted, the results are in `docs/AI_NOTES.md`.
+        self.function_return_types
+            .insert("احذف_مسار".to_string(), IrType::Bool);
+
+        // `انشئ_مجلد` answers a `منطقي`, and the `اغلق_ملف` profile above held
+        // a third time, measured with this entry deleted rather than forecast:
+        // `اطبع` prints nothing natively while both interpreters print `خطأ`,
+        // `نوع` answers `مؤشر` on all three, and `== خطأ` and `ليس` both fail
+        // native compilation — clang rejects the untyped `ptr` at `icmp eq` and
+        // at `xor i1` respectively. The composition test asserts all three
+        // catchers; the arithmetic row stays unwritable (`منطقي + عدد` is a
+        // semantic error before this map is ever consulted).
+        self.function_return_types
+            .insert("انشئ_مجلد".to_string(), IrType::Bool);
+
+        // `انقل_مسار` answers a `منطقي`, the fourth name to carry the
+        // `اغلق_ملف` catcher profile; measured with this entry deleted rather
+        // than forecast, per #364's rule for the printing row. The results are
+        // in `docs/AI_NOTES.md`: `اطبع` prints nothing natively while both
+        // interpreters print `خطأ`, `نوع` answers `مؤشر` on all three, and
+        // `== خطأ` and `ليس` both fail native compilation (ت٠١٠١). The
+        // arithmetic row stays unwritable — `منطقي + عدد` is a semantic error
+        // before this map is consulted.
+        self.function_return_types
+            .insert("انقل_مسار".to_string(), IrType::Bool);
+
+        // `قائمة_مجلد` answers `مصفوفة<نص>` — the second `Array(String)` after
+        // `معاملات_البرنامج`, and the first whose siblings can hand it a
+        // populated fixture. Measured with this entry deleted rather than
+        // forecast, one row per program (table in `docs/AI_NOTES.md`): `طول`
+        // and printing an element alone stay correct, `نوع` answers `مؤشر` on
+        // all three backends — the one catcher every leg shares — and
+        // **element composition** degrades: `م[0] + "!"` is a run-time type
+        // error (exit 1) interpreted and a printed pointer (exit 0) natively,
+        // and `م[0] == "…"` answers `خطأ` natively while staying correct
+        // interpreted. The composition test therefore asserts `نوع`,
+        // concatenation and comparison, and deliberately does not print a
+        // populated array — #359 makes that wrong natively with or without
+        // this entry.
+        self.function_return_types.insert(
+            "قائمة_مجلد".to_string(),
+            IrType::Array(Box::new(IrType::String), 0),
+        );
+
+        // `مجلد_حالي` answers `نص`. Measured with this entry deleted, one row
+        // per program, from an Arabic-named cwd so the byte/char split is
+        // observable (#373): `نوع` answers `مؤشر` on every backend; `طول`
+        // answers the *byte* count natively (118) against the char count
+        // interpreted (110) — `قص_حروف`'s mode, silent on each leg alone; two
+        // separately-allocated returns compare `==` as pointers natively
+        // (`خطأ`) while the interpreter answers `صحيح`; and `"X" + …` splits
+        // the loudest — a run-time type error (exit 1) interpreted, a printed
+        // pointer (exit 0) natively, the split #360 measured for an array
+        // element, now on a plain `نص` return. Printing the value alone stays
+        // correct on both, as it has on every shape so far.
+        self.function_return_types
+            .insert("مجلد_حالي".to_string(), IrType::String);
+
+        // `معاملات_البرنامج` answers `مصفوفة<نص>` — the first `Array(String)` any
+        // builtin has registered, so #330's `Array(Int)` measurement does not
+        // transfer and neither does #350's. Measured with this entry deleted,
+        // the results are in `docs/AI_NOTES.md`; the short version is that the
+        // element is a `Ptr(Void)` under the sentinel, so `طول` and `نوع` behave
+        // as they always do while **indexing** is what degrades. The composition
+        // test therefore indexes, concatenates and compares, and deliberately
+        // does not print the array — #359 makes printing a non-empty
+        // `مصفوفة<نص>` wrong natively with or without this entry.
+        self.function_return_types.insert(
+            "معاملات_البرنامج".to_string(),
+            IrType::Array(Box::new(IrType::String), 0),
+        );
         // `أنهِ_البرنامج` has **no entry here, deliberately** — the one exception to
         // the rule the rest of this function embodies (`docs/builtins-vs-stdlib.md`
         // §1.1 rule 5: Scope entry + return type + interpreter arms, "any two of the
@@ -1703,6 +1795,88 @@ mod tests {
         );
     }
 
+    /// Every `ArrayGet` element type in the module, in order.
+    ///
+    /// Asserting on *these* rather than on "some `Alloca` is a `String`" is the
+    /// point: `متغير س = "مرحبا"` already owns a `String` slot, so a
+    /// module-wide `any` over allocas passes against the defect it is meant to
+    /// catch. The element type is the value the three repaired sites compute.
+    fn array_get_elem_types(module: &crate::ir::Module) -> Vec<&IrType> {
+        module
+            .functions
+            .iter()
+            .flat_map(|f| &f.blocks)
+            .flat_map(|b| &b.instructions)
+            .filter_map(|i| match i {
+                Instruction::ArrayGet { elem_ty, .. } => Some(elem_ty),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The loop binding is where the sentinel did real damage, because it is the
+    /// one shape that stores the character and loads it back: `Load` trusts the
+    /// recorded type, so codegen's own `ArrayGet` recovery is discarded and
+    /// `ح == "م"` answered خطأ natively while both interpreters answered صحيح.
+    #[test]
+    fn test_string_for_in_binds_a_string_typed_element() {
+        let source = r#"
+            دالة رئيسية() {
+                متغير س = "مرحبا"
+                لكل ح في س {
+                    اطبع(ح)
+                }
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+        assert_eq!(
+            array_get_elem_types(&module),
+            vec![&IrType::String],
+            "iterating a string must type its element String, not the unknown sentinel"
+        );
+    }
+
+    /// The index form. `infer_expr_type` and `build_index` compute this
+    /// separately, so repairing one is not repairing the other — the
+    /// declaration exercises the first and the `ArrayGet` the second.
+    #[test]
+    fn test_string_index_types_its_element_as_string() {
+        let source = r#"
+            دالة رئيسية() {
+                متغير س = "مرحبا"
+                متغير ح = س[0]
+                اطبع(ح)
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+        assert_eq!(
+            array_get_elem_types(&module),
+            vec![&IrType::String],
+            "indexing a string must type its element String"
+        );
+    }
+
+    /// Arrays must not regress: the same site serves both, and an element type
+    /// that is itself a reference is where a carelessly placed string arm would
+    /// capture the wrong case.
+    #[test]
+    fn test_array_index_still_types_its_element_from_the_array() {
+        let source = r#"
+            دالة رئيسية() {
+                متغير أرقام = [1، 2]
+                متغير أسماء = ["أ"، "ب"]
+                اطبع(أرقام[0])
+                اطبع(أسماء[0])
+            }
+        "#;
+        let module = build_ir(source).expect("Failed to build IR");
+        assert_eq!(
+            array_get_elem_types(&module),
+            vec![&IrType::Int, &IrType::String],
+            "an array element keeps the array's own element type"
+        );
+    }
+
     #[test]
     fn test_exported_function_signature_reaches_return_types() {
         // `function_return_types` isn't observable after `build` consumes the
@@ -2156,6 +2330,131 @@ mod tests {
             lambda.blocks.iter().all(|b| b.has_terminator()),
             "a lambda body ending in تطابق must not fall off the end of its merge block"
         );
+    }
+
+    #[test]
+    fn test_string_mutation_is_rejected_without_semantic_analysis() {
+        for body in [
+            r#"متغير س = "أ"؛ س[٠] = "ب""#,
+            r#"متغير س = "أ"؛ (س)[٠] = "ب""#,
+            r#"متغير س = "أ"؛ س[٠] += "ب""#,
+            r#"متغير س = "أ"؛ ألحق(س، "ب")"#,
+            r#"متغير س = "أ"؛ ألحق((س + "ج")، "ب")"#,
+            r#"متغير س = "أ"؛ س.ألحق("ب")"#,
+            r#"متغير س = "أ"؛ س.أضف("ب")"#,
+        ] {
+            let error = build_program(body).expect_err(body);
+            assert!(error.message.contains("مصفوفة"), "{error}");
+            assert!(error.message.contains("array"), "{error}");
+        }
+    }
+
+    #[test]
+    fn test_string_mutation_uses_recorded_field_and_return_types() {
+        for source in [
+            r#"
+                دالة كلمة() -> نص { أرجع "أ" }
+                كلمة()[٠] = "ب"
+            "#,
+            r#"
+                صنف صندوق {
+                    عام نصي: نص
+                    منشئ() { هذا.نصي = "أ" }
+                }
+                متغير علبة = جديد صندوق()
+                (علبة.نصي)[٠] = "ب"
+            "#,
+            r#"
+                دالة عدّل(س: نص) { ألحق(س، "ب") }
+                عدّل("أ")
+            "#,
+        ] {
+            let error = build_program(source).expect_err(source);
+            assert!(error.message.contains("array"), "{error}");
+        }
+    }
+
+    #[test]
+    fn test_dynamic_array_mutation_remains_available_to_the_interpreter() {
+        let module = build_program(
+            r#"
+                دالة رئيسية() -> عدد {
+                    متغير م: أي = [١]
+                    ألحق(م، ٢)
+                    م[٠] = ٧
+                    أرجع طول(م)
+                }
+            "#,
+        )
+        .unwrap();
+        let mut interpreter = crate::interpreter::Interpreter::new(module);
+        assert_eq!(
+            interpreter.run().unwrap(),
+            crate::interpreter::Value::Int(2)
+        );
+    }
+
+    #[test]
+    fn test_dynamic_member_append_preserves_dispatch_and_blocks_native_lowering() {
+        for name in ["ألحق", "أضف"] {
+            let module = build_program(&format!(
+                "دالة رئيسية() -> عدد {{ متغير م: أي = [١]؛ م.{name}(٢)؛ أرجع ٠ }}"
+            ))
+            .unwrap();
+            let main = function(&module, "__main__");
+            let block = main.native_block.as_ref().expect("dynamic native receiver");
+            assert_eq!(block.code, "ت٠٣٠١");
+            assert!(main.blocks.iter().flat_map(|b| &b.instructions).any(|i| {
+                matches!(i, Instruction::CallMethod { method, .. }
+                    if method.class.0 == "أي" && method.name == name)
+            }));
+        }
+    }
+
+    #[test]
+    fn test_typed_object_append_method_keeps_class_dispatch() {
+        let module = build_program(
+            r#"
+                صنف صندوق {
+                    عام دالة ألحق(ق: عدد) -> عدد { أرجع ق }
+                }
+                دالة رئيسية() -> عدد {
+                    متغير علبة = جديد صندوق()
+                    أرجع علبة.ألحق(٧)
+                }
+            "#,
+        )
+        .unwrap();
+        let main = function(&module, "__main__");
+        assert!(main.native_block.is_none());
+        assert!(main.blocks.iter().flat_map(|b| &b.instructions).any(|i| {
+            matches!(i, Instruction::CallMethod { method, .. }
+                if method.class.0 == "صندوق" && method.name == "ألحق")
+        }));
+    }
+
+    #[test]
+    fn test_compound_array_assignment_evaluates_receiver_and_index_once() {
+        let module = build_program(
+            r#"
+                دالة عناصر() -> مصفوفة<عدد> { أرجع [١] }
+                دالة موضع() -> عدد { أرجع ٠ }
+                عناصر()[موضع()] += ٢
+            "#,
+        )
+        .unwrap();
+        let main = function(&module, "__main__");
+        for name in ["عناصر", "موضع"] {
+            let calls = main
+                .blocks
+                .iter()
+                .flat_map(|block| &block.instructions)
+                .filter(|instruction| {
+                    matches!(instruction, Instruction::Call { func, .. } if func.0 == name)
+                })
+                .count();
+            assert_eq!(calls, 1, "{name} must run exactly once");
+        }
     }
 
     #[test]

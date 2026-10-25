@@ -159,9 +159,12 @@ fn test_global_scope_has_core_builtins() {
     assert!(scope.lookup("توقف").is_some());
     assert!(scope.lookup("نم").is_some());
 
-    // Array (2)
+    // Array (3)
     assert!(scope.lookup("طول_مصفوفة").is_some());
-    assert!(scope.lookup("الحق").is_some());
+    assert!(scope.lookup("ألحق").is_some());
+    // #375 unified the spelling on ألحق; the old رسم left outright, no alias.
+    assert!(scope.lookup("الحق").is_none());
+    assert!(scope.lookup("احذف_آخر").is_some());
 
     // Bitwise (7)
     assert!(scope.lookup("بتات_و").is_some());
@@ -186,8 +189,31 @@ fn test_global_scope_has_core_builtins() {
     assert!(scope.lookup("اكتب_مجرى").is_some());
     assert!(scope.lookup("اقرأ_مجرى").is_some());
 
+    // File opening (1) — the name that finally makes the byte-stream pair
+    // reachable over anything but the console.
+    assert!(scope.lookup("افتح_ملف").is_some());
+    // File closing (1) — its release half, and what makes written bytes land
+    // before the program ends rather than at it.
+    assert!(scope.lookup("اغلق_ملف").is_some());
+
     // Path status (1) — the one name four `ملفات` names reduce to.
     assert!(scope.lookup("حالة_مسار").is_some());
+
+    // Path deletion (1) — the sibling that acts where that one asks.
+    assert!(scope.lookup("احذف_مسار").is_some());
+    // Directory creation (1) — the create half of that pair, promoted out of
+    // `ملفات` at #366 the way `قص_حروف` left `نص` at #336.
+    assert!(scope.lookup("انشئ_مجلد").is_some());
+    // Path move (1) — rename(2), promoted out of `ملفات` at #368 under the
+    // #352 rename: the mover acts on the name, so it is `مسار` not `ملف`.
+    assert!(scope.lookup("انقل_مسار").is_some());
+    // Directory listing (1) — readdir(3), promoted out of `ملفات` at #370 with
+    // its spelling unchanged, closing Category 7's repairs.
+    assert!(scope.lookup("قائمة_مجلد").is_some());
+    // Current directory (1) — getcwd(2), promoted out of `ملفات` at #373: the
+    // last `مدمج`-verdict name that module held, and Category 8's first.
+    assert!(scope.lookup("مجلد_حالي").is_some());
+    assert!(scope.lookup("معاملات_البرنامج").is_some());
 
     // Termination (2) — one primitive in two spellings, so both need pinning:
     // `normalize_name` is NFC only and does not strip tashkeel, so a missing
@@ -199,6 +225,40 @@ fn test_global_scope_has_core_builtins() {
     assert!(scope.lookup("مطلق").is_none());
     assert!(scope.lookup("جذر").is_none());
     assert!(scope.lookup("قوة").is_none());
+}
+
+/// `resolves_to_builtin` is the gate `element_typed_return` relies on: a user
+/// binding of the builtin's exact `(أي) -> أي` shape must still answer false,
+/// whether it displaces the global registration or shadows from an inner scope.
+#[test]
+fn test_resolves_to_builtin_tracks_displacement_and_shadowing() {
+    let mut scope = Scope::new_global();
+    assert!(scope.resolves_to_builtin("احذف_آخر"));
+    assert!(!scope.resolves_to_builtin("اسم_غير_موجود"));
+
+    // A user declaration in the global scope displaces the builtin.
+    assert!(scope.define(Symbol::function(
+        "احذف_آخر",
+        vec![Type::Any],
+        Type::Any,
+        Span::default(),
+    )));
+    assert!(!scope.resolves_to_builtin("احذف_آخر"));
+
+    // An inner-scope binding shadows without touching the global registration.
+    let global = Scope::new_global();
+    let mut inner = Scope::new_child(global, ScopeKind::Function);
+    assert!(inner.resolves_to_builtin("احذف_آخر"));
+    assert!(inner.define(Symbol::variable(
+        "احذف_آخر",
+        Type::Function {
+            params: vec![Type::Any],
+            return_type: Box::new(Type::Any),
+        },
+        false,
+        Span::default(),
+    )));
+    assert!(!inner.resolves_to_builtin("احذف_آخر"));
 }
 
 #[test]

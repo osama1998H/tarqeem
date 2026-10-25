@@ -1472,7 +1472,7 @@ impl Analyzer {
                     args.iter().zip(params.iter()).enumerate()
                 {
                     let arg_type = self.infer_type(arg);
-                    if !self.is_assignable(&arg_type, param_type) {
+                    if !self.is_call_arg_assignable(&arg_type, param_type) {
                         self.type_mismatch_error(
                             param_type,
                             &arg_type,

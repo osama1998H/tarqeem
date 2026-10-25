@@ -2,11 +2,13 @@
 
 use std::io::{self, Write};
 
-use crate::interpreter::epoch_millis;
 use crate::interpreter::{
-    bytes_to_string, call_env_var, call_exit_program, call_path_status, call_read_stream,
-    call_substring_by_chars, call_write_stream, RuntimeError, RuntimeResult, Value,
+    bytes_to_string, call_dir_create, call_dir_current, call_dir_list, call_env_var,
+    call_exit_program, call_file_close, call_file_open, call_path_delete, call_path_move,
+    call_path_status, call_program_args, call_read_stream, call_substring_by_chars,
+    call_write_stream, RuntimeError, RuntimeResult, Value,
 };
+use crate::interpreter::{epoch_millis, monotonic_millis};
 
 use super::DebugInterpreter;
 
@@ -38,7 +40,15 @@ impl DebugInterpreter {
                 | "متغير_بيئة"
                 | "اكتب_مجرى"
                 | "اقرأ_مجرى"
+                | "افتح_ملف"
+                | "اغلق_ملف"
                 | "حالة_مسار"
+                | "احذف_مسار"
+                | "انشئ_مجلد"
+                | "انقل_مسار"
+                | "قائمة_مجلد"
+                | "مجلد_حالي"
+                | "معاملات_البرنامج"
                 // Termination. Absent here, stepping through `أنهِ_البرنامج(٠)`
                 // would abort with «دالة غير معرّفة» while every other backend
                 // ended the program cleanly — the same gap #295 records for
@@ -59,8 +69,9 @@ impl DebugInterpreter {
                 | "trq_int_to_string"
                 | "trq_float_to_string"
                 | "trq_bool_to_string"
-                // Stdlib time builtins. Absent here, stepping through
-                // `وقت_أداء()` aborted while every other backend ran it (#241).
+                // The time builtins. Absent here, stepping through `وقت_أداء()`
+                // aborted while every other backend ran it (#241). `وقت_أداء` is
+                // core tier since #389; `وقت_الآن` still needs its import.
                 | "وقت_الآن"
                 | "وقت_أداء"
         )
@@ -68,7 +79,10 @@ impl DebugInterpreter {
 
     pub(crate) fn call_builtin(&mut self, name: &str, args: Vec<Value>) -> RuntimeResult<Value> {
         match name {
-            "وقت_الآن" | "وقت_أداء" => Ok(Value::Int(epoch_millis())),
+            // One arm each since #389, matching the main interpreter: the wall
+            // clock for `وقت_الآن`, the monotonic one for `وقت_أداء`.
+            "وقت_الآن" => Ok(Value::Int(epoch_millis())),
+            "وقت_أداء" => Ok(Value::Int(monotonic_millis())),
 
             "اطبع" => {
                 let output = args
@@ -269,7 +283,15 @@ impl DebugInterpreter {
 
             "اكتب_مجرى" => call_write_stream(&args),
             "اقرأ_مجرى" => call_read_stream(&args),
+            "افتح_ملف" => call_file_open(&args),
+            "اغلق_ملف" => call_file_close(&args),
             "حالة_مسار" => call_path_status(&args),
+            "احذف_مسار" => call_path_delete(&args),
+            "انشئ_مجلد" => call_dir_create(&args),
+            "انقل_مسار" => call_path_move(&args),
+            "قائمة_مجلد" => call_dir_list(&args),
+            "مجلد_حالي" => call_dir_current(&args),
+            "معاملات_البرنامج" => call_program_args(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 
@@ -724,7 +746,7 @@ mod tests {
             crate::debug::DebugContext::default(),
         );
 
-        // `٠` is stdin and `٣` upward names a handle nothing can have opened, so
+        // `٠` is stdin and `٣` upward names a handle this test has not opened, so
         // both answer `-١` — the same answers the runtime gives.
         for descriptor in [0, 3, -1] {
             let refused = interpreter
@@ -794,8 +816,8 @@ mod tests {
             }
         }
 
-        // `١` and `٢` carry bytes the other way, `٣` upward names a handle
-        // nothing can have opened, and a negative descriptor names nothing — all
+        // `١` and `٢` carry bytes the other way, `٣` upward names a handle this
+        // test has not opened, and a negative descriptor names nothing — all
         // answer the empty array, as the runtime does.
         for descriptor in [1, 2, 3, -1] {
             let refused = interpreter
@@ -891,13 +913,470 @@ mod tests {
         assert_eq!(err.kind, ErrorKind::TypeError);
     }
 
+    /// `معاملات_البرنامج` under the debug interpreter.
+    ///
+    /// The empty answer here is the **contract**, not a gap in the fixture: DAP
+    /// does not go through the CLI's run path, so `set_program_args` is never
+    /// called and the argument list is unset. That is deliberately
+    /// indistinguishable from a program genuinely given no arguments, the way
+    /// `متغير_بيئة`'s unset and set-empty are.
+    ///
+    /// It also pins the shape a caller depends on — an **array**, not a null or a
+    /// string — which is what would break if the dispatch arm were ever dropped
+    /// while `is_builtin` kept the name.
     #[test]
-    fn test_time_builtins_share_the_interpreter_clock() {
-        // Same helper the main interpreter calls, so the two cannot drift.
+    fn test_program_args_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("معاملات_البرنامج"),
+            "معاملات_البرنامج غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let args = interpreter
+            .call_builtin("معاملات_البرنامج", vec![])
+            .expect("معاملات_البرنامج تُرجع قيمة لا خطأ");
+
+        match args {
+            Value::Array(items) => assert!(
+                items.borrow().is_empty(),
+                "معاملات_البرنامج تُرجع مصفوفة فارغة تحت التنقيح"
+            ),
+            other => panic!("متوقع مصفوفة، وُجد {}", other.type_name()),
+        }
+    }
+
+    /// `افتح_ملف` under the debug interpreter.
+    ///
+    /// Driven on a **refusal** deliberately: an unknown mode is settled before
+    /// the path, so this touches no filesystem at all — which an in-process unit
+    /// test in a shared handle space should not. `٣` is the row worth using, since
+    /// `stdlib/ملفات/ملف.ترقيم` calls it `وضع_قراءة_كتابة` and no handle
+    /// direction here can serve it.
+    ///
+    /// It pins the answer's *shape* too — an `عدد`, not a null — which is what
+    /// would break if the dispatch arm were dropped while `is_builtin` kept the
+    /// name.
+    #[test]
+    fn test_file_open_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("افتح_ملف"),
+            "افتح_ملف غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let refused = interpreter
+            .call_builtin("افتح_ملف", vec![Value::string("/tmp"), Value::Int(3)])
+            .expect("افتح_ملف تُرجع قيمة لا خطأ");
+        assert_eq!(refused, Value::Int(-1));
+
+        // A pointer parameter, so `لا_شيء` is an answer rather than a type error
+        // — the runtime's null guard mirrored (#324).
+        let absent = interpreter
+            .call_builtin("افتح_ملف", vec![Value::Null, Value::Int(0)])
+            .expect("افتح_ملف تُرجع قيمة لا خطأ");
+        assert_eq!(absent, Value::Int(-1));
+    }
+
+    /// `اغلق_ملف` under the debug interpreter, the one backend the cross-backend
+    /// suite has no leg for.
+    ///
+    /// Driven on a **negative** descriptor, not on `٣`: `OPEN_FILES` is a
+    /// `thread_local!` shared by every test in this binary, so a plausible handle
+    /// number could be one another test had opened and the answer would depend on
+    /// test order. A negative one can never be in the table.
+    ///
+    /// It pins the answer's *shape* as well — a `منطقي`, which is what would break
+    /// if the dispatch arm were dropped while `is_builtin` kept the name.
+    #[test]
+    fn test_file_close_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("اغلق_ملف"),
+            "اغلق_ملف غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let refused = interpreter
+            .call_builtin("اغلق_ملف", vec![Value::Int(-1)])
+            .expect("اغلق_ملف تُرجع قيمة لا خطأ");
+        assert_eq!(refused, Value::Bool(false));
+
+        // An `عدد` parameter, so `لا_شيء` is a **type error** and not an answer —
+        // the mirror of the arm above, and why this name has no `Value::Null` arm
+        // (#326: codegen turns `لا_شيء` into a valid `0` above the runtime).
+        assert!(interpreter
+            .call_builtin("اغلق_ملف", vec![Value::Null])
+            .is_err());
+    }
+
+    /// `احذف_مسار` under the debug interpreter, which is the only backend a
+    /// cross-backend test cannot reach. The portable rows live here; the symlink
+    /// row — which is the whole contract — is the test below.
+    #[test]
+    fn test_path_delete_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("احذف_مسار"),
+            "احذف_مسار غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let delete = |interpreter: &mut DebugInterpreter, path: Value| {
+            interpreter
+                .call_builtin("احذف_مسار", vec![path])
+                .expect("احذف_مسار تُرجع قيمة لا خطأ")
+        };
+
+        // An absent path, an empty name and a null one are one answer.
+        for path in [
+            Value::string("/tmp/tarqeem_debug_path_delete_absent_xyz"),
+            Value::string(""),
+            Value::Null,
+        ] {
+            assert_eq!(delete(&mut interpreter, path), Value::Bool(false));
+        }
+
+        // A non-empty directory is refused: `rmdir`, not `rm -r`. Under the system
+        // temp directory rather than a literal `/tmp`, so the row runs on Windows
+        // too — but in a directory this test *makes* non-empty, never the shared
+        // temp directory itself: that one is only non-empty by luck, and on the one
+        // run where it is empty `rmdir` would succeed and delete it out from under
+        // every other test in the process.
+        let full = std::env::temp_dir().join("tarqeem_debug_path_delete_full_dir");
+        std::fs::remove_dir_all(&full).ok();
+        std::fs::create_dir(&full).expect("تعذّر إنشاء المجلد");
+        std::fs::write(full.join("ساكن.نص"), "x").expect("تعذّر إنشاء الملف");
+
+        assert_eq!(
+            delete(
+                &mut interpreter,
+                Value::string(full.to_str().expect("مسار مؤقت صالح"))
+            ),
+            Value::Bool(false)
+        );
+        assert!(full.is_dir(), "المجلد العامر حُذف");
+
+        std::fs::remove_dir_all(&full).ok();
+    }
+
+    /// The lstat-versus-stat choice, which is the only place the two copies of the
+    /// kernel can silently disagree — so it is asserted here as well as
+    /// cross-backend. Split from the test above so the portable rows still run on
+    /// Windows.
+    #[test]
+    #[cfg(unix)]
+    fn test_path_delete_unlinks_a_symlink_rather_than_following_it() {
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let delete = |interpreter: &mut DebugInterpreter, path: Value| {
+            interpreter
+                .call_builtin("احذف_مسار", vec![path])
+                .expect("احذف_مسار تُرجع قيمة لا خطأ")
+        };
+
+        let target = "/tmp/tarqeem_debug_path_delete_target_dir";
+        let link = "/tmp/tarqeem_debug_path_delete_link";
+        std::fs::remove_file(link).ok();
+        std::fs::remove_dir_all(target).ok();
+        std::fs::create_dir(target).expect("تعذّر إنشاء المجلد");
+        std::os::unix::fs::symlink(target, link).expect("تعذّر إنشاء الوصلة");
+
+        // The contract decision: the link is unlinked and its target survives.
+        // Following the link would call `rmdir` on it and answer `خطأ`.
+        assert_eq!(
+            delete(&mut interpreter, Value::string(link)),
+            Value::Bool(true)
+        );
+        assert!(std::fs::symlink_metadata(link).is_err(), "الوصلة باقية");
+        assert!(std::path::Path::new(target).is_dir(), "الهدف حُذف");
+
+        // And an empty directory goes, through the other branch.
+        assert_eq!(
+            delete(&mut interpreter, Value::string(target)),
+            Value::Bool(true)
+        );
+        assert!(!std::path::Path::new(target).exists());
+    }
+
+    /// `انشئ_مجلد` under the debug interpreter, which is the only backend a
+    /// cross-backend test cannot reach. Portable rows only — the dangling-symlink
+    /// row lives in `runtime-rs`, where `symlink_metadata` can observe survival.
+    #[test]
+    fn test_dir_create_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("انشئ_مجلد"),
+            "انشئ_مجلد غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let create = |interpreter: &mut DebugInterpreter, path: Value| {
+            interpreter
+                .call_builtin("انشئ_مجلد", vec![path])
+                .expect("انشئ_مجلد تُرجع قيمة لا خطأ")
+        };
+
+        // An empty name and a null one are one answer, and a missing parent is
+        // the same answer — `mkdir(2)`, not `mkdir -p`.
+        let orphan = std::env::temp_dir()
+            .join("tarqeem_debug_dir_create_no_parent")
+            .join("فرعي");
+        std::fs::remove_dir_all(orphan.parent().expect("للمسار أب")).ok();
+        for path in [
+            Value::string(""),
+            Value::Null,
+            Value::string(orphan.to_str().expect("مسار مؤقت صالح")),
+        ] {
+            assert_eq!(create(&mut interpreter, path), Value::Bool(false));
+        }
+
+        // A fresh name is created — and `صحيح` means *this call created it*, so
+        // the second attempt over the same name answers `خطأ` and the directory
+        // survives. Under the system temp directory so the row runs on Windows.
+        let fresh = std::env::temp_dir().join("tarqeem_debug_dir_create_fresh");
+        std::fs::remove_dir_all(&fresh).ok();
+        let fresh_path = Value::string(fresh.to_str().expect("مسار مؤقت صالح"));
+
+        assert_eq!(
+            create(&mut interpreter, fresh_path.clone()),
+            Value::Bool(true)
+        );
+        assert!(fresh.is_dir(), "لم يُنشأ المجلد");
+        assert_eq!(create(&mut interpreter, fresh_path), Value::Bool(false));
+        assert!(fresh.is_dir(), "الرفض أزال المجلد");
+
+        std::fs::remove_dir_all(&fresh).ok();
+    }
+
+    /// `انقل_مسار` under the debug interpreter, which is the only backend a
+    /// cross-backend test cannot reach. Portable rows only — the symlink rows
+    /// live in `runtime-rs`, where `symlink_metadata` can observe survival.
+    #[test]
+    fn test_path_move_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("انقل_مسار"),
+            "انقل_مسار غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let mover = |interpreter: &mut DebugInterpreter, src: Value, dst: Value| {
+            interpreter
+                .call_builtin("انقل_مسار", vec![src, dst])
+                .expect("انقل_مسار تُرجع قيمة لا خطأ")
+        };
+
+        // Empty names, null in either position and an absent source are one
+        // answer, and a refusal moves nothing.
+        let absent = std::env::temp_dir().join("tarqeem_debug_path_move_absent");
+        std::fs::remove_file(&absent).ok();
+        let absent_path = Value::string(absent.to_str().expect("مسار مؤقت صالح"));
+        for (src, dst) in [
+            (Value::string(""), Value::string("")),
+            (Value::Null, Value::string("وجهة")),
+            (Value::string("مصدر"), Value::Null),
+            (absent_path, Value::string("وجهة_لا_تهم")),
+        ] {
+            assert_eq!(mover(&mut interpreter, src, dst), Value::Bool(false));
+        }
+
+        // A fresh destination receives the file, bytes intact, and the source
+        // name is released. Under the system temp directory so the row runs on
+        // Windows.
+        let src = std::env::temp_dir().join("tarqeem_debug_path_move_src.txt");
+        let dst = std::env::temp_dir().join("tarqeem_debug_path_move_dst.txt");
+        std::fs::remove_file(&dst).ok();
+        std::fs::write(&src, "محتوى").expect("تعذّر إنشاء الملف");
+
+        assert_eq!(
+            mover(
+                &mut interpreter,
+                Value::string(src.to_str().expect("مسار مؤقت صالح")),
+                Value::string(dst.to_str().expect("مسار مؤقت صالح"))
+            ),
+            Value::Bool(true)
+        );
+        assert!(!src.exists(), "المصدر باقٍ بعد النقل");
+        assert_eq!(
+            std::fs::read(&dst).expect("الوجهة زالت"),
+            "محتوى".as_bytes()
+        );
+
+        // A directory destination refuses, and both ends survive the refusal.
+        let dir_dst = std::env::temp_dir().join("tarqeem_debug_path_move_dir_dst");
+        std::fs::remove_dir_all(&dir_dst).ok();
+        std::fs::create_dir(&dir_dst).expect("تعذّر إنشاء المجلد");
+        assert_eq!(
+            mover(
+                &mut interpreter,
+                Value::string(dst.to_str().expect("مسار مؤقت صالح")),
+                Value::string(dir_dst.to_str().expect("مسار مؤقت صالح"))
+            ),
+            Value::Bool(false)
+        );
+        assert!(dst.exists(), "الرفض أزال المصدر");
+        assert!(dir_dst.is_dir(), "الرفض أزال الوجهة");
+
+        std::fs::remove_file(&dst).ok();
+        std::fs::remove_dir_all(&dir_dst).ok();
+    }
+
+    /// `قائمة_مجلد` under the debug interpreter, which is the only backend a
+    /// cross-backend test cannot reach. Portable rows only — the symlink and
+    /// lossy-decode rows live in `runtime-rs`.
+    #[test]
+    fn test_dir_list_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("قائمة_مجلد"),
+            "قائمة_مجلد غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let list = |interpreter: &mut DebugInterpreter, path: Value| {
+            interpreter
+                .call_builtin("قائمة_مجلد", vec![path])
+                .expect("قائمة_مجلد تُرجع قيمة لا خطأ")
+        };
+        let names = |value: Value| -> Vec<String> {
+            match value {
+                Value::Array(items) => items
+                    .borrow()
+                    .iter()
+                    .map(|item| item.to_display_string())
+                    .collect(),
+                other => panic!("قائمة_مجلد أجابت {other:?} لا مصفوفة"),
+            }
+        };
+
+        // An absent path, the empty name and a null one are one answer: the
+        // empty array, the same refusal the runtime kernel gives.
+        let absent = std::env::temp_dir().join("tarqeem_debug_dir_list_absent");
+        std::fs::remove_dir_all(&absent).ok();
+        for path in [
+            Value::string(""),
+            Value::Null,
+            Value::string(absent.to_str().expect("مسار مؤقت صالح")),
+        ] {
+            assert!(names(list(&mut interpreter, path)).is_empty());
+        }
+
+        // A populated directory answers bare names sorted by code point,
+        // whatever order they were created in. Under the system temp directory
+        // so the row runs on Windows.
+        let dir = std::env::temp_dir().join("tarqeem_debug_dir_list_sample");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir(&dir).expect("تعذّر إنشاء المجلد");
+        std::fs::write(dir.join("ب.نص"), "").expect("تعذّر إنشاء الملف");
+        std::fs::create_dir(dir.join("أ")).expect("تعذّر إنشاء المجلد الفرعي");
+
+        let listed = names(list(
+            &mut interpreter,
+            Value::string(dir.to_str().expect("مسار مؤقت صالح")),
+        ));
+        assert_eq!(listed, vec!["أ".to_string(), "ب.نص".to_string()]);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// `مجلد_حالي` under the debug interpreter, pinned against `std`'s own
+    /// answer. This routes through the shared `call_dir_current` kernel, so
+    /// one test pins the value both interpreters answer — and the pin is
+    /// race-free because nothing in the repository calls `set_current_dir`;
+    /// the day a chdir primitive lands, this sentence is the tripwire.
+    #[test]
+    fn test_dir_current_is_dispatchable() {
+        assert!(
+            DebugInterpreter::is_builtin("مجلد_حالي"),
+            "مجلد_حالي غير مُعرَّفة كدالة مدمجة في مفسّر التنقيح"
+        );
+
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let answer = interpreter
+            .call_builtin("مجلد_حالي", vec![])
+            .expect("مجلد_حالي تُرجع قيمة لا خطأ");
+        let expected = std::env::current_dir()
+            .expect("للاختبار مجلد حالٍ")
+            .to_string_lossy()
+            .into_owned();
+        match answer {
+            Value::String(text) => assert_eq!(text.as_str(), expected),
+            other => panic!("مجلد_حالي أجابت {other:?} لا نصاً"),
+        }
+    }
+
+    /// The two names read the same helpers the main interpreter does, so neither
+    /// can drift from it — but they are *different* helpers since #389, when
+    /// sharing one turned out to be `وقت_أداء`'s defect rather than its
+    /// safeguard.
+    #[test]
+    fn test_wall_clock_builtin_reads_epoch_millis() {
         let millis = epoch_millis();
         assert!(
             millis > 1_000_000_000_000,
             "التوقيت {millis} ليس بالميلي ثانية منذ ١٩٧٠"
+        );
+    }
+
+    /// Driven through `call_builtin` rather than the helper: `is_builtin` and the
+    /// dispatch `match` are separate lists, and a name in one but not the other
+    /// still aborts at run time.
+    ///
+    /// Asserted as non-decreasing and small — never `== 0`. The origin is a
+    /// process-global `OnceLock`, so a sibling test in this binary may have
+    /// started the clock first, and test order is not defined.
+    #[test]
+    fn test_monotonic_clock_builtin_never_goes_backwards() {
+        let mut interpreter = DebugInterpreter::new(
+            crate::ir::Module::new("تنقيح".to_string()),
+            crate::debug::DebugContext::default(),
+        );
+
+        let first = interpreter
+            .call_builtin("وقت_أداء", vec![])
+            .expect("وقت_أداء تُرجع قيمة لا خطأ")
+            .as_int()
+            .expect("وقت_أداء تُرجع عدداً");
+        let second = interpreter
+            .call_builtin("وقت_أداء", vec![])
+            .expect("وقت_أداء تُرجع قيمة لا خطأ")
+            .as_int()
+            .expect("وقت_أداء تُرجع عدداً");
+
+        assert!(second >= first, "الساعة تراجعت من {first} إلى {second}");
+        assert!(
+            first < 600_000,
+            "وقت_أداء أرجعت {first} — هذا توقيت الحائط لا أصلٌ داخل العملية"
         );
     }
 }

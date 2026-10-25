@@ -2,7 +2,7 @@
 //!
 //! This module provides runtime lifecycle management and debugging utilities.
 
-use crate::types::TrqString;
+use crate::types::{TrqArray, TrqString};
 use std::process;
 
 // ============================================================================
@@ -38,6 +38,11 @@ pub extern "C" fn trq_runtime_cleanup() {
     // - Join thread pools
     // - Release global resources
     // - Report memory leaks in debug mode
+
+    // Open file writers first, for the reason the stdout flush below exists: no
+    // thread-local destructor runs after an `extern "C"` main, so a buffered
+    // handle would lose its bytes where the interpreter kept them.
+    crate::io::flush_open_writers();
 
     // Flush stdout and stderr to ensure all output is written
     use std::io::Write;
@@ -144,11 +149,14 @@ pub(crate) fn exit_status(status: i64) -> i32 {
 /// The flushes are load-bearing. `process::exit` runs no destructors, so a
 /// buffered `print!` with no trailing newline would be dropped here while the
 /// interpreter's own path still printed it — a cross-backend divergence in the
-/// one direction stdout buffering can produce.
+/// one direction stdout buffering can produce. Open file writers are flushed for
+/// the same reason: since #362 a program can hold one, and `اغلق_ملف` closes only
+/// the ones it asks to.
 #[no_mangle]
 pub extern "C" fn trq_exit(status: i64) -> ! {
     use std::io::Write;
 
+    crate::io::flush_open_writers();
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
     process::exit(exit_status(status));
@@ -167,13 +175,30 @@ pub extern "C" fn trq_sleep(milliseconds: i64) {
 
 /// Milliseconds since the UNIX epoch, or 0 if the clock predates it.
 ///
-/// The single source of truth for both time builtins, so the value native code
-/// sees cannot drift from `src/interpreter/executor/builtins.rs`.
+/// The single source of truth for `وقت_الآن`, so the value native code sees
+/// cannot drift from `src/interpreter/executor/builtins.rs`. It backed `وقت_أداء`
+/// too until #389, and that was the defect: this clock is settable.
 fn epoch_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// Milliseconds since a fixed origin inside this process, backing `وقت_أداء`.
+///
+/// The origin is lazy rather than set in `trq_runtime_init` because neither
+/// interpreter has an init hook: anchoring to process start would give the three
+/// implementations three different origins.
+///
+/// `Instant` rather than `libc::clock_gettime`, which would need a `#[cfg]`
+/// split for Windows that CI's matrix — workspace root only — could not see.
+fn monotonic_millis() -> i64 {
+    static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    ORIGIN
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis() as i64
 }
 
 /// Backs the stdlib builtin `وقت_الآن` (`استورد { وقت_الآن } من "وقت"`).
@@ -185,12 +210,15 @@ pub extern "C" fn trq_time_now() -> i64 {
     epoch_millis()
 }
 
-/// Backs the stdlib builtin `وقت_أداء`. Returns the same epoch-millisecond
-/// clock as `trq_time_now`, matching the interpreter, which treats the two
-/// names identically.
+/// Backs the core builtin `وقت_أداء` — no import since #389, which also made it
+/// monotonic.
+///
+/// It returned `epoch_millis()` before, so the one promise the name makes was the
+/// one it did not keep. Both interpreters carried the same arm, so every backend
+/// agreed on the wrong answer and no backend-diff could catch it.
 #[no_mangle]
 pub extern "C" fn trq_performance_now() -> i64 {
-    epoch_millis()
+    monotonic_millis()
 }
 
 // ============================================================================
@@ -351,6 +379,107 @@ pub extern "C" fn trq_env_remove(name: *const TrqString) -> bool {
 }
 
 // ============================================================================
+// Program Arguments
+// ============================================================================
+
+/// The arguments captured from the C `main`, used only when `std::env::args_os`
+/// comes back empty.
+///
+/// `args_os` is the primary source because it is the only portable one: on
+/// Windows it derives from `GetCommandLineW`, so an Arabic argument survives,
+/// while the `argv` handed to `main` there is the ANSI code page and would
+/// arrive mangled. On macOS it reads `_NSGetArgv`, and on Linux the `ARGV`
+/// captured by an `.init_array` entry glibc runs before `main` — neither
+/// depends on Rust's `lang_start`, which this crate's `extern "C" fn main`
+/// bypasses. The fallback exists for the case that reasoning does not cover:
+/// a target where std never captured anything, where a mangled answer still
+/// beats no answer.
+static CAPTURED_ARGV: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// Decodes the C `argv` vector, dropping `argv[0]`.
+///
+/// Split out from `main` for the reason `exit_status` is split out of
+/// `trq_exit`: `main` is `#[cfg(not(test))]` and never runs under `cargo test`,
+/// so this is the only part of the capture a unit test can reach.
+///
+/// `c_char`, not `i8`: the alias is `u8` on aarch64/arm/riscv64 Linux, so
+/// spelling the element type `i8` would refuse to compile there — `CStr::from_ptr`
+/// takes `*const c_char`. The C ABI is identical either way.
+///
+/// # Safety
+///
+/// - `argv` must be null, or an array of `argc` pointers each null or to a
+///   null-terminated C string.
+pub(crate) unsafe fn program_args_from(
+    argc: i32,
+    argv: *const *const std::ffi::c_char,
+) -> Vec<String> {
+    if argv.is_null() || argc <= 1 {
+        return Vec::new();
+    }
+
+    // From 1: `argv[0]` is the program's own name, not one of its arguments.
+    (1..argc as isize)
+        .map(|i| {
+            let entry = *argv.offset(i);
+            if entry.is_null() {
+                String::new()
+            } else {
+                let bytes = std::ffi::CStr::from_ptr(entry).to_bytes();
+                String::from_utf8_lossy(bytes).into_owned()
+            }
+        })
+        .collect()
+}
+
+/// The program's command-line arguments, excluding the program name.
+///
+/// `argv[0]` is excluded deliberately, and it is what keeps the backends
+/// agreeing: natively it is the compiled binary's path, while under the
+/// interpreter it would be the `.ترقيم` source path, so including it would
+/// diverge permanently. Excluding it makes the no-argument case an empty array
+/// identically everywhere.
+///
+/// Total: there is no failure mode. No arguments answers an empty array — a
+/// value, not a sentinel, since "no arguments" has one unambiguous meaning.
+/// An argument that is not valid UTF-8 is decoded lossily rather than dropped.
+///
+/// C equivalent: `TrqArray* trq_program_args(void);` — an array of
+/// `TrqString*`, laid out as `trq_dir_list`'s is.
+#[no_mangle]
+pub extern "C" fn trq_program_args() -> *mut TrqArray {
+    use crate::array::{trq_array_new, trq_array_push};
+    use crate::string::trq_string_new;
+
+    let elem_size = std::mem::size_of::<*mut TrqString>() as i64;
+    let result = trq_array_new(0, elem_size);
+    if result.is_null() {
+        return result;
+    }
+
+    // `args_os` yields the program name first, so a non-empty vector means std
+    // captured something and `skip(1)` is the argument list. An empty one means
+    // it captured nothing at all — not that the program was given no arguments
+    // — which is when the C `argv` fallback answers.
+    let owned: Vec<String> = std::env::args_os()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    let args: Vec<String> = if owned.is_empty() {
+        CAPTURED_ARGV.get().cloned().unwrap_or_default()
+    } else {
+        owned.into_iter().skip(1).collect()
+    };
+
+    for arg in &args {
+        let bytes = arg.as_bytes();
+        let entry = trq_string_new(bytes.as_ptr(), bytes.len() as i64);
+        trq_array_push(result, &entry as *const _ as *const u8, elem_size);
+    }
+
+    result
+}
+
+// ============================================================================
 // Program Entry Point
 // ============================================================================
 
@@ -359,7 +488,7 @@ pub extern "C" fn trq_env_remove(name: *const TrqString) -> bool {
 // Tarqeem user code at final link time.
 #[cfg(not(test))]
 mod entry_point {
-    use super::{trq_runtime_cleanup, trq_runtime_init};
+    use super::{program_args_from, trq_runtime_cleanup, trq_runtime_init, CAPTURED_ARGV};
 
     // The user's program entry point, generated by the Tarqeem compiler.
     // This is declared as an external C function that will be provided by
@@ -379,7 +508,15 @@ mod entry_point {
     /// This function calls the external `__main__` function which must be
     /// provided by the compiled Tarqeem program.
     #[no_mangle]
-    pub extern "C" fn main(_argc: i32, _argv: *const *const i8) -> i32 {
+    pub extern "C" fn main(argc: i32, argv: *const *const std::ffi::c_char) -> i32 {
+        // Captured here rather than read here: `trq_program_args` prefers
+        // `std::env::args_os`, and this is only the fallback for a target where
+        // std captured nothing. Storing it costs one allocation at startup and
+        // is the only moment the C vector is guaranteed live.
+        unsafe {
+            let _ = CAPTURED_ARGV.set(program_args_from(argc, argv));
+        }
+
         trq_runtime_init();
 
         unsafe {
@@ -398,6 +535,96 @@ mod entry_point {
 
 #[cfg(test)]
 mod tests {
+
+    // ────────────────────────────────────────────────────────────────────
+    // trq_program_args — معاملات_البرنامج
+    // ────────────────────────────────────────────────────────────────────
+    //
+    // `program_args_from` is the only half a test can reach: `main` is
+    // `#[cfg(not(test))]`, and `trq_program_args` itself reads the test
+    // harness's own argv, which cargo controls.
+
+    /// Builds a C `argv` from Rust strings and hands it to `program_args_from`.
+    ///
+    /// The `CString`s stay alive in `owned` for the duration of the call, which
+    /// is what keeps the pointers valid.
+    fn args_from_strs(items: &[&[u8]]) -> Vec<String> {
+        let owned: Vec<std::ffi::CString> = items
+            .iter()
+            .map(|b| std::ffi::CString::new(*b).unwrap())
+            .collect();
+        let ptrs: Vec<*const std::ffi::c_char> = owned.iter().map(|c| c.as_ptr()).collect();
+        unsafe { program_args_from(ptrs.len() as i32, ptrs.as_ptr()) }
+    }
+
+    #[test]
+    fn test_program_args_drops_the_program_name() {
+        assert_eq!(args_from_strs(&[b"/bin/prog"]), Vec::<String>::new());
+        assert_eq!(
+            args_from_strs(&[b"/bin/prog", b"first", b"second"]),
+            vec!["first".to_string(), "second".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_program_args_preserves_order_and_content() {
+        // Spaces and repeats survive: the shell already split the vector, and
+        // nothing here re-splits or de-duplicates it.
+        assert_eq!(
+            args_from_strs(&[b"prog", b"a b", b"a b", b""]),
+            vec!["a b".to_string(), "a b".to_string(), String::new()]
+        );
+    }
+
+    #[test]
+    fn test_program_args_carries_arabic_unchanged() {
+        assert_eq!(
+            args_from_strs(&[b"prog", "مرحبا".as_bytes(), "\u{1E200}".as_bytes()]),
+            vec!["مرحبا".to_string(), "\u{1E200}".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_program_args_decodes_invalid_utf8_lossily() {
+        // The contract says lossy, not dropped and not rejected: a byte that is
+        // not an encoding becomes U+FFFD and the argument keeps its position.
+        let got = args_from_strs(&[b"prog", b"\xff\xfe", b"after"]);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0], "\u{FFFD}\u{FFFD}");
+        assert_eq!(got[1], "after");
+    }
+
+    #[test]
+    fn test_program_args_reads_nothing_from_an_empty_vector() {
+        // A null `argv`, a zero `argc` and a lone program name are the three
+        // ways to have no arguments, and they answer the same empty vector.
+        assert_eq!(
+            unsafe { program_args_from(0, std::ptr::null()) },
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            unsafe { program_args_from(3, std::ptr::null()) },
+            Vec::<String>::new()
+        );
+        assert_eq!(args_from_strs(&[b"prog"]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_program_args_answers_an_array_of_strings() {
+        // The shape codegen expects: `elem_size` is a pointer, so the payload is
+        // an array of `TrqString*` rather than inline bytes. Under `cargo test`
+        // the process is the test harness, so the contents are whatever cargo
+        // was given — only the layout is assertable here.
+        let arr = trq_program_args();
+        assert!(!arr.is_null());
+        unsafe {
+            assert_eq!(
+                (*arr).elem_size,
+                std::mem::size_of::<*mut TrqString>() as i64
+            );
+            assert!((*arr).len >= 0);
+        }
+    }
     use super::*;
     use crate::string::trq_string_new;
 
@@ -521,5 +748,32 @@ mod tests {
         // happens in i64 and only then narrows.
         assert_eq!(exit_status(i64::MIN), 0);
         assert_eq!(exit_status(i64::MAX), 255);
+    }
+
+    /// The native half of `وقت_أداء`, pinned here so it cannot regress to the
+    /// wall clock independently of the interpreters (#389).
+    ///
+    /// Asserted as non-decreasing and small — never `== 0`. The origin is a
+    /// process-global `OnceLock`, so a sibling test in this binary may have
+    /// started the clock first and test order is not defined.
+    #[test]
+    fn test_performance_now_is_monotonic_and_process_relative() {
+        use super::{trq_performance_now, trq_time_now};
+
+        let first = trq_performance_now();
+        let second = trq_performance_now();
+        assert!(second >= first, "الساعة تراجعت من {first} إلى {second}");
+
+        // Ten minutes: unreachable for a test process counting from its own
+        // first call, and three orders of magnitude below any epoch value. This
+        // is the assertion that fails if the body goes back to `epoch_millis`.
+        assert!(
+            first < 600_000,
+            "trq_performance_now أرجعت {first} — هذا توقيت الحائط"
+        );
+
+        // And the two clocks are not the same clock, which is the whole point:
+        // before #389 both symbols returned the identical epoch value.
+        assert!(trq_time_now() > 1_000_000_000_000);
     }
 }

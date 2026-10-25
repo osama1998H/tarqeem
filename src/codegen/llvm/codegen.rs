@@ -7,7 +7,7 @@ use crate::codegen::Target;
 use crate::error::codes::{ERR_LLVM_INTERNAL, ERR_UNTYPED_INDIRECT_CALL};
 use crate::ir::{
     BasicBlock, BinaryOp, BlockId, Class, ClassId, Constant, Function, Instruction, IrType, Module,
-    UnaryOp, VarId,
+    NativeBlock, UnaryOp, VarId,
 };
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
@@ -121,6 +121,7 @@ impl LlvmCodegen {
 
     pub fn generate(&mut self, module: &Module) -> Result<String, CodegenError> {
         self.output.clear();
+        self.fn_param_types.clear();
         self.has_global_init = module.functions.iter().any(|f| f.name == "__global_init__");
         // Must precede every `mangle_function_name` call below, definitions and
         // call sites alike, or the two disagree about one name.
@@ -690,22 +691,52 @@ impl LlvmCodegen {
         Ok(())
     }
 
+    fn emit_runtime_declaration(
+        &mut self,
+        name: &str,
+        ret_ty: IrType,
+        params: &[IrType],
+    ) -> Result<(), CodegenError> {
+        let args = params
+            .iter()
+            .map(|ty| self.type_mapper.map_param_type(ty))
+            .collect::<Vec<_>>()
+            .join(", ");
+        emit!(
+            self,
+            "declare {} @{}({})",
+            self.type_mapper.map_type(&ret_ty),
+            name,
+            args
+        );
+        self.fn_param_types
+            .insert(name.to_string(), params.to_vec());
+        Ok(())
+    }
+
     fn emit_runtime_declarations(&mut self) -> Result<(), CodegenError> {
+        use IrType::{Bool, Float, Int, Void};
+        let ptr = IrType::Ptr(Box::new(Void));
+
         emit!(self, "; Runtime function declarations");
 
-        emit!(self, "declare ptr @trq_alloc(i64)");
+        self.emit_runtime_declaration("trq_alloc", ptr.clone(), &[Int])?;
         emit!(self, "declare void @trq_free(ptr)");
         emit!(self, "declare void @trq_retain(ptr)");
         emit!(self, "declare void @trq_release(ptr)");
 
-        emit!(self, "declare ptr @trq_string_new(ptr, i64)");
+        self.emit_runtime_declaration("trq_string_new", ptr.clone(), &[ptr.clone(), Int])?;
         emit!(self, "declare ptr @trq_string_concat(ptr, ptr)");
         emit!(self, "declare i64 @trq_string_len(ptr)");
         emit!(self, "declare i64 @trq_string_len_chars(ptr)");
-        emit!(self, "declare ptr @trq_string_substr_chars(ptr, i64, i64)");
-        emit!(self, "declare ptr @trq_string_char_at(ptr, i64)");
+        self.emit_runtime_declaration(
+            "trq_string_substr_chars",
+            ptr.clone(),
+            &[ptr.clone(), Int, Int],
+        )?;
+        self.emit_runtime_declaration("trq_string_char_at", ptr.clone(), &[ptr.clone(), Int])?;
         emit!(self, "declare i64 @trq_string_char_code(ptr)");
-        emit!(self, "declare ptr @trq_string_from_char_code(i64)");
+        self.emit_runtime_declaration("trq_string_from_char_code", ptr.clone(), &[Int])?;
         emit!(self, "declare ptr @trq_string_to_bytes(ptr)");
         emit!(self, "declare ptr @trq_string_from_bytes(ptr)");
         emit!(self, "declare i1 @trq_string_contains(ptr, ptr)");
@@ -725,18 +756,26 @@ impl LlvmCodegen {
         emit!(self, "declare ptr @trq_string_join(ptr, ptr)");
         emit!(self, "declare ptr @trq_string_replace(ptr, ptr, ptr)");
         emit!(self, "declare ptr @trq_string_replace_all(ptr, ptr, ptr)");
-        emit!(self, "declare ptr @trq_string_repeat(ptr, i64)");
-        emit!(self, "declare ptr @trq_string_pad_left(ptr, i64, ptr)");
-        emit!(self, "declare ptr @trq_string_pad_right(ptr, i64, ptr)");
+        self.emit_runtime_declaration("trq_string_repeat", ptr.clone(), &[ptr.clone(), Int])?;
+        self.emit_runtime_declaration(
+            "trq_string_pad_left",
+            ptr.clone(),
+            &[ptr.clone(), Int, ptr.clone()],
+        )?;
+        self.emit_runtime_declaration(
+            "trq_string_pad_right",
+            ptr.clone(),
+            &[ptr.clone(), Int, ptr.clone()],
+        )?;
         emit!(self, "declare i1 @trq_string_is_numeric(ptr)");
         emit!(self, "declare i1 @trq_string_is_alpha(ptr)");
         emit!(self, "declare i1 @trq_string_is_arabic(ptr)");
         emit!(self, "declare i64 @trq_string_compare(ptr, ptr)");
         emit!(self, "declare i1 @trq_string_equals(ptr, ptr)");
 
-        emit!(self, "declare ptr @trq_int_to_string(i64)");
-        emit!(self, "declare ptr @trq_float_to_string(double)");
-        emit!(self, "declare ptr @trq_bool_to_string(i1 zeroext)");
+        self.emit_runtime_declaration("trq_int_to_string", ptr.clone(), &[Int])?;
+        self.emit_runtime_declaration("trq_float_to_string", ptr.clone(), &[Float])?;
+        self.emit_runtime_declaration("trq_bool_to_string", ptr.clone(), &[Bool])?;
         emit!(self, "declare i64 @trq_string_to_int(ptr)");
         emit!(self, "declare double @trq_string_to_float(ptr)");
         // The `عدد`/`عدد_عشري` builtins reject an unparsable string instead of
@@ -745,20 +784,20 @@ impl LlvmCodegen {
         emit!(self, "declare double @trq_string_to_float_checked(ptr)");
         // `i1 zeroext` per the FFI convention below: Rust's `bool` is UB for any
         // other bit pattern.
-        emit!(self, "declare void @trq_assert(i1 zeroext, ptr)");
+        self.emit_runtime_declaration("trq_assert", Void, &[Bool, ptr.clone()])?;
 
-        emit!(self, "declare ptr @trq_array_new(i64, i64)");
+        self.emit_runtime_declaration("trq_array_new", ptr.clone(), &[Int, Int])?;
         emit!(self, "declare i64 @trq_array_len(ptr)");
-        emit!(self, "declare ptr @trq_array_get(ptr, i64)");
-        emit!(self, "declare void @trq_array_set(ptr, i64, ptr)");
-        emit!(self, "declare void @trq_array_push(ptr, ptr, i64)");
+        self.emit_runtime_declaration("trq_array_get", ptr.clone(), &[ptr.clone(), Int])?;
+        self.emit_runtime_declaration("trq_array_set", Void, &[ptr.clone(), Int, ptr.clone()])?;
+        self.emit_runtime_declaration("trq_array_push", Void, &[ptr.clone(), ptr.clone(), Int])?;
         emit!(self, "declare ptr @trq_array_pop(ptr)");
 
         emit!(self, "declare void @trq_print(ptr)");
-        emit!(self, "declare void @trq_print_int(i64)");
-        emit!(self, "declare void @trq_print_float(double)");
-        emit!(self, "declare void @trq_print_optional_scalar(ptr, i64)");
-        emit!(self, "declare void @trq_print_bool(i1 zeroext)");
+        self.emit_runtime_declaration("trq_print_int", Void, &[Int])?;
+        self.emit_runtime_declaration("trq_print_float", Void, &[Float])?;
+        self.emit_runtime_declaration("trq_print_optional_scalar", Void, &[ptr.clone(), Int])?;
+        self.emit_runtime_declaration("trq_print_bool", Void, &[Bool])?;
         emit!(self, "declare void @trq_print_array(ptr)");
         emit!(self, "declare void @trq_print_newline()");
         emit!(self, "declare void @trq_print_error(ptr)");
@@ -767,61 +806,55 @@ impl LlvmCodegen {
         emit!(self, "declare i64 @trq_input_int()");
         emit!(self, "declare double @trq_input_float()");
 
-        emit!(self, "declare double @llvm.pow.f64(double, double)");
-        emit!(self, "declare i64 @trq_pow_int(i64, i64)");
-        emit!(self, "declare double @trq_pow_float(double, double)");
-        emit!(self, "declare i64 @trq_abs_int(i64)");
-        emit!(self, "declare double @trq_abs_float(double)");
-        emit!(self, "declare double @trq_sqrt(double)");
-        emit!(self, "declare double @trq_cbrt(double)");
-        emit!(self, "declare double @trq_nroot(double, i64)");
-        emit!(self, "declare double @trq_log(double)");
-        emit!(self, "declare double @trq_log10(double)");
-        emit!(self, "declare double @trq_log2(double)");
-        emit!(self, "declare double @trq_exp(double)");
-        emit!(self, "declare double @trq_floor(double)");
-        emit!(self, "declare double @trq_ceil(double)");
-        emit!(self, "declare double @trq_round(double)");
-        emit!(self, "declare double @trq_trunc(double)");
-        emit!(self, "declare i64 @trq_min_int(i64, i64)");
-        emit!(self, "declare i64 @trq_max_int(i64, i64)");
-        emit!(self, "declare double @trq_min_float(double, double)");
-        emit!(self, "declare double @trq_max_float(double, double)");
-        emit!(self, "declare i64 @trq_clamp_int(i64, i64, i64)");
-        emit!(
-            self,
-            "declare double @trq_clamp_float(double, double, double)"
-        );
-        emit!(self, "declare i64 @trq_sign(i64)");
-        emit!(self, "declare i64 @trq_mod(i64, i64)");
-        emit!(self, "declare i64 @trq_gcd(i64, i64)");
-        emit!(self, "declare i64 @trq_lcm(i64, i64)");
-        emit!(self, "declare i64 @trq_factorial(i64)");
+        self.emit_runtime_declaration("llvm.pow.f64", Float, &[Float, Float])?;
+        self.emit_runtime_declaration("trq_pow_int", Int, &[Int, Int])?;
+        self.emit_runtime_declaration("trq_pow_float", Float, &[Float, Float])?;
+        self.emit_runtime_declaration("trq_abs_int", Int, &[Int])?;
+        self.emit_runtime_declaration("trq_abs_float", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_sqrt", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_cbrt", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_nroot", Float, &[Float, Int])?;
+        self.emit_runtime_declaration("trq_log", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_log10", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_log2", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_exp", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_floor", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_ceil", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_round", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_trunc", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_min_int", Int, &[Int, Int])?;
+        self.emit_runtime_declaration("trq_max_int", Int, &[Int, Int])?;
+        self.emit_runtime_declaration("trq_min_float", Float, &[Float, Float])?;
+        self.emit_runtime_declaration("trq_max_float", Float, &[Float, Float])?;
+        self.emit_runtime_declaration("trq_clamp_int", Int, &[Int, Int, Int])?;
+        self.emit_runtime_declaration("trq_clamp_float", Float, &[Float, Float, Float])?;
+        self.emit_runtime_declaration("trq_sign", Int, &[Int])?;
+        self.emit_runtime_declaration("trq_mod", Int, &[Int, Int])?;
+        self.emit_runtime_declaration("trq_gcd", Int, &[Int, Int])?;
+        self.emit_runtime_declaration("trq_lcm", Int, &[Int, Int])?;
+        self.emit_runtime_declaration("trq_factorial", Int, &[Int])?;
 
-        emit!(self, "declare double @trq_sin(double)");
-        emit!(self, "declare double @trq_cos(double)");
-        emit!(self, "declare double @trq_tan(double)");
-        emit!(self, "declare double @trq_cot(double)");
-        emit!(self, "declare double @trq_sec(double)");
-        emit!(self, "declare double @trq_csc(double)");
-        emit!(self, "declare double @trq_asin(double)");
-        emit!(self, "declare double @trq_acos(double)");
-        emit!(self, "declare double @trq_atan(double)");
-        emit!(self, "declare double @trq_atan2(double, double)");
-        emit!(self, "declare double @trq_sinh(double)");
-        emit!(self, "declare double @trq_cosh(double)");
-        emit!(self, "declare double @trq_tanh(double)");
-        emit!(self, "declare double @trq_to_radians(double)");
-        emit!(self, "declare double @trq_to_degrees(double)");
+        self.emit_runtime_declaration("trq_sin", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_cos", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_tan", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_cot", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_sec", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_csc", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_asin", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_acos", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_atan", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_atan2", Float, &[Float, Float])?;
+        self.emit_runtime_declaration("trq_sinh", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_cosh", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_tanh", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_to_radians", Float, &[Float])?;
+        self.emit_runtime_declaration("trq_to_degrees", Float, &[Float])?;
 
-        emit!(self, "declare void @trq_random_seed(i64)");
+        self.emit_runtime_declaration("trq_random_seed", Void, &[Int])?;
         emit!(self, "declare i64 @trq_random_int()");
-        emit!(self, "declare i64 @trq_random_int_range(i64, i64)");
+        self.emit_runtime_declaration("trq_random_int_range", Int, &[Int, Int])?;
         emit!(self, "declare double @trq_random_float()");
-        emit!(
-            self,
-            "declare double @trq_random_float_range(double, double)"
-        );
+        self.emit_runtime_declaration("trq_random_float_range", Float, &[Float, Float])?;
         emit!(self, "declare i1 @trq_random_bool()");
 
         emit!(self, "declare i1 @trq_file_exists(ptr)");
@@ -834,7 +867,11 @@ impl LlvmCodegen {
         emit!(self, "declare i1 @trq_file_copy(ptr, ptr)");
         emit!(self, "declare i1 @trq_file_move(ptr, ptr)");
         emit!(self, "declare i64 @trq_file_size(ptr)");
-        emit!(self, "declare i64 @trq_path_status(ptr, i64)");
+        self.emit_runtime_declaration("trq_file_open", Int, &[ptr.clone(), Int])?;
+        self.emit_runtime_declaration("trq_file_close", Bool, &[Int])?;
+        self.emit_runtime_declaration("trq_path_status", Int, &[ptr.clone(), Int])?;
+        emit!(self, "declare i1 @trq_path_delete(ptr)");
+        emit!(self, "declare ptr @trq_program_args()");
         emit!(self, "declare i1 @trq_dir_create(ptr)");
         emit!(self, "declare i1 @trq_dir_create_all(ptr)");
         emit!(self, "declare i1 @trq_dir_delete(ptr)");
@@ -858,42 +895,45 @@ impl LlvmCodegen {
         emit!(self, "declare ptr @trq_env_get(ptr)");
         // `write(2)`. `i64` both ways: the descriptor and the byte count are
         // `عدد`, and the `ptr` in between is the `TrqArray` of bytes.
-        emit!(self, "declare i64 @trq_write_stream(i64, ptr)");
+        self.emit_runtime_declaration("trq_write_stream", Int, &[Int, ptr.clone()])?;
         // `read(2)`. Two `i64` in — the descriptor and the count, both `عدد` —
         // and a `ptr` out, the `TrqArray` of bytes it answers.
-        emit!(self, "declare ptr @trq_read_stream(i64, i64)");
+        self.emit_runtime_declaration("trq_read_stream", ptr.clone(), &[Int, Int])?;
 
         emit!(self, "declare ptr @trq_date_today()");
         emit!(self, "declare ptr @trq_date_parse(ptr)");
-        emit!(self, "declare ptr @trq_date_from_timestamp(i64)");
-        emit!(self, "declare ptr @trq_date_add_days(i64, i64, i64, i64)");
-        emit!(self, "declare ptr @trq_date_add_months(i64, i64, i64, i64)");
-        emit!(
-            self,
-            "declare i64 @trq_date_diff_days(i64, i64, i64, i64, i64, i64)"
-        );
-        emit!(self, "declare i64 @trq_day_of_week(i64, i64, i64)");
-        emit!(self, "declare i64 @trq_day_of_year(i64, i64, i64)");
-        emit!(self, "declare i64 @trq_week_number(i64, i64, i64)");
-        emit!(self, "declare i64 @trq_days_in_month(i64, i64)");
-        emit!(self, "declare ptr @trq_date_format(i64, i64, i64, ptr)");
+        self.emit_runtime_declaration("trq_date_from_timestamp", ptr.clone(), &[Int])?;
+        self.emit_runtime_declaration("trq_date_add_days", ptr.clone(), &[Int, Int, Int, Int])?;
+        self.emit_runtime_declaration("trq_date_add_months", ptr.clone(), &[Int, Int, Int, Int])?;
+        self.emit_runtime_declaration("trq_date_diff_days", Int, &[Int, Int, Int, Int, Int, Int])?;
+        self.emit_runtime_declaration("trq_day_of_week", Int, &[Int, Int, Int])?;
+        self.emit_runtime_declaration("trq_day_of_year", Int, &[Int, Int, Int])?;
+        self.emit_runtime_declaration("trq_week_number", Int, &[Int, Int, Int])?;
+        self.emit_runtime_declaration("trq_days_in_month", Int, &[Int, Int])?;
+        self.emit_runtime_declaration(
+            "trq_date_format",
+            ptr.clone(),
+            &[Int, Int, Int, ptr.clone()],
+        )?;
         // i64, not ptr: the semantic layer types وقت_الآن as عدد and the
         // interpreter returns epoch milliseconds. The old `ptr` came from an
         // unbuilt struct-returning date API (#241).
         emit!(self, "declare i64 @trq_time_now()");
         emit!(self, "declare ptr @trq_time_parse(ptr)");
-        emit!(
-            self,
-            "declare ptr @trq_time_format(i64, i64, i64, i64, ptr)"
-        );
+        self.emit_runtime_declaration(
+            "trq_time_format",
+            ptr.clone(),
+            &[Int, Int, Int, Int, ptr.clone()],
+        )?;
         emit!(self, "declare ptr @trq_datetime_now()");
-        emit!(self, "declare ptr @trq_datetime_from_timestamp(i64)");
+        self.emit_runtime_declaration("trq_datetime_from_timestamp", ptr.clone(), &[Int])?;
         emit!(self, "declare ptr @trq_datetime_parse(ptr)");
-        emit!(
-            self,
-            "declare ptr @trq_datetime_format(i64, i64, i64, i64, i64, i64, ptr)"
-        );
-        emit!(self, "declare void @trq_sleep(i64)");
+        self.emit_runtime_declaration(
+            "trq_datetime_format",
+            ptr.clone(),
+            &[Int, Int, Int, Int, Int, Int, ptr.clone()],
+        )?;
+        self.emit_runtime_declaration("trq_sleep", Void, &[Int])?;
         // `أنهِ_البرنامج`. The call site emits `call ptr` against this `void`
         // declare, because the name deliberately has no return type registered —
         // clang accepts the mismatch under opaque pointers, and registering the
@@ -901,38 +941,55 @@ impl LlvmCodegen {
         // interpreters ran it. The reasoning and the measurements are on the
         // matching gap in `IrBuilder::register_builtin_return_types`; #343 is what
         // has to land before this becomes `call void`.
-        emit!(self, "declare void @trq_exit(i64)");
+        self.emit_runtime_declaration("trq_exit", Void, &[Int])?;
         emit!(self, "declare i64 @trq_performance_now()");
 
-        emit!(self, "declare i64 @trq_tcp_connect(ptr, i64, i64)");
-        emit!(self, "declare void @trq_tcp_close(i64)");
-        emit!(self, "declare i1 @trq_tcp_send(i64, ptr)");
-        emit!(self, "declare i1 @trq_tcp_send_bytes(i64, ptr)");
-        emit!(self, "declare ptr @trq_tcp_receive(i64, i64)");
-        emit!(self, "declare ptr @trq_tcp_receive_bytes(i64, i64, i64)");
-        emit!(self, "declare ptr @trq_tcp_receive_until(i64, ptr, i64)");
-        emit!(self, "declare i1 @trq_tcp_available(i64)");
-        emit!(self, "declare i64 @trq_tcp_listen(ptr, i64, i64)");
-        emit!(self, "declare ptr @trq_tcp_accept(i64)");
-        emit!(self, "declare ptr @trq_tcp_accept_timeout(i64, i64)");
-        emit!(self, "declare ptr @trq_tcp_local_address(i64)");
-        emit!(self, "declare i64 @trq_tcp_local_port(i64)");
-        emit!(self, "declare i64 @trq_udp_bind(i64)");
-        emit!(self, "declare void @trq_udp_close(i64)");
-        emit!(self, "declare i1 @trq_udp_send_to(i64, ptr, i64, ptr)");
-        emit!(
-            self,
-            "declare i1 @trq_udp_send_bytes_to(i64, ptr, i64, ptr)"
-        );
-        emit!(self, "declare ptr @trq_udp_receive(i64, i64)");
-        emit!(self, "declare ptr @trq_udp_receive_bytes(i64, i64, i64)");
-        emit!(self, "declare i1 @trq_udp_reply(i64, ptr)");
+        self.emit_runtime_declaration("trq_tcp_connect", Int, &[ptr.clone(), Int, Int])?;
+        self.emit_runtime_declaration("trq_tcp_close", Void, &[Int])?;
+        self.emit_runtime_declaration("trq_tcp_send", Bool, &[Int, ptr.clone()])?;
+        self.emit_runtime_declaration("trq_tcp_send_bytes", Bool, &[Int, ptr.clone()])?;
+        self.emit_runtime_declaration("trq_tcp_receive", ptr.clone(), &[Int, Int])?;
+        self.emit_runtime_declaration("trq_tcp_receive_bytes", ptr.clone(), &[Int, Int, Int])?;
+        self.emit_runtime_declaration(
+            "trq_tcp_receive_until",
+            ptr.clone(),
+            &[Int, ptr.clone(), Int],
+        )?;
+        self.emit_runtime_declaration("trq_tcp_available", Bool, &[Int])?;
+        self.emit_runtime_declaration("trq_tcp_listen", Int, &[ptr.clone(), Int, Int])?;
+        self.emit_runtime_declaration("trq_tcp_accept", ptr.clone(), &[Int])?;
+        self.emit_runtime_declaration("trq_tcp_accept_timeout", ptr.clone(), &[Int, Int])?;
+        self.emit_runtime_declaration("trq_tcp_local_address", ptr.clone(), &[Int])?;
+        self.emit_runtime_declaration("trq_tcp_local_port", Int, &[Int])?;
+        self.emit_runtime_declaration("trq_udp_bind", Int, &[Int])?;
+        self.emit_runtime_declaration("trq_udp_close", Void, &[Int])?;
+        self.emit_runtime_declaration(
+            "trq_udp_send_to",
+            Bool,
+            &[Int, ptr.clone(), Int, ptr.clone()],
+        )?;
+        self.emit_runtime_declaration(
+            "trq_udp_send_bytes_to",
+            Bool,
+            &[Int, ptr.clone(), Int, ptr.clone()],
+        )?;
+        self.emit_runtime_declaration("trq_udp_receive", ptr.clone(), &[Int, Int])?;
+        self.emit_runtime_declaration("trq_udp_receive_bytes", ptr.clone(), &[Int, Int, Int])?;
+        self.emit_runtime_declaration("trq_udp_reply", Bool, &[Int, ptr.clone()])?;
         emit!(self, "declare ptr @trq_resolve_hostname(ptr)");
         emit!(self, "declare ptr @trq_get_local_ip()");
-        emit!(
-            self,
-            "declare ptr @trq_http_request(ptr, ptr, ptr, ptr, i64, i1)"
-        );
+        self.emit_runtime_declaration(
+            "trq_http_request",
+            ptr.clone(),
+            &[
+                ptr.clone(),
+                ptr.clone(),
+                ptr.clone(),
+                ptr.clone(),
+                Int,
+                Bool,
+            ],
+        )?;
         emit!(self, "declare i1 @trq_http_download(ptr, ptr)");
         emit!(self, "declare ptr @trq_http_get(ptr)");
         emit!(self, "declare ptr @trq_url_encode(ptr)");
@@ -989,6 +1046,7 @@ impl LlvmCodegen {
         }
 
         self.var_map.clear();
+        self.var_types.clear();
         self.block_map.clear();
         self.name_counter = 0;
 
@@ -1318,43 +1376,13 @@ impl LlvmCodegen {
             } => {
                 let func_name = mangle_function_name(&func.0, &self.shadowing_names);
 
-                // The callee's declared parameter types, where known: an argument
-                // otherwise describes itself, which is wrong for a `عدد?`
-                // parameter given a bare `0` — that has to be boxed first (#185).
                 let declared_params = self.fn_param_types.get(&func_name).cloned();
-                // Runtime conversions take the scalar itself, so a boxed optional
-                // reaching one — as `"…" + مخزون` does inside a narrowed branch —
-                // has to be loaded first, or the pointer is printed as the value.
-                let runtime_scalar_param = match func_name.as_str() {
-                    "trq_int_to_string" => Some(IrType::Int),
-                    "trq_float_to_string" => Some(IrType::Float),
-                    "trq_bool_to_string" => Some(IrType::Bool),
-                    _ => None,
-                };
-
-                let mut args_str: Vec<String> = Vec::with_capacity(args.len());
-                for (i, a) in args.iter().enumerate() {
-                    let mut name = self.get_var(*a).unwrap_or("undef".to_string());
-                    let mut arg_ty = self
-                        .var_types
-                        .get(&a.0)
-                        .cloned()
-                        .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
-
-                    if let Some(declared) = declared_params.as_ref().and_then(|p| p.get(i)) {
-                        if Self::needs_boxing(&arg_ty, declared) {
-                            name = self.emit_boxed_scalar(&name, &arg_ty);
-                            arg_ty = declared.clone();
-                        }
-                    } else if let Some(scalar) = runtime_scalar_param.as_ref().filter(|_| i == 0) {
-                        if matches!(&arg_ty, IrType::Ptr(inner) if **inner == *scalar) {
-                            name = self.emit_unboxed_scalar(&name, scalar);
-                            arg_ty = scalar.clone();
-                        }
-                    }
-
-                    let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
-                    args_str.push(format!("{} {}", llvm_ty, name));
+                let mut args_str = Vec::with_capacity(args.len());
+                for (i, arg) in args.iter().enumerate() {
+                    args_str.push(self.emit_call_argument(
+                        *arg,
+                        declared_params.as_ref().and_then(|params| params.get(i)),
+                    )?);
                 }
                 let ret_type = self.type_mapper.map_type(ret_ty);
 
@@ -1421,19 +1449,14 @@ impl LlvmCodegen {
                     ));
                 }
                 let func_ptr_name = self.get_var(*func_ptr)?;
-                let args_str: Vec<String> = args
-                    .iter()
-                    .map(|a| {
-                        let name = self.get_var(*a).unwrap_or("undef".to_string());
-                        let arg_ty = self
-                            .var_types
-                            .get(&a.0)
-                            .cloned()
-                            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
-                        let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
-                        format!("{} {}", llvm_ty, name)
-                    })
-                    .collect();
+                let declared_params = match self.var_types.get(&func_ptr.0) {
+                    Some(IrType::Function { params, .. }) => params.clone(),
+                    _ => Vec::new(),
+                };
+                let mut args_str = Vec::with_capacity(args.len());
+                for (i, arg) in args.iter().enumerate() {
+                    args_str.push(self.emit_call_argument(*arg, declared_params.get(i))?);
+                }
                 let ret_type = self.type_mapper.map_type(ret_ty);
                 let is_void = matches!(ret_ty, IrType::Void);
 
@@ -1623,26 +1646,18 @@ impl LlvmCodegen {
                     None => format!("@{}", method_symbol),
                 };
 
-                // Declared parameter 0 is the receiver, which is not in `args`, so
-                // the argument at `i` is declared at `i + 1`. Without this, a
-                // method taking `س: عدد?` called as `م.افحص(0)` receives a raw
-                // scalar in a pointer slot (#185).
                 let declared_params = self.fn_param_types.get(&method_symbol).cloned();
-
                 let mut all_args = vec![format!("ptr {}", obj_name)];
                 for (i, arg) in args.iter().enumerate() {
-                    let mut arg_name = self.get_var(*arg)?;
-                    let mut arg_ty = self.var_types.get(&arg.0).cloned().unwrap_or(IrType::Int);
-
-                    if let Some(declared) = declared_params.as_ref().and_then(|p| p.get(i + 1)) {
-                        if Self::needs_boxing(&arg_ty, declared) {
-                            arg_name = self.emit_boxed_scalar(&arg_name, &arg_ty);
-                            arg_ty = declared.clone();
-                        }
-                    }
-
-                    let llvm_ty = self.type_mapper.map_param_type(&arg_ty);
-                    all_args.push(format!("{} {}", llvm_ty, arg_name));
+                    // Parameter zero is the receiver, which is absent from `args`.
+                    all_args.push(
+                        self.emit_call_argument(
+                            *arg,
+                            declared_params
+                                .as_ref()
+                                .and_then(|params| params.get(i + 1)),
+                        )?,
+                    );
                 }
 
                 let ret_type = self.type_mapper.map_type(ret_ty);
@@ -1872,6 +1887,7 @@ impl LlvmCodegen {
                 index,
                 value,
             } => {
+                self.require_array_mutation_receiver(*array)?;
                 let array_name = self.get_var(*array)?;
                 let index_name = self.get_var(*index)?;
                 let value_name = self.get_var(*value)?;
@@ -1893,11 +1909,36 @@ impl LlvmCodegen {
                 .unwrap();
             }
 
+            Instruction::ArrayPop {
+                dest,
+                array,
+                elem_ty,
+            } => {
+                let dest_name = self.get_or_create_var(*dest);
+                let array_name = self.get_var(*array)?;
+                let llvm_ty = self.type_mapper.map_type(elem_ty);
+
+                // `trq_array_pop` is total — an empty or null array answers a
+                // pointer to eight zero bytes — so this load is always defined.
+                // The pointer is borrowed into the array's buffer, hence the
+                // read here and nowhere later, exactly as `ArrayGet` does.
+                let elem_ptr = self.fresh_name("pop.ptr");
+                emit!(
+                    self,
+                    "  {} = call ptr @trq_array_pop(ptr {})",
+                    elem_ptr,
+                    array_name
+                );
+                emit!(self, "  {} = load {}, ptr {}", dest_name, llvm_ty, elem_ptr);
+                self.var_types.insert(dest.0, elem_ty.clone());
+            }
+
             Instruction::ArrayPush {
                 array,
                 value,
                 elem_ty,
             } => {
+                self.require_array_mutation_receiver(*array)?;
                 let array_name = self.get_var(*array)?;
                 let value_name = self.get_var(*value)?;
                 let llvm_ty = self.type_mapper.map_type(elem_ty);
@@ -2764,14 +2805,73 @@ impl LlvmCodegen {
             && matches!(to, IrType::Ptr(pointee) if **pointee == *from)
     }
 
+    fn emit_call_argument(
+        &mut self,
+        arg: VarId,
+        declared: Option<&IrType>,
+    ) -> Result<String, CodegenError> {
+        let mut name = self.get_var(arg)?;
+        let mut ty = self
+            .var_types
+            .get(&arg.0)
+            .cloned()
+            .unwrap_or(IrType::Ptr(Box::new(IrType::Void)));
+
+        if let Some(declared) = declared {
+            if Self::needs_boxing(&ty, declared) {
+                name = self.emit_boxed_scalar(&name, &ty);
+                ty = declared.clone();
+            } else if let IrType::Ptr(inner) = &ty {
+                if matches!(inner.as_ref(), IrType::Int | IrType::Float | IrType::Bool)
+                    && (inner.as_ref() == declared
+                        || (inner.as_ref() == &IrType::Int && declared == &IrType::Float))
+                {
+                    // Unboxing is per use; the same value can still reach an optional parameter.
+                    name = self.emit_unboxed_scalar(&name, inner);
+                    ty = *inner.clone();
+                }
+            }
+
+            if ty == IrType::Int && declared == &IrType::Float {
+                let converted = self.fresh_name("arg.float");
+                emit!(self, "  {} = sitofp i64 {} to double", converted, name);
+                name = converted;
+                ty = IrType::Float;
+            }
+        }
+
+        Ok(format!("{} {}", self.type_mapper.map_param_type(&ty), name))
+    }
+
     /// Whether an operand is a string at run time.
     ///
     /// `نص` is `String` and `نص?` is `Ptr(String)`, but both are a `TrqString*`
     /// once compiled — so a narrowed optional string must take the string path
     /// too, or `طول` counts its bytes again (#185).
     fn is_string_operand(ty: Option<&IrType>) -> bool {
-        matches!(ty, Some(IrType::String))
-            || matches!(ty, Some(IrType::Ptr(inner)) if matches!(**inner, IrType::String))
+        ty.is_some_and(IrType::is_string_like)
+    }
+
+    fn require_array_mutation_receiver(&self, array: VarId) -> Result<(), CodegenError> {
+        let ty = self.var_types.get(&array.0);
+        let is_array = match ty {
+            Some(IrType::Array(_, _)) => true,
+            Some(IrType::Ptr(inner)) => matches!(inner.as_ref(), IrType::Array(_, _)),
+            _ => false,
+        };
+        if is_array {
+            return Ok(());
+        }
+
+        // Opaque pointers cannot prove the receiver uses the array runtime layout.
+        let receiver = ty
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "غير معروف / unknown".to_string());
+        let block = NativeBlock::untyped(format!(
+            "تعديل مصفوفة يتطلب نوع مصفوفة محدداً، ووُجد '{receiver}' / \
+             array mutation requires a concrete array receiver, found '{receiver}'"
+        ));
+        Err(CodegenError::with_code(block.message, block.code))
     }
 
     /// The declared type of `field` on `class`.
@@ -2938,7 +3038,7 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "الحق_ملف" => Some("trq_file_append"),
         "احذف_ملف" => Some("trq_file_delete"),
         "انسخ_ملف" => Some("trq_file_copy"),
-        "انقل_ملف" => Some("trq_file_move"),
+        "انقل_مسار" => Some("trq_file_move"),
         "حجم_ملف" => Some("trq_file_size"),
         "انشئ_مجلد" => Some("trq_dir_create"),
         "قائمة_مجلد" => Some("trq_dir_list"),
@@ -2962,6 +3062,24 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         // flips `ملفات` to disk — standing rule 3: a symbol is not deleted just
         // because a name that folds it landed.
         "حالة_مسار" => Some("trq_path_status"),
+        // Core tier too, and the first name that hands out a resource. It folds
+        // the three path-only `trq_file_open_*` openers behind one mode, which
+        // stay exported under their own symbols — standing rule 3.
+        "افتح_ملف" => Some("trq_file_open"),
+        // Its release half, and the name that makes written bytes land before the
+        // program ends rather than at it. Folds nothing — `trq_file_flush`,
+        // `read_line`, `write_line` and `eof` stay nameless orphans, and none of
+        // them is `close`.
+        "اغلق_ملف" => Some("trq_file_close"),
+        // Core tier too, and the sibling that *acts* where `حالة_مسار` asks. It
+        // folds `احذف_ملف` and `احذف_مجلد`, which stay mapped above until
+        // Increment G flips `ملفات` — standing rule 3.
+        "احذف_مسار" => Some("trq_path_delete"),
+        // Core tier, and the only one of these whose answer the compiler crate
+        // does not also compute: the runtime reads its own `main`'s argv while
+        // the interpreters read what the CLI was handed, so there is no shared
+        // kernel here and nothing for the two to drift on.
+        "معاملات_البرنامج" => Some("trq_program_args"),
         // Both spellings of one primitive, mapped to one symbol — the kasra-less
         // variant is an orthographic pair like the keyword table's `ارمِ`/`ارم`,
         // not a second capability.
@@ -3102,7 +3220,7 @@ fn get_runtime_function_name(arabic_name: &str) -> Option<&'static str> {
         "توقف" => Some("trq_panic"),
         "طول" => Some("trq_array_len"), // Generic length function for arrays
         "طول_مصفوفة" => Some("trq_array_len"),
-        "الحق" => Some("trq_array_push"),
+        "ألحق" => Some("trq_array_push"),
 
         // Networking - الشبكة
         // TCP Operations
@@ -3495,6 +3613,123 @@ mod tests {
         LlvmCodegen::new(crate::codegen::Target::native())
             .generate(&ir_module)
             .map_err(|e| e.code.clone())
+    }
+
+    #[test]
+    fn test_narrowed_optional_call_arguments_use_declared_scalar_types() {
+        let ir = compile_or_code(
+            r#"بسم_الله
+دالة استقبل(أ: عدد، ب: عدد_عشري، ج: منطقي) {}
+متغير أ: عدد? = 1605
+متغير ب: عدد_عشري? = 2.5
+متغير ج: منطقي? = خطأ
+إذا (أ != لا_شيء) {
+    إذا (ب != لا_شيء) {
+        إذا (ج != لا_شيء) { استقبل(أ، ب، ج) }
+    }
+}
+الحمد_لله"#,
+        )
+        .expect("must compile");
+        let symbol = mangle_name("استقبل");
+        let call = ir
+            .lines()
+            .find(|line| line.contains(&format!("call void @{symbol}(")))
+            .expect("user call");
+        assert!(call.contains("(i64 %"), "{call}");
+        assert!(call.contains(", double %"), "{call}");
+        assert!(call.contains(", i1 zeroext %"), "{call}");
+        assert!(!call.contains("ptr %"), "{call}");
+    }
+
+    #[test]
+    fn test_narrowed_optional_runtime_arguments_use_declared_scalar_types() {
+        let ir = compile_or_code(
+            r#"بسم_الله
+استورد { جذر } من "رياضيات"
+متغير س: عدد? = 1605
+إذا (س != لا_شيء) {
+    اطبع(رمز_إلى_حرف(س))
+    اطبع(قص_حروف("سلام"، س، س))
+    اطبع(جذر(س))
+}
+الحمد_لله"#,
+        )
+        .expect("must compile");
+        for (symbol, signature) in [
+            ("trq_string_from_char_code", "(i64 %"),
+            ("trq_string_substr_chars", ", i64 %"),
+            ("trq_sqrt", "(double %"),
+        ] {
+            let call = ir
+                .lines()
+                .find(|line| line.contains(&format!("@{symbol}(")) && line.contains("call "))
+                .expect("runtime call");
+            assert!(call.contains(signature), "{call}");
+            assert!(!call.contains(", ptr %"), "{call}");
+        }
+        assert!(ir.contains("sitofp i64"), "{ir}");
+    }
+
+    #[test]
+    fn test_narrowed_optional_indirect_and_method_arguments_use_declared_scalar_types() {
+        let ir = compile_or_code(
+            r#"بسم_الله
+صنف فاحص {
+    منشئ() {}
+    عام دالة افحص(س: عدد) -> عدد { أرجع س }
+}
+ثابت د: (عدد) -> عدد = (س) => س
+متغير ف = جديد فاحص()
+متغير س: عدد? = 7
+إذا (س != لا_شيء) {
+    اطبع(د(س))
+    اطبع(ف.افحص(س))
+}
+الحمد_لله"#,
+        )
+        .expect("must compile");
+        let calls: Vec<_> = ir
+            .lines()
+            .filter(|line| line.contains("call i64 %"))
+            .collect();
+        assert_eq!(calls.len(), 2, "{ir}");
+        assert!(calls.iter().any(|call| call.contains("(i64 %")), "{ir}");
+        assert!(
+            calls
+                .iter()
+                .any(|call| call.contains("(ptr %") && call.contains(", i64 %")),
+            "{ir}"
+        );
+    }
+
+    #[test]
+    fn test_optional_call_arguments_preserve_pointer_parameters() {
+        let ir = compile_or_code(
+            r#"بسم_الله
+دالة استقبل(س: عدد?) {}
+دالة نصي(س: نص) {}
+دالة عددية(س: عدد) {}
+متغير س: عدد? = 0
+متغير ن: نص? = "سلام"
+إذا (س != لا_شيء) {
+    عددية(س)
+    استقبل(س)
+    عددية(س)
+}
+إذا (ن != لا_شيء) { نصي(ن) }
+الحمد_لله"#,
+        )
+        .expect("must compile");
+        for name in ["استقبل", "نصي"] {
+            let symbol = mangle_name(name);
+            let call = ir
+                .lines()
+                .find(|line| line.contains(&format!("call void @{symbol}(")))
+                .expect("pointer parameter call");
+            assert!(call.contains("(ptr %"), "{call}");
+        }
+        assert!(!ir.contains("load ptr, ptr %opt.unbox"), "{ir}");
     }
 
     #[test]

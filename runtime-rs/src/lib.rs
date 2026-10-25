@@ -115,6 +115,7 @@ pub use io::{
     trq_file_is_dir,
     trq_file_is_file,
     trq_file_move,
+    trq_file_open,
     trq_file_open_append,
     trq_file_open_read,
     trq_file_open_write,
@@ -130,6 +131,7 @@ pub use io::{
     trq_input_prompt,
     // Path operations
     trq_path_absolute,
+    trq_path_delete,
     trq_path_extension,
     trq_path_filename,
     trq_path_is_absolute,
@@ -217,8 +219,8 @@ pub use math::{
 // Re-export all runtime functions
 pub use runtime::{
     trq_abort, trq_assert, trq_debug, trq_env_get, trq_env_remove, trq_env_set, trq_exit,
-    trq_panic, trq_performance_now, trq_runtime_cleanup, trq_runtime_init, trq_time_now,
-    trq_version,
+    trq_panic, trq_performance_now, trq_program_args, trq_runtime_cleanup, trq_runtime_init,
+    trq_time_now, trq_version,
 };
 
 // Re-export all network functions

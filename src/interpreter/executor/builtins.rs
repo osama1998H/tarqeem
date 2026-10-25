@@ -6,6 +6,8 @@
 //! Note: Tarqeem is an Arabic-only programming language.
 //! All built-in functions use Arabic names exclusively.
 
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, BufRead, Read, Write};
 
@@ -16,16 +18,34 @@ use sha2::{Digest, Sha256};
 
 use super::{Interpreter, RuntimeError, RuntimeResult, Value};
 
-/// Milliseconds since the UNIX epoch, backing both `وقت_الآن` and `وقت_أداء`.
+/// Milliseconds since the UNIX epoch, backing `وقت_الآن`.
 ///
 /// Shared with the debug interpreter so the two registries cannot drift; the
 /// native runtime mirrors it in `runtime-rs/src/runtime.rs` (#241).
+///
+/// It backed `وقت_أداء` too until #389, and that was the defect: this clock is
+/// settable. See [`monotonic_millis`].
 pub(crate) fn epoch_millis() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// Milliseconds since a fixed origin inside this process, backing `وقت_أداء`.
+///
+/// Shared with the debug interpreter and mirrored by `trq_performance_now`, so
+/// all three implementations answer the same kind of number (#389). The origin
+/// is lazy because only the native runtime has an init hook — anchoring to
+/// process start would have given the three of them three different origins.
+///
+/// Meaningless across processes: only differences carry information.
+pub(crate) fn monotonic_millis() -> i64 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    static ORIGIN: OnceLock<Instant> = OnceLock::new();
+    ORIGIN.get_or_init(Instant::now).elapsed().as_millis() as i64
 }
 
 /// Convert a Value to a byte (0-255) with range validation.
@@ -60,10 +80,14 @@ pub(crate) fn substring_by_chars(text: &str, start: i64, len: i64) -> String {
         return String::new();
     }
 
-    text.chars()
-        .skip(start as usize)
-        .take(len as usize)
-        .collect()
+    // Saturating rather than `as usize`, as `fill_from` below does for the same
+    // reason: `عدد` is 64-bit but `usize` is 32 on wasm32, where `as` would
+    // truncate `٢**٣٢` to `٠` and answer the first character for an index far
+    // past the end — where native's i64 walk answers `""`.
+    let start = usize::try_from(start).unwrap_or(usize::MAX);
+    let len = usize::try_from(len).unwrap_or(usize::MAX);
+
+    text.chars().skip(start).take(len).collect()
 }
 
 /// `قص_حروف`'s whole dispatch, shared so the two interpreters cannot answer
@@ -151,16 +175,201 @@ const STREAM_STDERR: i64 = 2;
 /// negative.
 const WRITE_FAILED: i64 = -1;
 
+/// `افتح_ملف`'s modes and its failure answer, mirroring `runtime-rs/src/io.rs`.
+///
+/// `-١` and not `٠`, because `٠` is stdin above: a failed open answering `٠`
+/// would send a later `اقرأ_مجرى` to the keyboard and succeed.
+const OPEN_READ: i64 = 0;
+const OPEN_WRITE: i64 = 1;
+const OPEN_APPEND: i64 = 2;
+const OPEN_FAILED: i64 = -1;
+
+/// An open file, one direction each, mirroring `runtime-rs/src/io.rs`'s
+/// `FileHandle`.
+///
+/// The buffering is copied deliberately, not chosen: it is **observable**, since
+/// a program that writes and then opens the same path for reading sees an
+/// unflushed buffer as an empty file. An unbuffered `File` here would make the
+/// two backends disagree about exactly that.
+enum InterpreterFileHandle {
+    Reader(io::BufReader<fs::File>),
+    Writer(io::BufWriter<fs::File>),
+}
+
+thread_local! {
+    /// The interpreter's handle table — the first state either interpreter keeps
+    /// *between* builtin calls.
+    ///
+    /// Module state rather than a field on `Interpreter` for the reason
+    /// `PROGRAM_ARGS` is: every shared helper here is a stateless free function
+    /// over `&[Value]`, so a field would hand the two interpreters separate
+    /// tables to drift apart. Unlike `PROGRAM_ARGS` this one is *mutable*.
+    ///
+    /// Not cleared between REPL evaluations, deliberately: one process is one
+    /// handle space, which is what a compiled program gets.
+    static OPEN_FILES: RefCell<HashMap<i64, InterpreterFileHandle>> =
+        RefCell::new(HashMap::new());
+
+    /// Starts at 3 to match `NEXT_FILE_HANDLE` in the runtime, so the first
+    /// handle a program opens carries the same number in every backend — a
+    /// program may print it, and the CI backend diff would see a difference.
+    ///
+    /// Thread-local where the runtime's counter is a global atomic: a Tarqeem
+    /// program is single-threaded, so the two are indistinguishable to it, and
+    /// keeping it thread-local means a handle number in this crate's own test
+    /// binary does not depend on which other test ran first.
+    static NEXT_HANDLE: Cell<i64> = const { Cell::new(3) };
+}
+
+/// Files a freshly opened handle and answers its descriptor.
+fn store_handle(handle: InterpreterFileHandle) -> i64 {
+    let id = NEXT_HANDLE.with(|next| {
+        let id = next.get();
+        next.set(id + 1);
+        id
+    });
+    OPEN_FILES.with(|files| files.borrow_mut().insert(id, handle));
+    id
+}
+
+/// `افتح_ملف`'s whole dispatch, shared with the debug interpreter the way
+/// `call_write_stream` below is.
+///
+/// The mode is settled before the path, the order `call_path_status` settles its
+/// field in: an unknown mode is refused without the filesystem being touched, so
+/// a bad mode creates nothing. `٣` is refused with the rest — it is
+/// `وضع_قراءة_كتابة` in `stdlib/ملفات/ملف.ترقيم`, and neither handle direction
+/// can serve it.
+///
+/// The path is a pointer, so an un-narrowed `نص؟` arrives as `لا_شيء` and answers
+/// `-١`, matching the runtime's null guard (#324). The mode is an `عدد` and gets
+/// no such arm: codegen turns `لا_شيء` into `0` above the runtime, which is a
+/// *valid* mode, so mirroring it would encode #327 as contract.
+pub(crate) fn call_file_open(args: &[Value]) -> RuntimeResult<Value> {
+    const ARITY: &str = "افتح_ملف() تتطلب معاملين: المسار والوضع";
+
+    let path = args
+        .first()
+        .ok_or_else(|| RuntimeError::invalid_operation(ARITY))?;
+    let mode = args
+        .get(1)
+        .ok_or_else(|| RuntimeError::invalid_operation(ARITY))?;
+    let mode = mode
+        .as_int()
+        .ok_or_else(|| RuntimeError::type_error("عدد", mode.type_name()))?;
+
+    if !matches!(mode, OPEN_READ | OPEN_WRITE | OPEN_APPEND) {
+        return Ok(Value::Int(OPEN_FAILED));
+    }
+
+    let path = match path {
+        Value::String(text) => text.as_str().to_string(),
+        Value::Null => return Ok(Value::Int(OPEN_FAILED)),
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+
+    let opened = match mode {
+        OPEN_READ => {
+            fs::File::open(&path).map(|f| InterpreterFileHandle::Reader(io::BufReader::new(f)))
+        }
+        OPEN_WRITE => {
+            fs::File::create(&path).map(|f| InterpreterFileHandle::Writer(io::BufWriter::new(f)))
+        }
+        _ => fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&path)
+            .map(|f| InterpreterFileHandle::Writer(io::BufWriter::new(f))),
+    };
+
+    let handle = match opened {
+        Ok(handle) => handle,
+        Err(_) => return Ok(Value::Int(OPEN_FAILED)),
+    };
+
+    // A directory is refused, mirroring `trq_file_open`, and for the reason given
+    // there: `File::open` succeeds on one under POSIX and fails on Windows, so
+    // honouring `open(2)` literally would put a platform split in a contract row.
+    // Checked through the opened handle, so there is no window between the test
+    // and the open, and it is a no-op where the open already failed.
+    if let InterpreterFileHandle::Reader(reader) = &handle {
+        if reader
+            .get_ref()
+            .metadata()
+            .map(|data| data.is_dir())
+            .unwrap_or(false)
+        {
+            return Ok(Value::Int(OPEN_FAILED));
+        }
+    }
+
+    Ok(Value::Int(store_handle(handle)))
+}
+
+/// `اغلق_ملف`'s whole dispatch, shared with the debug interpreter the way
+/// `call_file_open` above is — and for the same reason: it acts on the one table,
+/// so a second dispatch would be a second table.
+///
+/// Mirrors `trq_file_close` line for line, including the fold: the answer means
+/// "released, and a writer's bytes are away", not merely "the table held it".
+/// Mirrored rather than improved on, because a divergence here would show up only
+/// on a failing disk, where no test can see it.
+///
+/// The parameter is an `عدد`, so there is **no `Value::Null` arm**: codegen turns
+/// `لا_شيء` into `0` above the runtime and `0` is a valid descriptor, so an arm
+/// would encode #327 as contract. `نم` and `رمز_إلى_حرف` are the precedent, and
+/// `call_file_open`'s null arm is not — its path is a pointer.
+pub(crate) fn call_file_close(args: &[Value]) -> RuntimeResult<Value> {
+    let handle = args
+        .first()
+        .ok_or_else(|| RuntimeError::invalid_operation("اغلق_ملف() تتطلب معاملاً: المعرِّف"))?;
+
+    let handle = handle
+        .as_int()
+        .ok_or_else(|| RuntimeError::type_error("عدد", handle.type_name()))?;
+
+    // `٠`, `١` and `٢` need no arm of their own: handles start at 3, so a console
+    // stream is a table miss like any other number never handed out.
+    Ok(Value::Bool(OPEN_FILES.with(
+        |files| match files.borrow_mut().remove(&handle) {
+            Some(InterpreterFileHandle::Writer(mut writer)) => writer.flush().is_ok(),
+            Some(InterpreterFileHandle::Reader(_)) => true,
+            None => false,
+        },
+    )))
+}
+
+/// Flush every open writer, closing nothing.
+///
+/// Called from the CLI where a program ends, for the reason
+/// `runtime-rs`'s `trq_runtime_cleanup` and `trq_exit` call `flush_open_writers`:
+/// `اغلق_ملف` flushes the handles a program closes itself, and the handle path in
+/// `call_write_stream` never flushes, so whatever is still open at the end lands
+/// here. Without it the interpreter would keep bytes the native binary drops, or
+/// drop bytes on `أنهِ_البرنامج` that native keeps.
+pub fn flush_program_files() {
+    OPEN_FILES.with(|files| {
+        for handle in files.borrow_mut().values_mut() {
+            if let InterpreterFileHandle::Writer(writer) = handle {
+                let _ = writer.flush();
+            }
+        }
+    });
+}
+
 /// `اكتب_مجرى`'s whole dispatch, shared with the debug interpreter the way
 /// `call_substring_by_chars` is: three parameters' worth of contract, of which
 /// the argument checks are most.
 ///
 /// The descriptor is resolved before the array is read, so a write to nowhere is
 /// refused whatever it was going to carry. `١` is stdout and `٢` is stderr;
-/// `٣` upward names a file handle, and since no Arabic name opens one yet, the
-/// table is provably empty and every such descriptor answers `-١` here **and**
-/// natively. The two agree today for the same reason, not by coincidence — when
-/// `افتح_ملف` lands, this arm needs a handle table of its own.
+/// `٣` upward names a handle from `افتح_ملف`, looked up in `OPEN_FILES`, where a
+/// reader and an absent handle answer alike.
+///
+/// **The handle path does not flush**, matching `trq_write_stream`: a
+/// `BufWriter` exists to batch, so the count means "accepted by the stream" for a
+/// handle and "left for the descriptor" for a console stream. The bytes land when
+/// `flush_program_files` runs at program end.
 ///
 /// An element outside `0..=255` is not a byte, and the whole call is refused
 /// rather than the value truncated: `[٣٠٠]` would otherwise be indistinguishable
@@ -230,8 +439,21 @@ pub(crate) fn call_write_stream(args: &[Value]) -> RuntimeResult<Value> {
             }
             Ok(Value::Int(written))
         }
-        // No handle can exist: nothing in the language opens one yet.
-        _ => Ok(Value::Int(WRITE_FAILED)),
+        // A live handle since #362. The runtime's trichotomy, mirrored: a writer
+        // takes the bytes, and a reader is as wrong a destination as a handle
+        // that was never opened, so both answer the same.
+        handle => OPEN_FILES.with(|files| {
+            let mut files = files.borrow_mut();
+            match files.get_mut(&handle) {
+                Some(InterpreterFileHandle::Writer(writer)) => {
+                    if writer.write_all(&payload).is_err() {
+                        return Ok(Value::Int(WRITE_FAILED));
+                    }
+                    Ok(Value::Int(written))
+                }
+                _ => Ok(Value::Int(WRITE_FAILED)),
+            }
+        }),
     }
 }
 
@@ -241,10 +463,8 @@ pub(crate) fn call_write_stream(args: &[Value]) -> RuntimeResult<Value> {
 /// The descriptor is settled before anything is read, the order its sibling
 /// checks in: a read from nowhere is refused whatever it was going to hold. `٠`
 /// is stdin; `١` and `٢` carry bytes the other way, so reading them answers
-/// nothing. `٣` upward names a file handle, and since no Arabic name opens one
-/// yet, the table is provably empty and every such descriptor answers an empty
-/// array here **and** natively. The two agree today for the same reason, not by
-/// coincidence — when `افتح_ملف` lands, this arm needs a handle table of its own.
+/// nothing. `٣` upward names a handle from `افتح_ملف`, looked up in `OPEN_FILES`,
+/// where a writer and an absent handle answer alike.
 ///
 /// **The read loops until `count` bytes or EOF**, mirroring `write_all` on the
 /// other side. A single read answers whatever a pipe happens to hold, so the
@@ -287,29 +507,46 @@ pub(crate) fn call_read_stream(args: &[Value]) -> RuntimeResult<Value> {
         other => return Err(RuntimeError::type_error("عدد", other.type_name())),
     };
 
-    // Stdin is the only readable stream there is, so one comparison covers every
-    // refusal the runtime spells out separately: `١` and `٢` carry bytes the
-    // other way, a negative descriptor names nothing, and `٣` upward names a
-    // handle that cannot exist while nothing in the language opens one. Written
-    // as one test rather than four so it does not read as more than it is —
-    // **`افتح_ملف` must split the `≥٣` case out**, and that is the whole change
-    // this arm needs when handles arrive.
-    if stream != STREAM_STDIN || wanted <= 0 {
+    // The descriptor is settled before anything is read, the order its sibling
+    // checks in. `١` and `٢` carry bytes the other way and a negative descriptor
+    // names nothing, so neither can be read; a non-positive count reads nothing
+    // from anywhere and leaves the stream untouched.
+    if wanted <= 0 || stream == STREAM_STDOUT || stream == STREAM_STDERR || stream < 0 {
         return Ok(Value::array_from(Vec::new()));
     }
 
-    let payload = fill_from_stdin(wanted);
+    let payload = if stream == STREAM_STDIN {
+        fill_from_stdin(wanted)
+    } else {
+        // A live handle since #362, mirroring `trq_read_stream`: a writer and an
+        // absent handle both answer nothing, which an array return cannot
+        // distinguish from EOF and deliberately does not try to.
+        OPEN_FILES.with(|files| {
+            let mut files = files.borrow_mut();
+            match files.get_mut(&stream) {
+                Some(InterpreterFileHandle::Reader(reader)) => fill_from(reader, wanted),
+                _ => Vec::new(),
+            }
+        })
+    };
+
     Ok(Value::array_from(
         payload.into_iter().map(|b| Value::Int(b as i64)).collect(),
     ))
 }
 
 /// Reads until `wanted` bytes have arrived or stdin ends.
+fn fill_from_stdin(wanted: i64) -> Vec<u8> {
+    let stdin = io::stdin();
+    fill_from(&mut stdin.lock(), wanted)
+}
+
+/// Reads until `wanted` bytes have arrived or `source` ends.
 ///
 /// Kept byte-for-byte equivalent to `fill_from` in `runtime-rs/src/io.rs`,
 /// including the chunk bound: `wanted` is an `i64`, so allocating it up front
 /// would let a typo'd `١٠**١٢` reserve a terabyte before a byte arrived.
-fn fill_from_stdin(wanted: i64) -> Vec<u8> {
+fn fill_from<R: Read>(source: &mut R, wanted: i64) -> Vec<u8> {
     const READ_CHUNK: usize = 64 * 1024;
 
     // Saturating rather than `as usize`: `عدد` is 64-bit but `usize` is 32 on a
@@ -319,8 +556,6 @@ fn fill_from_stdin(wanted: i64) -> Vec<u8> {
     let wanted = usize::try_from(wanted).unwrap_or(usize::MAX);
     let mut payload = Vec::new();
     let mut chunk = vec![0u8; wanted.min(READ_CHUNK)];
-    let stdin = io::stdin();
-    let mut source = stdin.lock();
 
     while payload.len() < wanted {
         let room = (wanted - payload.len()).min(chunk.len());
@@ -426,6 +661,224 @@ pub(crate) fn call_path_status(args: &[Value]) -> RuntimeResult<Value> {
         Some(meta) if meta.is_dir() => PATH_KIND_DIR,
         Some(_) => PATH_KIND_OTHER,
     }))
+}
+
+/// `احذف_مسار`'s whole dispatch, shared with the debug interpreter the way
+/// `call_path_status` above is.
+///
+/// The selector is **`symlink_metadata`, not `metadata`** — the one place this
+/// deliberately disagrees with its sibling. `احذف_ملف` is `remove_file`, which
+/// unlinks a symlink whatever it points at; `احذف_مجلد` is `remove_dir`, which
+/// refuses one. Following the link would answer `خطأ` for a symlink-to-directory
+/// where `احذف_ملف` answers `صحيح`, and could never delete a **broken** link at
+/// all, since `حالة_مسار` reads one as absent.
+///
+/// Duplicated in `trq_path_delete` for the reason `call_path_status` records, so
+/// every row is pinned cross-backend rather than only here.
+pub(crate) fn call_path_delete(args: &[Value]) -> RuntimeResult<Value> {
+    let path = args
+        .first()
+        .ok_or_else(|| RuntimeError::invalid_operation("احذف_مسار() تتطلب معاملاً: المسار"))?;
+
+    let path = match path {
+        Value::String(text) => text.as_str().to_string(),
+        // The runtime answers `false` for a null path, so this is the designed
+        // answer and not an artifact — the same arm `call_path_status` carries.
+        Value::Null => return Ok(Value::Bool(false)),
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+
+    Ok(Value::Bool(match std::fs::symlink_metadata(&path) {
+        // `rmdir`, not `rm -r`: a non-empty directory answers `خطأ`, which keeps
+        // `احذف_مجلد`'s contract when it becomes a wrapper over this.
+        Ok(meta) if meta.is_dir() => std::fs::remove_dir(&path).is_ok(),
+        // The `||` is the Windows directory-symlink fallback `trq_path_delete`
+        // documents, and a no-op everywhere else for the reason given there. Both
+        // copies carry it because nothing but a test keeps them equal.
+        Ok(_) => std::fs::remove_file(&path).is_ok() || std::fs::remove_dir(&path).is_ok(),
+        Err(_) => false,
+    }))
+}
+
+/// `انشئ_مجلد`'s whole dispatch, shared with the debug interpreter the way
+/// `call_path_delete` above is.
+///
+/// One stateless `mkdir(2)` — **not recursive**, so a missing parent answers
+/// `خطأ` and the recursive form stays a stdlib loop. An existing entry of any
+/// kind blocks the name: directory, file, or symlink, dangling included —
+/// the OS refuses on the *entry*, so whether a link's target exists is never
+/// consulted, which is the mirror of `احذف_مسار` acting on the name.
+///
+/// Duplicated in `trq_dir_create` for the reason `call_path_status` records, so
+/// every row is pinned cross-backend rather than only here.
+pub(crate) fn call_dir_create(args: &[Value]) -> RuntimeResult<Value> {
+    let path = args
+        .first()
+        .ok_or_else(|| RuntimeError::invalid_operation("انشئ_مجلد() تتطلب معاملاً: المسار"))?;
+
+    let path = match path {
+        Value::String(text) => text.as_str().to_string(),
+        // The runtime answers `false` for a null path, so this is the designed
+        // answer and not an artifact — the same arm `call_path_delete` carries.
+        Value::Null => return Ok(Value::Bool(false)),
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+
+    Ok(Value::Bool(std::fs::create_dir(&path).is_ok()))
+}
+
+/// `انقل_مسار`'s whole dispatch, shared with the debug interpreter the way
+/// `call_dir_create` above is.
+///
+/// One stateless `rename(2)` — atomic, never a copy, so a cross-device move
+/// answers `خطأ` instead of degrading into one. It acts on the *name* at both
+/// ends: a symlink source moves as itself, dangling included, its target never
+/// consulted. An existing destination is replaced only when it is a **regular
+/// file** — checked on the name, `symlink_metadata` — which keeps the atomic
+/// write-temp-then-rename idiom and refuses every other occupied destination
+/// (directory, symlink, device) on every platform alike; POSIX would replace
+/// an empty directory or a symlink where Windows refuses, and one documented
+/// behaviour gets one implementation.
+///
+/// Duplicated in `trq_file_move` for the reason `call_path_status` records, so
+/// every row is pinned cross-backend rather than only here.
+pub(crate) fn call_path_move(args: &[Value]) -> RuntimeResult<Value> {
+    if args.len() < 2 {
+        return Err(RuntimeError::invalid_operation(
+            "انقل_مسار() تتطلب معاملين: المصدر والوجهة",
+        ));
+    }
+
+    // The runtime answers `false` for a null path in either position, so the
+    // `Null` arms are the designed answer — the same arm `call_dir_create`
+    // carries, on both parameters because both are pointers (#330's rule).
+    let src = match &args[0] {
+        Value::String(text) => text.as_str().to_string(),
+        Value::Null => return Ok(Value::Bool(false)),
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+    let dst = match &args[1] {
+        Value::String(text) => text.as_str().to_string(),
+        Value::Null => return Ok(Value::Bool(false)),
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+
+    if let Ok(meta) = std::fs::symlink_metadata(&dst) {
+        if !meta.is_file() {
+            return Ok(Value::Bool(false));
+        }
+    }
+
+    Ok(Value::Bool(std::fs::rename(&src, &dst).is_ok()))
+}
+
+/// `قائمة_مجلد`'s whole dispatch, shared with the debug interpreter the way
+/// `call_dir_create` above is.
+///
+/// One stateless `readdir(3)`. Entries are **bare names, sorted by code
+/// point** — raw readdir order is filesystem-dependent, so the sort is what
+/// lets the answer sit in a contract row at all — with `.`/`..` excluded by
+/// `read_dir` itself and a non-UTF-8 name decoded lossily rather than
+/// dropped, on `معاملات_البرنامج`'s argv rule. The lossy decode runs before
+/// the sort, so this kernel and `trq_dir_list` sort the same strings, and a
+/// mid-iteration read error drops that entry and keeps the rest exactly as
+/// the runtime's `.flatten()` does — a row no test can build, so the two
+/// copies agree by construction.
+///
+/// Every refusal — absent, a file, unreadable, empty, `لا_شيء` — answers the
+/// empty array, indistinguishable from an empty directory: an array return
+/// has no spare value for a refusal (`اقرأ_مجرى`'s conflation), and a caller
+/// that must tell them apart asks `حالة_مسار`.
+///
+/// Duplicated in `trq_dir_list` for the reason `call_path_status` records, so
+/// every row is pinned cross-backend rather than only here.
+pub(crate) fn call_dir_list(args: &[Value]) -> RuntimeResult<Value> {
+    let path = args
+        .first()
+        .ok_or_else(|| RuntimeError::invalid_operation("قائمة_مجلد() تتطلب معاملاً: المسار"))?;
+
+    let path = match path {
+        Value::String(text) => text.as_str().to_string(),
+        // The runtime answers the empty array for a null path, so this is the
+        // designed answer and not an artifact — `call_dir_create`'s arm with
+        // this name's own refusal value.
+        Value::Null => return Ok(Value::array_from(vec![])),
+        other => return Err(RuntimeError::type_error("نص", other.type_name())),
+    };
+
+    let mut names: Vec<String> = match std::fs::read_dir(&path) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect(),
+        Err(_) => return Ok(Value::array_from(vec![])),
+    };
+    names.sort();
+
+    Ok(Value::array_from(
+        names.into_iter().map(Value::string).collect::<Vec<_>>(),
+    ))
+}
+
+/// `مجلد_حالي`'s whole dispatch, shared with the debug interpreter the way
+/// `call_dir_list` above is.
+///
+/// One stateless `getcwd(2)`: the directory as the OS reports it, verbatim —
+/// no resolution or normalization of this kernel's own — decoded lossily on
+/// `معاملات_البرنامج`'s argv rule. A cwd the OS cannot report answers `""`,
+/// and unlike `متغير_بيئة`'s conflated `""` that refusal is collision-free:
+/// no legitimate working directory is the empty string.
+///
+/// Duplicated in `trq_dir_current` for the reason `call_path_status` records;
+/// both copies are the same two-line composition over `std`, and each is
+/// pinned against `std`'s answer in its own unit test, so cross-backend
+/// equality follows for any cwd.
+pub(crate) fn call_dir_current(_args: &[Value]) -> RuntimeResult<Value> {
+    match std::env::current_dir() {
+        Ok(path) => Ok(Value::string(path.to_string_lossy().into_owned())),
+        Err(_) => Ok(Value::string("")),
+    }
+}
+
+/// The arguments the CLI was invoked with, minus the program's own name.
+///
+/// Set once, before the program runs, and read for the rest of the process. It
+/// is a process global rather than a field on `Interpreter` because both
+/// interpreters need it and every shared builtin helper in this file is a
+/// stateless free function taking `&[Value]` — threading it through would mean
+/// giving the two backends their own copies to drift apart.
+///
+/// **Set-once and immutable**, which is what separates it from the handle table
+/// `افتح_ملف` still owes: nothing here mutates after startup, so this is no
+/// precedent for cross-interpreter mutable state.
+static PROGRAM_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// Records the arguments the program was invoked with.
+///
+/// Called once from the CLI before execution begins. A second call is ignored,
+/// so a caller cannot change a running program's arguments out from under it.
+pub fn set_program_args(args: Vec<String>) {
+    let _ = PROGRAM_ARGS.set(args);
+}
+
+/// `معاملات_البرنامج`'s whole dispatch, shared with the debug interpreter.
+///
+/// Unlike `call_path_status` and `call_path_delete`, this has **no kernel
+/// duplicated in `runtime-rs`** to keep in step: the two sides read genuinely
+/// different sources — the runtime reads its own `main`'s argv, this reads what
+/// the CLI was handed — so there is nothing to share and nothing to drift. What
+/// holds them together is that every contract row is asserted cross-backend.
+///
+/// Unset means the program was not launched through the CLI's run path — under
+/// DAP, for instance — and answers the empty array, which is also the answer for
+/// a program genuinely given no arguments. The two are deliberately
+/// indistinguishable, as `متغير_بيئة`'s unset and set-empty are.
+pub(crate) fn call_program_args(_args: &[Value]) -> RuntimeResult<Value> {
+    let args = PROGRAM_ARGS.get().cloned().unwrap_or_default();
+
+    Ok(Value::array_from(
+        args.into_iter().map(Value::string).collect::<Vec<_>>(),
+    ))
 }
 
 /// `متغير_بيئة`'s whole dispatch, shared the way `call_substring_by_chars` above
@@ -570,7 +1023,15 @@ impl Interpreter {
                 | "متغير_بيئة"
                 | "اكتب_مجرى"
                 | "اقرأ_مجرى"
+                | "افتح_ملف"
+                | "اغلق_ملف"
                 | "حالة_مسار"
+                | "احذف_مسار"
+                | "انشئ_مجلد"
+                | "انقل_مسار"
+                | "قائمة_مجلد"
+                | "مجلد_حالي"
+                | "معاملات_البرنامج"
                 | "نص_يحتوي"
                 | "نص_يبدأ_بـ"
                 | "نص_ينتهي_بـ"
@@ -1344,7 +1805,10 @@ impl Interpreter {
                 Ok(Value::Null)
             }
 
-            "وقت_الآن" | "وقت_أداء" => Ok(Value::Int(epoch_millis())),
+            // One arm each since #389: sharing one is what let `وقت_أداء` serve
+            // its monotonic promise from the settable wall clock.
+            "وقت_الآن" => Ok(Value::Int(epoch_millis())),
+            "وقت_أداء" => Ok(Value::Int(monotonic_millis())),
 
             "ادخل_رسالة" => {
                 let prompt = args
@@ -1482,8 +1946,17 @@ impl Interpreter {
             "اكتب_مجرى" => call_write_stream(&args),
 
             "اقرأ_مجرى" => call_read_stream(&args),
+            "افتح_ملف" => call_file_open(&args),
+            "اغلق_ملف" => call_file_close(&args),
 
             "حالة_مسار" => call_path_status(&args),
+
+            "احذف_مسار" => call_path_delete(&args),
+            "انشئ_مجلد" => call_dir_create(&args),
+            "انقل_مسار" => call_path_move(&args),
+            "قائمة_مجلد" => call_dir_list(&args),
+            "مجلد_حالي" => call_dir_current(&args),
+            "معاملات_البرنامج" => call_program_args(&args),
 
             "أنهِ_البرنامج" | "أنه_البرنامج" => call_exit_program(&args),
 
