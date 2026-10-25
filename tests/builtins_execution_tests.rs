@@ -3404,11 +3404,8 @@ fn test_float_reads_the_same_printed_and_concatenated() {
     );
 }
 
-/// The member form `م.ألحق(س)` and the global form `ألحق(م، س)` lower to the
-/// same `Instruction::ArrayPush`; the member form had no coverage at all before
-/// #375. Int-only on purpose: the member path skips the عدد → عدد_عشري
-/// widening the global path applies, so a float row would pin that divergence
-/// instead of the agreement.
+/// Integer append remains equivalent in both forms; mixed numeric elements
+/// are covered by `member_array_push_execution_tests`.
 #[test]
 fn test_member_and_global_push_agree_in_every_backend() {
     assert_prints(

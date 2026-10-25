@@ -2,6 +2,40 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-10-25 — Member append widens integer elements (#376)
+
+The member `ألحق` and `أضف` paths now apply the existing argument coercion to the
+already-built value before emitting `ArrayPush`, matching global `ألحق`.
+An integer appended to a float array becomes `IntToFloat`; matching element
+types remain unchanged. Receiver evaluation, member result, class-method
+dispatch, and existing unknown/string receiver guards retain their behavior.
+The production change is confined to `src/ir/builder/expr_builder.rs`.
+
+Work starts from `7278ba8a`, the merge of #412 into `develop`. Before the fix,
+both member spellings printed `2.5` in the interpreter but failed native
+compilation at O0–O3 with an integer operand in a double slot. The corresponding
+global append passed all four optimization levels. The tests cover literal and
+parameter values, negative/zero inputs, repeated and loop appends, fields and
+returned receivers, single evaluation, and same-named class methods.
+
+Existing #385/#327/#404/#395/#304/#387 regressions and optimizer implementations
+are preserved. Both JIT compiler APIs are tested directly for explicit
+`ArrayPush` rejection, including conversion-bearing input; CLI `run --jit`
+remains interpreter fallback. Compiled JIT array support, general type inference,
+and the separate boolean-array optimizer issue #410 are outside this change.
+
+Four new execution regressions failed before the fix; the two global/matching-
+type and class-dispatch controls already passed. The focused suite now passes
+24 native O0–O3 executions and 12 direct JIT compiler calls. Three independent
+cross-reviews found no remaining actionable issues.
+
+Validation on macOS arm64: formatting, workspace check/build/tests with all
+features, strict root-package Clippy with all targets/features, and documentation
+with warnings denied passed (2,381 passed, 17 ignored). All 12 examples pass
+syntax checks and match committed output in the interpreter, `--jit` fallback,
+and native execution. The old member/global append test body is unchanged;
+only its obsolete limitation comment was updated.
+
 ## 2026-10-25 — Consistent array-pop receiver types (#387)
 
 Builtin `احذف_آخر` now requires a known array element type in both global and
