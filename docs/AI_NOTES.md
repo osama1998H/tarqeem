@@ -2,6 +2,37 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-10-25 — Builtin results inside array literals (#304)
+
+The IR builder now registers the existing integer return types of `طول_مصفوفة`
+and all seven `بتات_*` builtins before array element inference. Their lowering
+already produced integers, but the missing metadata typed arrays as `Ptr(Void)`
+elements. Native reads then treated integer values as pointers. User declarations
+and function-valued locals keep their existing precedence over builtin metadata.
+The change is confined to the return-type registry; lowering and optimizers are
+unchanged. Work starts from `79b5e7d2`, the merge of #409 into `develop`.
+
+Before the fix, four new regressions failed: one IR type assertion and three
+native execution cases for global, local, and nested arrays. The shadowing control
+passed. The suite covers each missing builtin as a first array element, dynamic
+operands, direct indexing, float/string conversion controls, and named/function-
+valued shadows. The builtin example exercises the original failure before its
+terminating section. Existing #385/#327/#404/#395 tests remain unchanged.
+
+A boolean-array control independently reproduced an existing O1–O3 constant-folding
+type mismatch on the unchanged #409 compiler. It is tracked as #410 and excluded
+from this integer-builtin fix. Member-call and polymorphic pop inference, generic
+type refinement, and #305-specific annotation changes remain outside this scope.
+`run --jit` remains interpreter fallback; the existing direct tests cover both
+compiler APIs rejecting array reads, pushes, and pops.
+
+Validation on macOS arm64: formatting, workspace check/build/tests with all
+features, strict root-package Clippy with all targets/features, and documentation
+with warnings denied passed (2,357 passed, 17 ignored). All 12 existing examples
+passed syntax checks and matched committed output under interpreter, `--jit`
+fallback, and native execution. The new execution cases pass at O0–O3, and three
+independent cross-reviews found no remaining actionable issues.
+
 ## 2026-10-25 — Explicit JIT array read rejection (#395)
 
 Both JIT compilers now reject `ArrayGet` and `ArrayLen` through their existing
