@@ -74,7 +74,7 @@ impl Analyzer {
                 self.resolve_member_type(&object_type, property, expr.span, receiver_is_class)
             }
 
-            ExprKind::Index { object, index } => self.infer_index_expr(object, index, expr.span),
+            ExprKind::Index { object, index } => self.infer_index_expr(object, index, false),
 
             ExprKind::Assignment { target, value } => {
                 self.infer_assignment_expr(target, value, expr.span)
@@ -85,9 +85,12 @@ impl Analyzer {
                 op: _,
                 value,
             } => {
-                self.infer_type(target);
+                let target_type = match &target.kind {
+                    ExprKind::Index { object, index } => self.infer_index_expr(object, index, true),
+                    _ => self.infer_type(target),
+                };
                 self.infer_type(value);
-                self.infer_type(target)
+                target_type
             }
 
             ExprKind::Array(elements) => self.infer_array_expr(elements),
@@ -328,8 +331,11 @@ impl Analyzer {
     }
 
     /// Infer index expression type.
-    fn infer_index_expr(&mut self, object: &Expr, index: &Expr, _span: Span) -> Type {
+    fn infer_index_expr(&mut self, object: &Expr, index: &Expr, writable: bool) -> Type {
         let object_type = self.infer_type(object);
+        if writable {
+            self.check_index_write_receiver(&object_type, object.span);
+        }
         let index_type = self.infer_type(index);
 
         match object_type {
@@ -364,6 +370,20 @@ impl Analyzer {
                 );
                 Type::Error
             }
+        }
+    }
+
+    fn check_index_write_receiver(&mut self, object_type: &Type, span: Span) {
+        let mut receiver_type = object_type;
+        while let Type::Optional(inner) = receiver_type {
+            receiver_type = inner;
+        }
+        if matches!(receiver_type, Type::String) {
+            self.error_with_code(
+                "لا يمكن تعديل نص عبر الفهرسة؛ النصوص غير قابلة للتغيير / Cannot assign through a string index: strings are immutable",
+                span,
+                &ERR_TYPE_MISMATCH.to_string(),
+            );
         }
     }
 
@@ -411,7 +431,8 @@ impl Analyzer {
                 }
             }
             ExprKind::Index { object, .. } => {
-                self.infer_type(object);
+                let object_type = self.infer_type(object);
+                self.check_index_write_receiver(&object_type, object.span);
             }
             _ => {
                 self.error("هدف تعيين غير صالح", target.span);

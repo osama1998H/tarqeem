@@ -2,6 +2,37 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-10-25 — Reject string mutation through array operations (#398)
+
+String indexing remains a character read. Indexed assignment (including compound
+assignment) rejects known strings with `ن٠٠٠١`, and the builtin `ألحق` requires
+`Array(Any)` as its receiver. Ordinary symbol resolution preserves user functions
+and function values named `ألحق`; map and dynamic-Any analysis remain unchanged.
+
+Lowering checks the recorded type of the operand it has already built, rather than
+partially re-inferring its AST. This catches composed receivers and imported bodies
+that still bypass semantic analysis under #229. Native `ArraySet`/`ArrayPush` also
+require `Array` or `Ptr(Array)` independently, with `ت٠٣٠١` for unresolved layouts.
+An explicit Any local can still hold and mutate an array in the interpreter, while
+native compilation refuses that operation. No runtime tags or ABI changes were added.
+
+The guard trusts recorded types. A function falsely annotated to return an array
+can still return a string until #212 is fixed; imported `check` coverage remains
+#229. This change does not establish general type soundness. `run --jit` currently
+falls back to interpretation, so it is a compatibility check, not machine-code
+validation.
+
+Regression tests were committed before production changes. The pre-fix compiler
+accepted known string writes/appends and unresolved native receivers; valid typed
+arrays, string reads and user shadows passed. Negative subprocesses are bounded and
+require a deliberate diagnostic and normal exit, never a signal or raw clang error.
+
+Validation on macOS arm64: formatting, workspace check/build, root-package Clippy
+with all targets/features and denied warnings, and workspace tests passed (2,311
+passed, 17 ignored). All 12 examples matched committed output under the interpreter,
+`--jit`, and native compilation. Standard-library parsing remains 42/43 with the
+existing #243 failure; runtime code and the separate #310 lint baseline are untouched.
+
 ## 2026-08-18 — `ثنائي_إلى_نص`, and a plan row whose contract could not be built (#333)
 
 Increment B's fourth name, closing blocker **B9**: the byte bridge is now total in both directions.

@@ -6478,3 +6478,352 @@ fn test_pop_can_be_shadowed_by_a_user_function() {
         &["99", "2"],
     );
 }
+
+/// Mutation regressions can expose a native crash or hang. Keep these children
+/// bounded, and capture to files so neither output pipe can fill while waiting.
+fn mutation_command(program: &Path, args: &[&str], cwd: &Path) -> Output {
+    use std::time::{Duration, Instant};
+
+    let capture = TempDir::new().expect("تعذّر إنشاء مجلد المخرجات");
+    let stdout_path = capture.path().join("stdout");
+    let stderr_path = capture.path().join("stderr");
+    let mut child = Command::new(program)
+        .args(args)
+        .current_dir(cwd)
+        .env_remove("TARQEEM_HOME")
+        .stdin(Stdio::null())
+        .stdout(fs::File::create(&stdout_path).expect("تعذّر إنشاء المخرجات"))
+        .stderr(fs::File::create(&stderr_path).expect("تعذّر إنشاء التشخيصات"))
+        .spawn()
+        .unwrap_or_else(|e| panic!("تعذّر تشغيل {} {args:?}: {e}", program.display()));
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("تعذّر انتظار العملية") {
+            break status;
+        }
+        if started.elapsed() > Duration::from_secs(30) {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("انتهت مهلة {} {args:?}", program.display());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    Output {
+        status: status.code(),
+        stdout: fs::read_to_string(stdout_path).expect("تعذّر قراءة المخرجات"),
+        stderr: fs::read_to_string(stderr_path).expect("تعذّر قراءة التشخيصات"),
+        compile_failed: false,
+    }
+}
+
+fn assert_mutation_diagnostic(output: &Output, expected: &str) {
+    assert_eq!(output.status, Some(1), "{}", output.report());
+    assert!(output.stderr.contains(expected), "{}", output.report());
+    assert!(!output.stderr.contains("فشل clang"), "{}", output.report());
+}
+
+fn assert_mutation_compile_rejected(main: &Path, expected: &str) {
+    let cwd = main.parent().unwrap();
+    for opt in ["0", "1", "2", "3"] {
+        let executable = cwd.join(format!("مرفوض_{opt}"));
+        let output = mutation_command(
+            Path::new(TARQEEM),
+            &[
+                "compile",
+                main.to_str().unwrap(),
+                "-O",
+                opt,
+                "-o",
+                executable.to_str().unwrap(),
+            ],
+            cwd,
+        );
+        // Never execute a mistakenly accepted negative fixture: the pre-fix
+        // compiler can emit a crashing or non-terminating executable here.
+        assert_mutation_diagnostic(&output, expected);
+        assert!(!executable.exists(), "رفض الترجمة يجب ألا ينتج ملفاً تنفيذياً");
+    }
+}
+
+fn assert_mutation_prints(main: &Path, expected: &[&str]) {
+    let cwd = main.parent().unwrap();
+    for extra in [None, Some("--jit")] {
+        let mut args = vec!["run", main.to_str().unwrap()];
+        if let Some(extra) = extra {
+            args.push(extra);
+        }
+        let output = mutation_command(Path::new(TARQEEM), &args, cwd);
+        assert!(output.succeeded(), "{}", output.report());
+        assert_eq!(output.lines(), expected, "{}", output.report());
+    }
+    ensure_runtime_library();
+    for opt in ["0", "2"] {
+        let executable = cwd.join(format!("صالح_{opt}"));
+        let output = mutation_command(
+            Path::new(TARQEEM),
+            &[
+                "compile",
+                main.to_str().unwrap(),
+                "-O",
+                opt,
+                "-o",
+                executable.to_str().unwrap(),
+            ],
+            cwd,
+        );
+        assert!(output.succeeded(), "{}", output.report());
+        let output = mutation_command(&executable, &[], cwd);
+        assert!(output.succeeded(), "{}", output.report());
+        assert_eq!(output.lines(), expected, "{}", output.report());
+    }
+}
+
+/// #398: strings support index reads, but no array write operation. Exercise
+/// receiver shapes that must keep their known string type through analysis.
+#[test]
+fn test_string_mutation_is_rejected_before_execution() {
+    for body in [
+        "متغير س = \"أ\"\nس[٠] = \"ب\"",
+        "متغير س = \"أ\"\nس[٠] += \"ب\"",
+        "متغير س = \"أ\"\n(س)[٠] = \"ب\"",
+        "متغير س = \"أ\"\nألحق(س، \"ب\")",
+        "دالة بدل(س: نص) { س[٠] = \"ب\" }\nبدل(\"أ\")",
+        "دالة خذ() -> نص { أرجع \"أ\" }\nخذ()[٠] = \"ب\"",
+        "صنف حامل { عام س: نص\nمنشئ() { هذا.س = \"أ\" } }\nمتغير ح = جديد حامل()\nح.س[٠] = \"ب\"",
+        "متغير س: نص? = \"أ\"\nإذا (س != لا_شيء) { س[٠] = \"ب\" }",
+    ] {
+        let dir = TempDir::new().unwrap();
+        let main = write_program(dir.path(), "تعديل_نص", body);
+        for args in [
+            vec!["check", main.to_str().unwrap()],
+            vec!["run", main.to_str().unwrap()],
+            vec!["run", main.to_str().unwrap(), "--jit"],
+        ] {
+            let output = mutation_command(Path::new(TARQEEM), &args, dir.path());
+            assert_mutation_diagnostic(&output, "ن٠٠٠١");
+        }
+        assert_mutation_compile_rejected(&main, "ن٠٠٠١");
+    }
+}
+
+/// Any locals intentionally remain dynamic in the interpreter. The native
+/// backend has no array representation proof and must refuse before clang.
+#[test]
+fn test_string_mutation_through_any_is_refused_natively() {
+    for mutation in ["س[٠] = \"ب\"", "ألحق(س، \"ب\")"] {
+        let dir = TempDir::new().unwrap();
+        let main = write_program(
+            dir.path(),
+            "تعديل_أي",
+            &format!("دالة رئيسية() {{\nمتغير س: أي = \"أ\"\n{mutation}\n}}"),
+        );
+        let check = mutation_command(
+            Path::new(TARQEEM),
+            &["check", main.to_str().unwrap()],
+            dir.path(),
+        );
+        assert!(check.succeeded(), "{}", check.report());
+        for args in [
+            vec!["run", main.to_str().unwrap()],
+            vec!["run", main.to_str().unwrap(), "--jit"],
+        ] {
+            let output = mutation_command(Path::new(TARQEEM), &args, dir.path());
+            assert_mutation_diagnostic(&output, "خطأ في النوع");
+        }
+        assert_mutation_compile_rejected(&main, "ت٠٣٠١");
+    }
+}
+
+#[test]
+fn test_array_mutation_through_any_remains_interpretable() {
+    let dir = TempDir::new().unwrap();
+    let main = write_program(
+        dir.path(),
+        "مصفوفة_أي",
+        r#"
+دالة رئيسية() {
+    متغير م: أي = [١]
+    م[٠] = ٧
+    ألحق(م، ٨)
+    اطبع(طول(م))
+    اطبع(م)
+}
+"#,
+    );
+    for args in [
+        vec!["run", main.to_str().unwrap()],
+        vec!["run", main.to_str().unwrap(), "--jit"],
+    ] {
+        let output = mutation_command(Path::new(TARQEEM), &args, dir.path());
+        assert!(output.succeeded(), "{}", output.report());
+        assert_eq!(output.lines(), ["2", "[7، 8]"], "{}", output.report());
+    }
+    assert_mutation_compile_rejected(&main, "ت٠٣٠١");
+}
+
+/// #229 currently leaves imported function bodies unchecked. The IR guard
+/// must still stop their known string receivers before either backend runs.
+#[test]
+fn test_imported_string_mutation_is_rejected_during_lowering() {
+    for mutation in ["س[٠] = \"ب\"", "س[٠] += \"ب\"", "ألحق(س، \"ب\")"] {
+        let dir = TempDir::new().unwrap();
+        write_program(
+            dir.path(),
+            "مساعد",
+            &format!("صدّر دالة بدل(س: نص) {{ {mutation} }}"),
+        );
+        let main = write_program(
+            dir.path(),
+            "الرئيسي",
+            "استورد { بدل } من \"./مساعد\"\nبدل(\"أ\")",
+        );
+        let check = mutation_command(
+            Path::new(TARQEEM),
+            &["check", main.to_str().unwrap()],
+            dir.path(),
+        );
+        assert!(check.succeeded(), "{}", check.report());
+        for args in [
+            vec!["run", main.to_str().unwrap()],
+            vec!["run", main.to_str().unwrap(), "--jit"],
+        ] {
+            let output = mutation_command(Path::new(TARQEEM), &args, dir.path());
+            assert_mutation_diagnostic(&output, "مصفوفة");
+            assert!(
+                !output.stderr.contains("Runtime error"),
+                "{}",
+                output.report()
+            );
+        }
+        assert_mutation_compile_rejected(&main, "مصفوفة");
+    }
+}
+
+/// Typed arrays retain their mutation behavior, element coercion, and aliases.
+/// String reads and iteration remain available beside the rejected writes.
+#[test]
+fn test_array_mutation_preserves_typed_receivers() {
+    let dir = TempDir::new().unwrap();
+    let main = write_program(
+        dir.path(),
+        "مصفوفات_صالحة",
+        r#"
+صنف حامل {
+    عام م: مصفوفة<عدد>
+    منشئ() { هذا.م = [١] }
+}
+دالة زد(م: مصفوفة<عدد>) {
+    م[٠] = ٩
+    ألحق(م، ٨)
+}
+دالة خذ(م: مصفوفة<عدد>) -> مصفوفة<عدد> { أرجع م }
+متغير أرقام = [١]
+متغير اسم = أرقام
+(اسم)[٠] = ٧
+اطبع(أرقام[٠])
+اسم[٠] += ١
+اطبع(أرقام[٠])
+خذ(أرقام)[٠] = ٦
+اطبع(أرقام[٠])
+زد(أرقام)
+اطبع(أرقام[٠])
+اطبع(أرقام[١])
+متغير ح = جديد حامل()
+ح.م[٠] = ٣
+ألحق(ح.م، ٤)
+اطبع(ح.م[٠])
+اطبع(ح.م[١])
+متغير كسور = [١.٥]
+كسور[٠] = ٢.٥
+ألحق(كسور، ٣)
+كسور.ألحق(٤.٥)
+اطبع(كسور[٠])
+اطبع(كسور[١] + ٠.٥)
+اطبع(كسور[٢])
+متغير أسماء: مصفوفة<نص> = []
+ألحق(أسماء، "أ")
+أسماء[٠] = "ب"
+أسماء.ألحق("ج")
+اطبع(أسماء[٠])
+اطبع(أسماء[١])
+متغير شروط = [صحيح]
+شروط[٠] = خطأ
+شروط.ألحق(صحيح)
+اطبع(شروط[٠])
+اطبع(شروط[١])
+متغير س = "أب"
+اطبع(س[١])
+متغير عدد_حروف = ٠
+لكل حرف في س { عدد_حروف = عدد_حروف + ١ }
+اطبع(عدد_حروف)
+"#,
+    );
+    assert_mutation_prints(
+        &main,
+        &[
+            "7", "8", "6", "9", "8", "3", "4", "2.5", "3.5", "4.5", "ب", "ج", "خطأ", "صحيح", "ب",
+            "2",
+        ],
+    );
+}
+
+#[test]
+fn test_array_mutation_evaluates_receiver_and_index_once() {
+    let dir = TempDir::new().unwrap();
+    let main = write_program(
+        dir.path(),
+        "تقييم_التعديل",
+        r#"
+متغير وصول = ٠
+متغير فهارس = ٠
+متغير م = [١]
+دالة خذ() -> مصفوفة<عدد> {
+    وصول = وصول + ١
+    أرجع م
+}
+دالة فهرس() -> عدد {
+    فهارس = فهارس + ١
+    أرجع ٠
+}
+خذ()[فهرس()] = ٧
+اطبع(وصول)
+اطبع(فهارس)
+اطبع(م[٠])
+خذ()[فهرس()] += ٢
+اطبع(وصول)
+اطبع(فهارس)
+اطبع(م[٠])
+ألحق(خذ()، ٨)
+خذ().ألحق(٩)
+اطبع(وصول)
+اطبع(طول(م))
+"#,
+    );
+    assert_mutation_prints(&main, &["1", "1", "7", "2", "2", "9", "4", "3"]);
+}
+
+#[test]
+fn test_array_mutation_checks_preserve_user_append_shadows() {
+    for body in [
+        "دالة ألحق(أ: نص، ب: نص) -> نص { أرجع أ + ب }\nاطبع(ألحق(\"أ\"، \"ب\"))",
+        "ثابت ألحق = (أ: نص، ب: نص) => أ + ب\nاطبع(ألحق(\"أ\"، \"ب\"))",
+        "دالة رئيسية() {\nثابت ألحق = (أ: نص، ب: نص) => أ + ب\nاطبع(ألحق(\"أ\"، \"ب\"))\n}",
+    ] {
+        let dir = TempDir::new().unwrap();
+        let main = write_program(dir.path(), "ألحق_مظلل", body);
+        assert_mutation_prints(&main, &["أب"]);
+    }
+
+    let dir = TempDir::new().unwrap();
+    write_program(
+        dir.path(),
+        "مساعد",
+        "صدّر دالة ألحق(أ: نص، ب: نص) -> نص { أرجع أ + ب }",
+    );
+    let main = write_program(
+        dir.path(),
+        "ألحق_مستورد",
+        "استورد { ألحق } من \"./مساعد\"\nاطبع(ألحق(\"أ\"، \"ب\"))",
+    );
+    assert_mutation_prints(&main, &["أب"]);
+}

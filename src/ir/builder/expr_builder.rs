@@ -643,6 +643,7 @@ impl IrBuilder {
                 let Some(&value) = args.get(1) else {
                     return Ok(None);
                 };
+                self.reject_string_array_mutation(first, "ألحق")?;
                 // The array's element type wins over the pushed value's, as the
                 // member path below does: pushing `2` into `[1.5]` with
                 // `elem_ty: Int` stores an i64 bit pattern the reader decodes as
@@ -882,6 +883,16 @@ impl IrBuilder {
             name,
             Self::type_name_ar(ty)
         ))
+    }
+
+    fn reject_string_array_mutation(&self, array: VarId, operation: &str) -> Result<()> {
+        if let Some(ty) = self.var_types.get(&array.0) {
+            if ty.is_string_like() {
+                return Err(Self::not_an_array(ty, operation));
+            }
+        }
+        // Native codegen checks dynamic receivers; the interpreter keeps them.
+        Ok(())
     }
 
     /// `منطقي` follows the interpreter's `Value::is_truthy`: zero, an empty
@@ -1226,8 +1237,24 @@ impl IrBuilder {
                 )));
             }
 
-            let obj_type = self.infer_expr_type(object);
             let obj_var = self.build_expr(object)?;
+            let obj_type = self.arg_type(obj_var);
+
+            if matches!(property.as_str(), "ألحق" | "أضف") {
+                self.reject_string_array_mutation(obj_var, property)?;
+                let dynamic_receiver = match &obj_type {
+                    IrType::Struct(class) => class.0 == "أي",
+                    IrType::Ptr(inner) => {
+                        matches!(inner.as_ref(), IrType::Struct(class) if class.0 == "أي")
+                    }
+                    _ => false,
+                };
+                if dynamic_receiver {
+                    self.block_native_lowering(NativeBlock::untyped(
+                        "تعديل مصفوفة يتطلب نوع مستقبل محدداً / array mutation requires a concrete receiver type",
+                    ));
+                }
+            }
 
             let is_array = match &obj_type {
                 IrType::Array(_, _) => true,
@@ -1282,6 +1309,8 @@ impl IrBuilder {
                 }
             }
 
+            // Class dispatch, especially `الأصل`, retains its declared receiver semantics.
+            let obj_type = self.infer_expr_type(object);
             let class_id = match &obj_type {
                 IrType::Struct(class_id) => class_id.clone(),
                 IrType::Ptr(inner) => {
@@ -1522,24 +1551,37 @@ impl IrBuilder {
 
     /// Build IR for an index operation.
     pub(crate) fn build_index(&mut self, object: &Expr, index: &Expr) -> Result<VarId> {
-        let obj_type = self.infer_expr_type(object);
         let obj_var = self.build_expr(object)?;
         let idx_var = self.build_expr(index)?;
+        Ok(self.load_from_index(obj_var, idx_var))
+    }
+
+    fn load_from_index(&mut self, array: VarId, index: VarId) -> VarId {
         let dest = self.new_var();
 
         // The sentinel this avoids never reaches codegen's own `ArrayGet`
         // recovery, so `convert_to_string` and `نوع` decide from it first.
-        let elem_ty = Self::index_elem_ty(&obj_type);
+        let elem_ty = Self::index_elem_ty(&self.arg_type(array));
 
         self.emit(Instruction::ArrayGet {
             dest,
-            array: obj_var,
-            index: idx_var,
+            array,
+            index,
             elem_ty: elem_ty.clone(),
         });
 
         self.var_types.insert(dest.0, elem_ty);
-        Ok(dest)
+        dest
+    }
+
+    fn store_to_index(&mut self, array: VarId, index: VarId, value: VarId) -> Result<()> {
+        self.reject_string_array_mutation(array, "التعيين بالفهرس")?;
+        self.emit(Instruction::ArraySet {
+            array,
+            index,
+            value,
+        });
+        Ok(())
     }
 
     /// Build IR for an assignment expression.
@@ -1591,11 +1633,7 @@ impl IrBuilder {
             ExprKind::Index { object, index } => {
                 let obj_var = self.build_expr(object)?;
                 let idx_var = self.build_expr(index)?;
-                self.emit(Instruction::ArraySet {
-                    array: obj_var,
-                    index: idx_var,
-                    value: value_var,
-                });
+                self.store_to_index(obj_var, idx_var, value_var)?;
             }
             _ => {
                 return Err(IrError::new("هدف التعيين غير مدعوم"));
@@ -1712,7 +1750,19 @@ impl IrBuilder {
         let resolved_target = self.resolve_import_ref(target);
         let target = resolved_target.as_ref().unwrap_or(target);
 
-        let current = self.build_expr(target)?;
+        // Reuse the lvalue operands so side effects select the same slot for the write.
+        let indexed_target = if let ExprKind::Index { object, index } = &target.kind {
+            let array = self.build_expr(object)?;
+            let index = self.build_expr(index)?;
+            self.reject_string_array_mutation(array, "التعيين بالفهرس")?;
+            Some((array, index))
+        } else {
+            None
+        };
+        let current = match indexed_target {
+            Some((array, index)) => self.load_from_index(array, index),
+            None => self.build_expr(target)?,
+        };
         let increment = self.build_expr(value)?;
 
         let ir_op = match op {
@@ -1733,6 +1783,11 @@ impl IrBuilder {
             ty: IrType::Int,
         });
 
+        if let Some((array, index)) = indexed_target {
+            self.store_to_index(array, index, result)?;
+            return Ok(result);
+        }
+
         match &target.kind {
             ExprKind::Identifier(name) => {
                 if let Some(ptr) = self.lookup_var(name) {
@@ -1751,15 +1806,6 @@ impl IrBuilder {
             }
             ExprKind::Member { object, property } => {
                 self.store_to_member(object, property, result)?;
-            }
-            ExprKind::Index { object, index } => {
-                let obj_var = self.build_expr(object)?;
-                let idx_var = self.build_expr(index)?;
-                self.emit(Instruction::ArraySet {
-                    array: obj_var,
-                    index: idx_var,
-                    value: result,
-                });
             }
             _ => {
                 return Err(IrError::new("هدف التعيين المركب غير مدعوم"));

@@ -2333,6 +2333,131 @@ mod tests {
     }
 
     #[test]
+    fn test_string_mutation_is_rejected_without_semantic_analysis() {
+        for body in [
+            r#"متغير س = "أ"؛ س[٠] = "ب""#,
+            r#"متغير س = "أ"؛ (س)[٠] = "ب""#,
+            r#"متغير س = "أ"؛ س[٠] += "ب""#,
+            r#"متغير س = "أ"؛ ألحق(س، "ب")"#,
+            r#"متغير س = "أ"؛ ألحق((س + "ج")، "ب")"#,
+            r#"متغير س = "أ"؛ س.ألحق("ب")"#,
+            r#"متغير س = "أ"؛ س.أضف("ب")"#,
+        ] {
+            let error = build_program(body).expect_err(body);
+            assert!(error.message.contains("مصفوفة"), "{error}");
+            assert!(error.message.contains("array"), "{error}");
+        }
+    }
+
+    #[test]
+    fn test_string_mutation_uses_recorded_field_and_return_types() {
+        for source in [
+            r#"
+                دالة كلمة() -> نص { أرجع "أ" }
+                كلمة()[٠] = "ب"
+            "#,
+            r#"
+                صنف صندوق {
+                    عام نصي: نص
+                    منشئ() { هذا.نصي = "أ" }
+                }
+                متغير علبة = جديد صندوق()
+                (علبة.نصي)[٠] = "ب"
+            "#,
+            r#"
+                دالة عدّل(س: نص) { ألحق(س، "ب") }
+                عدّل("أ")
+            "#,
+        ] {
+            let error = build_program(source).expect_err(source);
+            assert!(error.message.contains("array"), "{error}");
+        }
+    }
+
+    #[test]
+    fn test_dynamic_array_mutation_remains_available_to_the_interpreter() {
+        let module = build_program(
+            r#"
+                دالة رئيسية() -> عدد {
+                    متغير م: أي = [١]
+                    ألحق(م، ٢)
+                    م[٠] = ٧
+                    أرجع طول(م)
+                }
+            "#,
+        )
+        .unwrap();
+        let mut interpreter = crate::interpreter::Interpreter::new(module);
+        assert_eq!(
+            interpreter.run().unwrap(),
+            crate::interpreter::Value::Int(2)
+        );
+    }
+
+    #[test]
+    fn test_dynamic_member_append_preserves_dispatch_and_blocks_native_lowering() {
+        for name in ["ألحق", "أضف"] {
+            let module = build_program(&format!(
+                "دالة رئيسية() -> عدد {{ متغير م: أي = [١]؛ م.{name}(٢)؛ أرجع ٠ }}"
+            ))
+            .unwrap();
+            let main = function(&module, "__main__");
+            let block = main.native_block.as_ref().expect("dynamic native receiver");
+            assert_eq!(block.code, "ت٠٣٠١");
+            assert!(main.blocks.iter().flat_map(|b| &b.instructions).any(|i| {
+                matches!(i, Instruction::CallMethod { method, .. }
+                    if method.class.0 == "أي" && method.name == name)
+            }));
+        }
+    }
+
+    #[test]
+    fn test_typed_object_append_method_keeps_class_dispatch() {
+        let module = build_program(
+            r#"
+                صنف صندوق {
+                    عام دالة ألحق(ق: عدد) -> عدد { أرجع ق }
+                }
+                دالة رئيسية() -> عدد {
+                    متغير علبة = جديد صندوق()
+                    أرجع علبة.ألحق(٧)
+                }
+            "#,
+        )
+        .unwrap();
+        let main = function(&module, "__main__");
+        assert!(main.native_block.is_none());
+        assert!(main.blocks.iter().flat_map(|b| &b.instructions).any(|i| {
+            matches!(i, Instruction::CallMethod { method, .. }
+                if method.class.0 == "صندوق" && method.name == "ألحق")
+        }));
+    }
+
+    #[test]
+    fn test_compound_array_assignment_evaluates_receiver_and_index_once() {
+        let module = build_program(
+            r#"
+                دالة عناصر() -> مصفوفة<عدد> { أرجع [١] }
+                دالة موضع() -> عدد { أرجع ٠ }
+                عناصر()[موضع()] += ٢
+            "#,
+        )
+        .unwrap();
+        let main = function(&module, "__main__");
+        for name in ["عناصر", "موضع"] {
+            let calls = main
+                .blocks
+                .iter()
+                .flat_map(|block| &block.instructions)
+                .filter(|instruction| {
+                    matches!(instruction, Instruction::Call { func, .. } if func.0 == name)
+                })
+                .count();
+            assert_eq!(calls, 1, "{name} must run exactly once");
+        }
+    }
+
+    #[test]
     fn test_pure_export_declarations_generate_no_main() {
         let source = r#"
             صدّر دالة مساعدة() -> عدد {

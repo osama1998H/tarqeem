@@ -1029,7 +1029,7 @@ pub fn resolve_type_annotation(type_ann: &TypeAnnotation) -> Type {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::codes::{ERR_NOT_EXPORTED, ERR_THROW_NON_EXCEPTION};
+    use crate::error::codes::{ERR_NOT_EXPORTED, ERR_THROW_NON_EXCEPTION, ERR_TYPE_MISMATCH};
     use crate::parser::Parser;
     use tempfile::TempDir;
 
@@ -1049,6 +1049,152 @@ mod tests {
     fn test_variable_declaration() {
         let result = analyze("متغير س = 5;");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_string_index_mutation_rejects_composed_receivers() {
+        for operation in ["=", "+="] {
+            for (setup, receiver) in [
+                ("متغير س = \"أ\"", "س"),
+                ("متغير س = \"أ\"", "(س)"),
+                ("", "\"أ\""),
+                ("دالة كلمة() -> نص { أرجع \"أ\" }", "كلمة()"),
+                (
+                    "صنف حامل { عام قيمة: نص\n منشئ() { هذا.قيمة = \"أ\" } }\nمتغير ح = جديد حامل()",
+                    "ح.قيمة",
+                ),
+            ] {
+                let source = format!("{setup}\n{receiver}[٠] {operation} \"ب\"");
+                let diagnostics = analyze(&source).expect_err(&source);
+                assert!(
+                    diagnostics.iter().any(|d| {
+                        d.code.as_deref() == Some(ERR_TYPE_MISMATCH.to_string().as_str())
+                            && d.message.contains("نص")
+                    }),
+                    "{source}: {diagnostics:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_string_index_mutation_rejects_parameters_and_narrowed_optionals() {
+        for operation in ["=", "+="] {
+            for source in [
+                format!("دالة عدل(س: نص) {{ س[٠] {operation} \"ب\" }}"),
+                format!("متغير س: نص? = \"أ\"\nإذا (س != لا_شيء) {{ س[٠] {operation} \"ب\" }}"),
+            ] {
+                let diagnostics = analyze(&source).expect_err(&source);
+                assert!(
+                    diagnostics.iter().any(|d| {
+                        d.code.as_deref() == Some(ERR_TYPE_MISMATCH.to_string().as_str())
+                    }),
+                    "{source}: {diagnostics:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_string_index_mutation_diagnostic_points_to_receiver() {
+        for operation in ["=", "+="] {
+            let diagnostics = analyze(&format!("متغير س = \"أ\"\nس[٠] {operation} \"ب\""))
+                .expect_err("a string index is not writable");
+            let diagnostic = diagnostics
+                .iter()
+                .find(|d| d.code.as_deref() == Some(ERR_TYPE_MISMATCH.to_string().as_str()))
+                .expect("the receiver must receive a type diagnostic");
+            assert_eq!(diagnostic.span.line, 3);
+            assert_eq!(diagnostic.span.column, 1);
+            assert_eq!(diagnostic.span.end - diagnostic.span.start, 1);
+        }
+    }
+
+    #[test]
+    fn test_array_append_rejects_known_non_array_receivers() {
+        for receiver in ["\"أ\"", "١", "صحيح"] {
+            let source = format!("ألحق({receiver}، \"ب\")");
+            let diagnostics = analyze(&source).expect_err(&source);
+            assert!(
+                diagnostics.iter().any(|d| {
+                    d.code.as_deref() == Some(ERR_TYPE_MISMATCH.to_string().as_str())
+                        && d.message.contains("مصفوفة")
+                }),
+                "{source}: {diagnostics:?}"
+            );
+        }
+        let source = "متغير س: نص? = \"أ\"\nإذا (س != لا_شيء) { ألحق(س، \"ب\") }";
+        assert!(analyze(source).is_err());
+    }
+
+    #[test]
+    fn test_array_mutation_preserves_typed_receivers() {
+        let source = r#"
+            متغير أ = [١]
+            متغير ب = [١.٥]
+            متغير ج = ["أ"]
+            متغير د = [صحيح]
+            متغير فارغة: مصفوفة<عدد> = []
+            أ[٠] = ٢
+            أ[٠] += ٣
+            ب[٠] = ٢.٥
+            ج[٠] = "ب"
+            د[٠] = خطأ
+            ألحق(أ، ٣)
+            ألحق(ب، ٣)
+            ألحق(ج، "ج")
+            ألحق(د، صحيح)
+            ألحق(فارغة، ١)
+            متغير بديل = أ
+            (بديل)[٠] = ٤
+            دالة عدل(م: مصفوفة<عدد>) { م[٠] = ٥ ؛ ألحق(م، ٦) }
+            دالة قيم() -> مصفوفة<عدد> { أرجع أ }
+            قيم()[٠] = ٧
+            صنف حامل { عام قيم: مصفوفة<عدد> }
+            متغير ح = جديد حامل()
+            ح.قيم[٠] = ٨
+        "#;
+        let result = analyze(source);
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn test_array_mutation_preserves_map_and_dynamic_analysis() {
+        for source in [
+            "متغير ق = {أ: ١}\nق[\"أ\"] = ٢\nق[\"أ\"] += ٣",
+            "متغير س: أي = \"أ\"\nس[٠] = \"ب\"\nألحق(س، \"ب\")",
+            "متغير م: أي = [١]\nم[٠] = ٢\nألحق(م، ٣)",
+        ] {
+            let result = analyze(source);
+            assert!(result.is_ok(), "{source}: {result:?}");
+        }
+    }
+
+    #[test]
+    fn test_array_append_preserves_user_shadowing() {
+        for source in [
+            "دالة ألحق(أ: نص، ب: نص) -> نص { أرجع أ + ب }\nاطبع(ألحق(\"أ\"، \"ب\"))",
+            "ثابت ألحق = (أ: نص، ب: نص) => أ + ب\nاطبع(ألحق(\"أ\"، \"ب\"))",
+        ] {
+            let result = analyze(source);
+            assert!(result.is_ok(), "{source}: {result:?}");
+        }
+        let (_analyzer, result, _dir) = analyze_project(
+            &[(
+                "مساعد.ترقيم",
+                "صدّر دالة ألحق(أ: نص، ب: نص) -> نص { أرجع أ + ب }",
+            )],
+            "استورد { ألحق } من \"./مساعد\"\nاطبع(ألحق(\"أ\"، \"ب\"))",
+        );
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn test_string_index_mutation_checks_preserve_reads() {
+        let result = analyze(
+            "متغير س = \"مرحبا\"\nمتغير ح: نص = س[٠]\nلكل حرف في س { اطبع(حرف) }\nاطبع(قص_حروف(س، ٠، ٢))",
+        );
+        assert!(result.is_ok(), "{result:?}");
     }
 
     /// LANGUAGE_SPEC §13.4: an optional is usable at its unwrapped type once a

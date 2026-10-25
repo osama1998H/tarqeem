@@ -2506,3 +2506,102 @@ fn test_bool_parameter_signature_is_zeroext() {
          arrives with garbage in its upper bits"
     );
 }
+
+fn array_mutation_module(receiver_ty: IrType, push: bool) -> Module {
+    let mut module = create_test_module("تعديل_مصفوفة");
+    let mut function = create_test_function(
+        "عدّل",
+        vec![Parameter {
+            id: VarId(0),
+            name: "م".to_string(),
+            ty: receiver_ty,
+        }],
+        IrType::Void,
+    );
+    function.blocks[0].instructions.extend([
+        Instruction::Const {
+            dest: VarId(1),
+            value: Constant::Int(0),
+            ty: IrType::Int,
+        },
+        Instruction::Const {
+            dest: VarId(2),
+            value: Constant::Int(7),
+            ty: IrType::Int,
+        },
+        if push {
+            Instruction::ArrayPush {
+                array: VarId(0),
+                value: VarId(2),
+                elem_ty: IrType::Int,
+            }
+        } else {
+            Instruction::ArraySet {
+                array: VarId(0),
+                index: VarId(1),
+                value: VarId(2),
+            }
+        },
+        Instruction::Return { value: None },
+    ]);
+    module.functions.push(function);
+    module
+}
+
+#[test]
+fn test_array_mutation_rejects_non_array_receivers_without_semantic_analysis() {
+    for ty in [
+        IrType::String,
+        IrType::Ptr(Box::new(IrType::String)),
+        IrType::Struct(ClassId("أي".to_string())),
+        IrType::Ptr(Box::new(IrType::Void)),
+        IrType::Struct(ClassId("صندوق".to_string())),
+        IrType::Int,
+        IrType::Float,
+        IrType::Bool,
+    ] {
+        for push in [false, true] {
+            let module = array_mutation_module(ty.clone(), push);
+            let error = create_codegen()
+                .generate(&module)
+                .expect_err(&format!("receiver {ty:?}, push={push} must be refused"));
+            assert!(error.message.contains("array"), "{error}");
+            assert!(error.message.contains("مصفوفة"), "{error}");
+            assert_eq!(error.code.as_deref(), Some("ت٠٣٠١"));
+        }
+    }
+}
+
+#[test]
+fn test_array_mutation_accepts_proven_array_receivers() {
+    let array = IrType::Array(Box::new(IrType::Int), 0);
+    for ty in [array.clone(), IrType::Ptr(Box::new(array))] {
+        for push in [false, true] {
+            let module = array_mutation_module(ty.clone(), push);
+            let output = create_codegen().generate(&module).unwrap();
+            let call = if push {
+                "call void @trq_array_push"
+            } else {
+                "call ptr @trq_array_get"
+            };
+            assert!(output.contains(call), "receiver {ty:?}, push={push}");
+        }
+    }
+}
+
+#[test]
+fn test_array_mutation_receiver_types_do_not_leak_between_functions() {
+    for push in [false, true] {
+        let array = IrType::Array(Box::new(IrType::Int), 0);
+        let mut module = array_mutation_module(array.clone(), push);
+        let mut undefined_receiver = array_mutation_module(array, push).functions.remove(0);
+        undefined_receiver.id = FuncId("غير_معروف".to_string());
+        undefined_receiver.name = "غير_معروف".to_string();
+        undefined_receiver.params.clear();
+        module.functions.push(undefined_receiver);
+
+        let error = create_codegen().generate(&module).unwrap_err();
+        assert!(error.message.contains("array"), "{error}");
+        assert_eq!(error.code.as_deref(), Some("ت٠٣٠١"));
+    }
+}
