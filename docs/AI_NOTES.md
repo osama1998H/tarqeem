@@ -2,6 +2,41 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-10-25 — Consistent array-pop receiver types (#387)
+
+Builtin `احذف_آخر` now requires a known array element type in both global and
+member lowering. `Array(T)` and `Ptr(Array(T))` retain their element type; opaque
+receivers receive the same bilingual diagnostic without the internal name
+`مؤشر`. Native `ArrayPop` also uses the existing array-mutation receiver guard,
+independently of source lowering. No runtime representation or JIT support changes.
+
+Work starts from `d93803c8`, the merge of #411 into `develop`. On that base, a
+dictionary-parameter member pop passed checking and emitted `trq_array_pop` with
+an integer load, while the global form refused it. Untyped member pop worked in
+the interpreter while global pop failed. Both builtin forms now refuse unknown
+element types; annotate the parameter with `مصفوفة<نوع_العنصر>` to use pop.
+User-defined functions, function values, and class methods keep their dispatch.
+General unknown-member checking (#383), imported-body analysis (#229), and
+explicit `أي` member dispatch remain outside this change.
+
+The #305 reproduction no longer fails after #411: the original annotated-float
+case and global/local controls for all eight added builtin return types agree in
+the interpreter and at native O0–O3 (12 native executions). #376 remains separate.
+Existing #385/#327/#404/#395/#304 regression files and optimizers are unchanged.
+The new JIT tests call both `BaselineCompiler::compile` and
+`OptimizingCompiler::compile_with_profile` directly; CLI `run --jit` remains
+interpreter fallback.
+
+Before the fix, three execution regressions and two direct native-codegen
+regressions failed; typed-array controls and direct JIT refusals already passed.
+Validation on macOS arm64: formatting, workspace check/build/tests with all
+features, strict root-package Clippy with all targets/features, and documentation
+with warnings denied passed (2,371 passed, 17 ignored). New execution coverage
+includes 32 native O0–O3 runs and 32 native compilation refusals; negative native
+fixtures are never executed. All 12 examples pass syntax checks and match their
+committed output in the interpreter, `--jit` fallback, and native execution.
+Three independent cross-reviews found no remaining actionable issues.
+
 ## 2026-10-25 — Builtin results inside array literals (#304)
 
 The IR builder now registers the existing integer return types of `طول_مصفوفة`

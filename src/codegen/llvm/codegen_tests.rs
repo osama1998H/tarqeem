@@ -2605,3 +2605,84 @@ fn test_array_mutation_receiver_types_do_not_leak_between_functions() {
         assert_eq!(error.code.as_deref(), Some("ت٠٣٠١"));
     }
 }
+
+fn array_pop_module(receiver_ty: IrType, elem_ty: IrType) -> Module {
+    let mut module = create_test_module("حذف_عنصر");
+    let mut function = create_test_function(
+        "أزل",
+        vec![Parameter {
+            id: VarId(0),
+            name: "م".to_string(),
+            ty: receiver_ty,
+        }],
+        elem_ty.clone(),
+    );
+    function.blocks[0].instructions.extend([
+        Instruction::ArrayPop {
+            dest: VarId(1),
+            array: VarId(0),
+            elem_ty,
+        },
+        Instruction::Return {
+            value: Some(VarId(1)),
+        },
+    ]);
+    module.functions.push(function);
+    module
+}
+
+#[test]
+fn test_array_pop_rejects_non_array_receivers_without_semantic_analysis() {
+    for ty in [
+        IrType::Ptr(Box::new(IrType::Void)),
+        IrType::String,
+        IrType::Ptr(Box::new(IrType::String)),
+        IrType::Struct(ClassId("أي".to_string())),
+        IrType::Struct(ClassId("صندوق".to_string())),
+        IrType::Int,
+        IrType::Float,
+        IrType::Bool,
+    ] {
+        let module = array_pop_module(ty.clone(), IrType::Int);
+        let error = create_codegen()
+            .generate(&module)
+            .expect_err(&format!("receiver {ty:?} must be refused"));
+        assert!(error.message.contains("array"), "{error}");
+        assert!(error.message.contains("مصفوفة"), "{error}");
+        assert_eq!(error.code.as_deref(), Some("ت٠٣٠١"));
+    }
+}
+
+#[test]
+fn test_array_pop_accepts_proven_array_receivers_and_element_types() {
+    for (elem_ty, llvm_ty) in [
+        (IrType::Int, "i64"),
+        (IrType::Float, "double"),
+        (IrType::String, "ptr"),
+        (IrType::Bool, "i1"),
+    ] {
+        let array = IrType::Array(Box::new(elem_ty.clone()), 0);
+        for ty in [array.clone(), IrType::Ptr(Box::new(array))] {
+            let module = array_pop_module(ty.clone(), elem_ty.clone());
+            let output = create_codegen().generate(&module).unwrap();
+            assert!(output.contains("call ptr @trq_array_pop"), "{ty:?}");
+            assert!(output.contains(&format!("load {llvm_ty}, ptr")), "{ty:?}");
+            assert!(output.contains(&format!("ret {llvm_ty} %")), "{ty:?}");
+        }
+    }
+}
+
+#[test]
+fn test_array_pop_receiver_types_do_not_leak_between_functions() {
+    let array = IrType::Array(Box::new(IrType::Int), 0);
+    let mut module = array_pop_module(array.clone(), IrType::Int);
+    let mut undefined_receiver = array_pop_module(array, IrType::Int).functions.remove(0);
+    undefined_receiver.id = FuncId("غير_معروف".to_string());
+    undefined_receiver.name = "غير_معروف".to_string();
+    undefined_receiver.params.clear();
+    module.functions.push(undefined_receiver);
+
+    let error = create_codegen().generate(&module).unwrap_err();
+    assert!(error.message.contains("array"), "{error}");
+    assert_eq!(error.code.as_deref(), Some("ت٠٣٠١"));
+}
