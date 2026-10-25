@@ -228,9 +228,21 @@ impl IrBuilder {
         self.function_return_types
             .insert("نص".to_string(), IrType::String);
 
-        // طول (length) function returns int
-        self.function_return_types
-            .insert("طول".to_string(), IrType::Int);
+        // Array literals infer element types before these calls are lowered.
+        for name in [
+            "طول",
+            "طول_مصفوفة",
+            "بتات_و",
+            "بتات_أو",
+            "بتات_أو_حصري",
+            "بتات_نفي",
+            "بتات_إزاحة_يسار",
+            "بتات_إزاحة_يمين",
+            "بتات_إزاحة_يمين_منطقية",
+        ] {
+            self.function_return_types
+                .insert(name.to_string(), IrType::Int);
+        }
 
         // عدد (int conversion) function returns int
         self.function_return_types
