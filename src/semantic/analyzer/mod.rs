@@ -149,6 +149,14 @@ impl Analyzer {
         value.is_assignable(slot, &self.class_resolver)
     }
 
+    fn is_call_arg_assignable(&self, value: &Type, param: &Type) -> bool {
+        // Scalar parameters require proof of presence; nullable pointer contracts stay unchanged.
+        !matches!(
+            (value, param),
+            (Type::Optional(_), Type::Int | Type::Float | Type::Bool)
+        ) && self.is_assignable(value, param)
+    }
+
     /// Set the language for error messages.
     pub fn with_language(mut self, lang: Language) -> Self {
         self.language = lang;
@@ -1226,6 +1234,126 @@ mod tests {
     fn test_equality_null_check_narrows_the_else_branch() {
         let result = analyze("متغير س: عدد? = 5\nإذا (س == لا_شيء) { اطبع(0) } وإلا { اطبع(س + 1) }");
         assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn test_optional_scalar_call_arguments_require_narrowing() {
+        for (ty, param, present) in [
+            ("عدد", "عدد", "٥"),
+            ("عدد_عشري", "عدد_عشري", "٢.٥"),
+            ("منطقي", "منطقي", "صحيح"),
+            ("عدد", "عدد_عشري", "٥"),
+        ] {
+            for value in [present, "لا_شيء"] {
+                for call in ["هوية(٠، س)", "مرجع(٠، س)"] {
+                    let source = format!(
+                        "دالة هوية(أ: عدد، ب: {param}) -> {param} {{ أرجع ب }}\n\
+                         ثابت مرجع: (عدد، {param}) -> {param} = هوية\n\
+                         متغير س: {ty}? = {value}\n{call}"
+                    );
+                    let diagnostics = analyze(&source).expect_err(&source);
+                    assert!(
+                        diagnostics
+                            .iter()
+                            .any(|d| d.code.as_deref()
+                                == Some(ERR_TYPE_MISMATCH.to_string().as_str())),
+                        "{source}: {diagnostics:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_optional_scalar_builtin_arguments_require_narrowing() {
+        for (setup, ty, present, call) in [
+            ("", "عدد", "٠", "نم(س)"),
+            ("", "عدد", "٥", "بتات_نفي(س)"),
+            ("", "منطقي", "صحيح", "تأكد(س)"),
+            ("استورد { جذر } من \"رياضيات\"", "عدد_عشري", "٤.٠", "جذر(س)"),
+        ] {
+            for value in [present, "لا_شيء"] {
+                let source = format!("{setup}\nمتغير س: {ty}? = {value}\n{call}");
+                let diagnostics = analyze(&source).expect_err(&source);
+                assert!(
+                    diagnostics
+                        .iter()
+                        .any(|d| d.code.as_deref() == Some(ERR_TYPE_MISMATCH.to_string().as_str())),
+                    "{source}: {diagnostics:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_optional_scalar_member_and_constructor_arguments_require_narrowing() {
+        for source in [
+            "صنف فاحص { عام دالة افحص(س: عدد) {} }\nمتغير ف = جديد فاحص()\nمتغير س: عدد? = ٥\nف.افحص(س)",
+            "صنف فاحص { منشئ(س: عدد) {} }\nمتغير س: عدد? = لا_شيء\nمتغير ف = جديد فاحص(س)",
+            "صنف أب { منشئ(س: عدد) {} }\nصنف ابن يرث أب { منشئ(س: عدد?) { الأصل(س) } }",
+            "تعداد صندوق { قيمة(عدد) }\nمتغير س: عدد? = ٥\nمتغير ص = صندوق::قيمة(س)",
+        ] {
+            let diagnostics = analyze(source).expect_err(source);
+            assert!(
+                diagnostics.iter().any(|d| d.code.as_deref()
+                    == Some(ERR_TYPE_MISMATCH.to_string().as_str())),
+                "{source}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_narrowed_scalar_call_arguments_are_accepted_in_both_branch_forms() {
+        for (ty, param, value) in [
+            ("عدد", "عدد", "٥"),
+            ("عدد_عشري", "عدد_عشري", "٢.٥"),
+            ("منطقي", "منطقي", "صحيح"),
+            ("عدد", "عدد_عشري", "٥"),
+        ] {
+            for branch in [
+                "إذا (س != لا_شيء) { هوية(س، س) }",
+                "إذا (لا_شيء != س) { هوية(س، س) }",
+                "إذا (س == لا_شيء) {} وإلا { هوية(س، س) }",
+                "إذا (لا_شيء == س) {} وإلا { هوية(س، س) }",
+            ] {
+                let source = format!(
+                    "دالة هوية(أ: {param}، ب: {param}) -> {param} {{ أرجع ب }}\n\
+                     متغير س: {ty}? = {value}\n{branch}"
+                );
+                let result = analyze(&source);
+                assert!(result.is_ok(), "{source}: {result:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_optional_scalar_call_arguments_reject_expired_narrowing() {
+        for source in [
+            "متغير س: عدد? = ٠\nإذا (س != لا_شيء) { نم(س) }\nنم(س)",
+            "متغير س: عدد? = ٠\nإذا (س != لا_شيء) { س = لا_شيء\nنم(س) }",
+            "متغير س: عدد? = لا_شيء\nإذا (س == لا_شيء) { نم(س) }",
+        ] {
+            let diagnostics = analyze(source).expect_err(source);
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|d| d.code.as_deref() == Some(ERR_TYPE_MISMATCH.to_string().as_str())),
+                "{source}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_optional_argument_checks_preserve_nullable_and_shadowed_signatures() {
+        for source in [
+            "دالة نم(س: عدد?) {}\nمتغير س: عدد? = لا_شيء\nنم(س)",
+            "دالة هوية(س: عدد?) -> عدد? { أرجع س }\nمتغير س: عدد? = ٥\nهوية(س)\nهوية(لا_شيء)\nهوية(٠)",
+            "دالة افحص(س: أي) {}\nمتغير س: عدد? = لا_شيء\nافحص(س)\nاطبع(س)",
+            "متغير س: نص? = لا_شيء\nحرف_إلى_رمز(س)\nنص_إلى_ثنائي(س)",
+        ] {
+            let result = analyze(source);
+            assert!(result.is_ok(), "{source}: {result:?}");
+        }
     }
 
     #[test]
