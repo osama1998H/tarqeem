@@ -565,6 +565,7 @@ fn compile_optimized_instruction(
         | Instruction::TryEnd
         | Instruction::Throw { .. }
         | Instruction::GetException { .. }
+        | Instruction::ArrayPush { .. }
         | Instruction::ArrayPop { .. } => {
             return Err(JitError::unsupported_instruction(format!("{}", inst)));
         }
