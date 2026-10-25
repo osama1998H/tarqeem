@@ -325,6 +325,16 @@ impl CommonSubexprElim {
                 elem_ty: elem_ty.clone(),
             },
 
+            Instruction::ArrayPush {
+                array,
+                value,
+                elem_ty,
+            } => Instruction::ArrayPush {
+                array: replace(array),
+                value: replace(value),
+                elem_ty: elem_ty.clone(),
+            },
+
             Instruction::ArrayPop {
                 dest,
                 array,
@@ -393,7 +403,60 @@ impl Default for CommonSubexprElim {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{BasicBlock, BlockId, Constant, FuncId, IrType, Parameter};
+    use crate::ir::{BasicBlock, BlockId, Constant, FuncId, IrBuilder, IrType, Parameter};
+    use crate::parser::Parser;
+
+    #[test]
+    fn test_cse_rewrites_array_push_values_after_eliminating_expressions() {
+        for (source_type, elem_ty) in [("عدد", IrType::Int), ("عدد_عشري", IrType::Float)]
+        {
+            let source = format!(
+                "بسم_الله\n\
+                 دالة ألحق_مكررا(م: مصفوفة<{source_type}>، س: {source_type}، ص: {source_type}) {{\n\
+                     ألحق(م، س + ص)\nم.ألحق(س + ص)\n\
+                     ألحق(م، -س)\nم.ألحق(-س)\n\
+                 }}\nاطبع(٠)\nالحمد_لله"
+            );
+            let ast = Parser::new(&source).parse().unwrap();
+            let mut module = IrBuilder::new("إلحاق".to_string()).build(&ast).unwrap();
+            let mut cse = CommonSubexprElim::new();
+            cse.run(&mut module);
+            assert_eq!(cse.stats().cse_hits, 2);
+
+            let function = module
+                .functions
+                .iter()
+                .find(|function| function.name == "ألحق_مكررا")
+                .unwrap();
+            let pushes: Vec<_> = function
+                .blocks
+                .iter()
+                .flat_map(|block| &block.instructions)
+                .filter_map(|inst| match inst {
+                    Instruction::ArrayPush {
+                        array,
+                        value,
+                        elem_ty: actual_ty,
+                    } => {
+                        assert_eq!(*array, function.params[0].id);
+                        assert_eq!(*actual_ty, elem_ty);
+                        Some(*value)
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(pushes.len(), 4);
+            assert_eq!(pushes[0], pushes[1], "{function}");
+            assert_eq!(pushes[2], pushes[3], "{function}");
+            for value in pushes {
+                assert!(function.blocks.iter().any(|block| {
+                    block.instructions.iter().any(|inst| {
+                        matches!(inst, Instruction::Binary { dest, .. } | Instruction::Unary { dest, .. } if *dest == value)
+                    })
+                }), "undefined append operand {value}:\n{function}");
+            }
+        }
+    }
 
     #[test]
     fn test_cse_binary() {

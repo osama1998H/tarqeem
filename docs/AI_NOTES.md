@@ -2,6 +2,35 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-10-25 — ArrayPush optimizer effects and direct JIT rejection (#385)
+
+`ArrayPush` now stays in loops as a side effect, reports its array/value operands,
+and rewrites both operands after common-subexpression elimination. Both JIT
+compiler tiers explicitly reject it through their existing unsupported-instruction
+path, as they already do for `ArrayPop`; no array lowering or executor activation
+was added.
+
+Regressions first demonstrated real failures against the unchanged optimizer and
+JIT compilers: LICM moved pushes into the preheader, CSE left references to deleted
+values, and both tiers returned compiled functions after silently dropping pushes.
+Native O0–O3 tests cover zero/multiple iterations, append order, and repeated binary
+and unary operands, with interpreter controls. Direct tier tests cover global and
+member append forms plus existing `ArrayPop` refusals.
+
+The source builder leaves CFG successor lists empty, so CLI loop controls alone
+cannot exercise LICM. The native pass regression supplies explicit edges and uses
+`ArrayPop` on a separate array to control the loop. General CFG activation is out
+of scope. An initial Phi-counter fixture also exposed existing forward-backedge
+LLVM lowering to `undef`; that independent codegen limitation is not changed here.
+`run --jit` remains interpreter fallback and is not counted as direct JIT testing.
+Existing #327/#404 regression files and the inliner are unchanged.
+
+Validation on macOS arm64: formatting, workspace check/build/tests with all
+features, strict root-package Clippy with all targets/features, and documentation
+with warnings denied passed (2,344 passed, 17 ignored). All 12 existing examples
+match committed output under the interpreter, `--jit` fallback, and native
+execution. Three independent cross-reviews found no remaining actionable issues.
+
 ## 2026-10-25 — Repeated small-function calls at O3 (#404)
 
 The inliner appended call continuations to the function's end while inserting

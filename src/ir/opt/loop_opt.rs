@@ -389,6 +389,7 @@ impl LoopInvariantCodeMotion {
             Instruction::Store { .. }
             | Instruction::SetField { .. }
             | Instruction::ArraySet { .. }
+            | Instruction::ArrayPush { .. }
             // Its one operand is the array, which is defined outside a loop in
             // the common case, so without this row a pop would look invariant
             // and be hoisted into the preheader — running once instead of once
@@ -841,6 +842,8 @@ fn instruction_operands(inst: &Instruction) -> Vec<VarId> {
 
         Instruction::ArrayLen { array, .. } => vec![*array],
 
+        Instruction::ArrayPush { array, value, .. } => vec![*array, *value],
+
         Instruction::ArrayPop { array, .. } => vec![*array],
 
         Instruction::StringConcat { left, right, .. } => vec![*left, *right],
@@ -873,7 +876,85 @@ fn instruction_operands(inst: &Instruction) -> Vec<VarId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{BasicBlock, FuncId, Function};
+    use crate::ir::{BasicBlock, FuncId, Function, IrBuilder};
+    use crate::parser::Parser;
+
+    #[test]
+    fn test_licm_keeps_array_push_with_invariant_operands_inside_loop() {
+        let source = r#"
+بسم_الله
+دالة كرر(م: مصفوفة<عدد>، ق: عدد، مستمر: منطقي) {
+    طالما (مستمر) {
+        ألحق(م، ق)
+        اطبع(ق + ق)
+    }
+}
+اطبع(٠)
+الحمد_لله
+"#;
+        let ast = Parser::new(source).parse().unwrap();
+        let mut module = IrBuilder::new("إلحاق".to_string()).build(&ast).unwrap();
+        let function = module
+            .functions
+            .iter_mut()
+            .find(|function| function.name == "كرر")
+            .unwrap();
+
+        // The builder leaves CFG edges empty; populate them to exercise LICM itself.
+        for block in &mut function.blocks {
+            block.successors = match block.terminator() {
+                Some(Instruction::Jump { target }) => vec![*target],
+                Some(Instruction::Branch {
+                    then_block,
+                    else_block,
+                    ..
+                }) => vec![*then_block, *else_block],
+                _ => vec![],
+            };
+        }
+        let analysis = LoopAnalysis::analyze(function);
+        assert_eq!(analysis.loops.len(), 1);
+        let loop_info = &analysis.loops[0];
+        let preheader = loop_info.preheader.unwrap();
+        let body = function
+            .blocks
+            .iter()
+            .find(|block| {
+                block
+                    .instructions
+                    .iter()
+                    .any(|inst| matches!(inst, Instruction::ArrayPush { .. }))
+            })
+            .unwrap();
+        assert!(loop_info.contains(body.id));
+        let body_id = body.id;
+        let push = body
+            .instructions
+            .iter()
+            .find(|inst| matches!(inst, Instruction::ArrayPush { .. }))
+            .unwrap()
+            .clone();
+        let invariant = body
+            .instructions
+            .iter()
+            .find(|inst| matches!(inst, Instruction::Binary { .. }))
+            .unwrap()
+            .clone();
+
+        LoopInvariantCodeMotion::new().run(&mut module);
+
+        let function = module
+            .functions
+            .iter()
+            .find(|function| function.name == "كرر")
+            .unwrap();
+        let body = function.get_block(body_id).unwrap();
+        let preheader = function.get_block(preheader).unwrap();
+        assert!(body.instructions.contains(&push), "{function}");
+        assert!(!preheader.instructions.contains(&push), "{function}");
+        assert!(preheader.instructions.contains(&invariant), "{function}");
+        assert!(!body.instructions.contains(&invariant), "{function}");
+    }
 
     #[test]
     fn test_loop_detection() {
