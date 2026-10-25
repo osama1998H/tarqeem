@@ -2,6 +2,29 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-10-25 — Explicit JIT array read rejection (#395)
+
+Both JIT compilers now reject `ArrayGet` and `ArrayLen` through their existing
+unsupported-instruction path. The change adds two match alternatives per tier;
+array lowering, executor dispatch, optimizers, and native codegen are unchanged.
+Work starts from `f81315d5`, the merge of #408 into `develop`.
+
+Eight direct compiler regressions first failed on the unchanged base: consumed
+results produced a later `Compilation` error, while discarded results silently
+compiled successfully. The tests use Arabic array-parameter functions, retain
+unused reads, and assert the exact rejected instruction, zero successful
+compilations, and no published function pointer. Both tiers cover indexing and
+global/member length forms, for twelve compilation attempts after the fix.
+`run --jit` still delegates to the interpreter and is not direct JIT validation.
+The #385/#327/#404 regression files and optimizer implementations are unchanged.
+
+Validation on macOS arm64: formatting, workspace check/build/tests with all
+features, strict root-package Clippy with all targets/features, and documentation
+with warnings denied passed (2,352 passed, 17 ignored). All 12 existing examples
+passed syntax checks and matched committed output under interpreter, `--jit`
+fallback, and native execution. Three independent cross-reviews found no
+remaining actionable issues.
+
 ## 2026-10-25 — ArrayPush optimizer effects and direct JIT rejection (#385)
 
 `ArrayPush` now stays in loops as a side effect, reports its array/value operands,

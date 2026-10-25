@@ -484,6 +484,8 @@ fn compile_instruction(
         | Instruction::TryEnd
         | Instruction::Throw { .. }
         | Instruction::GetException { .. }
+        | Instruction::ArrayGet { .. }
+        | Instruction::ArrayLen { .. }
         | Instruction::ArrayPush { .. }
         | Instruction::ArrayPop { .. } => {
             return Err(JitError::unsupported_instruction(format!("{}", inst)));
