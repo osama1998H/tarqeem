@@ -229,8 +229,8 @@ impl FunctionInliner {
         let mut inlined_blocks: Vec<BasicBlock> = Vec::new();
         let mut return_var: Option<VarId> = None;
 
-        for (i, block) in callee.blocks.iter().enumerate() {
-            let new_block_id = BlockId(block_offset + i as u32);
+        for block in &callee.blocks {
+            let new_block_id = BlockId(block_offset + block.id.0);
             let mut new_block = BasicBlock::new(new_block_id);
 
             for inst in &block.instructions {
@@ -259,16 +259,15 @@ impl FunctionInliner {
 
         caller.blocks[block_idx].instructions.pop();
 
-        if !inlined_blocks.is_empty() {
-            let first_inlined_block = BlockId(block_offset);
+        if let Some(first_inlined_block) = inlined_blocks.first() {
             caller.blocks[block_idx]
                 .instructions
                 .push(Instruction::Jump {
-                    target: first_inlined_block,
+                    target: first_inlined_block.id,
                 });
         }
 
-        let continuation_block_id = BlockId(block_offset + inlined_blocks.len() as u32);
+        let continuation_block_id = BlockId(block_offset + self.find_max_block_id(callee) + 1);
         let mut continuation_block = BasicBlock::new(continuation_block_id);
 
         if let (Some(dest_var), Some(ret_var)) = (dest, return_var) {
@@ -289,11 +288,12 @@ impl FunctionInliner {
             });
         }
 
+        // Keep definitions before their uses when later call sites are inlined first.
+        inlined_blocks.push(continuation_block);
         let insert_pos = block_idx + 1;
         for (i, block) in inlined_blocks.into_iter().enumerate() {
             caller.blocks.insert(insert_pos + i, block);
         }
-        caller.blocks.push(continuation_block);
     }
 
     fn find_max_var_id(&self, func: &Function) -> u32 {
@@ -762,7 +762,99 @@ impl Default for FunctionInliner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{IrType, Parameter};
+    use crate::ir::{IrBuilder, IrType, Parameter};
+    use crate::parser::Parser;
+
+    fn build_module(source: &str) -> Module {
+        let source = format!("بسم_الله\n{source}\nالحمد_لله");
+        let ast = Parser::new(&source).parse().unwrap();
+        IrBuilder::new("تضمين".to_string()).build(&ast).unwrap()
+    }
+
+    fn assert_straight_line_layout(inliner: &FunctionInliner, function: &Function) {
+        let block_ids: HashSet<_> = function.blocks.iter().map(|block| block.id).collect();
+        assert_eq!(block_ids.len(), function.blocks.len());
+        let mut defined: HashSet<_> = function.params.iter().map(|param| param.id).collect();
+        for (index, block) in function.blocks.iter().enumerate() {
+            for inst in &block.instructions {
+                assert!(!matches!(inst, Instruction::Call { .. }), "{function}");
+                for used in inliner.get_used_vars(inst) {
+                    assert!(
+                        defined.contains(&used),
+                        "{used} before its definition:\n{function}"
+                    );
+                }
+                if let Some(dest) = inliner.get_defined_var(inst) {
+                    assert!(defined.insert(dest), "duplicate {dest}:\n{function}");
+                }
+            }
+            match block.terminator() {
+                Some(Instruction::Jump { target }) => {
+                    assert_eq!(
+                        Some(target),
+                        function.blocks.get(index + 1).map(|next| &next.id),
+                        "{function}"
+                    );
+                }
+                Some(Instruction::Return { .. }) => {
+                    assert_eq!(index + 1, function.blocks.len(), "{function}");
+                }
+                terminator => panic!("unexpected terminator {terminator:?}:\n{function}"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_repeated_inline_calls_keep_definitions_before_uses() {
+        let mut module = build_module(
+            "دالة هوية(س: عدد) -> عدد { أرجع س }\n\
+             اطبع(هوية(١٦٠٥))\nاطبع(هوية(٧))",
+        );
+        let mut inliner = FunctionInliner::new();
+        inliner.run(&mut module);
+        assert_eq!(inliner.stats().functions_inlined, 2);
+        for function in &module.functions {
+            assert_straight_line_layout(&inliner, function);
+        }
+    }
+
+    #[test]
+    fn test_nested_inline_calls_preserve_reordered_block_targets() {
+        let mut module = build_module(
+            "دالة هوية(س: عدد) -> عدد { أرجع س }\n\
+             دالة اجمع(س: عدد) -> عدد { أرجع هوية(س) + هوية(س + ١) }\n\
+             اطبع(اجمع(٣))\nاطبع(اجمع(٤))",
+        );
+        let mut inliner = FunctionInliner::new();
+        inliner.run(&mut module);
+        assert_eq!(inliner.stats().functions_inlined, 4);
+        for function in &module.functions {
+            assert_straight_line_layout(&inliner, function);
+        }
+    }
+
+    #[test]
+    fn test_inline_calls_preserve_sparse_nonzero_block_ids() {
+        let mut module = build_module("دالة هوية(س: عدد) -> عدد { أرجع س }\nاطبع(هوية(١٦٠٥))");
+        let callee = module
+            .functions
+            .iter_mut()
+            .find(|function| function.name == "هوية")
+            .unwrap();
+        callee.blocks[0].id = BlockId(7);
+        let mut body = BasicBlock::new(BlockId(19));
+        body.instructions = std::mem::take(&mut callee.blocks[0].instructions);
+        callee.blocks[0]
+            .instructions
+            .push(Instruction::Jump { target: body.id });
+        callee.blocks.push(body);
+        let mut inliner = FunctionInliner::new();
+        inliner.run(&mut module);
+        assert_eq!(inliner.stats().functions_inlined, 1);
+        for function in &module.functions {
+            assert_straight_line_layout(&inliner, function);
+        }
+    }
 
     #[test]
     fn test_inline_candidate_detection() {

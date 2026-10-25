@@ -1,4 +1,4 @@
-//! Optional call arguments must keep their values across interpreter and native optimization levels.
+//! Optional arguments and plain call controls must agree across interpreter and native optimization levels.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -165,6 +165,57 @@ fn assert_rejected(body: &str) {
         assert_type_error(&output);
         assert!(!executable.exists());
     }
+}
+
+#[test]
+fn test_repeated_identity_calls_preserve_each_result() {
+    assert_prints(
+        r#"
+دالة هوية(س: عدد) -> عدد { أرجع س }
+اطبع(هوية(١٦٠٥))
+اطبع(هوية(١٦٠٥))
+اطبع(هوية(٧))
+"#,
+        "1605\n1605\n7\n",
+    );
+}
+
+#[test]
+fn test_repeated_small_calls_preserve_dependent_and_nested_results() {
+    assert_prints(
+        r#"
+دالة هوية(س: عدد) -> عدد { أرجع س }
+دالة زد(س: عدد) -> عدد { أرجع س + ١ }
+دالة جمع_هويات(س: عدد) -> عدد { أرجع هوية(س) + هوية(س + ١) }
+دالة رئيسية() {
+    متغير أول = هوية(٥)
+    متغير ثان = زد(أول)
+    اطبع(أول + ثان)
+    اطبع(هوية(زد(ثان)))
+    اطبع(زد(هوية(٩)))
+    اطبع(جمع_هويات(٣))
+    اطبع(جمع_هويات(٤))
+}
+"#,
+        "11\n7\n10\n7\n9\n",
+    );
+}
+
+#[test]
+fn test_repeated_narrowed_optional_calls_match_arithmetic_controls() {
+    assert_prints(
+        r#"
+دالة هوية(س: عدد) -> عدد { أرجع س }
+متغير موجود: عدد? = ١٦٠٥
+إذا (موجود != لا_شيء) {
+    اطبع(هوية(موجود))
+    اطبع(هوية(موجود))
+    اطبع(بتات_نفي(موجود))
+    اطبع(موجود + ٠)
+}
+"#,
+        "1605\n1605\n-1606\n1605\n",
+    );
 }
 
 #[test]

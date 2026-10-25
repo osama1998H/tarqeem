@@ -2,6 +2,35 @@
 
 Decisions and discoveries recorded by AI-assisted sessions, newest first.
 
+## 2026-10-25 — Repeated small-function calls at O3 (#404)
+
+The inliner appended call continuations to the function's end while inserting
+callee bodies beside their call sites. Processing repeated calls in reverse then
+placed later uses before earlier definitions in block storage order. LLVM `Copy`
+emission aliases values already registered, so this layout left an undefined
+value even for plain integer identity calls. Continuations now follow their
+inlined bodies, preserving definition order without changing LLVM coercion.
+
+Cloned block IDs and branch targets both use the original ID plus the caller's
+offset. The entry uses the first cloned block, and the continuation is allocated
+above the callee's maximum ID. This keeps sparse IDs and already-inlined wrappers
+consistent when they are inlined again.
+
+All three new execution regressions failed on unchanged `e3eba4b0` specifically
+at O3, after passing O0–O2 and interpreter controls. They cover equal/different
+arguments, dependent and nested calls, re-inlined wrappers, and repeated narrowed
+optional arguments. Three IR regressions also failed before the fix. All seven
+existing #327 tests remain unchanged, including recursive callees that retain
+their ABI at O3. `run --jit` remains an interpreter fallback, not JIT validation.
+
+Validation on macOS arm64: formatting, workspace check/build, strict root-package
+Clippy with all targets/features, documentation with warnings denied, and workspace
+tests passed (2,334 passed, 17 ignored). The execution suite covers 36 native
+O0–O3 runs and 40 compilation refusals plus interpreter controls. All 12 existing
+examples match committed output across interpreter, `--jit`, and native execution.
+Three agents cross-reviewed implementation, tests, and findings with no remaining
+actionable issues.
+
 ## 2026-10-25 — Narrowed optional call arguments (#327)
 
 Native call arguments now follow the callee's parameter types: boxed optional
