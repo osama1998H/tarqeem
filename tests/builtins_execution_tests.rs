@@ -6646,6 +6646,7 @@ fn test_array_mutation_through_any_remains_interpretable() {
     م[٠] = ٧
     ألحق(م، ٨)
     اطبع(طول(م))
+    اطبع(م)
 }
 "#,
     );
@@ -6655,7 +6656,7 @@ fn test_array_mutation_through_any_remains_interpretable() {
     ] {
         let output = mutation_command(Path::new(TARQEEM), &args, dir.path());
         assert!(output.succeeded(), "{}", output.report());
-        assert_eq!(output.lines(), ["2"], "{}", output.report());
+        assert_eq!(output.lines(), ["2", "[7، 8]"], "{}", output.report());
     }
     assert_mutation_compile_rejected(&main, "ت٠٣٠١");
 }
@@ -6719,8 +6720,11 @@ fn test_array_mutation_preserves_typed_receivers() {
 متغير أرقام = [١]
 متغير اسم = أرقام
 (اسم)[٠] = ٧
+اطبع(أرقام[٠])
 اسم[٠] += ١
+اطبع(أرقام[٠])
 خذ(أرقام)[٠] = ٦
+اطبع(أرقام[٠])
 زد(أرقام)
 اطبع(أرقام[٠])
 اطبع(أرقام[١])
@@ -6757,7 +6761,8 @@ fn test_array_mutation_preserves_typed_receivers() {
     assert_mutation_prints(
         &main,
         &[
-            "9", "8", "3", "4", "2.5", "3.5", "4.5", "ب", "ج", "خطأ", "صحيح", "ب", "2",
+            "7", "8", "6", "9", "8", "3", "4", "2.5", "3.5", "4.5", "ب", "ج", "خطأ", "صحيح", "ب",
+            "2",
         ],
     );
 }
@@ -6784,9 +6789,17 @@ fn test_array_mutation_evaluates_receiver_and_index_once() {
 اطبع(وصول)
 اطبع(فهارس)
 اطبع(م[٠])
+خذ()[فهرس()] += ٢
+اطبع(وصول)
+اطبع(فهارس)
+اطبع(م[٠])
+ألحق(خذ()، ٨)
+خذ().ألحق(٩)
+اطبع(وصول)
+اطبع(طول(م))
 "#,
     );
-    assert_mutation_prints(&main, &["1", "1", "7"]);
+    assert_mutation_prints(&main, &["1", "1", "7", "2", "2", "9", "4", "3"]);
 }
 
 #[test]

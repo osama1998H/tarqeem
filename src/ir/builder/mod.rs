@@ -2395,6 +2395,45 @@ mod tests {
     }
 
     #[test]
+    fn test_dynamic_member_append_preserves_dispatch_and_blocks_native_lowering() {
+        for name in ["ألحق", "أضف"] {
+            let module = build_program(&format!(
+                "دالة رئيسية() -> عدد {{ متغير م: أي = [١]؛ م.{name}(٢)؛ أرجع ٠ }}"
+            ))
+            .unwrap();
+            let main = function(&module, "__main__");
+            let block = main.native_block.as_ref().expect("dynamic native receiver");
+            assert_eq!(block.code, "ت٠٣٠١");
+            assert!(main.blocks.iter().flat_map(|b| &b.instructions).any(|i| {
+                matches!(i, Instruction::CallMethod { method, .. }
+                    if method.class.0 == "أي" && method.name == name)
+            }));
+        }
+    }
+
+    #[test]
+    fn test_typed_object_append_method_keeps_class_dispatch() {
+        let module = build_program(
+            r#"
+                صنف صندوق {
+                    عام دالة ألحق(ق: عدد) -> عدد { أرجع ق }
+                }
+                دالة رئيسية() -> عدد {
+                    متغير علبة = جديد صندوق()
+                    أرجع علبة.ألحق(٧)
+                }
+            "#,
+        )
+        .unwrap();
+        let main = function(&module, "__main__");
+        assert!(main.native_block.is_none());
+        assert!(main.blocks.iter().flat_map(|b| &b.instructions).any(|i| {
+            matches!(i, Instruction::CallMethod { method, .. }
+                if method.class.0 == "صندوق" && method.name == "ألحق")
+        }));
+    }
+
+    #[test]
     fn test_compound_array_assignment_evaluates_receiver_and_index_once() {
         let module = build_program(
             r#"

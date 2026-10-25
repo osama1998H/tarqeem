@@ -187,7 +187,11 @@ impl Scope {
             ("وقت_أداء", vec![], Type::Int),
             // Arrays - دوال المصفوفات
             ("طول_مصفوفة", vec![Type::Any], Type::Int),
-            ("ألحق", vec![Type::Any, Type::Any], Type::Void),
+            (
+                "ألحق",
+                vec![Type::Array(Box::new(Type::Any)), Type::Any],
+                Type::Void,
+            ),
             // The `أي` return is a placeholder: the real answer is the array's
             // element type, derived at the call site in `infer_call_expr` —
             // the only core entry whose return depends on an argument.
@@ -214,7 +218,7 @@ impl Scope {
             ("رمز_إلى_حرف", vec![Type::Int], Type::String),
             // The byte bridge. `مصفوفة<عدد>` rather than `أي` — the only core
             // entry with a concrete array type, and it is what types the
-            // element for `س[ي]`; `طول_مصفوفة`/`ألحق` take `أي` and cannot.
+            // element for `س[ي]`; `طول_مصفوفة` takes `أي` and cannot.
             (
                 "نص_إلى_ثنائي",
                 vec![Type::String],

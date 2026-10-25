@@ -7,7 +7,7 @@ use crate::codegen::Target;
 use crate::error::codes::{ERR_LLVM_INTERNAL, ERR_UNTYPED_INDIRECT_CALL};
 use crate::ir::{
     BasicBlock, BinaryOp, BlockId, Class, ClassId, Constant, Function, Instruction, IrType, Module,
-    UnaryOp, VarId,
+    NativeBlock, UnaryOp, VarId,
 };
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
@@ -993,6 +993,7 @@ impl LlvmCodegen {
         }
 
         self.var_map.clear();
+        self.var_types.clear();
         self.block_map.clear();
         self.name_counter = 0;
 
@@ -1876,6 +1877,7 @@ impl LlvmCodegen {
                 index,
                 value,
             } => {
+                self.require_array_mutation_receiver(*array)?;
                 let array_name = self.get_var(*array)?;
                 let index_name = self.get_var(*index)?;
                 let value_name = self.get_var(*value)?;
@@ -1926,6 +1928,7 @@ impl LlvmCodegen {
                 value,
                 elem_ty,
             } => {
+                self.require_array_mutation_receiver(*array)?;
                 let array_name = self.get_var(*array)?;
                 let value_name = self.get_var(*value)?;
                 let llvm_ty = self.type_mapper.map_type(elem_ty);
@@ -2799,6 +2802,28 @@ impl LlvmCodegen {
     /// too, or `طول` counts its bytes again (#185).
     fn is_string_operand(ty: Option<&IrType>) -> bool {
         ty.is_some_and(IrType::is_string_like)
+    }
+
+    fn require_array_mutation_receiver(&self, array: VarId) -> Result<(), CodegenError> {
+        let ty = self.var_types.get(&array.0);
+        let is_array = match ty {
+            Some(IrType::Array(_, _)) => true,
+            Some(IrType::Ptr(inner)) => matches!(inner.as_ref(), IrType::Array(_, _)),
+            _ => false,
+        };
+        if is_array {
+            return Ok(());
+        }
+
+        // Opaque pointers cannot prove the receiver uses the array runtime layout.
+        let receiver = ty
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "غير معروف / unknown".to_string());
+        let block = NativeBlock::untyped(format!(
+            "تعديل مصفوفة يتطلب نوع مصفوفة محدداً، ووُجد '{receiver}' / \
+             array mutation requires a concrete array receiver, found '{receiver}'"
+        ));
+        Err(CodegenError::with_code(block.message, block.code))
     }
 
     /// The declared type of `field` on `class`.
