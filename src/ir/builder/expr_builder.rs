@@ -1274,9 +1274,15 @@ impl IrBuilder {
                                     .cloned()
                                     .unwrap_or(IrType::Int)
                             });
+                            let value = self
+                                .coerce_args_to_params(
+                                    vec![*value_var],
+                                    std::slice::from_ref(&elem_ty),
+                                )
+                                .remove(0);
                             self.emit(Instruction::ArrayPush {
                                 array: obj_var,
-                                value: *value_var,
+                                value,
                                 elem_ty,
                             });
                             self.var_types.insert(obj_var.0, obj_type);
